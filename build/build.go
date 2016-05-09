@@ -47,6 +47,8 @@ var (
                 fmt.Fprintf(os.Stderr, "error: %v\n", err)
                 os.Exit(-1)
         }
+
+        recipeStdout, recipeStderr = io.Writer(os.Stdout), io.Writer(os.Stderr)
 )
 
 // TODO: put this into namespace
@@ -860,7 +862,7 @@ func (job *executeRecipes) Action() worker.Result {
                         s, echo = s[1:], false
                 }
                 if cmd := exec.Command("sh", "-c", s); cmd != nil {
-                        cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+                        cmd.Stdout, cmd.Stderr = recipeStdout, recipeStderr
                         if echo { fmt.Printf("%v\n", s) }
                         if job.error = cmd.Run(); job.error != nil {
                                 break

@@ -117,7 +117,13 @@ foobar.txt foo.txt foo.txt foo.txt
 func TestBuildRuleTargetChecker(t *testing.T) {
         if wd, e := os.Getwd(); e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
 
-        info, f := new(bytes.Buffer), builtinInfoFunc; defer func(){ builtinInfoFunc = f }()
+        info, stdout, stderr := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
+        f, o_stdout, o_stderr := builtinInfoFunc, recipeStdout, recipeStderr
+        defer func(){ 
+                recipeStdout, recipeStderr = o_stdout, o_stderr
+                builtinInfoFunc = f
+        }()
+        recipeStdout, recipeStderr = stdout, stderr
         builtinInfoFunc = func(ctx *Context, args Items) {
                 fmt.Fprintf(info, "%v\n", args.Expand(ctx))
         }
@@ -149,13 +155,17 @@ foobar:!:
                         if fi, e := os.Stat("foo.txt"); fi == nil || e != nil { t.Errorf("TestBuildRuleTargetChecker: %v", e) }
                 }
         }
-
+        if s, x := info.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        
+        info.Reset()
         ctx, err = newTestContext("TestBuildRuleTargetChecker", `
 foo:!: foobar
 	@echo -n foo > $@.txt
 foo:?:
 	@test -f $@.txt && test "$$(cat $@.txt)" = "foo"
-foobar:!: ; @echo $@ $(info $@)
+foobar:!: ; @echo s:$@ $(info i:$@)
 `);     if err != nil { t.Errorf("parse error:", err) }
         if ctx == nil { t.Errorf("nil context") } else {
                 {
@@ -169,14 +179,27 @@ foobar:!: ; @echo $@ $(info $@)
                         if fi, e := os.Stat("foo.txt"); fi == nil || e != nil { t.Errorf("TestBuildRuleTargetChecker: %v", e) }
                 }
         }
-
+        if s, x := info.String(), fmt.Sprintf(`i:foobar
+i:foobar
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`s:foobar
+s:foobar
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        
         os.Remove("foo.txt")
 }
 
 func TestBuildModules(t *testing.T) {
         if wd, e := os.Getwd(); e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
 
-        info, f := new(bytes.Buffer), builtinInfoFunc; defer func(){ builtinInfoFunc = f }()
+        info, stdout, stderr := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
+        f, o_stdout, o_stderr := builtinInfoFunc, recipeStdout, recipeStderr
+        defer func(){ 
+                recipeStdout, recipeStderr = o_stdout, o_stderr
+                builtinInfoFunc = f
+        }()
+        recipeStdout, recipeStderr = stdout, stderr
         builtinInfoFunc = func(ctx *Context, args Items) {
                 fmt.Fprintf(info, "%v\n", args.Expand(ctx))
         }
@@ -232,15 +255,17 @@ foo:!:
 3: bar.txt
 0: foobar.txt foo.txt foo.txt bar.txt foo.txt bar.txt
 `); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`rule 'foo' is updated along with module 'foo'
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if fi, e := os.Stat("bar.txt"); fi == nil || e != nil { t.Errorf("TestBuildRules: %s", e) } else {
-                
         }
         if fi, e := os.Stat("foo.txt"); fi == nil || e != nil { t.Errorf("TestBuildRules: %s", e) } else {
         }
         if fi, e := os.Stat("foobar.txt"); fi == nil || e != nil { t.Errorf("TestBuildRules: %s", e) } else {
         }
 
-        info.Reset()
+        info.Reset(); stdout.Reset(); stderr.Reset()
         os.Remove("bar.txt")
         os.Remove("foo.txt")
         os.Remove("foobar.txt")
@@ -266,7 +291,13 @@ foo:!:
 func TestBuildUseTemplate(t *testing.T) {
         if wd, e := os.Getwd(); e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
 
-        info, f := new(bytes.Buffer), builtinInfoFunc; defer func(){ builtinInfoFunc = f }()
+        info, stdout, stderr := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
+        f, o_stdout, o_stderr := builtinInfoFunc, recipeStdout, recipeStderr
+        defer func(){ 
+                recipeStdout, recipeStderr = o_stdout, o_stderr
+                builtinInfoFunc = f
+        }()
+        recipeStdout, recipeStderr = stdout, stderr
         builtinInfoFunc = func(ctx *Context, args Items) {
                 fmt.Fprintf(info, "%v\n", args.Expand(ctx))
         }
@@ -334,15 +365,17 @@ foo:!:
 3: bar.txt
 0: foobar.txt foo.txt foo.txt bar.txt foo.txt bar.txt
 `); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`rule 'foo' is also called along with module 'foo'
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if fi, e := os.Stat("bar.txt"); fi == nil || e != nil { t.Errorf("TestBuildRules: %s", e) } else {
-                
         }
         if fi, e := os.Stat("foo.txt"); fi == nil || e != nil { t.Errorf("TestBuildRules: %s", e) } else {
         }
         if fi, e := os.Stat("foobar.txt"); fi == nil || e != nil { t.Errorf("TestBuildRules: %s", e) } else {
         }
 
-        info.Reset()
+        info.Reset(); stdout.Reset(); stderr.Reset()
         os.Remove("bar.txt")
         os.Remove("foo.txt")
         os.Remove("foobar.txt")
@@ -353,6 +386,9 @@ foo:!:
 3: bar.txt
 0: foobar.txt foo.txt foo.txt bar.txt foo.txt bar.txt
 `); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`rule 'foo' is also called along with module 'foo'
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if fi, e := os.Stat("bar.txt"); fi == nil || e != nil { t.Errorf("TestBuildRules: %s", e) } else {
         }
         if fi, e := os.Stat("foo.txt"); fi == nil || e != nil { t.Errorf("TestBuildRules: %s", e) } else {
@@ -368,7 +404,13 @@ foo:!:
 func TestBuildUseTemplate2(t *testing.T) {
         if wd, e := os.Getwd(); e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
 
-        info, f := new(bytes.Buffer), builtinInfoFunc; defer func(){ builtinInfoFunc = f }()
+        info, stdout, stderr := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
+        f, o_stdout, o_stderr := builtinInfoFunc, recipeStdout, recipeStderr
+        defer func(){ 
+                recipeStdout, recipeStderr = o_stdout, o_stderr
+                builtinInfoFunc = f
+        }()
+        recipeStdout, recipeStderr = stdout, stderr
         builtinInfoFunc = func(ctx *Context, args Items) {
                 fmt.Fprintf(info, "%v\n", args.Expand(ctx))
         }
@@ -393,9 +435,9 @@ me.a := aaa2
 commit
 
 foo:!:
-	@echo "rule 'foo' is also called along with module 'foo'" $(info 3: $@)
+	@echo "rule '$@' is also called along with module 'foo'" $(info 3: $@)
 bar:!:
-	@echo "rule 'foo' is also called along with module 'foo'" $(info 4: $@)
+	@echo "rule '$@' is also called along with module 'bar'" $(info 4: $@)
 `);     if err != nil { t.Errorf("parse error:", err) }
         if s, x := ctx.g.goal, "all"; s != x { t.Errorf("%v != %v", s, x) }
         if n, x := len(ctx.g.files), 3; n != x { t.Errorf("wrong rules: %v", ctx.g.files) } else {
@@ -428,7 +470,7 @@ bar:!:
                 }
         }
         
-        info.Reset()
+        info.Reset(); stdout.Reset(); stderr.Reset()
         os.Remove("bar.txt")
         os.Remove("foo.txt")
         Update(ctx)
@@ -439,6 +481,10 @@ bar:!:
 1: bar.txt aaa2
 2: bar.txt
 `); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`rule 'foo' is also called along with module 'foo'
+rule 'bar' is also called along with module 'bar'
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if fi, e := os.Stat("bar.txt"); fi == nil || e != nil { t.Errorf("%v", e) } else {
                 if b, e := ioutil.ReadFile("bar.txt"); e != nil { t.Errorf("%v", e) } else {
                         if s, x := string(b), "bar.txt\n"; s != x { t.Errorf("%v", s) }
@@ -450,7 +496,7 @@ bar:!:
                 }
         }
 
-        info.Reset()
+        info.Reset(); stdout.Reset(); stderr.Reset()
         os.Remove("bar.txt")
         os.Remove("foo.txt")
         Update(ctx, "foo")
@@ -458,10 +504,13 @@ bar:!:
 1: foo.txt aaa1
 2: foo.txt
 `); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`rule 'foo' is also called along with module 'foo'
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if fi, e := os.Stat("foo.txt"); fi == nil || e != nil { t.Errorf("%v", e) } else {
         }
 
-        info.Reset()
+        info.Reset(); stdout.Reset(); stderr.Reset()
         os.Remove("bar.txt")
         os.Remove("foo.txt")
         Update(ctx, "bar")
@@ -469,6 +518,9 @@ bar:!:
 1: bar.txt aaa2
 2: bar.txt
 `); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`rule 'bar' is also called along with module 'bar'
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if fi, e := os.Stat("bar.txt"); fi == nil || e != nil { t.Errorf("%v", e) } else {
         }
 
@@ -479,7 +531,13 @@ bar:!:
 func TestBuildTemplateHooks(t *testing.T) {
         if wd, e := os.Getwd(); e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
 
-        info, f := new(bytes.Buffer), builtinInfoFunc; defer func(){ builtinInfoFunc = f }()
+        info, stdout, stderr := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
+        f, o_stdout, o_stderr := builtinInfoFunc, recipeStdout, recipeStderr
+        defer func(){ 
+                recipeStdout, recipeStderr = o_stdout, o_stderr
+                builtinInfoFunc = f
+        }()
+        recipeStdout, recipeStderr = stdout, stderr
         builtinInfoFunc = func(ctx *Context, args Items) {
                 fmt.Fprintf(info, "%v\n", args.Expand(ctx))
         }
