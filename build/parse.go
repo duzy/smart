@@ -134,7 +134,7 @@ func (ns *namespaceEmbed) getRules(kind nodeType, target string) (rules []*rule)
 }
 func (ns *namespaceEmbed) link(targets ...string) (r *rule) {
         r = &rule{ ns:ns, targets:targets }
-        for _, target := range targets {
+        for i, target := range targets {
                 var prev *rule
 
                 switch {
@@ -152,15 +152,17 @@ func (ns *namespaceEmbed) link(targets ...string) (r *rule) {
                         }
                         r.prev[target] = prev
                 }
-                
+
                 switch r.kind {
                 case ruleFileTarget: 
                         ns.files[target] = r
                 case rulePercentPattern: fallthrough
                 case ruleRegexPattern:   fallthrough
                 case ruleGlobPattern:
-                        ns.pattList = append(ns.pattList, r)
                         ns.patts[target] = r
+                        if i == 0 {
+                                ns.pattList = append(ns.pattList, r)
+                        }
                 }
         }
         return
@@ -230,15 +232,17 @@ func (ns *namespaceEmbed) getDefineMap() map[string]*define {
         return ns.defines
 }
 
-func (ns *namespaceEmbed) findMatchRules(ctx *Context, target string) (mrs []*matchrule) {
-        if rr, ok := ns.files[target]; ok && rr != nil {
-                if m, ok := rr.match(target); ok && m != nil {
-                        mrs = append(mrs, &matchrule{ m, rr })
+func (ns *namespaceEmbed) findMatchRules(ctx *Context, target string) (matchrules []*matchrule) {
+        if r, ok := ns.files[target]; ok && r != nil {
+                if m, ok := r.match(target); ok && m != nil {
+                        matchrules = append(matchrules, &matchrule{ m, r })
                 }
         } else {
-                for _, rr := range ns.pattList {
-                        if m, ok := rr.match(target); ok && m != nil {
-                                mrs = append(mrs, &matchrule{ m, rr })
+                //fmt.Printf("findMatchRules: %v\n", ns.pattList)
+                for _, r := range ns.pattList {
+                        if m, ok := r.match(target); ok && m != nil {
+                                //fmt.Printf("findMatchRules: %p %v %v %v\n", r, r.targets, target, *m)
+                                matchrules = append(matchrules, &matchrule{ m, r })
                         }
                 }
         }

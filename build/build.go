@@ -734,8 +734,8 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
         var foundMatchRules [][]*matchrule
         for _, prerequisite := range r.prerequisites {
                 prerequisite, _ = m.unstem(prerequisite)
-                if mrs := r.ns.findMatchRules(ctx, prerequisite); 0 < len(mrs) {
-                        foundMatchRules = append(foundMatchRules, mrs)
+                if matchrules := r.ns.findMatchRules(ctx, prerequisite); 0 < len(matchrules) {
+                        foundMatchRules = append(foundMatchRules, matchrules)
                 } else if r.kind == ruleFileTarget {
                         err = errors.New(fmt.Sprintf("no rule to update '%v'", prerequisite))
                         return
