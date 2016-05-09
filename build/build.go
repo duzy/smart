@@ -727,10 +727,11 @@ func (r *rule) updateAll(ctx *Context) bool {
 }
 
 func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPrerequisites, updatedPrerequisites []*matchrule) {
+        var foundMatchRules [][]*matchrule
         for _, prerequisite := range r.prerequisites {
                 prerequisite, _ = m.unstem(prerequisite)
                 if mrs := r.ns.findMatchRules(ctx, prerequisite); 0 < len(mrs) {
-                        matchedPrerequisites = append(matchedPrerequisites, mrs...)
+                        foundMatchRules = append(foundMatchRules, mrs)
                 } else if r.kind == ruleFileTarget {
                         err = errors.New(fmt.Sprintf("no rule to update '%v'", prerequisite))
                         return
@@ -739,11 +740,15 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
                         fmt.Printf("updatePrerequisites: %v %v stat: %v\n", r.prerequisites, prerequisite, fi)
                 }
         }
-        //fmt.Printf("updatePrerequisites: %v %v\n", r.prerequisites, matchedPrerequisites)
-        for _, mr := range matchedPrerequisites {
-                if ok := mr.rule.update(ctx, mr.match); ok {
-                        updatedPrerequisites = append(updatedPrerequisites, mr)
-                        break
+        //fmt.Printf("updatePrerequisites: %v %v\n", r.prerequisites, foundMatchRules)
+        for _, matchrules := range foundMatchRules {
+                matchedPrerequisites = append(matchedPrerequisites, matchrules...)
+                for _, mr := range matchrules {
+                        //fmt.Printf("updatePrerequisites: %v\n", *mr.match)
+                        if ok := mr.rule.update(ctx, mr.match); ok {
+                                updatedPrerequisites = append(updatedPrerequisites, mr)
+                                break
+                        }
                 }
         }
         return
