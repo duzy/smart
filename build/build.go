@@ -663,6 +663,10 @@ type matchrule struct {
         rule *rule
 }
 
+func (mr *matchrule) String() string {
+        return fmt.Sprintf("{%v,%v}", *mr.match, *mr.rule)
+}
+
 func (r *rule) match(target string) (m *match, matched bool) {
         switch r.kind {
         case ruleFileTarget:
