@@ -2054,22 +2054,30 @@ func TestPatternRules(t *testing.T) {
                         if n := len(r.recipes); n != 1 { t.Errorf("incorrect number of recipes: %v %v", n, r.recipes) }
                 }
         }
-        if m, rs := ctx.g.findMatchedRules(ctx, "a.o"); m == nil || len(rs) == 0 { t.Errorf("`%v`, `%v`", m, rs) } else {
-                if s, x := m.target, "a.o"; s != x { t.Errorf("%v != %v", s, x) }
-                if s, x := m.stem, "a"; s != x { t.Errorf("%v != %v", s, x) }
+        if mrs := ctx.g.findMatchRules(ctx, "a.o"); len(mrs) == 0 { t.Errorf("`%v`", mrs) } else {
+                if len(mrs) != 1 { t.Errorf("`%v`", mrs) } else { mr := mrs[0]
+                        if s, x := mr.match.target, "a.o"; s != x { t.Errorf("%v != %v", s, x) }
+                        if s, x := mr.match.stem, "a"; s != x { t.Errorf("%v != %v", s, x) }
+                }
         }
-        if m, rs := ctx.g.findMatchedRules(ctx, "foo.o"); m == nil || len(rs) == 0 { t.Errorf("`%v`, `%v`", m, rs) } else {
-                if s, x := m.target, "foo.o"; s != x { t.Errorf("%v != %v", s, x) }
-                if s, x := m.stem, "foo"; s != x { t.Errorf("%v != %v", s, x) }
+        if mrs := ctx.g.findMatchRules(ctx, "foo.o"); len(mrs) == 0 { t.Errorf("`%v`", mrs) } else {
+                if len(mrs) != 1 { t.Errorf("`%v`", mrs) } else { mr := mrs[0]
+                        if s, x := mr.match.target, "foo.o"; s != x { t.Errorf("%v != %v", s, x) }
+                        if s, x := mr.match.stem, "foo"; s != x { t.Errorf("%v != %v", s, x) }
+                }
         }
-        if m, rs := ctx.g.findMatchedRules(ctx, "foo.log"); m == nil || len(rs) == 0 { t.Errorf("`%v`, `%v`", m, rs) } else {
-                if s, x := m.target, "foo.log"; s != x { t.Errorf("%v != %v", s, x) }
-                if s, x := m.stem, "foo"; s != x { t.Errorf("%v != %v", s, x) }
+        if mrs := ctx.g.findMatchRules(ctx, "foo.log"); len(mrs) == 0 { t.Errorf("`%v`", mrs) } else {
+                if len(mrs) != 1 { t.Errorf("`%v`", mrs) } else { mr := mrs[0]
+                        if s, x := mr.match.target, "foo.log"; s != x { t.Errorf("%v != %v", s, x) }
+                        if s, x := mr.match.stem, "foo"; s != x { t.Errorf("%v != %v", s, x) }
+                }
         }
-        if m, rs := ctx.g.findMatchedRules(ctx, "foo.txt"); m == nil || len(rs) == 0 { t.Errorf("`%v`, `%v`", m, rs) } else {
-                if s, x := m.target, "foo.txt"; s != x { t.Errorf("%v != %v", s, x) }
-                if s, x := m.stem, "foo"; s != x { t.Errorf("%v != %v", s, x) }
+        if mrs := ctx.g.findMatchRules(ctx, "foo.txt"); len(mrs) == 0 { t.Errorf("`%v`", mrs) } else {
+                if len(mrs) != 1 { t.Errorf("`%v`", mrs) } else { mr := mrs[0]
+                        if s, x := mr.match.target, "foo.txt"; s != x { t.Errorf("%v != %v", s, x) }
+                        if s, x := mr.match.stem, "foo"; s != x { t.Errorf("%v != %v", s, x) }
+                }
         }
-        if m, rs := ctx.g.findMatchedRules(ctx, "foo.c"); m != nil || 0 < len(rs) { t.Errorf("`%v`, `%v`", m, rs) }
+        if mrs := ctx.g.findMatchRules(ctx, "foo.c"); 0 < len(mrs) { t.Errorf("`%v`", mrs) }
         if v, s := info.String(), fmt.Sprintf(``); v != s { t.Errorf("`%s` != `%s`", v, s) }
 }

@@ -102,9 +102,7 @@ type checkupdater interface {
 type namespace interface {
         getNamespace(name string) namespace
         getDefineMap() map[string]*define
-        //getRuleMap() map[string]*rule
-        //addPattern(r *rule)
-        findMatchedRules(ctx *Context, target string) (m *match, rs []*rule)
+        findMatchRules(ctx *Context, target string) (mrs []*matchrule)
         isPhonyTarget(ctx *Context, target string) bool
         saveDefines(names ...string) (saveIndex int, m map[string]*define)
         restoreDefines(saveIndex int)
@@ -232,20 +230,15 @@ func (ns *namespaceEmbed) getDefineMap() map[string]*define {
         return ns.defines
 }
 
-/*
-func (ns *namespaceEmbed) getRuleMap() map[string]*rule {
-        return ns.files
-} */
-
-func (ns *namespaceEmbed) findMatchedRules(ctx *Context, target string) (m *match, rs []*rule) {
+func (ns *namespaceEmbed) findMatchRules(ctx *Context, target string) (mrs []*matchrule) {
         if rr, ok := ns.files[target]; ok && rr != nil {
-                if m, ok = rr.match(target); ok && m != nil {
-                        rs = append(rs, rr)
+                if m, ok := rr.match(target); ok && m != nil {
+                        mrs = append(mrs, &matchrule{ m, rr })
                 }
         } else {
                 for _, rr := range ns.pattList {
-                        if m, ok = rr.match(target); ok && m != nil {
-                                rs = append(rs, rr) //; break // return
+                        if m, ok := rr.match(target); ok && m != nil {
+                                mrs = append(mrs, &matchrule{ m, rr })
                         }
                 }
         }

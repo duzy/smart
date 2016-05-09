@@ -631,9 +631,9 @@ func (c *defaultTargetUpdater) update(ctx *Context, r *rule, m *match) bool {
 updated_loop:
         for _, mr := range updatedPrerequisites {
                 for _, s := range ec.newer {
-                        if s == mr.target { continue updated_loop }
+                        if s == mr.match.target { continue updated_loop }
                 }
-                ec.newer = append(ec.newer, mr.target)
+                ec.newer = append(ec.newer, mr.match.target)
         }
 
         // Check if we need to update the target
@@ -658,9 +658,9 @@ func (m *match) unstem(s string) (ss string, ok bool) {
         return s, ok
 }
 
-type matchrules struct {
-        *match
-        rules []*rule 
+type matchrule struct {
+        match *match
+        rule *rule
 }
 
 func (r *rule) match(target string) (m *match, matched bool) {
@@ -726,11 +726,11 @@ func (r *rule) updateAll(ctx *Context) bool {
         return 0 < num
 }
 
-func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPrerequisites, updatedPrerequisites []*matchrules) {
+func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPrerequisites, updatedPrerequisites []*matchrule) {
         for _, prerequisite := range r.prerequisites {
                 prerequisite, _ = m.unstem(prerequisite)
-                if m, rs := r.ns.findMatchedRules(ctx, prerequisite); m != nil && 0 < len(rs) {
-                        matchedPrerequisites = append(matchedPrerequisites, &matchrules{ m, rs })
+                if mrs := r.ns.findMatchRules(ctx, prerequisite); 0 < len(mrs) {
+                        matchedPrerequisites = append(matchedPrerequisites, mrs...)
                 } else if r.kind == ruleFileTarget {
                         err = errors.New(fmt.Sprintf("no rule to update '%v'", prerequisite))
                         return
@@ -741,24 +741,22 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
         }
         //fmt.Printf("updatePrerequisites: %v %v\n", r.prerequisites, matchedPrerequisites)
         for _, mr := range matchedPrerequisites {
-                for _, r := range mr.rules {
-                        if ok := r.update(ctx, mr.match); ok {
-                                updatedPrerequisites = append(updatedPrerequisites, mr)
-                                break
-                        }
+                if ok := mr.rule.update(ctx, mr.match); ok {
+                        updatedPrerequisites = append(updatedPrerequisites, mr)
+                        break
                 }
         }
         return
 }
 
-func (r *rule) makeExecuteContext(ctx *Context, ti os.FileInfo, m *match, matchedPrerequisites []*matchrules) *ruleExecuteContext {
+func (r *rule) makeExecuteContext(ctx *Context, ti os.FileInfo, m *match, matchedPrerequisites []*matchrule) *ruleExecuteContext {
         ec := &ruleExecuteContext{ target: m.target, stem: m.stem }
         for _, mr := range matchedPrerequisites {
-                ec.prerequisites = append(ec.prerequisites, mr.target)
+                ec.prerequisites = append(ec.prerequisites, mr.match.target)
                 if ti != nil {
-                        if fi, err := os.Stat(mr.target); err == nil {
+                        if fi, err := os.Stat(mr.match.target); err == nil {
                                 if fi.ModTime().After(ti.ModTime()) {
-                                        ec.newer = append(ec.newer, mr.target)
+                                        ec.newer = append(ec.newer, mr.match.target)
                                 }
                         }
                 }
