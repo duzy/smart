@@ -118,6 +118,38 @@ foobar.txt foo.txt foo.txt foo.txt
         os.Remove("foobar.txt")
 }
 
+func TestBuildPatternRules(t *testing.T) {
+        if wd, e := os.Getwd(); e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
+
+        info, stdout, stderr := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
+        f, o_stdout, o_stderr := builtinInfoFunc, recipeStdout, recipeStderr
+        defer func(){ 
+                recipeStdout, recipeStderr = o_stdout, o_stderr
+                builtinInfoFunc = f
+        }()
+        //recipeStdout, recipeStderr = stdout, stderr
+        builtinInfoFunc = func(ctx *Context, args Items) {
+                fmt.Fprintf(info, "%v\n", args.Expand(ctx))
+        }
+
+        ctx, err := newTestContext("TestBuildPatternRules", `
+a.out: test.o ; gcc -o $@ $^
+%.o: %.c   ; gcc -c -o $@ $<
+%.o: %.cpp ; g++ -c -o $@ $<
+`);     if err != nil { t.Errorf("parse error:", err) }
+
+        info.Reset(); stdout.Reset(); stderr.Reset()
+        os.Remove("a.out")
+        os.Remove("test.o")
+        Update(ctx)
+        if fi, e := os.Stat("a.out"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
+        if fi, e := os.Stat("test.o"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
+        if s, x := info.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+
+        os.Remove("a.out")
+        os.Remove("test.o")
+}
+
 func TestBuildRuleTargetChecker(t *testing.T) {
         if wd, e := os.Getwd(); e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
 

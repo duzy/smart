@@ -22,10 +22,10 @@ template gcc
 post
 
 $(me.name): $(gcc:objects)
-	@echo "todo: $^ -> $(me.name) ($(me.workdir))"
+	@echo "gcc: todo: $^ -> $(me.name) ($(me.workdir))"
 
-%.o: %.c   ; gcc -o $@ $<
-%.o: %.cpp ; g++ -o $@ $<
+%.o: %.c   ; gcc -c -o $@ $< ; pwd ; ls -l *.o
+%.o: %.cpp ; g++ -c -o $@ $< ; pwd ; ls -l *.o
 
 commit
 `)
