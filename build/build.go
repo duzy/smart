@@ -734,63 +734,39 @@ func (r *rule) updateAll(ctx *Context) bool {
 }
 
 func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPrerequisites, updatedPrerequisites []*matchrule) {
-        var foundMatchRules [][]*matchrule
+        var (
+                foundMatchRules [][]*matchrule
+        )
         for _, prerequisite := range r.prerequisites {
                 target, ispat := m.unstem(prerequisite)
                 matchrules := r.ns.findMatchRules(ctx, target)
 
-                //fmt.Printf("matchrules: %v %v\n", len(matchrules), matchrules)
-
                 if 0 < len(matchrules) {
-                        //fmt.Printf("updatePrerequisites: %v %v\n", prerequisite, target)
                         foundMatchRules = append(foundMatchRules, matchrules)
-                } else if fi, e := os.Stat(target); e == nil && fi != nil {
-                        //fmt.Printf("updatePrerequisites: %v %v\n", prerequisite, target)
-                        matchedPrerequisites = append(matchedPrerequisites, 
-                                &matchrule{ &match{ target, m.stem }, nil })
                 } else if ispat {
                         if r.kind != rulePercentPattern {
                                 err = errors.New(fmt.Sprintf("invalid pattern prerequisite '%v'", prerequisite))
                                 return
                         }
-                        // FIXME: multiple patterns, but only one matched, e.g.:
-                        //     %.o: %.c   ; gcc -c -o $@ $<
-                        //     %.o: %.cpp ; g++ -c -o $@ $<
+                        foundMatchRules = append(foundMatchRules, []*matchrule{
+                                &matchrule{ &match{ target, m.stem }, nil },
+                        })
                 } else {
                         //err = errors.New(fmt.Sprintf("no rule to update prerequisite '%v' (%v)", target, prerequisite))
                         //fmt.Printf("updatePrerequisites: missing `%v` (%v)\n", target, prerequisite)
                         fmt.Printf("missing `%v` (%v)\n", target, prerequisite)
                 }
         }
-        //fmt.Printf("updatePrerequisites: %v %v %v\n", r.prerequisites, foundMatchRules, matchedPrerequisites)
         for _, matchrules := range foundMatchRules {
-                n, mr := len(matchrules), matchrules[0]
-                if 1 < n && mr.rule.kind == rulePercentPattern {
-                        /// If we found many pattern rules for a prerequisite
-                        for _, mr = range matchrules {
-                                if mr.rule.kind != rulePercentPattern {
-                                        panic("internal error by mixing pattern rules")
-                                }
-
-                                fmt.Printf("matchrules: %v %v\n", r.targets, mr)
-                                
-                                matchedPrerequisites = append(matchedPrerequisites, mr)
-
-                                if ok := mr.rule.update(ctx, mr.match); ok {
-                                        updatedPrerequisites = append(updatedPrerequisites, mr)
-                                        break
-                                }
+                matchedPrerequisites = append(matchedPrerequisites, matchrules...)
+                for _, mr := range matchrules {
+                        if mr.rule == nil {
+                                // .........
+                                continue
                         }
-                        //fmt.Printf("matchrules: %v %v\n", len(matchrules), matchrules)
-                } else {
-                        matchedPrerequisites = append(matchedPrerequisites, matchrules...)
-
-                        for _, mr = range matchrules {
-                                //fmt.Printf("updatePrerequisites: %v\n", *mr.match)
-                                if ok := mr.rule.update(ctx, mr.match); ok {
-                                        updatedPrerequisites = append(updatedPrerequisites, mr)
-                                        break
-                                }
+                        if ok := mr.rule.update(ctx, mr.match); ok {
+                                updatedPrerequisites = append(updatedPrerequisites, mr)
+                                break
                         }
                 }
         }
