@@ -26,14 +26,13 @@ var (
         hooksMap = HooksMap{
         }
 
-        generalMetaFiles = []*FileMatchRule{
-                { "backup", os.ModeDir |^ os.ModeType, `[^~]*~$` },
-                //{ "git", os.ModeDir |^ os.ModeType, `\.git(ignore)?` },
-                { "git", os.ModeDir, `^\.git$` },
-                { "git", ^os.ModeType, `^\.gitignore$` },
-                { "mercurial", os.ModeDir, `^\.hg$` },
-                { "subversion", os.ModeDir, `^\.svn$` },
-                { "cvs", ^os.ModeType, `^CVS$` },
+        generalMetaFiles = []*FileMatcher{
+                { "backup",     os.ModeDir | ^os.ModeType,      `[^~]*~$` },
+                { "git",        os.ModeDir,                     `^\.git$` },
+                { "git",       ^os.ModeType,                    `^\.gitignore$` },
+                { "mercurial",  os.ModeDir,                     `^\.hg$` },
+                { "subversion", os.ModeDir,                     `^\.svn$` },
+                { "cvs",       ^os.ModeType,                    `^CVS$` },
         }
 
         onRecipeExecutionFailure = func(err error, c *exec.Cmd) {
@@ -383,13 +382,13 @@ func (ctx *Context) update(target string) (updated bool) {
         return
 }
 
-type FileMatchRule struct {
+type FileMatcher struct {
         Name string
         Mode os.FileMode
         Rule string // *regexp.Regexp
 }
 
-func (r *FileMatchRule) match(fi os.FileInfo) bool {
+func (r *FileMatcher) match(fi os.FileInfo) bool {
         re := regexp.MustCompile(r.Rule)
         if fi.Mode() & r.Mode != 0 && re.MatchString(fi.Name()) {
                 return true
@@ -397,7 +396,7 @@ func (r *FileMatchRule) match(fi os.FileInfo) bool {
         return false
 }
 
-func (r *FileMatchRule) matchName(fn string) bool {
+func (r *FileMatcher) matchName(fn string) bool {
         re := regexp.MustCompile(r.Rule)
         if re.MatchString(fn) {
                 return true
@@ -520,25 +519,22 @@ func copyFile(s, d string) (err error) {
         return
 }
 
-func MatchFileInfo(fi os.FileInfo, rules []*FileMatchRule) *FileMatchRule {
-        return matchFileInfo(fi, rules)
-}
-func MatchFileName(fn string, rules []*FileMatchRule) *FileMatchRule {
-        return matchFileName(fn, rules)
+// MatchFileInfo finds a matched FileMatcher with FileInfo.
+func MatchFileInfo(fi os.FileInfo, ms []*FileMatcher) *FileMatcher {
+        return matchFileInfo(fi, ms)
 }
 
-// matchFileInfo finds a matched FileMatchRule with FileInfo.
-func matchFileInfo(fi os.FileInfo, rules []*FileMatchRule) *FileMatchRule {
-        for _, g := range rules {
-                if g.match(fi) { return g }
+// MatchFileInfo finds a matched FileMatcher with filename.
+func MatchFileName(fn string, ms []*FileMatcher) *FileMatcher {
+        if fi, err := os.Stat(fn); err == nil {
+                return matchFileInfo(fi, ms)
         }
         return nil
 }
 
-// matchFileName finds a matched FileMatchRule with file-name.
-func matchFileName(fn string, rules []*FileMatchRule) *FileMatchRule {
-        for _, g := range rules {
-                if g.matchName(fn) { return g }
+func matchFileInfo(fi os.FileInfo, ms []*FileMatcher) *FileMatcher {
+        for _, g := range ms {
+                if g.match(fi) { return g }
         }
         return nil
 }
