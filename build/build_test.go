@@ -121,33 +121,87 @@ foobar.txt foo.txt foo.txt foo.txt
 func TestBuildPatternRules(t *testing.T) {
         if wd, e := os.Getwd(); e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
 
-        info, stdout, stderr := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
-        f, o_stdout, o_stderr := builtinInfoFunc, recipeStdout, recipeStderr
+        info, stdout, stderr, echo := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
+        f, o_stdout, o_stderr, o_echo := builtinInfoFunc, recipeStdout, recipeStderr, recipeEcho
         defer func(){ 
-                recipeStdout, recipeStderr = o_stdout, o_stderr
+                recipeStdout, recipeStderr, recipeEcho = o_stdout, o_stderr, o_echo
                 builtinInfoFunc = f
         }()
-        //recipeStdout, recipeStderr = stdout, stderr
+        recipeStdout, recipeStderr, recipeEcho = stdout, stderr, echo
         builtinInfoFunc = func(ctx *Context, args Items) {
                 fmt.Fprintf(info, "%v\n", args.Expand(ctx))
         }
 
         ctx, err := newTestContext("TestBuildPatternRules", `
 a.out: test.o ; gcc -o $@ $^
-%.o: %.c   ; gcc -c -o $@ $<
-%.o: %.cpp ; g++ -c -o $@ $<
+%.o: %.c   ; echo "$< -> $@" ; gcc -c -o $@ $<
+%.o: %.cpp ; echo "$< -> $@" ; g++ -c -o $@ $<
 `);     if err != nil { t.Errorf("parse error:", err) }
 
-        info.Reset(); stdout.Reset(); stderr.Reset()
-        os.Remove("a.out")
-        os.Remove("test.o")
+        if f, e := os.Create("test.c"); e != nil { t.Errorf("TestBuildPatternRules: %s", e) } else {
+                fmt.Fprintf(f, `int main(int argc, char**argv) { return 0; }`)
+                f.Close()
+        }
+        info.Reset(); stdout.Reset(); stderr.Reset(); echo.Reset()
+        os.Remove("a.out"); os.Remove("test.o")
         Update(ctx)
         if fi, e := os.Stat("a.out"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
         if fi, e := os.Stat("test.o"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
         if s, x := info.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
-
+        if s, x := echo.String(), fmt.Sprintf(`echo "test.c -> test.o" ; gcc -c -o test.o test.c
+gcc -o a.out test.o
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`test.c -> test.o
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         os.Remove("a.out")
         os.Remove("test.o")
+        os.Remove("test.c")
+        fmt.Printf("----------echo\n%v\n", echo)
+        fmt.Printf("----------stdout\n%v\n", stdout)
+        fmt.Printf("----------stderr\n%v\n", stderr)
+
+        if f, e := os.Create("test.cpp"); e != nil { t.Errorf("TestBuildPatternRules: %s", e) } else {
+                fmt.Fprintf(f, `int main(int argc, char**argv) { return 0; }`)
+                f.Close()
+        }
+        info.Reset(); stdout.Reset(); stderr.Reset(); echo.Reset()
+        os.Remove("a.out"); os.Remove("test.o")
+        Update(ctx)
+        if fi, e := os.Stat("a.out"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
+        if fi, e := os.Stat("test.o"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
+        if s, x := info.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := echo.String(), fmt.Sprintf(`echo "test.cpp -> test.o" ; g++ -c -o test.o test.cpp
+gcc -o a.out test.o
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(`test.cpp -> test.o
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        os.Remove("a.out")
+        os.Remove("test.o")
+        os.Remove("test.cpp")
+        fmt.Printf("----------echo\n%v\n", echo)
+        fmt.Printf("----------stdout\n%v\n", stdout)
+        fmt.Printf("----------stderr\n%v\n", stderr)
+
+        info.Reset(); stdout.Reset(); stderr.Reset(); echo.Reset()
+        os.Remove("a.out"); os.Remove("test.o")
+        Update(ctx)
+        if fi, e := os.Stat("a.out"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
+        if fi, e := os.Stat("test.o"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
+        if s, x := info.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := echo.String(), fmt.Sprintf(`gcc -o a.out test.o
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stdout.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := stderr.String(), fmt.Sprintf(`gcc: error: test.o: No such file or directory
+gcc: fatal error: no input files
+compilation terminated.
+`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        os.Remove("a.out")
+        os.Remove("test.o")
+        fmt.Printf("----------echo\n%v\n", echo)
+        fmt.Printf("----------stdout\n%v\n", stdout)
+        fmt.Printf("----------stderr\n%v\n", stderr)
 }
 
 func TestBuildRuleTargetChecker(t *testing.T) {
