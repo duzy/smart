@@ -1,5 +1,6 @@
-module foo_shared, gcc, shared
+module foo_shared, gcc
 
+me.type := shared
 me.sources := foo.c
 #me.export.libdirs := out/foo_shared
 #me.export.libs := foo_shared

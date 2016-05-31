@@ -1,4 +1,4 @@
-module foo_gcc_exe_use_static, gcc, exe
+module foo_gcc_exe_use_static, gcc
 
 me.sources = foo.c
 me.includes = .

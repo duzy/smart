@@ -1,5 +1,6 @@
-module foo_static, gcc, static
+module foo_static, gcc
 
+me.type := static
 me.sources := foo.c
 me.export.libdirs := out/foo_static
 me.export.libs := foo_static

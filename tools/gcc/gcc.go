@@ -4,7 +4,7 @@
 package smart
 
 import (
-        //"fmt"
+        "fmt"
         "strings"
         "path/filepath"
         . "github.com/duzy/smart/build"
@@ -14,6 +14,9 @@ var hc = MustHookup(
         HooksMap{
                 "gcc": HookTable{
                         "objects": hookObjects,
+                        "gen": hookGen,
+                        //"c++-source-p": hookIsCxxSource,
+                        //"c-source-p": hookIsCSource,
                 },
         },
         `# Build GCC Projects
@@ -22,24 +25,75 @@ template gcc
 post
 
 $(me.name): $(gcc:objects)
-	@echo "gcc: todo: $^ -> $(me.name) ($(me.workdir))"
+	$(gcc:gen $@) $^ $(gcc:libs)
 
-%.o: %.c   ; gcc -c -o $@ $< ; pwd ; ls -l *.o
-%.o: %.cpp ; g++ -c -o $@ $< ; pwd ; ls -l *.o
+%.o: %.c   ; gcc -c -o $@ $<
+%.o: %.cpp ; g++ -c -o $@ $<
 
 commit
 `)
 
 func hookObjects(ctx *Context, args Items) (objects Items) {
-        if len(args) == 0 {
+        if args.IsEmpty(ctx) {
                 args = ctx.Call("me.sources")
         }
         for _, a := range args {
-                // FIXME: split 'a'
-                src := a.Expand(ctx)
+                src := a.Expand(ctx) // FIXME: split 'a'
                 ext := filepath.Ext(src)
                 obj := strings.TrimSuffix(src, ext) + ".o"
                 objects = append(objects, StringItem(obj))
         }
         return
+}
+
+func hookGen(ctx *Context, args Items) (cmd Items) {
+        var (
+                flags Items
+                t = getGenTypeString(ctx)
+        )
+
+        for _, a := range ctx.Call("me.sources") {
+                src := a.Expand(ctx)
+                ext := strings.ToLower(filepath.Ext(src))
+                switch ext {
+                case ".cpp": fallthrough
+                case ".cxx": fallthrough
+                case ".c++": fallthrough
+                case ".cc":
+                        cmd = Items{ StringItem("g++") }
+                        return
+                }
+        }
+        if cmd.IsEmpty(ctx) {
+                cmd = Items{ StringItem("gcc") }
+        }
+
+        switch t {
+        case "exe":
+                if !args.IsEmpty(ctx) {
+                        flags = append(flags, StringItem("-o"))
+                        flags = append(flags, args...)
+                }
+        case "shared":
+                if !args.IsEmpty(ctx) {
+                        flags = append(flags, StringItem("-o"))
+                        flags = append(flags, args...)
+                }
+                flags = append(flags, StringItem("-shared"))
+        case "static":
+                cmd = Items{ StringItem("ar") }
+                if !args.IsEmpty(ctx) {
+                        flags = append(flags, StringItem("crs"))
+                        name := fmt.Sprintf("lib%s.a", args.Expand(ctx))
+                        flags = append(flags, StringItem(name))
+                }
+        }
+
+        cmd = append(cmd, flags...)
+        cmd = append(cmd, ctx.Call("me.gen_flags")...)
+        return 
+}
+
+func getGenTypeString(ctx *Context) string {
+        return strings.ToLower(ctx.Call("me.type").Expand(ctx))
 }
