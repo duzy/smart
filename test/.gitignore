@@ -7,6 +7,9 @@
 /shell/foo
 /shell/o/o/o/fooo
 /gcc/exe/foo_gcc_exe
+/gcc/exe/a.out
 /gcc/shared/foo_shared
+/gcc/shared/a.out
+/gcc/static/foo_static
 out
 temp.txt

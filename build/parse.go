@@ -67,6 +67,18 @@ func (is Items) Concat(ctx *Context, args ...Item) (res Items) {
         return
 }
 
+func (is *Items) Append(args ...Item) *Items {
+        *is = append(*is, args...)
+        return is
+}
+
+func (is *Items) AppendString(args ...string) *Items {
+        for _, s := range args {
+                *is = append(*is, stringitem(s))
+        }
+        return is
+}
+
 type define struct {
         name string
         value Items
