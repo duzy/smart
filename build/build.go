@@ -830,9 +830,8 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
                                 return
                         }
                 } else {
-                        //err = errors.New(fmt.Sprintf("no rule to update prerequisite '%v' (%v)", target, prerequisite))
-                        //fmt.Printf("updatePrerequisites: missing `%v` (%v)\n", target, prerequisite)
-                        fmt.Printf("missing `%v` (%v)\n", target, prerequisite)
+                        err = errors.New(fmt.Sprintf("no rule to update prerequisite '%v' (%v)", target, prerequisite))
+                        return
                 }
         }
         for _, matchrules := range foundMatchRules {
