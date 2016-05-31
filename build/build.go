@@ -382,6 +382,22 @@ func (ctx *Context) update(target string) (updated bool) {
         return
 }
 
+func (ctx *Context) targetFoundable(target string) bool {
+        if g, ok := ctx.g.files[target]; ok && g != nil {
+                return true
+        }
+        if m, ok := ctx.modules[target]; ok && m != nil {
+                return true
+        }
+        if a := ctx.g.findMatchRules(ctx, target); 0 < len(a) {
+                return true
+        }
+        if _, e := os.Stat(target); e == nil {
+                return true
+        }
+        return false
+}
+
 type FileMatcher struct {
         Name string
         Mode os.FileMode
@@ -729,24 +745,90 @@ func (r *rule) updateAll(ctx *Context) bool {
         return 0 < num
 }
 
+// targetsFoundable returns true if targets are all foundable or generatable.
+func (r *rule) targetsFoundable(ctx *Context, m *match) bool {
+        switch r.kind {
+        case rulePercentPattern:
+                if fi, e := os.Stat(m.target); e == nil && fi != nil {
+                        return true
+                }
+
+                for _, prerequisite := range r.prerequisites {
+                        target, _ := m.unstem(prerequisite)
+                        matchrules := r.ns.findMatchRules(ctx, target)
+                        
+                        if 0 < len(matchrules) {
+                                fmt.Printf("targetsFoundable: %v: %v (%v)\n", m.target, target, m)
+                        } else if fi, e := os.Stat(target); e == nil && fi != nil{
+                                //fmt.Printf("targetsFoundable: %v: %v (%v)\n", m.target, target, m)
+                                return true
+                        }
+                }
+                
+        default:
+                for _, t := range r.targets {
+                        if !ctx.targetFoundable(t) {
+                                return false
+                        }
+                }
+                return true
+        }
+        return false
+}
+
 func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPrerequisites, updatedPrerequisites []*matchrule) {
-        var (
-                foundMatchRules [][]*matchrule
-        )
+        var foundMatchRules [][]*matchrule
+        //fmt.Printf("%v: %v\n", r.targets, r.prerequisites)
         for _, prerequisite := range r.prerequisites {
                 target, ispat := m.unstem(prerequisite)
                 matchrules := r.ns.findMatchRules(ctx, target)
-
+        
                 if 0 < len(matchrules) {
-                        foundMatchRules = append(foundMatchRules, matchrules)
+                        var (
+                                validMatchrules []*matchrule
+                                validPatternRules = 0
+                        )
+                        for _, mr := range matchrules {
+                                //fmt.Printf("%v: %v: %v\n", validPatternRules, mr.rule.targets, mr.rule.prerequisites)
+                                switch mr.rule.kind {
+                                case rulePercentPattern:
+                                        if mr.rule.targetsFoundable(ctx, mr.match) {
+                                                if validPatternRules++; validPatternRules == 1 {
+                                                        validMatchrules = append(validMatchrules, mr)
+                                                        //fmt.Printf("%v: %v: %v (appended)\n", validPatternRules, mr.rule.targets, mr.rule.prerequisites)
+                                                }
+                                        }
+                                default:
+                                        validMatchrules = append(validMatchrules, mr)
+                                }
+                        }
+                        if validPatternRules == 0 {
+                                // If no foundable pattern targets, add the first
+                                // one no matter if it's foundable
+                                for _, mr := range matchrules {
+                                        if rulePercentPattern == mr.rule.kind {
+                                                if validPatternRules++; validPatternRules == 1 {
+                                                        validMatchrules = append(validMatchrules, mr)
+                                                        //fmt.Printf("%v: %v: %v (appended)\n", validPatternRules, mr.rule.targets, mr.rule.prerequisites)
+                                                }
+                                        }
+                                }
+                        }
+                        foundMatchRules = append(foundMatchRules, validMatchrules)
                 } else if ispat {
                         if r.kind != rulePercentPattern {
                                 err = errors.New(fmt.Sprintf("invalid pattern prerequisite '%v'", prerequisite))
                                 return
                         }
-                        foundMatchRules = append(foundMatchRules, []*matchrule{
-                                &matchrule{ &match{ target, m.stem }, nil },
-                        })
+                        if ctx.targetFoundable(target) {
+                                foundMatchRules = append(foundMatchRules, []*matchrule{
+                                        &matchrule{ &match{ target, m.stem }, nil },
+                                })
+                        } else {
+                                err = errors.New(fmt.Sprintf("no rule to update prerequisite '%v' (%v)", target, prerequisite))
+                                //fmt.Printf("updatePrerequisites: missing `%v` (%v)\n", target, prerequisite)
+                                return
+                        }
                 } else {
                         //err = errors.New(fmt.Sprintf("no rule to update prerequisite '%v' (%v)", target, prerequisite))
                         //fmt.Printf("updatePrerequisites: missing `%v` (%v)\n", target, prerequisite)

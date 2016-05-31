@@ -143,7 +143,7 @@ a.out: test.o ; gcc -o $@ $^
                 f.Close()
         }
         info.Reset(); stdout.Reset(); stderr.Reset(); echo.Reset()
-        os.Remove("a.out"); os.Remove("test.o")
+        os.Remove("a.out"); os.Remove("test.o"); os.Remove("test.cpp")
         Update(ctx)
         if fi, e := os.Stat("a.out"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
         if fi, e := os.Stat("test.o"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
@@ -157,9 +157,9 @@ gcc -o a.out test.o
         os.Remove("a.out")
         os.Remove("test.o")
         os.Remove("test.c")
-        fmt.Printf("----------echo\n%v\n", echo)
-        fmt.Printf("----------stdout\n%v\n", stdout)
-        fmt.Printf("----------stderr\n%v\n", stderr)
+        // fmt.Printf("----------echo\n%v\n", echo)
+        // fmt.Printf("----------stdout\n%v\n", stdout)
+        // fmt.Printf("----------stderr\n%v\n", stderr)
 
         if f, e := os.Create("test.cpp"); e != nil { t.Errorf("TestBuildPatternRules: %s", e) } else {
                 fmt.Fprintf(f, `int main(int argc, char**argv) { return 0; }`)
@@ -180,15 +180,15 @@ gcc -o a.out test.o
         os.Remove("a.out")
         os.Remove("test.o")
         os.Remove("test.cpp")
-        fmt.Printf("----------echo\n%v\n", echo)
-        fmt.Printf("----------stdout\n%v\n", stdout)
-        fmt.Printf("----------stderr\n%v\n", stderr)
+        // fmt.Printf("----------echo\n%v\n", echo)
+        // fmt.Printf("----------stdout\n%v\n", stdout)
+        // fmt.Printf("----------stderr\n%v\n", stderr)
 
         info.Reset(); stdout.Reset(); stderr.Reset(); echo.Reset()
         os.Remove("a.out"); os.Remove("test.o")
         Update(ctx)
-        if fi, e := os.Stat("a.out"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
-        if fi, e := os.Stat("test.o"); fi == nil || e != nil { t.Errorf("TestBuildPatternRules: %s", e) }
+        if fi, e := os.Stat("a.out"); fi != nil || e == nil { t.Errorf("TestBuildPatternRules: %s", fi.Name()) }
+        if fi, e := os.Stat("test.o"); fi != nil || e == nil { t.Errorf("TestBuildPatternRules: %s", fi.Name()) }
         if s, x := info.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if s, x := echo.String(), fmt.Sprintf(`gcc -o a.out test.o
 `); s != x { t.Errorf("'%s' != '%s'", s, x) }
@@ -199,9 +199,9 @@ compilation terminated.
 `); s != x { t.Errorf("'%s' != '%s'", s, x) }
         os.Remove("a.out")
         os.Remove("test.o")
-        fmt.Printf("----------echo\n%v\n", echo)
-        fmt.Printf("----------stdout\n%v\n", stdout)
-        fmt.Printf("----------stderr\n%v\n", stderr)
+        // fmt.Printf("----------echo\n%v\n", echo)
+        // fmt.Printf("----------stdout\n%v\n", stdout)
+        // fmt.Printf("----------stderr\n%v\n", stderr)
 }
 
 func TestBuildRuleTargetChecker(t *testing.T) {
