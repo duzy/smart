@@ -69,22 +69,23 @@ func hookGen(ctx *Context, args Items) (cmd Items) {
         }
 
         switch t {
-        case "exe":
-                if !args.IsEmpty(ctx) {
-                        flags.AppendString("-o")
-                        flags.Append(args...)
-                }
         case "shared":
                 if !args.IsEmpty(ctx) {
                         flags.AppendString("-o")
-                        flags.Append(args...)
+                        flags.AppendString(fmt.Sprintf("lib%s.so", args.Expand(ctx)))
                 }
-                flags = append(flags, StringItem("-shared"))
+                flags.AppendString("-shared")
         case "static":
                 cmd = Items{ StringItem("ar") }
                 if !args.IsEmpty(ctx) {
                         flags.AppendString("crs")
                         flags.AppendString(fmt.Sprintf("lib%s.a", args.Expand(ctx)))
+                }
+        case "exe": fallthrough
+        default:
+                if !args.IsEmpty(ctx) {
+                        flags.AppendString("-o")
+                        flags.Append(args...)
                 }
         }
 

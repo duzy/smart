@@ -61,26 +61,20 @@ func testToolsetGcc(t *testing.T) {
         if s, x := m.Get(ctx, "name"), "foo_gcc_exe_use_static"; s != x { t.Errorf("%v != %v", s, x) }
         if s, x := m.Get(ctx, "dir"), "exe_use_static"; s != x { t.Errorf("%v != %v", s, x) }
 
-        if fi, e := os.Stat("out"); fi == nil || e != nil || !fi.IsDir() { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_shared"); fi == nil || e != nil || !fi.IsDir() { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_shared/foo_shared.so"); fi == nil || e != nil { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_static"); fi == nil || e != nil || !fi.IsDir() { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_static/libfoo_static.a"); fi == nil || e != nil { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_gcc_exe"); fi == nil || e != nil || !fi.IsDir() || !fi.IsDir() { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_gcc_exe/foo_gcc_exe"); fi == nil || e != nil { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_gcc_exe_use_static"); fi == nil || e != nil || !fi.IsDir() || !fi.IsDir() { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_gcc_exe_use_static/foo_gcc_exe_use_static"); fi == nil || e != nil { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_gcc_exe_use_shared"); fi == nil || e != nil || !fi.IsDir() || !fi.IsDir() { t.Errorf("%v", e) }
-        if fi, e := os.Stat("out/foo_gcc_exe_use_shared/foo_gcc_exe_use_shared"); fi == nil || e != nil { t.Errorf("%v", e) }
+        if fi, e := os.Stat("shared/libfoo_shared.so"); fi == nil || e != nil { t.Errorf("%v", e) }
+        if fi, e := os.Stat("static/libfoo_static.a"); fi == nil || e != nil { t.Errorf("%v", e) }
+        if fi, e := os.Stat("exe/foo_gcc_exe"); fi == nil || e != nil { t.Errorf("%v", e) }
+        if fi, e := os.Stat("exe_use_static/foo_gcc_exe_use_static"); fi == nil || e != nil { t.Errorf("%v", e) }
+        if fi, e := os.Stat("exe_use_shared/foo_gcc_exe_use_shared"); fi == nil || e != nil || !fi.IsDir() || !fi.IsDir() { t.Errorf("%v", e) }
 
-        if s, e := Runcmd("out/foo_gcc_exe/foo_gcc_exe"); e != nil { t.Errorf("%v", e) } else {
-                if s != "hello: out/foo_gcc_exe/foo_gcc_exe\n" { t.Errorf("unexpected output: '%v'", s) }
+        if s, e := Runcmd("exe/foo_gcc_exe"); e != nil { t.Errorf("%v", e) } else {
+                if s != "hello: exe/foo_gcc_exe\n" { t.Errorf("unexpected output: '%v'", s) }
         }
-        if s, e := Runcmd("out/foo_gcc_exe_use_shared/foo_gcc_exe_use_shared"); e != nil { t.Errorf("%v", e) } else {
-                if s != "hello: out/foo_gcc_exe_use_shared/foo_gcc_exe_use_shared (shared: 100)\n" { t.Errorf("unexpected output: '%v'", s) }
+        if s, e := Runcmd("exe_use_static/foo_gcc_exe_use_static"); e != nil { t.Errorf("%v", e) } else {
+                if s != "hello: exe_use_static/foo_gcc_exe_use_static (shared: 100)\n" { t.Errorf("unexpected output: '%v'", s) }
         }
-        if s, e := Runcmd("out/foo_gcc_exe_use_static/foo_gcc_exe_use_static"); e != nil { t.Errorf("%v", e) } else {
-                if s != "hello: out/foo_gcc_exe_use_static/foo_gcc_exe_use_static (static: 100)\n" { t.Errorf("unexpected output: '%v'", s) }
+        if s, e := Runcmd("exe_use_shared/foo_gcc_exe_use_shared"); e != nil { t.Errorf("%v", e) } else {
+                if s != "hello: exe_use_shared/foo_gcc_exe_use_shared (static: 100)\n" { t.Errorf("unexpected output: '%v'", s) }
         }
 
         testCleanFiles(t)
