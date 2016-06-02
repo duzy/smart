@@ -111,6 +111,21 @@ func _AppendInit(hm HooksMap, script string) (err error) {
         return
 }
 
+type SourceLangMap map[string][]string
+
+func (m SourceLangMap) ExtLang(ext string) (lang string) {
+        ext = strings.ToLower(ext)
+source_lang_loop:
+        for s, l := range m {
+                for _, x := range l {
+                        if strings.ToLower(x) == ext {
+                                lang = s; break source_lang_loop
+                        }
+                }
+        }
+        return
+}
+
 func IsIA32Command(s string) bool {
         buf := new(bytes.Buffer)
         cmd := exec.Command("file", "-b", s)

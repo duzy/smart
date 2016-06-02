@@ -37,14 +37,13 @@ $(me.name): $(cc:objects)
 commit
 `)
 
+var langs = SourceLangMap{
+        "c":   []string{ ".c" },
+        "c++": []string{ ".cc", ".cpp", ".cxx", ".c++" },
+}
+
 func isCxxExtension(s string) bool {
-        switch strings.ToLower(s) {
-        case ".cpp": fallthrough
-        case ".cxx": fallthrough
-        case ".c++": fallthrough
-        case ".cc":  return true
-        }
-        return false
+        return langs.ExtLang(s) == "c++"
 }
 
 func getGenTypeString(ctx *Context) string {
