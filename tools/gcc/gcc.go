@@ -108,6 +108,7 @@ func hook_loadings(ctx *Context, args Items) (loadings Items) {
         switch t {
         case "static": return
         case "shared":
+                // TODO: special handling regarding --no-undefined
                 /*
                 if --no-undefined {
                         
@@ -119,7 +120,6 @@ func hook_loadings(ctx *Context, args Items) (loadings Items) {
         for _, u := range using {
                 name := u.Expand(ctx)
                 wd := ctx.Call(name+".workdir").Expand(ctx)
-                //dir := ctx.Call(name+".dir").Expand(ctx)
                 t := ctx.Call(name+".type").Expand(ctx)
                 switch t {
                 case "shared":
