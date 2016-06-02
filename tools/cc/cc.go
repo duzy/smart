@@ -37,10 +37,6 @@ $(me.name): $(cc:objects)
 commit
 `)
 
-func getGenTypeString(ctx *Context) string {
-        return strings.ToLower(ctx.Call("me.type").Expand(ctx))
-}
-
 func isCxxExtension(s string) bool {
         switch strings.ToLower(s) {
         case ".cpp": fallthrough
@@ -49,6 +45,35 @@ func isCxxExtension(s string) bool {
         case ".cc":  return true
         }
         return false
+}
+
+func getGenTypeString(ctx *Context) string {
+        return strings.ToLower(ctx.Call("me.type").Expand(ctx))
+}
+
+func getToolchainCommand(ctx *Context, lang string) (cmd string) {
+        tool := ctx.Call("me.tool").Expand(ctx)
+        switch tool {
+        case "clang":
+                switch lang {
+                case "c":       cmd = "clang"
+                case "c++":     cmd = "clang++"
+                }
+        case "gcc":
+                switch lang {
+                case "c":       cmd = "gcc"
+                case "c++":     cmd = "g++"
+                }
+        case "":
+                switch lang {
+                case "c":       cmd = "cc"
+                case "c++":     cmd = "c++"
+                }
+        }
+        if cmd == "" {
+                cmd = "false"
+        }
+        return
 }
 
 func hook_objects(ctx *Context, args Items) (objects Items) {
@@ -68,9 +93,9 @@ func hook_compile(ctx *Context, args Items) (compile Items) {
         if 0 < len(args) {
                 source := args[0].Expand(ctx)
                 if isCxxExtension(filepath.Ext(source)) {
-                        compile.AppendString("g++")
+                        compile.AppendString(getToolchainCommand(ctx, "c++"))
                 } else {
-                        compile.AppendString("gcc")
+                        compile.AppendString(getToolchainCommand(ctx, "c"))
                 }
                 compile.AppendString("-c", source)
         } else {
@@ -83,13 +108,14 @@ func hook_gen(ctx *Context, args Items) (gen Items) {
         var (
                 flags Items
                 t = getGenTypeString(ctx)
-                cmd = "gcc"
+                cmd = getToolchainCommand(ctx, "c")
         )
 
 source_loop:
         for _, s := range ctx.Call("me.sources") {
                 if isCxxExtension(filepath.Ext(s.Expand(ctx))) {
-                        cmd = "g++"; break source_loop
+                        cmd = getToolchainCommand(ctx, "c++")
+                        break source_loop
                 }
         }
         

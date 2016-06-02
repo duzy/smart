@@ -397,6 +397,12 @@ func (si stringitem) Expand(ctx *Context) string { return string(si) }
 func (si stringitem) IsEmpty(ctx *Context) bool { return string(si) == "" }
 
 func StringItem(s string) stringitem { return stringitem(s) }
+func StringItems(ss ...string) (a Items) {
+        for _, s := range ss { 
+                a.AppendString(s)
+        }
+        return
+}
 
 // flatitem is a expanded string with a location
 type flatitem struct {
