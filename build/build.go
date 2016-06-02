@@ -77,22 +77,7 @@ func (hc *HookContext) Unhook() {
         panic("todo: Unhook...")
 }
 
-func Hookup(ht HooksMap, script string) (hc *HookContext, err error) {
-        if err = _AppendInit(ht, script); err == nil {
-                hc = new(HookContext)
-        }
-        return
-}
-
-func MustHookup(ht HooksMap, script string) *HookContext {
-        hc, err := Hookup(ht, script)
-        if err != nil {
-                panic(err)
-        }
-        return hc
-}
-
-func _AppendInit(hm HooksMap, script string) (err error) {
+func Hookup(hm HooksMap, script string) (hc *HookContext, err error) {
         if hm != nil {
                 for k, _ := range hm {
                         if v, ok := hooksMap[k]; ok && v != nil { 
@@ -108,7 +93,18 @@ func _AppendInit(hm HooksMap, script string) (err error) {
         if script != "" {
                 initScript = append(initScript, script)
         }
+        if err == nil {
+                hc = new(HookContext)
+        }
         return
+}
+
+func MustHookup(ht HooksMap, script string) *HookContext {
+        hc, err := Hookup(ht, script)
+        if err != nil {
+                panic(err)
+        }
+        return hc
 }
 
 type SourceLangMap map[string][]string
