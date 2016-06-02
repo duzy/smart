@@ -11,5 +11,7 @@
 /gcc/shared/foo_shared
 /gcc/shared/a.out
 /gcc/static/foo_static
+/gcc/exe_use_shared/foo_gcc_exe_use_shared
+/gcc/exe_use_static/foo_gcc_exe_use_static
 out
 temp.txt
