@@ -1,4 +1,4 @@
-module foo_shared, gcc
+module foo_shared, cc
 
 me.type := shared
 me.sources := foo.c

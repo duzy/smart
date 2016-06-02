@@ -1,4 +1,4 @@
-module foo_gcc_exe, gcc
+module foo_cc_exe, cc
 
 me.sources = foo.c
 me.includes = .

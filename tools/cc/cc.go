@@ -1,6 +1,8 @@
 //
 //  Copyright (C) 2012-2016, Duzy Chan <code@duzy.info>, all rights reserverd.
 //
+//  CC compatible toolchain -- gcc, clang
+//  
 package smart
 
 import (
@@ -12,30 +14,41 @@ import (
 
 var hc = MustHookup(
         HooksMap{
-                "gcc": HookTable{
+                "cc": HookTable{
                         "objects": hook_objects,
-                        "gen": hook_gen,
                         "loadings": hook_loadings,
+                        "compile": hook_compile,
+                        "gen": hook_gen,
                         //"c++-source-p": hookIsCxxSource,
                         //"c-source-p": hookIsCSource,
                 },
         },
         `# Build GCC Projects
-template gcc
+template cc
 
 post
 
-$(me.name): $(gcc:objects)
-	$(gcc:gen $@) $^ $(gcc:loadings)
+$(me.name): $(cc:objects)
+	$(cc:gen $@) $^ $(cc:loadings)
 
-%.o: %.c   ; gcc -c -o $@ $<
-%.o: %.cpp ; g++ -c -o $@ $<
+%.o: %.c   ; $(cc:compile $<) -o $@
+%.o: %.cpp ; $(cc:compile $<) -o $@
 
 commit
 `)
 
 func getGenTypeString(ctx *Context) string {
         return strings.ToLower(ctx.Call("me.type").Expand(ctx))
+}
+
+func isCxxExtension(s string) bool {
+        switch strings.ToLower(s) {
+        case ".cpp": fallthrough
+        case ".cxx": fallthrough
+        case ".c++": fallthrough
+        case ".cc":  return true
+        }
+        return false
 }
 
 func hook_objects(ctx *Context, args Items) (objects Items) {
@@ -51,6 +64,21 @@ func hook_objects(ctx *Context, args Items) (objects Items) {
         return
 }
 
+func hook_compile(ctx *Context, args Items) (compile Items) {
+        if 0 < len(args) {
+                source := args[0].Expand(ctx)
+                if isCxxExtension(filepath.Ext(source)) {
+                        compile.AppendString("g++")
+                } else {
+                        compile.AppendString("gcc")
+                }
+                compile.AppendString("-c", source)
+        } else {
+                compile.AppendString("false")
+        }
+        return
+}
+
 func hook_gen(ctx *Context, args Items) (gen Items) {
         var (
                 flags Items
@@ -60,11 +88,8 @@ func hook_gen(ctx *Context, args Items) (gen Items) {
 
 source_loop:
         for _, s := range ctx.Call("me.sources") {
-                switch strings.ToLower(filepath.Ext(s.Expand(ctx))) {
-                case ".cpp": fallthrough
-                case ".cxx": fallthrough
-                case ".c++": fallthrough
-                case ".cc":  cmd = "g++"; break source_loop
+                if isCxxExtension(filepath.Ext(s.Expand(ctx))) {
+                        cmd = "g++"; break source_loop
                 }
         }
         
