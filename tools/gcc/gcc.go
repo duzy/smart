@@ -55,26 +55,22 @@ func hook_gen(ctx *Context, args Items) (gen Items) {
         var (
                 flags Items
                 t = getGenTypeString(ctx)
+                cmd = "gcc"
         )
 
-        for _, a := range ctx.Call("me.sources") {
-                src := a.Expand(ctx)
-                ext := strings.ToLower(filepath.Ext(src))
-                switch ext {
+source_loop:
+        for _, s := range ctx.Call("me.sources") {
+                switch strings.ToLower(filepath.Ext(s.Expand(ctx))) {
                 case ".cpp": fallthrough
                 case ".cxx": fallthrough
                 case ".c++": fallthrough
-                case ".cc":
-                        gen = Items{ StringItem("g++") }
-                        return
+                case ".cc":  cmd = "g++"; break source_loop
                 }
         }
-        if gen.IsEmpty(ctx) {
-                gen = Items{ StringItem("gcc") }
-        }
-
+        
         switch t {
         case "shared":
+                gen = Items{ StringItem(cmd) }
                 if !args.IsEmpty(ctx) {
                         flags.AppendString("-o")
                         flags.AppendString(fmt.Sprintf("lib%s.so", args.Expand(ctx)))
@@ -88,6 +84,7 @@ func hook_gen(ctx *Context, args Items) (gen Items) {
                 }
         case "exe": fallthrough
         default:
+                gen = Items{ StringItem(cmd) }
                 if !args.IsEmpty(ctx) {
                         flags.AppendString("-o")
                         flags.Append(args...)
