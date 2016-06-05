@@ -118,7 +118,7 @@ type namespace interface {
         isPhonyTarget(ctx *Context, target string) bool
         saveDefines(names ...string) (saveIndex int, m map[string]*define)
         restoreDefines(saveIndex int)
-        Set(ctx *Context, ids []string, items ...Item)
+        set(ctx *Context, ids []string, items ...Item)
         getRules(kind nodeType, target string) (rules []*rule)
         getGoalRule() (target string)
         setGoalRule(target string)
@@ -203,22 +203,7 @@ func (ns *namespaceEmbed) restoreDefines(saveIndex int) {
         }
 }
 
-/*
-func (ns *namespaceEmbed) Call(ctx *Context, ids []string, args ...Item) (is Items) {
-        if n := len(ids); n == 1 {
-                if d, ok := ns.defines[ids[0]]; ok && d != nil {
-                        is = d.value
-                }
-        } else {
-                lineno, colno := ctx.l.caculateLocationLineColumn(ctx.l.location())
-                fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: nested referencing\n", ctx.l.scope, lineno, colno)
-
-                // FIXME: nested
-        }
-        return
-} */
-
-func (ns *namespaceEmbed) Set(ctx *Context, ids []string, items ...Item) {
+func (ns *namespaceEmbed) set(ctx *Context, ids []string, items ...Item) {
         if n := len(ids); n == 1 {
                 name := ids[0]
                 if d, ok := ns.defines[name]; ok && d != nil {
@@ -1422,11 +1407,6 @@ func (ctx *Context) With(m *Module, work func()) {
         work()
 }
 
-/*
-func (ctx *Context) CallWith(m *Module, name string, args ...Item) (is Items) {
-        return ctx.callWith(ctx.l.location(), m, name, args...)
-} */
-
 func (ctx *Context) Call(name string, args ...Item) (is Items) {
         return ctx.call(ctx.l.location(), name, args...)
 }
@@ -1517,15 +1497,6 @@ func (ctx *Context) callWithDetails(loc location, hasPrefix bool, prefix string,
         }
         return
 }
-
-/*
-func (ctx *Context) callWith(loc location, m *Module, name string, args ...Item) (is Items) {
-        o := ctx.m
-        ctx.m = m
-        is = ctx.call(loc, "me."+name, args...)
-        ctx.m = o
-        return
-} */
 
 // getDefine returns a define for hierarchy names like `tool:m1.m2.var`, `m1.m2.var`, etc.
 func (ctx *Context) getDefine(name string) (d *define, hasPrefix bool, prefix string, parts []string) {
@@ -1962,7 +1933,7 @@ func processNodeTemplate(ctx *Context, n *node) (err error) {
                         },
                 }
 
-                ctx.t.Set(ctx, []string{ "name" }, StringItem(name))
+                ctx.t.set(ctx, []string{ "name" }, StringItem(name))
         }
         return
 }

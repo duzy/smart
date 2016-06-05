@@ -920,26 +920,26 @@ func (r *rule) execute(ctx *Context, ec *ruleExecuteContext) error {
                 "*", "*D", "*F")
         defer ns.restoreDefines(saveIndex)
 
-        ns.Set(ctx, []string{ "@" },  stringitem(ec.target))
-        ns.Set(ctx, []string{ "@D" }, stringitem(filepath.Dir(ec.target)))
-        ns.Set(ctx, []string{ "@F" }, stringitem(filepath.Base(ec.target)))
-        ns.Set(ctx, []string{ "*" },  stringitem(ec.stem))
-        ns.Set(ctx, []string{ "*D" }, stringitem(filepath.Dir(ec.stem)))
-        ns.Set(ctx, []string{ "*F" }, stringitem(filepath.Base(ec.stem)))
+        ns.set(ctx, []string{ "@" },  stringitem(ec.target))
+        ns.set(ctx, []string{ "@D" }, stringitem(filepath.Dir(ec.target)))
+        ns.set(ctx, []string{ "@F" }, stringitem(filepath.Base(ec.target)))
+        ns.set(ctx, []string{ "*" },  stringitem(ec.stem))
+        ns.set(ctx, []string{ "*D" }, stringitem(filepath.Dir(ec.stem)))
+        ns.set(ctx, []string{ "*F" }, stringitem(filepath.Base(ec.stem)))
         if 0 < len(ec.prerequisites) {
                 l, ld, lf := targetDirBaseItems(ec.prerequisites)
-                ns.Set(ctx, []string{ "<" },  l[0])
-                ns.Set(ctx, []string{ "<D" }, ld[0])
-                ns.Set(ctx, []string{ "<F" }, lf[0])
-                ns.Set(ctx, []string{ "^" }, l...)
-                ns.Set(ctx, []string{ "^D" }, ld...)
-                ns.Set(ctx, []string{ "^F" }, lf...)
+                ns.set(ctx, []string{ "<" },  l[0])
+                ns.set(ctx, []string{ "<D" }, ld[0])
+                ns.set(ctx, []string{ "<F" }, lf[0])
+                ns.set(ctx, []string{ "^" }, l...)
+                ns.set(ctx, []string{ "^D" }, ld...)
+                ns.set(ctx, []string{ "^F" }, lf...)
         }
         if 0 < len(ec.newer) {
                 l, ld, lf := targetDirBaseItems(ec.newer)
-                ns.Set(ctx, []string{ "?" }, l...)
-                ns.Set(ctx, []string{ "?D" }, ld...)
-                ns.Set(ctx, []string{ "?F" }, lf...)
+                ns.set(ctx, []string{ "?" }, l...)
+                ns.set(ctx, []string{ "?D" }, ld...)
+                ns.set(ctx, []string{ "?F" }, lf...)
         }
         
         job := new(executeRecipes)
@@ -990,7 +990,7 @@ func (job *executeRecipes) Action() worker.Result {
 //
 // Example (TODO):
 //      
-//      # Updates global target 'foo.txt'
+//      # Updates global target 'foo.txt' (only)
 //      smart -g foo.txt
 //      
 //      # Updates module foo's target 'bar.txt'
