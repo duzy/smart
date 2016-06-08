@@ -1054,7 +1054,8 @@ func Build(vars map[string]string, cmds ...string) (ctx *Context) {
         err = traverse(d, func(fn string, fi os.FileInfo) bool {
                 fr := matchFileInfo(fi, generalMetaFiles)
                 if *flagGG && fr != nil { return false }
-                if fi.Name() == ".smart" {
+                switch s := fi.Name(); s {
+                case ".smart", "build.smart":
                         if err := ctx.include(fn); err != nil {
                                 errorf("include: `%v', %v\n", fn, err)
                         }
