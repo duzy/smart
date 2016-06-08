@@ -10,11 +10,6 @@ import (
 )
 
 var hc = MustHookup(
-        HooksMap{
-                "shell": HookTable{
-                        "exec": hookExec,
-                },
-        },
         `# Execute Shell Command
 template shell
 
@@ -22,7 +17,11 @@ start:!: $(me.depends) $(me.using)
 	@$(me.command) $(me.args)
 
 commit
-`)
+`, HooksMap{
+        "shell": HookTable{
+                "exec": hookExec,
+        },
+})
 
 
 func hookExec(ctx *Context, args Items) (res Items) {

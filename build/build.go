@@ -299,7 +299,7 @@ func (tt *templateToolset) CommitModule(ctx *Context, args Items) {
 type Module struct {
         *namespaceEmbed
         Parent *Module // upper module
-        Toolset toolset
+        Toolset toolset // TODO: get rid of 'toolset', use '*template' instead
         Updating bool // marked as 'true' if module is updating
         Children map[string]*Module
         declareLoc, commitLoc location // where does it defined and commit (could be nil)

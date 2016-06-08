@@ -1458,7 +1458,13 @@ func (ctx *Context) callWithDetails(loc location, hasPrefix bool, prefix string,
         n := len(parts)
 
         // Process special symbols and builtins first.
-        if !hasPrefix && n == 1 {
+        if hasPrefix {
+                if prefix == "~" && ctx.m != nil && ctx.m.Toolset != nil {
+                        if tt, ok := ctx.m.Toolset.(*templateToolset); ok {
+                                prefix = tt.name
+                        }
+                }
+        } else if n == 1 {
                 switch sym := parts[0]; sym {
                 case "$":  is = append(is, stringitem("$"))
                 case "me": // rename: $(me) -> $(me.name)
@@ -1524,7 +1530,15 @@ func (ctx *Context) getNamespaceWithDetails(hasPrefix bool, prefix string, parts
         num := len(parts)
 
         if hasPrefix {
-                if t, ok := ctx.templates[prefix]; ok && t != nil {
+                if prefix == "~" && ctx.m != nil && ctx.m.Toolset != nil {
+                        if tt, ok := ctx.m.Toolset.(*templateToolset); ok {
+                                ns, prefix = tt.namespaceEmbed, tt.name
+                        }
+                }
+                if ns != nil {
+                        fmt.Printf("tild: %v\n", ns)
+                        // ~
+                } else if t, ok := ctx.templates[prefix]; ok && t != nil {
                         ns = t.namespaceEmbed
                 } else {
                         lineno, colno := ctx.l.caculateLocationLineColumn(ctx.l.location())

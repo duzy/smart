@@ -1,0 +1,7 @@
+module toolchain, android-toolchain
+
+me.arch := arm
+me.platform := android-9
+me.toolchain := arm-linux-androideabi-4.9
+
+commit
