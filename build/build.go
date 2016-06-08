@@ -99,7 +99,7 @@ func Hookup(hm HooksMap, script string) (hc *HookContext, err error) {
         return
 }
 
-func MustHookup(ht HooksMap, script string) *HookContext {
+func MustHookup(script string, ht HooksMap) *HookContext {
         hc, err := Hookup(ht, script)
         if err != nil {
                 panic(err)

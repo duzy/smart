@@ -13,16 +13,6 @@ import (
 )
 
 var hc = MustHookup(
-        HooksMap{
-                "cc": HookTable{
-                        "objects": hook_objects,
-                        "loadings": hook_loadings,
-                        "compile": hook_compile,
-                        "gen": hook_gen,
-                        //"c++-source-p": hookIsCxxSource,
-                        //"c-source-p": hookIsCSource,
-                },
-        },
         `# Build GCC Projects
 template cc
 
@@ -35,7 +25,16 @@ $(me.name): $(cc:objects)
 %.o: %.cpp ; $(cc:compile $<) -o $@
 
 commit
-`)
+`, HooksMap{
+        "cc": HookTable{
+                "objects": hook_objects,
+                "loadings": hook_loadings,
+                "compile": hook_compile,
+                "gen": hook_gen,
+                //"c++-source-p": hookIsCxxSource,
+                //"c-source-p": hookIsCSource,
+        },
+})
 
 var langs = SourceLangMap{
         "c":   []string{ ".c" },

@@ -7,8 +7,7 @@ import (
         "github.com/duzy/smart/build"
         _ "github.com/duzy/smart/tools/shell"
         _ "github.com/duzy/smart/tools/cc"
-        //_ "github.com/duzy/smart/tools/android/ndk"
-        //_ "github.com/duzy/smart/tools/android/sdk"
+        _ "github.com/duzy/smart/tools/android/cc"
 )
 
 func main() {
