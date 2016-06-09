@@ -50,23 +50,6 @@ var (
         recipeStdout, recipeStderr, recipeEcho = io.Writer(os.Stdout), io.Writer(os.Stderr), io.Writer(os.Stdout)
 )
 
-// TODO: put this into namespace
-// toolset represents a toolchain like gcc and related utilities.
-type toolset interface {
-        // DeclModule setup the current module being processed.
-        // `args' and `vars' is passed in on the `$(module)' invocation.
-        DeclModule(p *Context, args Items, vars map[string]string)
-
-        // CommitModule setup the current module being committed.
-        CommitModule(p *Context, args Items)
-
-        // UseModule lets a toolset decides how to use a module.
-        UseModule(p *Context, o *Module) bool
-
-        // getNamespace returns toolset namespace (internal)
-        getNamespace() namespace
-}
-
 type HooksMap map[string]HookTable
 type HookTable map[string]Hook
 type Hook func(ctx *Context, args Items) Items
@@ -257,6 +240,13 @@ func (c *Excmd) run(targetHint string, args ...string) bool {
         return updated
 }
 
+// templateNodesProcessor is introduced to eliminate initialization loop detection:
+//     processors -> processNodeModule -> (*template).processDeclNodes -> (*Context).processNode -> processors
+type templateNodesProcessor interface {
+        processDeclNodes(ctx *Context, args Items, vars map[string]string)
+        processPostNodes(ctx *Context, args Items)
+}
+
 type template struct {
         *namespaceEmbed
         name string
@@ -265,20 +255,8 @@ type template struct {
         post, commit *node
 }
 
-type templateToolset struct {
-        *template
-}
-
-func (tt *templateToolset) getNamespace() namespace {
-        return tt.template.namespaceEmbed
-}
-
-func (tt *templateToolset) UseModule(p *Context, o *Module) bool {
-        return false
-}
-
-func (tt *templateToolset) DeclModule(ctx *Context, args Items, vars map[string]string) {
-        for _, n := range tt.declNodes {
+func (t *template) processDeclNodes(ctx *Context, args Items, vars map[string]string) {
+        for _, n := range t.declNodes {
                 if e := ctx.processNode(n); e != nil {
                         //errorf("%v", e)
                         break
@@ -286,20 +264,38 @@ func (tt *templateToolset) DeclModule(ctx *Context, args Items, vars map[string]
         }
 }
 
-func (tt *templateToolset) CommitModule(ctx *Context, args Items) {
-        for _, n := range tt.postNodes {
+func (t *template) processPostNodes(ctx *Context, args Items) {
+        for _, n := range t.postNodes {
                 if e := ctx.processNode(n); e != nil {
                         //errorf("%v", e)
                         break
                 }
         }
 }
+
+// TODO: put this into namespace, get rid of toolset
+/*
+type toolset interface {
+        // DeclModule setup the current module being processed.
+        // `args' and `vars' is passed in on the `$(module)' invocation.
+        DeclModule(p *Context, args Items, vars map[string]string)
+
+        // CommitModule setup the current module being committed.
+        CommitModule(p *Context, args Items)
+
+        // UseModule lets a toolset decides how to use a module.
+        UseModule(p *Context, o *Module) bool
+
+        // getNamespace returns toolset namespace (internal)
+        getNamespace() namespace
+}
+*/
 
 // Module is defined by a $(module) invocation in .smart script.
 type Module struct {
         *namespaceEmbed
         Parent *Module // upper module
-        Toolset toolset // TODO: get rid of 'toolset', use '*template' instead
+        Template *template
         Updating bool // marked as 'true' if module is updating
         Children map[string]*Module
         declareLoc, commitLoc location // where does it defined and commit (could be nil)

@@ -1459,10 +1459,8 @@ func (ctx *Context) callWithDetails(loc location, hasPrefix bool, prefix string,
 
         // Process special symbols and builtins first.
         if hasPrefix {
-                if prefix == "~" && ctx.m != nil && ctx.m.Toolset != nil {
-                        if tt, ok := ctx.m.Toolset.(*templateToolset); ok {
-                                prefix = tt.name
-                        }
+                if prefix == "~" && ctx.m != nil && ctx.m.Template != nil {
+                        prefix = ctx.m.Template.name
                 }
         } else if n == 1 {
                 switch sym := parts[0]; sym {
@@ -1530,10 +1528,8 @@ func (ctx *Context) getNamespaceWithDetails(hasPrefix bool, prefix string, parts
         num := len(parts)
 
         if hasPrefix {
-                if prefix == "~" && ctx.m != nil && ctx.m.Toolset != nil {
-                        if tt, ok := ctx.m.Toolset.(*templateToolset); ok {
-                                ns, prefix = tt.namespaceEmbed, tt.name
-                        }
+                if prefix == "~" && ctx.m != nil && ctx.m.Template != nil {
+                        ns, prefix = ctx.m.Template.namespaceEmbed, ctx.m.Template.name
                 }
                 if ns != nil {
                         fmt.Printf("tild: %v\n", ns)
@@ -1574,11 +1570,11 @@ func (ctx *Context) getNamespaceWithDetails(hasPrefix bool, prefix string, parts
                                         ns = ctx.m
                                 }
                         case "~":
-                                if ctx.m.Toolset == nil {
+                                if ctx.m.Template == nil {
                                         fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: no bound toolset\n", ctx.l.scope, lineno, colno)
                                         //break loop_parts
                                 } else {
-                                        ns = ctx.m.Toolset.getNamespace()
+                                        ns = ctx.m.Template.namespaceEmbed
                                 }
                         }
                 }
@@ -1954,11 +1950,11 @@ func processNodeTemplate(ctx *Context, n *node) (err error) {
 
 func processNodeModule(ctx *Context, n *node) (err error) {
         var (
-                name, exportName, toolsetName string
+                name, exportName, templateName string
                 args, loc = ctx.nodesItems(n.children...), n.loc()
         )
         if 0 < len(args) { name = strings.TrimSpace(args[0].Expand(ctx)) }
-        if 1 < len(args) { toolsetName = strings.TrimSpace(args[1].Expand(ctx)) }
+        if 1 < len(args) { templateName = strings.TrimSpace(args[1].Expand(ctx)) }
         if name == "" {
                 errorf("module name is required")
                 return
@@ -1970,11 +1966,9 @@ func processNodeModule(ctx *Context, n *node) (err error) {
 
         exportName = "export"
 
-        var toolset toolset
-        if toolsetName == "" {
-                // Discard empty toolset.
-        } else if t, ok := ctx.templates[toolsetName]; ok && t != nil {
-                toolset = &templateToolset{ template:t }
+        var t *template
+        if templateName != "" {
+                t, _ = ctx.templates[templateName]
         }
 
         var (
@@ -1984,7 +1978,7 @@ func processNodeModule(ctx *Context, n *node) (err error) {
         if m, has = ctx.modules[name]; !has && m == nil {
                 m = &Module{
                         l: nil,
-                        Toolset: toolset,
+                        Template: t,
                         Children: make(map[string]*Module, 2),
                         namespaceEmbed: &namespaceEmbed{
                                 defines: make(map[string]*define, 8),
@@ -2015,7 +2009,7 @@ func processNodeModule(ctx *Context, n *node) (err error) {
 
         // Reset the lex and location (because it could be created by $(use))
         if m.l == nil {
-                m.l, m.declareLoc, m.Toolset = ctx.l, loc, toolset
+                m.l, m.declareLoc, m.Template = ctx.l, loc, t
                 if upper != nil {
                         ctx.moduleStack = append(ctx.moduleStack, upper)
                 }
@@ -2052,7 +2046,7 @@ func processNodeModule(ctx *Context, n *node) (err error) {
         ctx.Set("me.name", stringitem(name))
         ctx.Set("me.export.name", stringitem(exportName))
 
-        if toolset != nil {
+        if t != nil {
                 // parsed arguments in forms like "PLATFORM=android-9"
                 var rest Items
                 vars := make(map[string]string, 4)
@@ -2064,7 +2058,11 @@ func processNodeModule(ctx *Context, n *node) (err error) {
                                 rest = append(rest, a)
                         }
                 }
-                toolset.DeclModule(ctx, rest, vars)
+                
+                // Use templateNodesProcessor to eliminate initialization loop
+                // detection (see 'processors').
+                p := templateNodesProcessor(t)
+                p.processDeclNodes(ctx, rest, vars)
         }
         return
 }
@@ -2107,8 +2105,11 @@ func processNodeCommit(ctx *Context, n *node) (err error) {
                 verbose("commit (%v:%v:%v)", ctx.l.scope, lineno, colno)
         }
 
-        if ctx.m.Toolset != nil {
-                ctx.m.Toolset.CommitModule(ctx, args)
+        if t := ctx.m.Template; t != nil {
+                // Use templateNodesProcessor to eliminate initialization loop
+                // detection (see 'processors').
+                p := templateNodesProcessor(t)
+                p.processPostNodes(ctx, args)
         }
         
         ctx.m.commitLoc = loc
