@@ -836,6 +836,10 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
                                 //fmt.Printf("updatePrerequisites: missing `%v` (%v)\n", target, prerequisite)
                                 return
                         }
+                } else if ctx.targetFoundable(target) {
+                        foundMatchRules = append(foundMatchRules, []*matchrule{
+                                &matchrule{ &match{ target, "" }, nil },
+                        })
                 } else {
                         err = errors.New(fmt.Sprintf("no rule to update prerequisite '%v' (%v)", target, prerequisite))
                         return
