@@ -1,3 +1,6 @@
-# -*- makefile-gmake -*-
-$(module foo-ndk-build, ndk-build, PLATFORM=android-9,ABI=armeabi armeabi-v7a armeabi-v7a-hard)
-$(commit)
+module test-ndk-build, android-ndk
+
+me.abi := armeabi armeabi-v7a armeabi-v7a-hard
+me.platform := android-9
+
+commit

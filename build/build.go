@@ -256,19 +256,23 @@ type template struct {
 }
 
 func (t *template) processDeclNodes(ctx *Context, args Items, vars map[string]string) {
-        for _, n := range t.declNodes {
-                if e := ctx.processNode(n); e != nil {
-                        //errorf("%v", e)
-                        break
+        if t.declNodes != nil {
+                for _, n := range t.declNodes {
+                        if e := ctx.processNode(n); e != nil {
+                                //errorf("%v", e)
+                                break
+                        }
                 }
         }
 }
 
 func (t *template) processPostNodes(ctx *Context, args Items) {
-        for _, n := range t.postNodes {
-                if e := ctx.processNode(n); e != nil {
-                        //errorf("%v", e)
-                        break
+        if t.postNodes != nil {
+                for _, n := range t.postNodes {
+                        if e := ctx.processNode(n); e != nil {
+                                //errorf("%v", e)
+                                break
+                        }
                 }
         }
 }
@@ -351,8 +355,8 @@ func (m *Module) update(ctx *Context) (updated bool) {
                         owd, err := os.Getwd()
                         if err != nil { errorf("get working directory: %v", err) }
                         
-                        wd := m.Get(ctx, "workdir")
-                        if wd != owd {
+                        wd, cd := m.Get(ctx, "workdir"), *flagCD
+                        if wd != owd && cd {
                                 if err = os.Chdir(wd); err != nil {
                                         errorf("change working directory: %v", err)
                                 }
@@ -360,7 +364,7 @@ func (m *Module) update(ctx *Context) (updated bool) {
                         
                         om := ctx.m
                         defer func(){ 
-                                if wd != owd {
+                                if wd != owd && cd {
                                         if err = os.Chdir(owd); err != nil {
                                                 errorf("change working directory: %v", err)
                                         }
@@ -828,12 +832,13 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
                                 return
                         }
                         if ctx.targetFoundable(target) {
+                                //fmt.Printf("updatePrerequisites: found `%v` (%v)\n", target, prerequisite)
                                 foundMatchRules = append(foundMatchRules, []*matchrule{
                                         &matchrule{ &match{ target, m.stem }, nil },
                                 })
                         } else {
-                                err = errors.New(fmt.Sprintf("no rule to update prerequisite '%v' (%v)", target, prerequisite))
-                                //fmt.Printf("updatePrerequisites: missing `%v` (%v)\n", target, prerequisite)
+                                //fmt.Printf("update-prerequisites: missing `%v` (%v)\n", target, prerequisite)
+                                //err = errors.New(fmt.Sprintf("no rule to update prerequisite '%v' (from %v)", target, prerequisite))
                                 return
                         }
                 } else if ctx.targetFoundable(target) {
@@ -988,7 +993,7 @@ func (job *executeRecipes) Action() worker.Result {
 
 // Update updates the specified targets given in `cmds`.
 //
-// Example (TODO):
+// Examples (TODO):
 //      
 //      # Updates global target 'foo.txt' (only)
 //      smart -g foo.txt
@@ -1015,7 +1020,9 @@ func Update(ctx *Context, cmds ...string) {
                 }
         } else {
                 for _, cmd := range cmds {
-                        ctx.update(cmd)
+                        if !ctx.update(cmd) {
+                                fmt.Printf("smart: '%v' not updated\n", cmd)
+                        }
                 }
         }
 }

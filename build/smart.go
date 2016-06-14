@@ -28,7 +28,18 @@ var (
         flagVV= flag.Bool("V", false, "print command verbosely")
         flagW = flag.Bool("w", false, "warn undefined symbols")
         flagL = flag.Bool("l", false, "warn undefined symbols")
+        flagCD = flag.Bool("cd", true, "chdir when building")
 )
+
+var hc = MustHookup(`
+template smart
+post
+commit
+`, HooksMap{
+        "smart": HookTable{
+                //"configure": hook_configure,
+        },
+})
 
 func GetFlagA() bool    { return *flagA }
 func GetFlagM() bool    { return *flagM }
@@ -41,6 +52,7 @@ func GetFlagT() string  { return *flagT }
 func GetFlagL() bool    { return *flagL }
 func GetFlagV() bool    { return *flagV }
 func GetFlagVV() bool   { return *flagVV }
+func GetFlagCD() bool   { return *flagCD }
 
 func SetFlagA(v bool)   { *flagA = v }
 func SetFlagM(v bool)   { *flagM = v }
@@ -53,6 +65,7 @@ func SetFlagT(v string) { *flagT = v }
 func SetFlagL(v bool)   { *flagL = v }
 func SetFlagV(v bool)   { *flagV = v }
 func SetFlagVV(v bool)  { *flagVV = v }
+func SetFlagCD(v bool)  { *flagCD = v }
 
 type smarterror struct {
         message string
@@ -130,10 +143,6 @@ func Main() {
         flag.Parse()
 
         vars, cmds := splitVarArgs(flag.Args())
-
-        if 0 == len(cmds) {
-                cmds = append(cmds, "update")
-        }
 
         Build(vars, cmds...)
 }

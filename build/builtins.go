@@ -6,16 +6,32 @@ package smart
 import (
         "path/filepath"
         "strings"
+        "regexp"
+        "bytes"
         "fmt"
+        "io/ioutil"
+        "os/exec"
+        "os"
 )
 
 type builtin func(ctx *Context, loc location, args Items) Items
 
 var (
+        rxName = regexp.MustCompile(`@(?P<N>.*?)@`)
+        
         builtins = map[string]builtin {
-                "dir":          builtinDir,
                 "info":         builtinInfo,
+                
+                "assert":       builtinAssert,
+                "assert-not":   builtinAssertNot,
+                "ignore":       builtinIgnore,
+                
+                "dir":          builtinDir,
 
+                "trim-space":   builtinTrimSpace,
+                "trim-prefix":  builtinTrimPrefix,
+                "trim-suffix":  builtinTrimSuffix,
+                
                 "upper":        builtinUpper,
                 "lower":        builtinLower,
                 "title":        builtinTitle,
@@ -31,6 +47,15 @@ var (
                 //"!=":         builtinSetNot,
                 "?=":           builtinSetQuestioned,
                 "+=":           builtinSetAppend,
+
+                "shell":        builtinShell,
+                "pkg-config":   builtinPkgConfig,
+                // pkg-include-dirs
+                // pkg-lib-dirs
+                // pkg-libs
+                // pkg-cflags
+                // pkg-ldflags
+                "configure":    builtinConfigure,
         }
 
         builtinInfoFunc = func(ctx *Context, args Items) {
@@ -48,6 +73,31 @@ func SetBuiltinInfoFunc(f func(ctx *Context, args Items)) func(ctx *Context, arg
         return previous
 }
 
+func builtinInfo(ctx *Context, loc location, args Items) (is Items) {
+        if builtinInfoFunc != nil {
+                builtinInfoFunc(ctx, args)
+        }
+        return
+}
+
+func builtinAssert(ctx *Context, loc location, args Items) (is Items) {
+        if strings.TrimSpace(args.Expand(ctx)) != "true" {
+                errorf("assersion failed")
+        }
+        return
+}
+
+func builtinAssertNot(ctx *Context, loc location, args Items) (is Items) {
+        if strings.TrimSpace(args.Expand(ctx)) != "false" {
+                errorf("assersion failed")
+        }
+        return
+}
+
+func builtinIgnore(ctx *Context, loc location, args Items) (is Items) {
+        return
+}
+
 func builtinDir(ctx *Context, loc location, args Items) (is Items) {
         for _, a := range args {
                 is = append(is, stringitem(filepath.Dir(a.Expand(ctx))))
@@ -55,9 +105,31 @@ func builtinDir(ctx *Context, loc location, args Items) (is Items) {
         return
 }
 
-func builtinInfo(ctx *Context, loc location, args Items) (is Items) {
-        if builtinInfoFunc != nil {
-                builtinInfoFunc(ctx, args)
+func builtinTrimSpace(ctx *Context, loc location, args Items) (is Items) {
+        if 1 < len(args) {
+                for _, a := range args[1:] {
+                        is.AppendString(strings.TrimSpace(a.Expand(ctx)))
+                }
+        }
+        return
+}
+
+func builtinTrimPrefix(ctx *Context, loc location, args Items) (is Items) {
+        if 1 < len(args) {
+                prefix := strings.TrimSpace(args[0].Expand(ctx))
+                for _, a := range args[1:] {
+                        is.AppendString(strings.TrimPrefix(a.Expand(ctx), prefix))
+                }
+        }
+        return
+}
+
+func builtinTrimSuffix(ctx *Context, loc location, args Items) (is Items) {
+        if 1 < len(args) {
+                suffix := strings.TrimSpace(args[0].Expand(ctx))
+                for _, a := range args[1:] {
+                        is.AppendString(strings.TrimSuffix(a.Expand(ctx), suffix))
+                }
         }
         return
 }
@@ -143,5 +215,99 @@ func builtinLet(ctx *Context, loc location, args Items) (is Items) {
 // builtinExpr evaluates a math expression.
 func builtinExpr(ctx *Context, loc location, args Items) (is Items) {
         errorf("todo: %v", args)
+        return
+}
+
+// $(shell pwd)
+func builtinShell(ctx *Context, loc location, args Items) (result Items) {
+        var stdout, stderr bytes.Buffer
+        
+        commands := args.Expand(ctx)
+        sh := exec.Command("sh", "-c", commands)
+        sh.Stdout, sh.Stderr = &stdout, &stderr
+        if e := sh.Run(); e != nil {
+                fmt.Printf("smart: shell: %v (%v)\n", e, commands)
+                return
+        }
+
+        result.AppendString(strings.TrimSuffix(stdout.String(), "\n"))
+        return
+}
+
+// $(pkg-config --cflags --libs, foo, bar, foobar)
+func builtinPkgConfig(ctx *Context, loc location, args Items) (result Items) {
+        var stdout, stderr bytes.Buffer
+        
+        a := Split(args.Expand(ctx))
+        pc := exec.Command("pkg-config", a...)
+        pc.Stdout, pc.Stderr = &stdout, &stderr
+        if e := pc.Run(); e != nil {
+                fmt.Printf("smart: pkg-config: %v\n", e)
+                return
+        }
+
+        result.AppendString(strings.TrimSuffix(stdout.String(), "\n"))
+        return
+}
+
+// $(configure <OUTPUT>, <INTPUT>, ...)
+func builtinConfigure(ctx *Context, loc location, args Items) (result Items) {
+        if len(args) < 2 {
+                result.AppendString("false")
+                errorf("configure: insufficient arguments: %v", args.Expand(ctx))
+                return
+        }
+
+        var (
+                outputName = strings.TrimSpace(args[0].Expand(ctx))
+                inputName = strings.TrimSpace(args[1].Expand(ctx))
+        )
+
+        input, e := os.Open(inputName)
+        if e != nil {
+                result.AppendString("false")
+                errorf("configure: %v", e)
+                return
+        }
+
+        if e = os.MkdirAll(filepath.Dir(outputName), os.FileMode(0755)); e != nil {
+                result.AppendString("false")
+                errorf("configure: %v", e)
+                return
+        }
+        
+        output, e := os.Create(outputName)
+        if e != nil {
+                result.AppendString("false")
+                errorf("configure: %v", e)
+                return
+        }
+
+        s, e := ioutil.ReadAll(input)
+        if e != nil {
+                result.AppendString("false")
+                errorf("configure: %v", e)
+                return
+        }
+        
+        s = rxName.ReplaceAllFunc(s, func(x []byte) []byte {
+                m := rxName.FindSubmatchIndex(x)
+                b := rxName.Expand(nil, []byte("$N"), x, m)
+                if ctx.m != nil {
+                        name := string(b)
+                        if d, ok := ctx.m.defines[name]; ok && d != nil {
+                                return []byte(d.value.Expand(ctx))
+                        }
+                }
+                return []byte("")
+        })
+
+        if _, e = output.Write(s); e != nil {
+                result.AppendString("false")
+                errorf("configure: %v", e)
+                return
+        }
+
+        result.AppendString("true")
         return
 }
