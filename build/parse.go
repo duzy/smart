@@ -1581,8 +1581,12 @@ func (ctx *Context) getNamespaceWithDetails(hasPrefix bool, prefix string, parts
                                 }
                         case "~":
                                 if ctx.tild == nil {
-                                        fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: tild is referred to nil template\n", ctx.l.scope, lineno, colno)
-                                        //break loop_parts
+                                        if ctx.m != nil && 0 < len(ctx.m.Templates) {
+                                                ns = ctx.m.Templates[0].namespaceEmbed
+                                        } else {
+                                                fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: tild is referred to nil template\n", ctx.l.scope, lineno, colno)
+                                                //break loop_parts
+                                        }
                                 } else {
                                         ns = ctx.tild.namespaceEmbed
                                 }
@@ -2074,14 +2078,12 @@ func processNodeModule(ctx *Context, n *node) (err error) {
                 if i == 0 {
                         // Module always refer "~" to the first tempalte
                         ctx.tild = t
-                        //fmt.Printf("a: %v\n", t)
                 }
                 
                 // Use templateNodesProcessor to eliminate initialization loop
                 // detection (see 'processors').
                 templateNodesProcessor(t).processDeclNodes(ctx)
         }
-        //fmt.Printf("m: %v\n", ctx.tild)
         return
 }
 
@@ -2123,15 +2125,11 @@ func processNodeCommit(ctx *Context, n *node) (err error) {
                 verbose("commit (%v:%v:%v)", ctx.l.scope, lineno, colno)
         }
 
-        //fmt.Printf("c1: %v\n", ctx.tild)
-        
         for _, t := range ctx.m.Templates {
                 // Use templateNodesProcessor to eliminate initialization loop
                 // detection (see 'processors').
                 templateNodesProcessor(t).processPostNodes(ctx)
         }
-
-        //fmt.Printf("c2: %v\n", ctx.tild)
 
         ctx.m.commitLoc = loc
         ctx.moduleBuildList = append(ctx.moduleBuildList, pendedBuild{ctx.m, ctx, args})

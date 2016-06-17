@@ -684,7 +684,7 @@ commit
 
         if fi, e := os.Stat(fmt.Sprintf("%s/m.txt", wd)); fi == nil || e != nil { t.Errorf("%v", e) } else {
                 if b, e := ioutil.ReadFile(fmt.Sprintf("%s/m.txt", wd)); e != nil { t.Errorf("%v", e) } else {
-                        if string(b) != `m: 
+                        if string(b) != `m: final-var
 m: base-var
 m: derived-var
 m: final-var
@@ -693,17 +693,17 @@ m: final-var
         }
         if fi, e := os.Stat(fmt.Sprintf("%s/m.base.txt", wd)); fi == nil || e != nil { t.Errorf("%v", e) } else {
                 if b, e := ioutil.ReadFile(fmt.Sprintf("%s/m.base.txt", wd)); e != nil { t.Errorf("%v", e) } else {
-                        if string(b) != "m: \n" { t.Errorf("invalid: %v", string(b)) }
+                        if string(b) != "m: final-var\n" { t.Errorf("invalid: %v", string(b)) }
                 }
         }
         if fi, e := os.Stat(fmt.Sprintf("%s/m.derived.txt", wd)); fi == nil || e != nil { t.Errorf("%v", e) } else {
                 if b, e := ioutil.ReadFile(fmt.Sprintf("%s/m.derived.txt", wd)); e != nil { t.Errorf("%v", e) } else {
-                        if string(b) != "m: \n" { t.Errorf("invalid: %v", string(b)) }
+                        if string(b) != "m: final-var\n" { t.Errorf("invalid: %v", string(b)) }
                 }
         }
         if fi, e := os.Stat(fmt.Sprintf("%s/m.final.txt", wd)); fi == nil || e != nil { t.Errorf("%v", e) } else {
                 if b, e := ioutil.ReadFile(fmt.Sprintf("%s/m.final.txt", wd)); e != nil { t.Errorf("%v", e) } else {
-                        if string(b) != "m: \n" { t.Errorf("invalid: %v", string(b)) }
+                        if string(b) != "m: final-var\n" { t.Errorf("invalid: %v", string(b)) }
                 }
         }
 
