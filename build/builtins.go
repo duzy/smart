@@ -17,7 +17,9 @@ import (
 type builtin func(ctx *Context, loc location, args Items) Items
 
 var (
-        rxName = regexp.MustCompile(`@(?P<N>.*?)@`)
+        rxName = regexp.MustCompile(`(@.*?@|\${.*?})`)
+        rxName1 = regexp.MustCompile(`@(?P<N>.*?)@`)
+        rxName2 = regexp.MustCompile(`\${(?P<N>.*?)}`)
         
         builtins = map[string]builtin {
                 "info":         builtinInfo,
@@ -48,6 +50,9 @@ var (
                 "?=":           builtinSetQuestioned,
                 "+=":           builtinSetAppend,
 
+                "global-goal":  builtinGlobalGoal,
+                "module-goal":  builtinModuleGoal,
+                
                 "shell":        builtinShell,
                 "pkg-config":   builtinPkgConfig,
                 // pkg-include-dirs
@@ -56,6 +61,9 @@ var (
                 // pkg-cflags
                 // pkg-ldflags
                 "configure":    builtinConfigure,
+
+                "count-file-bytes": builtinCountFileBytes,
+                "load-in-hex":  builtinLoadInHex,
         }
 
         builtinInfoFunc = func(ctx *Context, args Items) {
@@ -218,6 +226,28 @@ func builtinExpr(ctx *Context, loc location, args Items) (is Items) {
         return
 }
 
+func builtinGlobalGoal(ctx *Context, loc location, args Items) (is Items) {
+        if ctx.g != nil {
+                if 0 < len(args) {
+                        ctx.g.setGoal(args[0].Expand(ctx))
+                } else {
+                        is.AppendString(ctx.g.getGoal())
+                }
+        }
+        return
+}
+
+func builtinModuleGoal(ctx *Context, loc location, args Items) (is Items) {
+        if ctx.m != nil {
+                if 0 < len(args) {
+                        ctx.m.setGoal(args[0].Expand(ctx))
+                } else {
+                        is.AppendString(ctx.m.getGoal())
+                }
+        }
+        return
+}
+
 // $(shell pwd)
 func builtinShell(ctx *Context, loc location, args Items) (result Items) {
         var stdout, stderr bytes.Buffer
@@ -291,8 +321,13 @@ func builtinConfigure(ctx *Context, loc location, args Items) (result Items) {
         }
         
         s = rxName.ReplaceAllFunc(s, func(x []byte) []byte {
-                m := rxName.FindSubmatchIndex(x)
-                b := rxName.Expand(nil, []byte("$N"), x, m)
+                var b []byte
+                if m := rxName1.FindSubmatchIndex(x); m != nil {
+                        b = rxName1.Expand(nil, []byte("$N"), x, m)
+                } else {
+                        m = rxName2.FindSubmatchIndex(x)
+                        b = rxName2.Expand(nil, []byte("$N"), x, m)
+                }
                 if ctx.m != nil {
                         name := string(b)
                         if d, ok := ctx.m.defines[name]; ok && d != nil {
@@ -309,5 +344,42 @@ func builtinConfigure(ctx *Context, loc location, args Items) (result Items) {
         }
 
         result.AppendString("true")
+        return
+}
+
+// $(load-in-hex filename)
+func builtinLoadInHex(ctx *Context, loc location, args Items) (result Items) {
+        buf := new(bytes.Buffer)
+        for _, a := range args {
+                filename := strings.TrimSpace(a.Expand(ctx))
+                if f, e := os.Open(filename); e != nil {
+                        fmt.Printf("smart: load-in-hex: %v (%v)\n", e, filename)
+                } else if ba, e := ioutil.ReadAll(f); e != nil {
+                        fmt.Printf("smart: load-in-hex: %v (%v)\n", e, filename)
+                } else {
+                        cols := 16
+                        for x, i := len(ba), 0; i < x; i++ {
+                                fmt.Fprintf(buf, "0x%02X", ba[i])
+                                if i + 1 < x {
+                                        fmt.Fprintf(buf, ", ")
+                                }
+                                if 0 < i && ((i + 1) % cols) == 0 {
+                                        fmt.Fprintf(buf, "\n")
+                                }
+                        }
+                }
+        }
+        result.AppendString(buf.String())
+        return
+}
+
+// $(count-file-bytes filename)
+func builtinCountFileBytes(ctx *Context, loc location, args Items) (result Items) {
+        for _, a := range args {
+                filename := strings.TrimSpace(a.Expand(ctx))
+                if fi, e := os.Stat(filename); e == nil {
+                        result.AppendString(fmt.Sprintf("%d", fi.Size()))
+                }
+        }
         return
 }

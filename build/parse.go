@@ -120,23 +120,23 @@ type namespace interface {
         restoreDefines(saveIndex int)
         set(ctx *Context, ids []string, items ...Item)
         getRules(kind nodeType, target string) (rules []*rule)
-        getGoalRule() (target string)
-        setGoalRule(target string)
+        getGoal() (target string)
+        setGoal(target string)
         link(targets ...string) (r *rule)
 }
 
 type namespaceEmbed struct {
         defines map[string]*define
         saveList []map[string]*define // saveDefines, restoreDefines
-        files map[string]*rule
+        rules map[string]*rule
         patts map[string]*rule
         pattList []*rule
         goal string
 }
-func (ns *namespaceEmbed) getGoalRule() string { return ns.goal }
-func (ns *namespaceEmbed) setGoalRule(target string) { ns.goal = target }
+func (ns *namespaceEmbed) getGoal() string { return ns.goal }
+func (ns *namespaceEmbed) setGoal(target string) { ns.goal = target }
 func (ns *namespaceEmbed) getRules(kind nodeType, target string) (rules []*rule) {
-        for ru, ok := ns.files[target]; ok && ru != nil; {
+        for ru, ok := ns.rules[target]; ok && ru != nil; {
                 if ru.node.kind == kind {
                         rules = append(rules, ru)
                 }
@@ -154,7 +154,7 @@ func (ns *namespaceEmbed) link(targets ...string) (r *rule) {
                         prev, _ = ns.patts[target]
                         r.kind = rulePercentPattern
                 default:
-                        prev, _ = ns.files[target]
+                        prev, _ = ns.rules[target]
                         r.kind = ruleFileTarget
                 }
                 
@@ -167,7 +167,7 @@ func (ns *namespaceEmbed) link(targets ...string) (r *rule) {
 
                 switch r.kind {
                 case ruleFileTarget: 
-                        ns.files[target] = r
+                        ns.rules[target] = r
                 case rulePercentPattern: fallthrough
                 case ruleRegexPattern:   fallthrough
                 case ruleGlobPattern:
@@ -230,7 +230,7 @@ func (ns *namespaceEmbed) getDefineMap() map[string]*define {
 }
 
 func (ns *namespaceEmbed) findMatchRules(ctx *Context, target string) (matchrules []*matchrule) {
-        if r, ok := ns.files[target]; ok && r != nil {
+        if r, ok := ns.rules[target]; ok && r != nil {
                 if m, ok := r.match(target); ok && m != nil {
                         matchrules = append(matchrules, &matchrule{ m, r })
                 }
@@ -247,7 +247,7 @@ func (ns *namespaceEmbed) findMatchRules(ctx *Context, target string) (matchrule
 }
 
 func (ns *namespaceEmbed) isPhonyTarget(ctx *Context, target string) bool {
-        if rr, ok := ns.files[target]; ok && rr != nil {
+        if rr, ok := ns.rules[target]; ok && rr != nil {
                 return rr.node.kind == nodeRulePhony
         }
         return false
@@ -297,6 +297,8 @@ var (
                 "commit":       nodeCommit,
                 "post":         nodePost,
                 "use":          nodeUse,
+                // TODO: template...endtempl
+                // TODO: module...endmod
         }
 
         processors = map[nodeType]func(ctx *Context, n *node)(err error){
@@ -1364,6 +1366,7 @@ type Context struct {
         l *lex // the current lexer
         m *Module // the current module being processed
         t *template // the current template being processed
+        tild *template // the current template referred by '~'
 
         g *namespaceEmbed // the global namespace
 
@@ -1457,10 +1460,32 @@ func (ctx *Context) call(loc location, name string, args ...Item) (is Items) {
 func (ctx *Context) callWithDetails(loc location, hasPrefix bool, prefix string, parts []string, args ...Item) (is Items) {
         n := len(parts)
 
+        call := func(ns namespace) (called bool) {
+                if ns == nil { return }
+                if m := ns.getDefineMap(); m != nil && 0 < n {
+                        sym := parts[n-1]
+                        if hasPrefix {
+                                if ht, ok := hooksMap[prefix]; ok && ht != nil {
+                                        if h, ok := ht[sym]; ok && h != nil {
+                                                is, called = h(ctx, args), true
+                                        }
+                                }
+                        }
+                        if !called {
+                                if d, ok := m[sym]; ok && d != nil {
+                                        is, called = d.value, true
+                                }
+                        }
+                }
+                return
+        }
+        
         // Process special symbols and builtins first.
         if hasPrefix {
-                if prefix == "~" && ctx.m != nil && ctx.m.Template != nil {
-                        prefix = ctx.m.Template.name
+                if prefix == "~" && ctx.tild != nil {
+                        if prefix = ctx.tild.name; call(ctx.getNamespaceWithDetails(hasPrefix, prefix, parts)) {
+                                return
+                        }
                 }
         } else if n == 1 {
                 switch sym := parts[0]; sym {
@@ -1476,21 +1501,7 @@ func (ctx *Context) callWithDetails(loc location, hasPrefix bool, prefix string,
         }
 
         if ns := ctx.getNamespaceWithDetails(hasPrefix, prefix, parts); ns != nil {
-                if m := ns.getDefineMap(); m != nil && 0 < n {
-                        sym, hooked := parts[n-1], false
-                        if hasPrefix {
-                                if ht, ok := hooksMap[prefix]; ok && ht != nil {
-                                        if h, ok := ht[sym]; ok && h != nil {
-                                                is, hooked = h(ctx, args), true
-                                        }
-                                }
-                        }
-                        if !hooked {
-                                if d, ok := m[sym]; ok && d != nil {
-                                        is = d.value
-                                }
-                        }
-                }
+                _ = call(ns)
         } else {
                 lineno, colno := ctx.l.caculateLocationLineColumn(loc)
                 if hasPrefix {
@@ -1528,12 +1539,11 @@ func (ctx *Context) getNamespaceWithDetails(hasPrefix bool, prefix string, parts
         num := len(parts)
 
         if hasPrefix {
-                if prefix == "~" && ctx.m != nil && ctx.m.Template != nil {
-                        ns, prefix = ctx.m.Template.namespaceEmbed, ctx.m.Template.name
+                if prefix == "~" && ctx.tild != nil {
+                        ns, prefix = ctx.tild.namespaceEmbed, ctx.tild.name
                 }
                 if ns != nil {
-                        fmt.Printf("tild: %v\n", ns)
-                        // ~
+                        // ~ // fmt.Printf("tild: %v\n", ns)
                 } else if t, ok := ctx.templates[prefix]; ok && t != nil {
                         ns = t.namespaceEmbed
                 } else {
@@ -1570,11 +1580,11 @@ func (ctx *Context) getNamespaceWithDetails(hasPrefix bool, prefix string, parts
                                         ns = ctx.m
                                 }
                         case "~":
-                                if ctx.m.Template == nil {
-                                        fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: no bound toolset\n", ctx.l.scope, lineno, colno)
+                                if ctx.tild == nil {
+                                        fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: tild is referred to nil template\n", ctx.l.scope, lineno, colno)
                                         //break loop_parts
                                 } else {
-                                        ns = ctx.m.Template.namespaceEmbed
+                                        ns = ctx.tild.namespaceEmbed
                                 }
                         }
                 }
@@ -1875,10 +1885,10 @@ func processNodeRule(ctx *Context, n *node) (err error) {
                 }
         }
 
-        // Set goal rule if nil
+        // Set goal if empty.
         if 0 < len(r.targets) {
-                if g := r.ns.getGoalRule(); g == "" {
-                        r.ns.setGoalRule(r.targets[0])
+                if g := r.ns.getGoal(); g == "" {
+                        r.ns.setGoal(r.targets[0])
                 }
         }
 
@@ -1938,23 +1948,34 @@ func processNodeTemplate(ctx *Context, n *node) (err error) {
                         name:name,
                         namespaceEmbed: &namespaceEmbed{
                                 defines: make(map[string]*define, 8),
-                                files: make(map[string]*rule, 4),
+                                rules: make(map[string]*rule, 4),
                                 patts: make(map[string]*rule, 2),
                         },
                 }
 
                 ctx.t.set(ctx, []string{ "name" }, StringItem(name))
+                
+                if 1 < len(args) {
+                        for _, a := range args[1:] {
+                                name := strings.TrimSpace(a.Expand(ctx))
+                                if t, ok := ctx.templates[name]; !ok || t == nil {
+                                        errorf("template '%s' is not declared", name)
+                                        return
+                                } else {
+                                        ctx.t.bases = append(ctx.t.bases, t)
+                                }
+                        }
+                }
         }
         return
 }
 
 func processNodeModule(ctx *Context, n *node) (err error) {
         var (
-                name, exportName, templateName string
+                name, exportName string
                 args, loc = ctx.nodesItems(n.children...), n.loc()
         )
         if 0 < len(args) { name = strings.TrimSpace(args[0].Expand(ctx)) }
-        if 1 < len(args) { templateName = strings.TrimSpace(args[1].Expand(ctx)) }
         if name == "" {
                 errorf("module name is required")
                 return
@@ -1966,11 +1987,6 @@ func processNodeModule(ctx *Context, n *node) (err error) {
 
         exportName = "export"
 
-        var t *template
-        if templateName != "" {
-                t, _ = ctx.templates[templateName]
-        }
-
         var (
                 m *Module
                 has bool
@@ -1978,11 +1994,10 @@ func processNodeModule(ctx *Context, n *node) (err error) {
         if m, has = ctx.modules[name]; !has && m == nil {
                 m = &Module{
                         l: nil,
-                        Template: t,
                         Children: make(map[string]*Module, 2),
                         namespaceEmbed: &namespaceEmbed{
                                 defines: make(map[string]*define, 8),
-                                files: make(map[string]*rule, 4),
+                                rules: make(map[string]*rule, 4),
                                 patts: make(map[string]*rule, 2),
                         },
                 }
@@ -2009,7 +2024,16 @@ func processNodeModule(ctx *Context, n *node) (err error) {
 
         // Reset the lex and location (because it could be created by $(use))
         if m.l == nil {
-                m.l, m.declareLoc, m.Template = ctx.l, loc, t
+                m.l, m.declareLoc = ctx.l, loc
+
+                if 1 < len(args) {
+                        for _, nameItem := range args[1:] {
+                                name := strings.TrimSpace(nameItem.Expand(ctx))
+                                if t, _ := ctx.templates[name]; t != nil {
+                                        m.Templates = append(m.Templates, t)
+                                }
+                        }
+                }
                 if upper != nil {
                         ctx.moduleStack = append(ctx.moduleStack, upper)
                 }
@@ -2022,7 +2046,7 @@ func processNodeModule(ctx *Context, n *node) (err error) {
                         Children: make(map[string]*Module),
                         namespaceEmbed: &namespaceEmbed{
                                 defines: make(map[string]*define, 4),
-                                files: make(map[string]*rule, 4),
+                                rules: make(map[string]*rule, 4),
                                 patts: make(map[string]*rule, 2),
                         },
                 }
@@ -2046,24 +2070,18 @@ func processNodeModule(ctx *Context, n *node) (err error) {
         ctx.Set("me.name", stringitem(name))
         ctx.Set("me.export.name", stringitem(exportName))
 
-        if t != nil {
-                // parsed arguments in forms like "PLATFORM=android-9"
-                var rest Items
-                vars := make(map[string]string, 4)
-                for _, a := range args[2:] {
-                        s := a.Expand(ctx)
-                        if i := strings.Index(s, "="); 0 < i /* false if '=foo' */ {
-                                vars[strings.TrimSpace(s[0:i])] = strings.TrimSpace(s[i+1:])
-                        } else {
-                                rest = append(rest, a)
-                        }
+        for i, t := range m.Templates {
+                if i == 0 {
+                        // Module always refer "~" to the first tempalte
+                        ctx.tild = t
+                        //fmt.Printf("a: %v\n", t)
                 }
                 
                 // Use templateNodesProcessor to eliminate initialization loop
                 // detection (see 'processors').
-                p := templateNodesProcessor(t)
-                p.processDeclNodes(ctx, rest, vars)
+                templateNodesProcessor(t).processDeclNodes(ctx)
         }
+        //fmt.Printf("m: %v\n", ctx.tild)
         return
 }
 
@@ -2105,13 +2123,16 @@ func processNodeCommit(ctx *Context, n *node) (err error) {
                 verbose("commit (%v:%v:%v)", ctx.l.scope, lineno, colno)
         }
 
-        if t := ctx.m.Template; t != nil {
+        //fmt.Printf("c1: %v\n", ctx.tild)
+        
+        for _, t := range ctx.m.Templates {
                 // Use templateNodesProcessor to eliminate initialization loop
                 // detection (see 'processors').
-                p := templateNodesProcessor(t)
-                p.processPostNodes(ctx, args)
+                templateNodesProcessor(t).processPostNodes(ctx)
         }
-        
+
+        //fmt.Printf("c2: %v\n", ctx.tild)
+
         ctx.m.commitLoc = loc
         ctx.moduleBuildList = append(ctx.moduleBuildList, pendedBuild{ctx.m, ctx, args})
         if i := len(ctx.moduleStack)-1; 0 <= i {
@@ -2120,6 +2141,7 @@ func processNodeCommit(ctx *Context, n *node) (err error) {
                 ctx.moduleStack, ctx.m = ctx.moduleStack[0:i], up
         } else {
                 ctx.m = nil // must unset the 'm'
+                ctx.tild = nil // unset the '~' reference
         }
         return
 }
@@ -2150,7 +2172,7 @@ func NewContext(scope string, s []byte, vars map[string]string) (ctx *Context, e
                 l: &lex{ parseBuffer:&parseBuffer{ scope:scope, s: s }, pos: 0 },
                 g: &namespaceEmbed{
                         defines: make(map[string]*define, len(vars) + 16),
-                        files: make(map[string]*rule, 8),
+                        rules: make(map[string]*rule, 8),
                         patts: make(map[string]*rule, 2),
                 },
                 w: worker.New(),

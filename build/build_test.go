@@ -138,6 +138,7 @@ a.out: test.o ; gcc -o $@ $^
 %.o: %.cpp ; echo "$< -> $@" ; g++ -c -o $@ $<
 `);     if err != nil { t.Errorf("parse error:", err) }
 
+        /// Source "test.c" is presented.
         if f, e := os.Create("test.c"); e != nil { t.Errorf("TestBuildPatternRules: %s", e) } else {
                 fmt.Fprintf(f, `int main(int argc, char**argv) { return 0; }`)
                 f.Close()
@@ -158,6 +159,7 @@ gcc -o a.out test.o
         os.Remove("test.o")
         os.Remove("test.c")
 
+        /// Source "test.cpp" is presented.
         if f, e := os.Create("test.cpp"); e != nil { t.Errorf("TestBuildPatternRules: %s", e) } else {
                 fmt.Fprintf(f, `int main(int argc, char**argv) { return 0; }`)
                 f.Close()
@@ -178,6 +180,7 @@ gcc -o a.out test.o
         os.Remove("test.o")
         os.Remove("test.cpp")
 
+        /// Source file is absensed.
         info.Reset(); stdout.Reset(); stderr.Reset(); echo.Reset()
         os.Remove("a.out"); os.Remove("test.o")
         Update(ctx)
@@ -217,9 +220,9 @@ foo:?:
 foobar:!:
 `);     if err != nil { t.Errorf("parse error:", err) }
         if ctx == nil { t.Errorf("nil context") } else {
-                if r, ok := ctx.g.files["foo"]; !ok { t.Errorf("rule 'foo' not defined") } else {
+                if r, ok := ctx.g.rules["foo"]; !ok { t.Errorf("rule 'foo' not defined") } else {
                         if n := len(r.targets); n != 1 { t.Errorf("incorrect number of targets: %v %v", n, r.targets) } else {
-                                if g := ctx.g.getGoalRule(); g != r.targets[0] { t.Errorf("wrong goal rule: %v", g) }
+                                if g := ctx.g.getGoal(); g != r.targets[0] { t.Errorf("wrong goal rule: %v", g) }
                         }
                         if n := len(r.prerequisites); n != 0 { t.Errorf("incorrect number of prerequisites: %v %v", n, r.prerequisites) }
                         if n := len(r.recipes); n != 1 { t.Errorf("incorrect number of recipes: %v %v", n, r.recipes) }
@@ -304,8 +307,8 @@ foo:!:
 `);     if err != nil { t.Errorf("parse error:", err) }
         if ctx.t != nil { t.Errorf("ctx.t: %v", ctx.t) }
         if ctx.m != nil { t.Errorf("ctx.m: %v", ctx.m) }
-        if n, x := len(ctx.g.files), 1; n != x { t.Errorf("wrong rules: %v", ctx.g.files) } else {
-                if r, ok := ctx.g.files["foo"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
+        if n, x := len(ctx.g.rules), 1; n != x { t.Errorf("wrong rules: %v", ctx.g.rules) } else {
+                if r, ok := ctx.g.rules["foo"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
                         if k, x := r.node.kind, nodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
                         if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
                         if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
@@ -410,8 +413,8 @@ foo:!:
 `);     if err != nil { t.Errorf("parse error:", err) }
         if ctx.t != nil { t.Errorf("ctx.t: %v", ctx.t) }
         if ctx.m != nil { t.Errorf("ctx.m: %v", ctx.m) }
-        if n, x := len(ctx.g.files), 1; n != x { t.Errorf("wrong rules: %v", ctx.g.files) } else {
-                if r, ok := ctx.g.files["foo"]; !ok || r == nil { t.Errorf("'foo' not defined") } else {
+        if n, x := len(ctx.g.rules), 1; n != x { t.Errorf("wrong rules: %v", ctx.g.rules) } else {
+                if r, ok := ctx.g.rules["foo"]; !ok || r == nil { t.Errorf("'foo' not defined") } else {
                         if k, x := r.node.kind, nodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
                         if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
                         if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
@@ -521,30 +524,30 @@ bar:!:
 	@echo "rule '$@' is also called along with module 'bar'" $(info 4: $@)
 `);     if err != nil { t.Errorf("parse error:", err) }
         if s, x := ctx.g.goal, "all"; s != x { t.Errorf("%v != %v", s, x) }
-        if n, x := len(ctx.g.files), 3; n != x { t.Errorf("wrong rules: %v", ctx.g.files) } else {
-                if r, ok := ctx.g.files["all"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
+        if n, x := len(ctx.g.rules), 3; n != x { t.Errorf("wrong rules: %v", ctx.g.rules) } else {
+                if r, ok := ctx.g.rules["all"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
                         // TODO: ...
                 }
-                if r, ok := ctx.g.files["foo"]; !ok && r == nil { t.Errorf("'foo' not defined") } else {
+                if r, ok := ctx.g.rules["foo"]; !ok && r == nil { t.Errorf("'foo' not defined") } else {
                         // TODO: ...
                 }
-                if r, ok := ctx.g.files["bar"]; !ok && r == nil { t.Errorf("'bar' not defined") } else {
+                if r, ok := ctx.g.rules["bar"]; !ok && r == nil { t.Errorf("'bar' not defined") } else {
                         // TODO: ...
                 }
         }
         if n, x := len(ctx.modules), 2; n != x { t.Errorf("wrong modules: %v", ctx.modules) } else {
                 if m, ok := ctx.modules["foo"]; !ok || m == nil { t.Errorf("foo not defined: %v", ctx.modules) } else {
                         if s, x := m.goal, "foo.txt"; s != x { t.Errorf("%v != %v", s, x) }
-                        if n, x := len(m.files), 1; n != x { t.Errorf("wrong rules: %v", m.files) } else {
-                                if r, ok := m.files["foo.txt"]; !ok && r == nil { t.Errorf("'foo.txt' not defined") } else {
+                        if n, x := len(m.rules), 1; n != x { t.Errorf("wrong rules: %v", m.rules) } else {
+                                if r, ok := m.rules["foo.txt"]; !ok && r == nil { t.Errorf("'foo.txt' not defined") } else {
                                         // TODO: ...
                                 }
                         }
                 }
                 if m, ok := ctx.modules["bar"]; !ok || m == nil { t.Errorf("foo not defined: %v", ctx.modules) } else {
                         if s, x := m.goal, "bar.txt"; s != x { t.Errorf("%v != %v", s, x) }
-                        if n, x := len(m.files), 1; n != x { t.Errorf("wrong rules: %v", m.files) } else {
-                                if r, ok := m.files["bar.txt"]; !ok && r == nil { t.Errorf("'foo.txt' not defined") } else {
+                        if n, x := len(m.rules), 1; n != x { t.Errorf("wrong rules: %v", m.rules) } else {
+                                if r, ok := m.rules["bar.txt"]; !ok && r == nil { t.Errorf("'foo.txt' not defined") } else {
                                         // TODO: ...
                                 }
                         }
@@ -607,6 +610,107 @@ rule 'bar' is also called along with module 'bar'
 
         os.Remove("bar.txt")
         os.Remove("foo.txt")
+}
+
+func TestBuildTemplateDerived(t *testing.T) {
+        wd, e := os.Getwd()
+        if e != nil || workdir != wd { t.Errorf("%v != %v (%v)", workdir, wd, e) }
+
+        info, stdout, stderr := new(bytes.Buffer), new(bytes.Buffer), new(bytes.Buffer)
+        f, o_stdout, o_stderr := builtinInfoFunc, recipeStdout, recipeStderr
+        defer func(){ 
+                recipeStdout, recipeStderr = o_stdout, o_stderr
+                builtinInfoFunc = f
+        }()
+        recipeStdout, recipeStderr = stdout, stderr
+        builtinInfoFunc = func(ctx *Context, args Items) {
+                fmt.Fprintf(info, "%v\n", args.Expand(ctx))
+        }
+
+        os.Remove(fmt.Sprintf("%s/m.txt", wd))
+        os.Remove(fmt.Sprintf("%s/m.base.txt", wd))
+        os.Remove(fmt.Sprintf("%s/m.derived.txt", wd))
+        os.Remove(fmt.Sprintf("%s/m.final.txt", wd))
+        
+        ctx, err := newTestContext("TestBuildUseTemplate2", `
+template base
+~.var := base-var
+$(me.dir)/$(me.name).base.txt:
+	@echo "$(me.name): $(~.var)" > $@
+commit
+
+template derived, base
+~.var := derived-var
+$(me.dir)/$(me.name).derived.txt:
+	@echo "$(me.name): $(~.var)" > $@
+commit
+
+template final, derived
+~.var := final-var
+$(me.dir)/$(me.name).final.txt:
+	@echo "$(me.name): $(~.var)" > $@
+commit
+
+module m, final
+
+$(info $(module-goal))
+
+$(me.dir)/$(me.name).txt: \
+  $(me.dir)/$(me.name).base.txt \
+  $(me.dir)/$(me.name).derived.txt \
+  $(me.dir)/$(me.name).final.txt
+	@echo "$(me.name): $(~.var)"        > $@
+	@echo "$(me.name): $(base:var)"    >> $@
+	@echo "$(me.name): $(derived:var)" >> $@
+	@echo "$(me.name): $(final:var)"   >> $@
+
+$(info $(module-goal))
+$(module-goal $(me.dir)/$(me.name).txt)
+$(info $(module-goal))
+
+commit
+`);     if err != nil { t.Errorf("parse error:", err) }
+        if n, x := len(ctx.templates), 3; n != x { t.Errorf("wrong templates: %v", ctx.templates) } else {
+                
+        }        
+        if n, x := len(ctx.modules), 1; n != x { t.Errorf("wrong modules: %v", ctx.modules) } else {
+        }
+        
+        Update(ctx)
+        if s, x := info.String(), fmt.Sprintf(`%s/m.base.txt
+%s/m.base.txt
+%s/m.txt
+`, wd, wd, wd); s != x { t.Errorf("'%s' != '%s'", s, x) }
+
+        if fi, e := os.Stat(fmt.Sprintf("%s/m.txt", wd)); fi == nil || e != nil { t.Errorf("%v", e) } else {
+                if b, e := ioutil.ReadFile(fmt.Sprintf("%s/m.txt", wd)); e != nil { t.Errorf("%v", e) } else {
+                        if string(b) != `m: 
+m: base-var
+m: derived-var
+m: final-var
+` { t.Errorf("invalid: %v", string(b)) }
+                }
+        }
+        if fi, e := os.Stat(fmt.Sprintf("%s/m.base.txt", wd)); fi == nil || e != nil { t.Errorf("%v", e) } else {
+                if b, e := ioutil.ReadFile(fmt.Sprintf("%s/m.base.txt", wd)); e != nil { t.Errorf("%v", e) } else {
+                        if string(b) != "m: \n" { t.Errorf("invalid: %v", string(b)) }
+                }
+        }
+        if fi, e := os.Stat(fmt.Sprintf("%s/m.derived.txt", wd)); fi == nil || e != nil { t.Errorf("%v", e) } else {
+                if b, e := ioutil.ReadFile(fmt.Sprintf("%s/m.derived.txt", wd)); e != nil { t.Errorf("%v", e) } else {
+                        if string(b) != "m: \n" { t.Errorf("invalid: %v", string(b)) }
+                }
+        }
+        if fi, e := os.Stat(fmt.Sprintf("%s/m.final.txt", wd)); fi == nil || e != nil { t.Errorf("%v", e) } else {
+                if b, e := ioutil.ReadFile(fmt.Sprintf("%s/m.final.txt", wd)); e != nil { t.Errorf("%v", e) } else {
+                        if string(b) != "m: \n" { t.Errorf("invalid: %v", string(b)) }
+                }
+        }
+
+        os.Remove(fmt.Sprintf("%s/m.txt", wd))
+        os.Remove(fmt.Sprintf("%s/m.base.txt", wd))
+        os.Remove(fmt.Sprintf("%s/m.derived.txt", wd))
+        os.Remove(fmt.Sprintf("%s/m.final.txt", wd))
 }
 
 func TestBuildTemplateHooks(t *testing.T) {

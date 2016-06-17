@@ -1585,14 +1585,14 @@ commit
 `);     if err != nil { t.Errorf("parse error:", err) }
 
         if ctx.modules == nil { t.Errorf("nil modules") }
-        if _, ok := ctx.g.files["foo"]; ok { t.Errorf("foo defined in context") }
+        if _, ok := ctx.g.rules["foo"]; ok { t.Errorf("foo defined in context") }
         if m, ok := ctx.modules["test"]; !ok || m == nil { t.Errorf("nil 'test' module") } else {
-                if r, ok := m.files["foo"]; !ok { t.Errorf("foo not defined in %v", m.GetName(ctx)) } else {
+                if r, ok := m.rules["foo"]; !ok { t.Errorf("foo not defined in %v", m.GetName(ctx)) } else {
                         if n := len(r.targets); n != 1 { t.Errorf("incorrect number of targets: %v %v", n, r.targets) }
                         if n := len(r.prerequisites); n != 0 { t.Errorf("incorrect number of prerequisites: %v %v", n, r.prerequisites) }
                         if n := len(r.recipes); n != 1 { t.Errorf("incorrect number of recipes: %v %v", n, r.recipes) }
                 }
-                if r, ok := m.files["foobar"]; !ok { t.Errorf("foobar not defined in %v", m.GetName(ctx)) } else {
+                if r, ok := m.rules["foobar"]; !ok { t.Errorf("foobar not defined in %v", m.GetName(ctx)) } else {
                         if n := len(r.targets); n != 1 { t.Errorf("incorrect number of targets: %v %v", n, r.targets) }
                         if n := len(r.prerequisites); n != 1 { t.Errorf("incorrect number of prerequisites: %v %v", n, r.prerequisites) }
                         if n := len(r.recipes); n != 1 { t.Errorf("incorrect number of recipes: %v %v", n, r.recipes) }
@@ -1656,8 +1656,8 @@ bar:
 	@echo $@ > $@.txt
 	@touch $@.txt
 `);     if err != nil { t.Errorf("parse error:", err) }
-        if n, x := len(ctx.g.files), 3; n != x { t.Errorf("wrong number of rules: %v", ctx.g.files) }
-        if r, ok := ctx.g.files["all"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
+        if n, x := len(ctx.g.rules), 3; n != x { t.Errorf("wrong number of rules: %v", ctx.g.rules) }
+        if r, ok := ctx.g.rules["all"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
                 if n, x := len(r.node.children), 2; n != x { t.Errorf("children %d != %d", n, x) }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                         if s, x := r.targets[0], "all"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
@@ -1669,7 +1669,7 @@ bar:
                 if n, x := len(r.recipes), 0; n != x { t.Errorf("recipes %d != %d", n, x) }
                 if c, ok := r.c.(*defaultTargetUpdater); !ok { t.Errorf("wrong type of checker %v", c) }
         }
-        if r, ok := ctx.g.files["foo"]; !ok && r == nil { t.Errorf("'foo' not defined") } else {
+        if r, ok := ctx.g.rules["foo"]; !ok && r == nil { t.Errorf("'foo' not defined") } else {
                 if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) } else {
                         if c, x := r.node.children[0], nodeTargets; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
                         if c, x := r.node.children[1], nodePrerequisites; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
@@ -1692,7 +1692,7 @@ bar:
                 }
                 if c, ok := r.c.(*defaultTargetUpdater); !ok { t.Errorf("wrong type of checker %v", c) }
         }
-        if r, ok := ctx.g.files["bar"]; !ok && r == nil { t.Errorf("'bar' not defined") } else {
+        if r, ok := ctx.g.rules["bar"]; !ok && r == nil { t.Errorf("'bar' not defined") } else {
                 if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) } else {
                         if c, x := r.node.children[0], nodeTargets; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
                         if c, x := r.node.children[1], nodePrerequisites; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
@@ -1742,8 +1742,8 @@ bar:!:
 foobar: foo bar
 	@touch $@
 `);     if err != nil { t.Errorf("parse error:", err) }
-        if n, x := len(ctx.g.files), 3; n != x { t.Errorf("wrong rules: %v", ctx.g.files) }
-        if r, ok := ctx.g.files["foo"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
+        if n, x := len(ctx.g.rules), 3; n != x { t.Errorf("wrong rules: %v", ctx.g.rules) }
+        if r, ok := ctx.g.rules["foo"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
                 if k, x := r.node.kind, nodeRuleChecker; k != x { t.Errorf("%v != %v", k, x) }
                 if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
@@ -1786,7 +1786,7 @@ foobar: foo bar
                         }
                 }
         }
-        if r, ok := ctx.g.files["bar"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
+        if r, ok := ctx.g.rules["bar"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
                 if k, x := r.node.kind, nodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
                 if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
@@ -1831,7 +1831,7 @@ foobar: foo bar
                         }
                 }
         }
-        if r, ok := ctx.g.files["foobar"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
+        if r, ok := ctx.g.rules["foobar"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
                 if k, x := r.node.kind, nodeRuleSingleColoned; k != x { t.Errorf("%v != %v", k, x) }
                 if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
@@ -1905,12 +1905,12 @@ $(info b commited)
 `);     if err != nil { t.Errorf("parse error:", err) }
         if ctx.modules == nil { t.Errorf("nil modules") } else {
                 if m, ok := ctx.modules["a"]; !ok || m == nil { t.Errorf("no module 'a'") } else {
-                        if r, ok := m.files["a/test"]; !ok || r == nil { t.Errorf("no rule 'a/test': %v", m.files) } else {
+                        if r, ok := m.rules["a/test"]; !ok || r == nil { t.Errorf("no rule 'a/test': %v", m.rules) } else {
                                 // TODO: test cases
                         }
                 }
                 if m, ok := ctx.modules["b"]; !ok || m == nil { t.Errorf("no module 'a'") } else {
-                        if r, ok := m.files["b/test"]; !ok || r == nil { t.Errorf("no rule 'b/test': %v", m.files) } else {
+                        if r, ok := m.rules["b/test"]; !ok || r == nil { t.Errorf("no rule 'b/test': %v", m.rules) } else {
                                 // TODO: test cases
                         }
                 }
@@ -2033,7 +2033,7 @@ func TestPatternRules(t *testing.T) {
 %.txt %.log:
 	echo $*
 `);     if err != nil { t.Errorf("parse error:", err) }
-        if n, x := len(ctx.g.files), 0; n != x { t.Errorf("wrong rules: %v", ctx.g.files) }
+        if n, x := len(ctx.g.rules), 0; n != x { t.Errorf("wrong rules: %v", ctx.g.rules) }
         if n, x := len(ctx.g.patts), 3; n != x { t.Errorf("wrong rules: %v", ctx.g.patts) } else {
                 if r, ok := ctx.g.patts["%.o"]; !ok { t.Errorf("rule not defined: %v", ctx.g.patts) } else {
                         if r.kind != rulePercentPattern { t.Errorf("%v != %v", r.kind, rulePercentPattern) }

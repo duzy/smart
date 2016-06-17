@@ -28,6 +28,8 @@ import (
 var hc = MustHookup(`
 template cc
 
+me.compile_flags := -std=c++1y
+
 post
 
 $(me.dir)/$(cc:libname): $(cc:objects)

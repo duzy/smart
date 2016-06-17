@@ -243,37 +243,50 @@ func (c *Excmd) run(targetHint string, args ...string) bool {
 // templateNodesProcessor is introduced to eliminate initialization loop detection:
 //     processors -> processNodeModule -> (*template).processDeclNodes -> (*Context).processNode -> processors
 type templateNodesProcessor interface {
-        processDeclNodes(ctx *Context, args Items, vars map[string]string)
-        processPostNodes(ctx *Context, args Items)
+        processDeclNodes(ctx *Context)
+        processPostNodes(ctx *Context)
 }
 
 type template struct {
         *namespaceEmbed
         name string
+        bases []*template
         declNodes []*node
         postNodes []*node
         post, commit *node
 }
 
-func (t *template) processDeclNodes(ctx *Context, args Items, vars map[string]string) {
+func (t *template) processDeclNodes(ctx *Context) {
         if t.declNodes != nil {
+                for _, bt := range t.bases {
+                        bt.processDeclNodes(ctx)
+                }
+                save := ctx.tild
+                ctx.tild = t
                 for _, n := range t.declNodes {
                         if e := ctx.processNode(n); e != nil {
-                                //errorf("%v", e)
+                                errorf("%v", e)
                                 break
                         }
                 }
+                ctx.tild = save
         }
 }
 
-func (t *template) processPostNodes(ctx *Context, args Items) {
+func (t *template) processPostNodes(ctx *Context) {
         if t.postNodes != nil {
+                for _, b := range t.bases {
+                        b.processPostNodes(ctx)
+                }
+                save := ctx.tild
+                ctx.tild = t
                 for _, n := range t.postNodes {
                         if e := ctx.processNode(n); e != nil {
-                                //errorf("%v", e)
+                                errorf("%v", e)
                                 break
                         }
                 }
+                ctx.tild = save
         }
 }
 
@@ -299,7 +312,7 @@ type toolset interface {
 type Module struct {
         *namespaceEmbed
         Parent *Module // upper module
-        Template *template
+        Templates []*template
         Updating bool // marked as 'true' if module is updating
         Children map[string]*Module
         declareLoc, commitLoc location // where does it defined and commit (could be nil)
@@ -351,7 +364,7 @@ func (m *Module) GetSources(ctx *Context) (sources []string) {
 func (m *Module) update(ctx *Context) (updated bool) {
         //fmt.Printf("Module.update: %s\n", m.goal)
         if !m.Updating {
-                if g, ok := m.files[m.goal]; ok && g != nil {
+                if g, ok := m.rules[m.goal]; ok && g != nil {
                         owd, err := os.Getwd()
                         if err != nil { errorf("get working directory: %v", err) }
                         
@@ -384,7 +397,7 @@ func (m *Module) update(ctx *Context) (updated bool) {
 
 func (ctx *Context) update(target string) (updated bool) {
         //fmt.Printf("Context.update: %s\n", target)
-        if g, ok := ctx.g.files[target]; ok && g != nil {
+        if g, ok := ctx.g.rules[target]; ok && g != nil {
                 updated = g.updateAll(ctx)
         }
         if m, ok := ctx.modules[target]; ok && m != nil {
@@ -394,7 +407,7 @@ func (ctx *Context) update(target string) (updated bool) {
 }
 
 func (ctx *Context) targetFoundable(target string) bool {
-        if g, ok := ctx.g.files[target]; ok && g != nil {
+        if g, ok := ctx.g.rules[target]; ok && g != nil {
                 return true
         }
         if m, ok := ctx.modules[target]; ok && m != nil {
@@ -769,8 +782,9 @@ func (r *rule) targetsFoundable(ctx *Context, m *match) bool {
                         matchrules := r.ns.findMatchRules(ctx, target)
                         
                         if 0 < len(matchrules) {
-                                fmt.Printf("targetsFoundable: %v: %v (%v)\n", m.target, target, m)
-                        } else if fi, e := os.Stat(target); e == nil && fi != nil{
+                                //fmt.Printf("targetsFoundable: %v: %v (%v)\n", m.target, target, m)
+                                return true
+                        } else if fi, e := os.Stat(target); e == nil && fi != nil {
                                 //fmt.Printf("targetsFoundable: %v: %v (%v)\n", m.target, target, m)
                                 return true
                         }
@@ -1011,12 +1025,12 @@ func Update(ctx *Context, cmds ...string) {
         ctx.w.SpawnN(*flagJ); defer ctx.w.KillAll()
 
         if n := len(cmds); n == 0 {
-                if goal := ctx.g.goal; goal == "" {
+                if ctx.g.goal == "" {
                         for _, m := range ctx.moduleOrderList { 
                                 m.update(ctx)
                         }
                 } else {
-                        ctx.update(goal)
+                        ctx.update(ctx.g.goal)
                 }
         } else {
                 for _, cmd := range cmds {
