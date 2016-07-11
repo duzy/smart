@@ -20,6 +20,7 @@ var (
         flagM = flag.Bool("m", false, "searching module for targets")
         flagG = flag.Bool("g", false, "searching global targets")
         flagGG = flag.Bool("G", true, "ignore names like \".git\", \".svn\", etc.")
+        flagGH = flag.Bool("H", true, "ignore hidden files")
         flagJ = flag.Int("j", 3, "Allow N jobs at once.")
         flagO = flag.String("o", "", "output directory")
         flagC = flag.String("C", "", "change directory")

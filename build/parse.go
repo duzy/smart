@@ -1505,9 +1505,9 @@ func (ctx *Context) callWithDetails(loc location, hasPrefix bool, prefix string,
         } else {
                 lineno, colno := ctx.l.caculateLocationLineColumn(loc)
                 if hasPrefix {
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: no namespace for '%s:%s'", ctx.l.scope, lineno, colno, prefix, strings.Join(parts, "."))
+                        fmt.Fprintf(os.Stderr, "%v:%v:%v: no namespace for '%s:%s'\n", ctx.l.scope, lineno, colno, prefix, strings.Join(parts, "."))
                 } else {
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: no namespace for '%s'", ctx.l.scope, lineno, colno, strings.Join(parts, "."))
+                        fmt.Fprintf(os.Stderr, "%v:%v:%v: no namespace for '%s'\n", ctx.l.scope, lineno, colno, strings.Join(parts, "."))
                 }
         }
         return
@@ -1669,7 +1669,9 @@ func (ctx *Context) speak(name string, scripts ...*node) (is Items) {
 func (ctx *Context) nodeItems(n *node) (is Items) {
         switch n.kind {
         case nodeEscape:
-                switch ctx.l.s[n.pos + 1] {
+                //fmt.Printf("%v, %v\n%s\n", n.pos, len(ctx.l.s), string(ctx.l.s))
+                //switch ctx.l.s[n.pos + 1] {
+                switch n.l.s[n.pos + 1] {
                 case '\n': is = Items{ stringitem(" ") }
                 case '#':  is = Items{ stringitem("#") }
                 }
@@ -1711,6 +1713,11 @@ func (ctx *Context) nodeItems(n *node) (is Items) {
                         s = n.str()
                 }
                 is = Items{ stringitem(s) }
+
+        case nodeComment:
+                // Convert inline comment into "\n". This happens when a comment
+                // recipt occured.
+                is = Items{ stringitem("\n") }
 
         default:
                 panic(fmt.Sprintf("fixme: %v: %v (%v children)\n", n.kind, n.str(), len(n.children)))
@@ -2035,6 +2042,12 @@ func processNodeModule(ctx *Context, n *node) (err error) {
                                 name := strings.TrimSpace(nameItem.Expand(ctx))
                                 if t, _ := ctx.templates[name]; t != nil {
                                         m.Templates = append(m.Templates, t)
+                                } else {
+                                        s := ctx.l.scope
+                                        //s, lineno, colno = nameItem.GetDeclareLocation()
+                                        lineno, colno := ctx.l.caculateLocationLineColumn(loc)
+                                        fmt.Printf("%v:%v:%v: '%v' not found\n", s, lineno, colno, name)
+                                        errorf("no such template")
                                 }
                         }
                 }

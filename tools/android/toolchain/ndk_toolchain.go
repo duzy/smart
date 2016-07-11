@@ -19,9 +19,14 @@ template android-toolchain
 
 post
 
+me.gcc := $(me.dir)/bin/$(me.arch)-linux-androideabi-gcc
+me.g++ := $(me.dir)/bin/$(me.arch)-linux-androideabi-g++
+
 $(me.dir):!:
-	SHELL=$$(which bash) $(~.make-standalone-toolchain) --arch=$(me.arch) --toolchain=$(me.toolchain) --platform=$(me.platform) --install-dir="$(@D)"
+	@echo "Generating standalone toolchain ($(me.dir), ARCH:$(me.arch))"
+	@SHELL=$$(which bash) $(~.make-standalone-toolchain) --arch=$(me.arch) --toolchain=$(me.toolchain) --platform=$(me.platform) --install-dir="$(me.dir)"
 $(me.dir):?:
+	@echo $(me.gcc)
 	@test -d $(me.dir)/bin
 	@test -d $(me.dir)/lib
 	@test -d $(me.dir)/libexec
@@ -38,6 +43,9 @@ $(me.dir):?:
 	@test -f $(me.dir)/bin/*-strings
 	@test -f $(me.dir)/bin/*-strip
 	@test -f $(me.dir)/bin/*-size
+	@test -f $(me.dir)/include/c++/algorithm
+	@test -f $(me.dir)/include/c++/string
+	@test -f $(me.dir)/include/c++/typeinfo
 
 commit
 `, HooksMap{

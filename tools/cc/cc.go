@@ -136,10 +136,25 @@ func expandFormatList(ctx *Context, name, format string) (list []string) {
 }
 
 func hook_sources(ctx *Context, args Items) (sources Items) {
-        dir := ctx.Call("me.dir").Expand(ctx)
-        for _, a := range Split(args.Expand(ctx)) {
+        var (
+                dir  = ctx.Call("me.dir").Expand(ctx)
+                dirs = Split(args.Expand(ctx))
+        )
+        if len(dirs) == 0 {
+                dirs = append(dirs, ".")
+        }
+        for _, a := range dirs {
                 d := filepath.Join(dir, a)
                 filepath.Walk(d, func(path string, info os.FileInfo, err error) error {
+                        if info.Mode() & ^os.ModeType == 0 {
+                                return nil
+                        }
+                        /*
+                        if info.Name() != "." && info.Mode() & os.ModeDir != 0 {
+                                if strings.HasPrefix(info.Name(), ".") {
+                                        return false
+                                }
+                        } */
                         if langs.ExtLang(filepath.Ext(path)) != "" {
                                 //path = strings.TrimPrefix(path, dir)
                                 //path = strings.TrimPrefix(path, "/")

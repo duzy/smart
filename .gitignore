@@ -24,3 +24,5 @@
 /test/android-toolchain/libexec/
 /test/android-toolchain/repo.prop
 /test/android-toolchain/sysroot/
+
+/.emacs.desktop

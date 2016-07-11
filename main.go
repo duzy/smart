@@ -10,6 +10,7 @@ import (
         _ "github.com/duzy/smart/tools/gradle"
         _ "github.com/duzy/smart/tools/android/auto"
         _ "github.com/duzy/smart/tools/android/cc"
+        _ "github.com/duzy/smart/tools/android/toolchain"
 )
 
 func main() {

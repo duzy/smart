@@ -33,6 +33,8 @@ var (
                 { "mercurial",  os.ModeDir,                     `^\.hg$` },
                 { "subversion", os.ModeDir,                     `^\.svn$` },
                 { "cvs",       ^os.ModeType,                    `^CVS$` },
+                { "gradle",     os.ModeDir,                     `^\.gradle$` },
+                { "idea",       os.ModeDir,                     `^\.idea` },
         }
 
         onRecipeExecutionFailure = func(err error, c *exec.Cmd) {
@@ -369,6 +371,9 @@ func (m *Module) update(ctx *Context) (updated bool) {
                         if err != nil { errorf("get working directory: %v", err) }
                         
                         wd, cd := m.Get(ctx, "workdir"), *flagCD
+
+                        cd = false // TODO: make this a module option
+                        
                         if wd != owd && cd {
                                 if err = os.Chdir(wd); err != nil {
                                         errorf("change working directory: %v", err)
@@ -475,15 +480,21 @@ func FindFile(d string, sre string) (string) {
         return findFile(d, sre)
 }
 
-func Traverse(d string, fun traverseFunc) (error) {
-        return traverse(d, fun)
-}
-
 func CopyFile(s, d string) (err error) {
         return copyFile(s, d)
 }
 
-type traverseFunc func(dname string, fi os.FileInfo) bool
+type TraverseItem struct {
+        Path string
+        Info os.FileInfo
+}
+
+type traverseFunc func(ti TraverseItem) bool
+
+func Traverse(d string, fun traverseFunc) (error) {
+        return traverse(d, fun)
+}
+
 func traverse(d string, fun traverseFunc) (err error) {
         names, err := readDirNames(d)
         if err != nil {
@@ -491,7 +502,12 @@ func traverse(d string, fun traverseFunc) (err error) {
                 return
         }
 
-        var fi os.FileInfo
+        var (
+                fi os.FileInfo
+                files, dirs []TraverseItem
+        )
+
+        /*
         for _, name := range names {
                 dname := filepath.Join(d, name)
                 //fmt.Printf("traverse: %s\n", dname)
@@ -513,6 +529,35 @@ func traverse(d string, fun traverseFunc) (err error) {
                         }
                         continue
                 }
+        } */
+        
+        for _, name := range names {
+                path := filepath.Join(d, name)
+                //fmt.Printf("traverse: %s\n", path)
+
+                fi, err = os.Stat(path)
+                if err != nil {
+                        //errorf("stat: %v\n", path)
+                        return
+                }
+
+                if fi.IsDir() {
+                        dirs = append(dirs, TraverseItem{ path, fi })
+                } else {
+                        files = append(files, TraverseItem{ path, fi })
+                }
+        }
+
+        for _, t := range files {
+                fun(t)
+        }
+        for _, t := range dirs {
+                if fun(t) {
+                        if err = traverse(t.Path, fun); err != nil {
+                                //errorf("traverse: %v\n", path)
+                                return
+                        }
+                }
         }
         return
 }
@@ -521,9 +566,9 @@ func traverse(d string, fun traverseFunc) (err error) {
 // find all files if N is less than 1.
 func findNFiles(d string, sre string, num int) (files []string, err error) {
         re := regexp.MustCompile(sre)
-        err = traverse(d, func(dname string, fi os.FileInfo) bool {
-                if re.MatchString(dname) {
-                        files = append(files, dname)
+        err = traverse(d, func(ti TraverseItem) bool {
+                if re.MatchString(ti.Path) {
+                        files = append(files, ti.Path)
                         if num--; num == 0 { return false }
                 }
                 return true
@@ -826,6 +871,7 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
                                 default:
                                         validMatchrules = append(validMatchrules, mr)
                                 }
+                                fmt.Printf("%v: %v: %v\n", validPatternRules, mr.rule.targets, mr.rule.prerequisites)
                         }
                         if validPatternRules == 0 {
                                 // If no foundable pattern targets, add the first
@@ -1072,17 +1118,58 @@ func Build(vars map[string]string, cmds ...string) (ctx *Context) {
         }
 
         // Find and process modules.
-        err = traverse(d, func(fn string, fi os.FileInfo) bool {
-                fr := matchFileInfo(fi, generalMetaFiles)
-                if *flagGG && fr != nil { return false }
-                switch s := fi.Name(); s {
-                case ".smart", "build.smart":
-                        if err := ctx.include(fn); err != nil {
-                                errorf("include: `%v', %v\n", fn, err)
+
+        /*
+        err = filepath.Walk(d, func(path string, info os.FileInfo, err error) error {
+                fm := matchFileInfo(info, generalMetaFiles)
+                if *flagGG && fm != nil {
+                        if info.Mode() & os.ModeDir != 0 {
+                                return filepath.SkipDir
+                        } else {
+                                return nil
+                        }
+                }
+                
+                if *flagGH && info.Name() != "." && info.Mode() & os.ModeDir != 0 {
+                        if strings.HasPrefix(info.Name(), ".") {
+                                return filepath.SkipDir
+                        }
+                }
+
+                if info.Mode() & os.ModeDir == 0 {
+                        switch s := info.Name(); s {
+                        case ".smart", "build.smart":
+                                if err := ctx.include(path); err != nil {
+                                        errorf("include: `%v', %v\n", path, err)
+                                }
+                        }
+                }
+                return nil
+        }) */
+
+        err = traverse(d, func(ti TraverseItem) bool {
+                fi := ti.Info
+                if *flagGG {
+                        if fm := matchFileInfo(fi, generalMetaFiles); fm != nil { 
+                                return false 
+                        }
+                }
+                if *flagGH && fi.Name() != "." && fi.Mode() & os.ModeDir != 0 {
+                        if strings.HasPrefix(fi.Name(), ".") {
+                                return false
+                        }
+                }
+                if fi.Mode() & ^os.ModeType != 0 {
+                        switch s := fi.Name(); s {
+                        case ".smart", "build.smart":
+                                if err := ctx.include(ti.Path); err != nil {
+                                        errorf("include: `%v', %v\n", ti.Path, err)
+                                }
                         }
                 }
                 return true
         })
+
         if err != nil {
                 fmt.Printf("error: %v\n", err)
         }

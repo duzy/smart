@@ -14,8 +14,8 @@ import (
 
 func TestTraverse(t *testing.T) {
         m := map[string]bool{}
-        err := traverse("../data", func(fn string, fi os.FileInfo) bool {
-                m[fi.Name()] = true
+        err := traverse("../data", func(ti TraverseItem) bool {
+                m[ti.Info.Name()] = true
                 return true
         })
         if err != nil      { t.Errorf("error: %v\n", err) }
