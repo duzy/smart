@@ -215,6 +215,7 @@ func hook_compile(ctx *Context, args Items) (compile Items) {
                 
                 compile.AppendString("-c", source)
         } else {
+                //Warn("", )
                 compile.AppendString("false")
         }
         return

@@ -1,19 +1,37 @@
-#+TITLE: TODO
+#+TITLE: Smart TODOs
 #+AUTHOR: Duzy Chan
 #+EMAIL: code@duzy.info
 #+TODO: TODO VERIFY DONE
 #+LaTeX_CLASS: article
 #+LaTeX_CLASS_OPTIONS: [colorlinks=true,urlcolor=blue,secnums]
-* Enhance the parser for better syntax semantic [0/2]
+* Enhance the parser for better syntax semantic [0/3]
 ** TODO Remove immediate-text
-** TODO Add statements support [0/6]
+** TODO Add statements [4/8]
 *** TODO *include* statement
-*** VERIFY *template* statement
-*** VERIFY *module* statement
-*** VERIFY *post* statement
-*** VERIFY *commit* statement
-*** VERIFY *use* statement
-** TODO Semantic supports for multi-part names
+*** DONE *template* statement
+*** DONE *module* statement
+*** DONE *post* statement
+*** DONE *commit* statement
+*** VERIFY *use* statement [0/1]
+**** TODO immediate-statement semantic
+     
+     The modules have to be *used* after the statement.
+
+*** TODO *if-else-elif-endif*
+
+    if ($(true))
+      $(info true)
+    else
+      $(info false)
+    endif
+
+*** TODO *foreach-endfor*
+
+    foreach (var,a b c d e f)
+      $(info $(var))
+    endfor
+
+** VERIFY Semantic supports for multi-part names
 
    Examples *$(name.sub.var)*, *$(test:name.sub.var)*
 
@@ -24,7 +42,7 @@
 ** Methods to query modules and module information.
 
    
-
+   
 * Enhance functional programming features [0/1]
 
   Make it more like _Lisp_ programming language.
@@ -33,3 +51,10 @@
 ** TODO *for*, *foreach*
 
    $(foreach $(list),"This is item $2: $1")
+
+* Fundamental Improvements [0/2]
+
+** TODO General logger
+
+** TODO ...
+   

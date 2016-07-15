@@ -45,36 +45,36 @@ foobac=# comment 6	`)
         if len(l.nodes) != 15 { t.Errorf("expecting 15 nodes but got %v", len(l.nodes)) }
 
         countComments := 0
-        for _, n := range l.nodes { if n.kind == nodeComment { countComments++ } }
+        for _, n := range l.nodes { if n.tc() == nodeTypeCodeComment { countComments++ } }
         if v := 9; countComments != v { t.Errorf("expecting %v comments but got %v", v, countComments) }
 
-        var c *node
-        checkNode := func(n int, k nodeType, s string) (okay bool) {
+        var c node
+        checkNode := func(n int, k nodeTypeCode, s string) (okay bool) {
                 okay = true
                 if len(l.nodes) < n+1 { t.Errorf("expecting at least %v nodes but got %v", n+1, len(l.nodes)); okay = false }
-                if c = l.nodes[n]; c.kind != k { t.Errorf("expecting node %v as %v but got %v(%v)", n, k, c.kind, c.str()); okay = false }
-                if c.str() != s { t.Errorf("expecting node %v as %v(%v) but got %v(%v)", n, k, s, c.kind, c.str()); okay = false }
+                if c = l.nodes[n]; c.tc() != k { t.Errorf("expecting node %v as %v but got %v(%v)", n, k, c.tc(), c.str()); okay = false }
+                if c.str() != s { t.Errorf("expecting node %v as %v(%v) but got %v(%v)", n, k, s, c.tc(), c.str()); okay = false }
                 return
         }
 
-        if !checkNode(0, nodeComment, `# this is a comment
+        if !checkNode(0, nodeTypeCodeComment, `# this is a comment
 # this is the second line of the comment`) { return }
-        if !checkNode(1, nodeComment, `# this is another comment
+        if !checkNode(1, nodeTypeCodeComment, `# this is another comment
 # this is the second line of the other comment
 # this is the third line of the other comment`) { return }
-        if !checkNode(2, nodeComment, `# more...`) { return }
-        if !checkNode(3, nodeDefineDeferred, `=`) { return }
-        if !checkNode(4, nodeComment, `# comment 1`) { return }
-        if !checkNode(5, nodeImmediateText, `$(info info) `) { return }
-        if !checkNode(6, nodeComment, `# comment 2`) { return }
-        if !checkNode(7, nodeDefineDeferred, `=`) { return }
-        if !checkNode(8, nodeComment, `# comment 3`) { return }
-        if !checkNode(9, nodeDefineDeferred, `=`) { return }
-        if !checkNode(10, nodeComment, `#comment 4`) { return }
-        if !checkNode(11, nodeDefineDeferred, `=`) { return }
-        if !checkNode(12, nodeComment, `# comment 5 `) { return }
-        if !checkNode(13, nodeDefineDeferred, `=`) { return }
-        if !checkNode(14, nodeComment, `# comment 6	`) { return }
+        if !checkNode(2, nodeTypeCodeComment, `# more...`) { return }
+        if !checkNode(3, nodeTypeCodeDefineDeferred, `=`) { return }
+        if !checkNode(4, nodeTypeCodeComment, `# comment 1`) { return }
+        if !checkNode(5, nodeTypeCodeImmediateText, `$(info info) `) { return }
+        if !checkNode(6, nodeTypeCodeComment, `# comment 2`) { return }
+        if !checkNode(7, nodeTypeCodeDefineDeferred, `=`) { return }
+        if !checkNode(8, nodeTypeCodeComment, `# comment 3`) { return }
+        if !checkNode(9, nodeTypeCodeDefineDeferred, `=`) { return }
+        if !checkNode(10, nodeTypeCodeComment, `#comment 4`) { return }
+        if !checkNode(11, nodeTypeCodeDefineDeferred, `=`) { return }
+        if !checkNode(12, nodeTypeCodeComment, `# comment 5 `) { return }
+        if !checkNode(13, nodeTypeCodeDefineDeferred, `=`) { return }
+        if !checkNode(14, nodeTypeCodeComment, `# comment 6	`) { return }
 }
 
 func TestLexAssigns(t *testing.T) {
@@ -123,422 +123,422 @@ foo.bar = hierarchy
                 countNotDefines = 0
         )
         for _, n := range l.nodes {
-                switch n.kind {
-                case nodeDefineDeferred:        countDeferredDefines++
-                case nodeDefineQuestioned:      countQuestionedDefines++
-                case nodeDefineSingleColoned:   countSingleColonedDefines++
-                case nodeDefineDoubleColoned:   countDoubleColonedDefines++
-                case nodeDefineAppend:          countAppendDefines++
-                case nodeDefineNot:             countNotDefines++
+                switch n.tc() {
+                case nodeTypeCodeDefineDeferred:        countDeferredDefines++
+                case nodeTypeCodeDefineQuestioned:      countQuestionedDefines++
+                case nodeTypeCodeDefineSingleColoned:   countSingleColonedDefines++
+                case nodeTypeCodeDefineDoubleColoned:   countDoubleColonedDefines++
+                case nodeTypeCodeDefineAppend:          countAppendDefines++
+                case nodeTypeCodeDefineNot:             countNotDefines++
                 }
         }
-        if ex := 12; countDeferredDefines != ex         { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineDeferred,      countDeferredDefines) }
-        if ex := 1; countQuestionedDefines != ex        { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineQuestioned,    countQuestionedDefines) }
-        if ex := 3; countSingleColonedDefines != ex     { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineSingleColoned, countSingleColonedDefines) }
-        if ex := 1; countDoubleColonedDefines != ex     { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineDoubleColoned, countDoubleColonedDefines) }
-        if ex := 2; countAppendDefines != ex            { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineAppend,        countAppendDefines) }
-        if ex := 1; countNotDefines != ex               { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineNot,           countNotDefines) }
+        if ex := 12; countDeferredDefines != ex         { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineDeferred,      countDeferredDefines) }
+        if ex := 1; countQuestionedDefines != ex        { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineQuestioned,    countQuestionedDefines) }
+        if ex := 3; countSingleColonedDefines != ex     { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineSingleColoned, countSingleColonedDefines) }
+        if ex := 1; countDoubleColonedDefines != ex     { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineDoubleColoned, countDoubleColonedDefines) }
+        if ex := 2; countAppendDefines != ex            { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineAppend,        countAppendDefines) }
+        if ex := 1; countNotDefines != ex               { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineNot,           countNotDefines) }
         if n := countDeferredDefines+countQuestionedDefines+countSingleColonedDefines+countDoubleColonedDefines+countAppendDefines+countNotDefines; len(l.nodes) != n {
                 t.Errorf("expecting %v nodes totally, but got %v", len(l.nodes), n)
         }
 
-        if c, x := l.nodes[0], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[0], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[1], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[1], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[2], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[2], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[3], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[3], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "d"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "d"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[4], nodeDefineSingleColoned; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[4], nodeTypeCodeDefineSingleColoned; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), ":="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "$(a) \\\n $b\\\n ${c}\\\n"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := len(c1.children), 6; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0, c1, c2, c3, c4, c5 := c1.children[0], c1.children[1], c1.children[2], c1.children[3], c1.children[4], c1.children[5]
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := len(c1.children()), 6; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0, c1, c2, c3, c4, c5 := c1.child(0), c1.child(1), c1.child(2), c1.child(3), c1.child(4), c1.child(5)
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c0.str(), "$(a)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c0.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.children[0].str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c0.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c0.child(0).str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c1.kind, nodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c1.tc(), nodeTypeCodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c1.str(), "\\\n"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                 }
-                                if a, b := c2.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c2.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c2.str(), "$b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c2.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c2.children[0].str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c2.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c2.child(0).str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c3.kind, nodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c3.tc(), nodeTypeCodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c3.str(), "\\\n"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                 }
-                                if a, b := c4.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c4.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c4.str(), "${c}"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c4.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c4.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c4.children[0].str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c4.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c4.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c4.child(0).str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c5.kind, nodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c5.tc(), nodeTypeCodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c5.str(), "\\\n"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                 }
                         }
                 }
         }
 
-        if c, x := l.nodes[5], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[5], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "bar"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "$(foo) \\\n$(a) \\\n $b $c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := len(c1.children), 6; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0, c1, c2, c3, c4, c5 := c1.children[0], c1.children[1], c1.children[2], c1.children[3], c1.children[4], c1.children[5]
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := len(c1.children()), 6; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0, c1, c2, c3, c4, c5 := c1.child(0), c1.child(1), c1.child(2), c1.child(3), c1.child(4), c1.child(5)
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c0.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c0.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.children[0].str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c0.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c0.child(0).str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c1.kind, nodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c1.tc(), nodeTypeCodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c1.str(), "\\\n"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                 }
-                                if a, b := c2.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c2.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c2.str(), "$(a)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c2.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c2.children[0].str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c2.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c2.child(0).str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c3.kind, nodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c3.tc(), nodeTypeCodeEscape; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c3.str(), "\\\n"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                 }
-                                if a, b := c4.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c4.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c4.str(), "$b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c4.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c4.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c4.children[0].str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c4.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c4.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c4.child(0).str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c5.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c5.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c5.str(), "$c"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c5.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c5.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c5.children[0].str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c5.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c5.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c5.child(0).str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
                         }
                 }
         }
 
-        if c, x := l.nodes[6], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[6], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "f_$a_$b_$c_1"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "f_a_b_c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := len(c0.children), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0, c1, c2 := c0.children[0], c0.children[1], c0.children[2]
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := len(c0.children()), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0, c1, c2 := c0.child(0), c0.child(1), c0.child(2)
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c0.str(), "$a"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c0.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.children[0].str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c0.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c0.child(0).str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c1.str(), "$b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c1.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c1.children[0].str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c1.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c1.child(0).str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c2.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c2.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c2.str(), "$c"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c2.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c2.children[0].str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c2.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c2.child(0).str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
                         }
                 }
         }
         
-        if c, x := l.nodes[7], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[7], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "f_$a_$b_$c_2"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "f_$a_$b_$c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := len(c0.children), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0, c1, c2 := c0.children[0], c0.children[1], c0.children[2]
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := len(c0.children()), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0, c1, c2 := c0.child(0), c0.child(1), c0.child(2)
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c0.str(), "$a"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c0.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.children[0].str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c0.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c0.child(0).str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c1.str(), "$b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c1.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c1.children[0].str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c1.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c1.child(0).str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c2.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c2.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c2.str(), "$c"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c2.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c2.children[0].str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c2.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c2.child(0).str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
                         }
-                        if a, b := len(c1.children), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0, c1, c2 := c1.children[0], c1.children[1], c1.children[2]
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := len(c1.children()), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0, c1, c2 := c1.child(0), c1.child(1), c1.child(2)
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c0.str(), "$a"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c0.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.children[0].str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c0.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c0.child(0).str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c1.str(), "$b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c1.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c1.children[0].str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c1.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c1.child(0).str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c2.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c2.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c2.str(), "$c"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                if a, b := c2.children[0].kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c2.children[0].str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c2.child(0).tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := c2.child(0).str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
                         }
                 }
         }
 
-        if c, x := l.nodes[8], nodeDefineAppend; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[8], nodeTypeCodeDefineAppend; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "+="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[9], nodeDefineAppend; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[9], nodeTypeCodeDefineAppend; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "+="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[10], nodeDefineQuestioned; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[10], nodeTypeCodeDefineQuestioned; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "?="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[11], nodeDefineDoubleColoned; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[11], nodeTypeCodeDefineDoubleColoned; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "::="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "cc"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "cc"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[12], nodeDefineNot; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[12], nodeTypeCodeDefineNot; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "!="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "n"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "n"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[13], nodeDefineSingleColoned; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[13], nodeTypeCodeDefineSingleColoned; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), ":="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "f_$a_$b_$c_3"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "f_$($a)_$($($b))_$(${$($c)})"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := len(c0.children), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0, c1, c2 := c0.children[0], c0.children[1], c0.children[2]
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := len(c0.children()), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0, c1, c2 := c0.child(0), c0.child(1), c0.child(2)
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c0.str(), "$a"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c0.children[0]
-                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c0.child(0)
+                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 if a, b := c0.str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c1.str(), "$b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c1.children[0]
-                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c1.child(0)
+                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 if a, b := c0.str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
-                                if a, b := c2.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c2.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c2.str(), "$c"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c2.children[0]
-                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c2.child(0)
+                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 if a, b := c0.str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
                         }
-                        if a, b := len(c1.children), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0, c1, c2 := c1.children[0], c1.children[1], c1.children[2]
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := len(c1.children()), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0, c1, c2 := c1.child(0), c1.child(1), c1.child(2)
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c0.str(), "$($a)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c0.children[0]
-                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c0.child(0)
+                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 if a, b := c0.str(), "$a"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                c0 := c0.children[0]
-                                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                c0 := c0.child(0)
+                                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                 if a, b := c0.str(), "$a"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                c0 := c0.children[0]
-                                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                c0 := c0.child(0)
+                                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                 if a, b := c0.str(), "a"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                         }
                                                                 }
                                                         }
                                                 }
                                         }
                                 }
-                                if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c1.str(), "$($($b))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c1.children[0]
-                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c1.child(0)
+                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 if a, b := c0.str(), "$($b)"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                c0 := c0.children[0]
-                                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                c0 := c0.child(0)
+                                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                 if a, b := c0.str(), "$($b)"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                c0 := c0.children[0]
-                                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                c0 := c0.child(0)
+                                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                 if a, b := c0.str(), "$b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                        c0 := c0.children[0]
-                                                                                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                        c0 := c0.child(0)
+                                                                                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                         if a, b := c0.str(), "$b"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                        c0 := c0.children[0]
-                                                                                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                                        c0 := c0.child(0)
+                                                                                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                                         if a, b := c0.str(), "b"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                                 }
                                                                                         }
                                                                                 }
@@ -548,37 +548,37 @@ foo.bar = hierarchy
                                                 }
                                         }
                                 }
-                                if a, b := c2.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c2.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                         if a, b := c2.str(), "$(${$($c)})"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c2.children[0]
-                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c2.child(0)
+                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 if a, b := c0.str(), "${$($c)}"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                c0 := c0.children[0]
-                                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                c0 := c0.child(0)
+                                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                 if a, b := c0.str(), "${$($c)}"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                c0 := c0.children[0]
-                                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                c0 := c0.child(0)
+                                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                 if a, b := c0.str(), "$($c)"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                c0 := c0.children[0]
-                                                                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                                c0 := c0.child(0)
+                                                                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                                 if a, b := c0.str(), "$($c)"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                                c0 := c0.children[0]
-                                                                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                                                c0 := c0.child(0)
+                                                                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                                                 if a, b := c0.str(), "$c"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                                                c0 := c0.children[0]
-                                                                                                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                                                                c0 := c0.child(0)
+                                                                                                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                                                                 if a, b := c0.str(), "$c"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                                                                c0 := c0.children[0]
-                                                                                                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                                                                                c0 := c0.child(0)
+                                                                                                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                                                                                 if a, b := c0.str(), "c"; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                                                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                                                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                                                                                                                 }
                                                                                                                                         }
                                                                                                                                 }
@@ -598,82 +598,82 @@ foo.bar = hierarchy
                 }
         }
 
-        if c, x := l.nodes[14], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[14], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "empty1"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), ""; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
-        if c, x := l.nodes[15], nodeDefineSingleColoned; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[15], nodeTypeCodeDefineSingleColoned; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), ":="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "empty2"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), ""; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
-        if c, x := l.nodes[16], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[16], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "empty3"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), ""; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
-        if c, x := l.nodes[17], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[17], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "empty4"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), ""; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
-        if c, x := l.nodes[18], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[18], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "empty5"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), ""; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
         }
 
-        if c, x := l.nodes[19], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[19], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "foo.bar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0 := c0.children[0]
-                                        if a, b := c0.kind, nodeNamePart; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0 := c0.child(0)
+                                        if a, b := c0.tc(), nodeTypeCodeNamePart; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                 if a, b := c0.str(), "."; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
                                 }
                         }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c1.str(), "hierarchy"; a != b { t.Errorf("expecting %v but %v", b, a) }
                         }
                 }
@@ -709,51 +709,51 @@ name = $(prefix:part1.part2.part3)
                 countSingleColonedDefines = 0
         )
         for _, n := range l.nodes {
-                //t.Logf("%v", n.kind)
-                switch n.kind {
-                case nodeImmediateText:         countImmediateTexts++
-                case nodeDefineDeferred:        countDeferredDefines++
-                case nodeDefineSingleColoned:   countSingleColonedDefines++
+                //t.Logf("%v", n.tc())
+                switch n.tc() {
+                case nodeTypeCodeImmediateText:         countImmediateTexts++
+                case nodeTypeCodeDefineDeferred:        countDeferredDefines++
+                case nodeTypeCodeDefineSingleColoned:   countSingleColonedDefines++
                 }
         }
-        if ex := 6; countImmediateTexts != ex           { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeImmediateText,       countImmediateTexts) }
-        if ex := 4; countDeferredDefines != ex          { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineDeferred,      countDeferredDefines) }
-        if ex := 2; countSingleColonedDefines != ex     { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineSingleColoned, countSingleColonedDefines) }
+        if ex := 6; countImmediateTexts != ex           { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeImmediateText,       countImmediateTexts) }
+        if ex := 4; countDeferredDefines != ex          { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineDeferred,      countDeferredDefines) }
+        if ex := 2; countSingleColonedDefines != ex     { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineSingleColoned, countSingleColonedDefines) }
         if n := countImmediateTexts+countDeferredDefines+countSingleColonedDefines; len(l.nodes) != n {
                 t.Errorf("expecting %v nodes totally, but got %v", len(l.nodes), n)
         }
 
-        if c, x := l.nodes[4], nodeImmediateText; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[4], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "$(info $(foo)$(bar))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0 := c.children[0]
-                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0 := c.child(0)
+                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "$(info $(foo)$(bar))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0, c1 := c0.children[0], c0.children[1]
+                                if a, b := len(c0.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0, c1 := c0.child(0), c0.child(1)
                                         if a, b := c0.str(), "info"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         if a, b := c1.str(), "$(foo)$(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c1.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c1.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0, c1 := c1.children[0], c1.children[1]
+                                        if a, b := c1.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c1.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0, c1 := c1.child(0), c1.child(1)
                                                 if a, b := c0.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                c0 := c0.children[0]
+                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                c0 := c0.child(0)
                                                                 if a, b := c0.str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                         }
                                                 }
                                                 if a, b := c1.str(), "$(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c1.children[0]
+                                                if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c1.child(0)
                                                         if a, b := c0.str(), "bar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 }
                                         }
                                 }
@@ -761,29 +761,29 @@ name = $(prefix:part1.part2.part3)
                 }
         }
 
-        if c, x := l.nodes[5], nodeImmediateText; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[5], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "$(info $(foobar))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0 := c.children[0]
-                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0 := c.child(0)
+                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "$(info $(foobar))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0, c1 := c0.children[0], c0.children[1]
-                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := len(c0.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0, c1 := c0.child(0), c0.child(1)
+                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                 if a, b := c0.str(), "info"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         }
-                                        if a, b := c1.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        if a, b := c1.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                 if a, b := c1.str(), "$(foobar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c1.children[0]
-                                                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c1.child(0)
+                                                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                         if a, b := c0.str(), "$(foobar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                c0 := c0.children[0]
+                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                c0 := c0.child(0)
                                                                 if a, b := c0.str(), "foobar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                         }
                                                 }
                                         }
@@ -792,54 +792,54 @@ name = $(prefix:part1.part2.part3)
                 }
         }
 
-        if c, x := l.nodes[6], nodeImmediateText; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[6], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "$(info $(foo),$(bar),$(foobar))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0 := c.children[0]
-                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0 := c.child(0)
+                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "$(info $(foo),$(bar),$(foobar))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 4; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0, c1, c2, c3 := c0.children[0], c0.children[1], c0.children[2], c0.children[3]
+                                if a, b := len(c0.children()), 4; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0, c1, c2, c3 := c0.child(0), c0.child(1), c0.child(2), c0.child(3)
                                         if a, b := c0.str(), "info"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         if a, b := c1.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c1.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c1.children[0]
+                                        if a, b := c1.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c1.child(0)
                                                 if a, b := c0.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c0.children[0]
+                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c0.child(0)
                                                         if a, b := c0.str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 }
                                         }
                                         if a, b := c2.str(), "$(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c2.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c2.children[0]
+                                        if a, b := c2.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c2.child(0)
                                                 if a, b := c0.str(), "$(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c0.children[0]
+                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c0.child(0)
                                                         if a, b := c0.str(), "bar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 }
                                         }
                                         if a, b := c3.str(), "$(foobar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c3.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c3.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c3.children[0]
+                                        if a, b := c3.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c3.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c3.child(0)
                                                 if a, b := c0.str(), "$(foobar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c0.children[0]
+                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c0.child(0)
                                                         if a, b := c0.str(), "foobar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 }
                                         }
                                 }
@@ -847,49 +847,49 @@ name = $(prefix:part1.part2.part3)
                 }
         }
 
-        if c, x := l.nodes[7], nodeImmediateText; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[7], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "$(info $(foo) $(bar), $(foobar) )"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0 := c.children[0]
-                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                if a, b := len(c.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0 := c.child(0)
+                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 if a, b := c0.str(), "$(info $(foo) $(bar), $(foobar) )"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0, c1, c2 := c0.children[0], c0.children[1], c0.children[2]
+                                if a, b := len(c0.children()), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0, c1, c2 := c0.child(0), c0.child(1), c0.child(2)
                                         if a, b := c0.str(), "info"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                         if a, b := c1.str(), "$(foo) $(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c1.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c1.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0, c1 := c1.children[0], c1.children[1]
+                                        if a, b := c1.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c1.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0, c1 := c1.child(0), c1.child(1)
                                                 if a, b := c0.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c0.children[0]
+                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c0.child(0)
                                                         if a, b := c0.str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 }
                                                 if a, b := c1.str(), "$(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c1.children[0]
+                                                if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c1.child(0)
                                                         if a, b := c0.str(), "bar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 }
                                         }
                                         if a, b := c2.str(), " $(foobar) "; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c2.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c2.children[0]
+                                        if a, b := c2.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c2.child(0)
                                                 if a, b := c0.str(), "$(foobar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c0.children[0]
+                                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c0.child(0)
                                                         if a, b := c0.str(), "foobar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                                 }
                                         }
                                 }
@@ -897,77 +897,77 @@ name = $(prefix:part1.part2.part3)
                 }
         }
 
-        if c, x := l.nodes[8], nodeImmediateText; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[8], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "$(info $($(foo)),$($($(foo)$(bar))))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0 := c.children[0]
+                if a, b := len(c.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0 := c.child(0)
                         if a, b := c0.str(), "$(info $($(foo)),$($($(foo)$(bar))))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := len(c0.children), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0, c1, c2 := c0.children[0], c0.children[1], c0.children[2]
+                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                        if a, b := len(c0.children()), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0, c1, c2 := c0.child(0), c0.child(1), c0.child(2)
                                 if a, b := c0.str(), "info"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) }
                                 if a, b := c1.str(), "$($(foo))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := c1.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0 := c1.children[0]
+                                if a, b := c1.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0 := c1.child(0)
                                         if a, b := c0.str(), "$($(foo))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c0.children[0]
+                                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c0.child(0)
                                                 if a, b := c0.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c0.children[0]
+                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c0.child(0)
                                                         if a, b := c0.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                c0 := c0.children[0]
+                                                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                c0 := c0.child(0)
                                                                 if a, b := c0.str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                                 }
                                                         }
                                                 }
                                         }
                                 }
                                 if a, b := c2.str(), "$($($(foo)$(bar)))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := c2.kind, nodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c2.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0 := c2.children[0]
+                                if a, b := c2.tc(), nodeTypeCodeArg; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                if a, b := len(c2.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0 := c2.child(0)
                                         if a, b := c0.str(), "$($($(foo)$(bar)))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c0.children[0]
+                                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c0.child(0)
                                                 if a, b := c0.str(), "$($(foo)$(bar))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                        c0 := c0.children[0]
+                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                        c0 := c0.child(0)
                                                         if a, b := c0.str(), "$($(foo)$(bar))"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                c0 := c0.children[0]
+                                                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                c0 := c0.child(0)
                                                                 if a, b := c0.str(), "$(foo)$(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                if a, b := len(c0.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                        c0, c1 := c0.children[0], c0.children[1]
+                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                if a, b := len(c0.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                        c0, c1 := c0.child(0), c0.child(1)
                                                                         if a, b := c0.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                c0 := c0.children[0]
+                                                                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                c0 := c0.child(0)
                                                                                 if a, b := c0.str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                                                 }
                                                                         }
                                                                         if a, b := c1.str(), "$(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                        if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                                                c0 := c1.children[0]
+                                                                        if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                c0 := c1.child(0)
                                                                                 if a, b := c0.str(), "bar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                                                 }
                                                                         }
                                                                 }
@@ -979,54 +979,54 @@ name = $(prefix:part1.part2.part3)
                 }
         }
 
-        if c, x := l.nodes[9], nodeImmediateText; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[9], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "aaa |$(foo)|$(bar)| aaa"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
                         if a, b := c0.str(), "$(foo)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0 := c0.children[0]
+                        if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0 := c0.child(0)
                                 if a, b := c0.str(), "foo"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 }
                         }
                         if a, b := c1.str(), "$(bar)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := c1.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0 := c1.children[0]
+                        if a, b := c1.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0 := c1.child(0)
                                 if a, b := c0.str(), "bar"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                 }
                         }
                 }
         }
 
-        if c, x := l.nodes[10], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[10], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
                         if a, b := c0.str(), "name"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) }
+                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                         }
                         if a, b := c1.str(), "$(prefix:name)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0 := c1.children[0]
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) }
+                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0 := c1.child(0)
                                 if a, b := c0.str(), "$(prefix:name)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0 := c0.children[0]
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0 := c0.child(0)
                                         if a, b := c0.str(), "prefix:name"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0 := c0.children[0]
+                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0 := c0.child(0)
                                                 if a, b := c0.str(), ":"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeNamePrefix; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c0.tc(), nodeTypeCodeNamePrefix; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                 }
                                         }
                                 }
@@ -1034,37 +1034,37 @@ name = $(prefix:part1.part2.part3)
                 }
         }
 
-        if c, x := l.nodes[11], nodeDefineDeferred; c.kind != x { t.Errorf("expecting %v but %v", x, c.kind) } else {
+        if c, x := l.nodes[11], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expecting %v but %v", x, c.tc()) } else {
                 if a, b := c.str(), "="; a != b { t.Errorf("expecting %v but %v", b, a) }
-                if a, b := len(c.children), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                        c0, c1 := c.children[0], c.children[1]
+                if a, b := len(c.children()), 2; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        c0, c1 := c.child(0), c.child(1)
                         if a, b := c0.str(), "name"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := c0.kind, nodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                        if a, b := c0.tc(), nodeTypeCodeImmediateText; a != b { t.Errorf("expecting %v but %v", b, a) }
+                        if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                         }
                         if a, b := c1.str(), "$(prefix:part1.part2.part3)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := c1.kind, nodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) }
-                        if a, b := len(c1.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                c0 := c1.children[0]
+                        if a, b := c1.tc(), nodeTypeCodeDeferredText; a != b { t.Errorf("expecting %v but %v", b, a) }
+                        if a, b := len(c1.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                c0 := c1.child(0)
                                 if a, b := c0.str(), "$(prefix:part1.part2.part3)"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := c0.kind, nodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                if a, b := len(c0.children), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                        c0 := c0.children[0]
+                                if a, b := c0.tc(), nodeTypeCodeCall; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                if a, b := len(c0.children()), 1; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                        c0 := c0.child(0)
                                         if a, b := c0.str(), "prefix:part1.part2.part3"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := c0.kind, nodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                        if a, b := len(c0.children), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
-                                                c0, c1, c2 := c0.children[0], c0.children[1], c0.children[2]
+                                        if a, b := c0.tc(), nodeTypeCodeName; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                        if a, b := len(c0.children()), 3; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                c0, c1, c2 := c0.child(0), c0.child(1), c0.child(2)
                                                 if a, b := c0.str(), ":"; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c0.kind, nodeNamePrefix; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c0.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c0.tc(), nodeTypeCodeNamePrefix; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c0.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                 }
                                                 if a, b := c1.str(), "."; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c1.kind, nodeNamePart; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c1.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c1.tc(), nodeTypeCodeNamePart; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c1.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                 }
                                                 if a, b := c2.str(), "."; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := c2.kind, nodeNamePart; a != b { t.Errorf("expecting %v but %v", b, a) }
-                                                if a, b := len(c2.children), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
+                                                if a, b := c2.tc(), nodeTypeCodeNamePart; a != b { t.Errorf("expecting %v but %v", b, a) }
+                                                if a, b := len(c2.children()), 0; a != b { t.Errorf("expecting %v but %v", b, a) } else {
                                                 }
                                         }
                                 }
@@ -1092,29 +1092,29 @@ c = xxx \#\
                 countDeferredDefines = 0
         )
         for _, n := range l.nodes {
-                switch n.kind {
-                case nodeDefineDeferred:        countDeferredDefines++
+                switch n.tc() {
+                case nodeTypeCodeDefineDeferred:        countDeferredDefines++
                 }
         }
-        if ex := 3; countDeferredDefines != ex          { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeDefineDeferred,      countDeferredDefines) }
+        if ex := 3; countDeferredDefines != ex          { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeDefineDeferred,      countDeferredDefines) }
         if n := countDeferredDefines; len(l.nodes) != n {
                 t.Errorf("expecting %v nodes totally, but got %v", len(l.nodes), n)
         }
 
         var (
-                c *node
+                c node
                 i int
         )
-        checkNode := func(c *node, k nodeType, cc int, s string, cs ...string) {
-                if c.kind != k { t.Errorf("%v: expecting kind %v but got %v", i, k, c.kind) }
+        checkNode := func(c node, k nodeTypeCode, cc int, s string, cs ...string) {
+                if c.tc() != k { t.Errorf("%v: expecting kind %v but got %v", i, k, c.tc()) }
                 if ss := c.str(); ss != s { t.Errorf("%v: expecting %v but got %v", i, s, ss) }
-                if len(c.children) != cc { t.Errorf("%v: expecting %v children but got %v", i, cc, len(c.children)) }
+                if len(c.children()) != cc { t.Errorf("%v: expecting %v children but got %v", i, cc, len(c.children())) }
 
                 var cn int
-                for cn = 0; cn < len(c.children) && cn < len(cs); cn++ {
-                        nd := c.children[cn]
-                        if nd.end < nd.pos {
-                                t.Errorf("%v: child %v has bad range [%v, %v) (%v)", i, cn, nd.pos, nd.end, c.str())
+                for cn = 0; cn < len(c.children()) && cn < len(cs); cn++ {
+                        nd := c.child(cn)
+                        if nd.getPosEnd() < nd.getPosBeg() {
+                                t.Errorf("%v: child %v has bad range [%v, %v) (%v)", i, cn, nd.getPosBeg(), nd.getPosEnd(), c.str())
                         }
                         if s := nd.str(); s != cs[cn] {
                                 t.Errorf("%v: expecting child %v '%v', but '%v', in '%v'", i, cn, cs[cn], s, nd.str())
@@ -1123,19 +1123,19 @@ c = xxx \#\
                 if cn != len(cs) { t.Errorf("%v: expecting at least %v children, but got %v", i, len(cs), cn) }
         }
 
-        var cc *node
+        var cc node
 
-        i = 0; c = l.nodes[i]; checkNode(c, nodeDefineDeferred, 2, `=`, `a`, `xxx\#xxx`)
-        cc = c.children[0]; checkNode(cc, nodeImmediateText, 0, `a`)
-        cc = c.children[1]; checkNode(cc, nodeDeferredText, 1, `xxx\#xxx`, `\#`)
+        i = 0; c = l.nodes[i]; checkNode(c, nodeTypeCodeDefineDeferred, 2, `=`, `a`, `xxx\#xxx`)
+        cc = c.child(0); checkNode(cc, nodeTypeCodeImmediateText, 0, `a`)
+        cc = c.child(1); checkNode(cc, nodeTypeCodeDeferredText, 1, `xxx\#xxx`, `\#`)
 
-        i = 1; c = l.nodes[i]; checkNode(c, nodeDefineDeferred, 2, `=`, `b`, "xxx\\\n  yyy \\\n  zzz \\\n")
-        cc = c.children[0]; checkNode(cc, nodeImmediateText, 0, `b`)
-        cc = c.children[1]; checkNode(cc, nodeDeferredText, 3, "xxx\\\n  yyy \\\n  zzz \\\n", "\\\n", "\\\n", "\\\n")
+        i = 1; c = l.nodes[i]; checkNode(c, nodeTypeCodeDefineDeferred, 2, `=`, `b`, "xxx\\\n  yyy \\\n  zzz \\\n")
+        cc = c.child(0); checkNode(cc, nodeTypeCodeImmediateText, 0, `b`)
+        cc = c.child(1); checkNode(cc, nodeTypeCodeDeferredText, 3, "xxx\\\n  yyy \\\n  zzz \\\n", "\\\n", "\\\n", "\\\n")
 
-        i = 2; c = l.nodes[i]; checkNode(c, nodeDefineDeferred, 2, `=`, `c`, "xxx \\#\\\n  yyy \\#\\\n")
-        cc = c.children[0]; checkNode(cc, nodeImmediateText, 0, `c`)
-        cc = c.children[1]; checkNode(cc, nodeDeferredText, 4, "xxx \\#\\\n  yyy \\#\\\n", "\\#", "\\\n", "\\#", "\\\n")
+        i = 2; c = l.nodes[i]; checkNode(c, nodeTypeCodeDefineDeferred, 2, `=`, `c`, "xxx \\#\\\n  yyy \\#\\\n")
+        cc = c.child(0); checkNode(cc, nodeTypeCodeImmediateText, 0, `c`)
+        cc = c.child(1); checkNode(cc, nodeTypeCodeDeferredText, 4, "xxx \\#\\\n  yyy \\#\\\n", "\\#", "\\\n", "\\#", "\\\n")
 }
 
 func TestLexRules(t *testing.T) {
@@ -1178,75 +1178,75 @@ blah : blah.c
                 countRuleDoubleColoned = 0
         )
         for _, n := range l.nodes {
-                //fmt.Fprintf(os.Stderr, "TestLexRules: %v: %v\n", n.kind, n.children[0].str())
-                switch n.kind {
-                case nodeRuleSingleColoned:     countRuleSingleColoned++
-                case nodeRuleDoubleColoned:     countRuleDoubleColoned++
+                //fmt.Fprintf(os.Stderr, "TestLexRules: %v: %v\n", n.tc(), n.child(0).str())
+                switch n.tc() {
+                case nodeTypeCodeRuleSingleColoned:     countRuleSingleColoned++
+                case nodeTypeCodeRuleDoubleColoned:     countRuleDoubleColoned++
                 }
         }
-        if ex := 6; countRuleSingleColoned != ex          { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeRuleSingleColoned,      countRuleSingleColoned) }
-        if ex := 1; countRuleDoubleColoned != ex          { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeRuleDoubleColoned,      countRuleDoubleColoned) }
+        if ex := 6; countRuleSingleColoned != ex          { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeRuleSingleColoned,      countRuleSingleColoned) }
+        if ex := 1; countRuleDoubleColoned != ex          { t.Errorf("expecting %v %v nodes, but got %v", ex, nodeTypeCodeRuleDoubleColoned,      countRuleDoubleColoned) }
         if n := countRuleSingleColoned+countRuleDoubleColoned; len(l.nodes) != n {
                 t.Errorf("expecting %v nodes totally, but got %v", len(l.nodes), n)
         }
 
         if n, x := len(l.nodes), 7; n != x { t.Errorf("%v != %v", n, x) } else {
-                if c, x := l.nodes[0], nodeRuleSingleColoned; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := l.nodes[0], nodeTypeCodeRuleSingleColoned; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                         if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", s, x) }
-                        if n, x := len(c.children), 2; n != x { t.Errorf("%v != %v", n, x) } else {
-                                if c, x := c.children[0], nodeTargets; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                        if n, x := len(c.children()), 2; n != x { t.Errorf("%v != %v", n, x) } else {
+                                if c, x := c.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "foobar"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[1], nodePrerequisites; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "foo bar blah"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
                         }
                 }
-                if c, x := l.nodes[1], nodeRuleSingleColoned; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
-                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.kind, x) }
-                        if n, x := len(c.children), 3; n != x { t.Errorf("%v != %v", n, x) } else {
-                                if c, x := c.children[0], nodeTargets; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := l.nodes[1], nodeTypeCodeRuleSingleColoned; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
+                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.tc(), x) }
+                        if n, x := len(c.children()), 3; n != x { t.Errorf("%v != %v", n, x) } else {
+                                if c, x := c.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "foo"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[1], nodePrerequisites; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "foo.c"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[2], nodeRecipes; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(2), nodeTypeCodeRecipes; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "; gcc -c -O2 $< -o $@\n"; s != x { t.Errorf("%v != %v", s, x) }
-                                        if n, x := len(c.children), 1; n != x { t.Errorf("%v != %v", n, x) } else {
-                                                if c, x := c.children[0], nodeRecipe; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                        if n, x := len(c.children()), 1; n != x { t.Errorf("%v != %v", n, x) } else {
+                                                if c, x := c.child(0), nodeTypeCodeRecipe; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                                         if s, x := c.str(), "gcc -c -O2 $< -o $@"; s != x { t.Errorf("%v != %v", s, x) }
                                                 }
                                         }
                                 }
                         }
                 }
-                if c, x := l.nodes[2], nodeRuleSingleColoned; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
-                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.kind, x) }
-                        if n, x := len(c.children), 3; n != x { t.Errorf("%v != %v", n, x) } else {
-                                if c, x := c.children[0], nodeTargets; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := l.nodes[2], nodeTypeCodeRuleSingleColoned; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
+                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.tc(), x) }
+                        if n, x := len(c.children()), 3; n != x { t.Errorf("%v != %v", n, x) } else {
+                                if c, x := c.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "bar"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[1], nodePrerequisites; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "bar.c"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[2], nodeRecipes; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(2), nodeTypeCodeRecipes; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), `	# this is command line comment
 # this is script comment being ignored
 	@echo "compiling..."
 	@gcc -c $< -o $@
 `; s != x { t.Errorf("%v != %v", s, x) } else {
-        if n, x := len(c.children), 4; n != x { t.Errorf("%v != %v", n, x) } else {
-                if c, x := c.children[0], nodeRecipe; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+        if n, x := len(c.children()), 4; n != x { t.Errorf("%v != %v", n, x) } else {
+                if c, x := c.child(0), nodeTypeCodeRecipe; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                         if s, x := c.str(), "# this is command line comment"; s != x { t.Errorf("%v != %v", s, x) }
                 }
-                if c, x := c.children[1], nodeComment; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := c.child(1), nodeTypeCodeComment; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                         if s, x := c.str(), `# this is script comment being ignored`; s != x { t.Errorf("%v != %v", s, x) }
                 }
-                if c, x := c.children[2], nodeRecipe; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := c.child(2), nodeTypeCodeRecipe; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                         if s, x := c.str(), `@echo "compiling..."`; s != x { t.Errorf("%v != %v", s, x) }
                 }
-                if c, x := c.children[3], nodeRecipe; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := c.child(3), nodeTypeCodeRecipe; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                         if s, x := c.str(), `@gcc -c $< -o $@`; s != x { t.Errorf("%v != %v", s, x) }
                 }
         }
@@ -1254,60 +1254,60 @@ blah : blah.c
                                 }
                         }
                 }
-                if c, x := l.nodes[3], nodeRuleSingleColoned; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
-                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.kind, x) }
-                        if n, x := len(c.children), 2; n != x { t.Errorf("%v != %v", n, x) } else {
-                                if c, x := c.children[0], nodeTargets; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := l.nodes[3], nodeTypeCodeRuleSingleColoned; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
+                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.tc(), x) }
+                        if n, x := len(c.children()), 2; n != x { t.Errorf("%v != %v", n, x) } else {
+                                if c, x := c.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "baz"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[1], nodePrerequisites; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "bar"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
                         }
                 }
-                if c, x := l.nodes[4], nodeRuleDoubleColoned; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
-                        if s, x := c.str(), "::"; s != x { t.Errorf("%v != %v", c.kind, x) }
-                        if n, x := len(c.children), 2; n != x { t.Errorf("%v != %v", n, x) } else {
-                                if c, x := c.children[0], nodeTargets; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := l.nodes[4], nodeTypeCodeRuleDoubleColoned; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
+                        if s, x := c.str(), "::"; s != x { t.Errorf("%v != %v", c.tc(), x) }
+                        if n, x := len(c.children()), 2; n != x { t.Errorf("%v != %v", n, x) } else {
+                                if c, x := c.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "zz"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[1], nodePrerequisites; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "foo"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
                         }
                 }
-                if c, x := l.nodes[5], nodeRuleSingleColoned; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
-                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.kind, x) }
-                        if n, x := len(c.children), 3; n != x { t.Errorf("%v != %v", n, x) } else {
-                                if c, x := c.children[0], nodeTargets; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := l.nodes[5], nodeTypeCodeRuleSingleColoned; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
+                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.tc(), x) }
+                        if n, x := len(c.children()), 3; n != x { t.Errorf("%v != %v", n, x) } else {
+                                if c, x := c.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "a"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[1], nodePrerequisites; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), ""; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[2], nodeRecipes; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(2), nodeTypeCodeRecipes; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "	echo blah blah\n"; s != x { t.Errorf("%v != %v", s, x) }
-                                        if n, x := len(c.children), 1; n != x { t.Errorf("%v != %v", n, x) } else {
-                                                if c, x := c.children[0], nodeRecipe; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                        if n, x := len(c.children()), 1; n != x { t.Errorf("%v != %v", n, x) } else {
+                                                if c, x := c.child(0), nodeTypeCodeRecipe; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                                         if s, x := c.str(), "echo blah blah"; s != x { t.Errorf("%v != %v", s, x) }
                                                 }
                                         }
                                 }
                         }
                 }
-                if c, x := l.nodes[6], nodeRuleSingleColoned; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
-                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.kind, x) }
-                        if n, x := len(c.children), 3; n != x { t.Errorf("%v != %v", n, x) } else {
-                                if c, x := c.children[0], nodeTargets; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                if c, x := l.nodes[6], nodeTypeCodeRuleSingleColoned; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
+                        if s, x := c.str(), ":"; s != x { t.Errorf("%v != %v", c.tc(), x) }
+                        if n, x := len(c.children()), 3; n != x { t.Errorf("%v != %v", n, x) } else {
+                                if c, x := c.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "blah"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[1], nodePrerequisites; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "blah.c"; s != x { t.Errorf("%v != %v", s, x) }
                                 }
-                                if c, x := c.children[2], nodeRecipes; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                if c, x := c.child(2), nodeTypeCodeRecipes; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "\tgcc -c $< -o $@\n"; s != x { t.Errorf("%v != %v", s, x) }
-                                        if n, x := len(c.children), 1; n != x { t.Errorf("%v != %v", n, x) } else {
-                                                if c, x := c.children[0], nodeRecipe; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                        if n, x := len(c.children()), 1; n != x { t.Errorf("%v != %v", n, x) } else {
+                                                if c, x := c.child(0), nodeTypeCodeRecipe; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                                         if s, x := c.str(), "gcc -c $< -o $@"; s != x { t.Errorf("%v != %v", s, x) }
                                                 }
                                         }
@@ -1326,18 +1326,18 @@ blah blah blah blah...
 `)
         l.parse()
         if ex, n := 1, len(l.nodes); n != ex { t.Errorf("expecting %v nodes but got %v", ex, n) }
-        if c, k := l.nodes[0], nodeDefineDeferred; c.kind != k { t.Errorf("expecting %v but %v", c.kind, k) } else {
-                if n, x := len(c.children), 2; n != x { t.Errorf("expecting %v but %v", n, x) } else {
-                        if c, k := c.children[1], nodeDeferredText; c.kind != k { t.Errorf("expecting %v but %v", c.kind, k) } else {
-                                if n, x := len(c.children), 1; n != x { t.Errorf("expecting %v but %v", n, x) } else {
-                                        if c, k := c.children[0], nodeSpeak; c.kind != k { t.Errorf("expecting %v but %v", c.kind, k) } else {
-                                                if n, x := len(c.children), 2; n != x { t.Errorf("expecting %v but %v", n, x) } else {
-                                                        if c, k := c.children[0], nodeArg; c.kind != k { t.Errorf("expecting %v but %v", c.kind, k) } else {
-                                                                if n, x := len(c.children), 0; n != x { t.Errorf("expecting %v but %v", n, x) }
+        if c, k := l.nodes[0], nodeTypeCodeDefineDeferred; c.tc() != k { t.Errorf("expecting %v but %v", c.tc(), k) } else {
+                if n, x := len(c.children()), 2; n != x { t.Errorf("expecting %v but %v", n, x) } else {
+                        if c, k := c.child(1), nodeTypeCodeDeferredText; c.tc() != k { t.Errorf("expecting %v but %v", c.tc(), k) } else {
+                                if n, x := len(c.children()), 1; n != x { t.Errorf("expecting %v but %v", n, x) } else {
+                                        if c, k := c.child(0), nodeTypeCodeSpeak; c.tc() != k { t.Errorf("expecting %v but %v", c.tc(), k) } else {
+                                                if n, x := len(c.children()), 2; n != x { t.Errorf("expecting %v but %v", n, x) } else {
+                                                        if c, k := c.child(0), nodeTypeCodeArg; c.tc() != k { t.Errorf("expecting %v but %v", c.tc(), k) } else {
+                                                                if n, x := len(c.children()), 0; n != x { t.Errorf("expecting %v but %v", n, x) }
                                                                 if s, x := c.str(), "text"; s != x { t.Errorf("expecting %v but %v", s, x) }
                                                         }
-                                                        if c, k := c.children[1], nodeArg; c.kind != k { t.Errorf("expecting %v but %v", c.kind, k) } else {
-                                                                if n, x := len(c.children), 0; n != x { t.Errorf("expecting %v but %v", n, x) }
+                                                        if c, k := c.child(1), nodeTypeCodeArg; c.tc() != k { t.Errorf("expecting %v but %v", c.tc(), k) } else {
+                                                                if n, x := len(c.children()), 0; n != x { t.Errorf("expecting %v but %v", n, x) }
                                                                 if s, x := c.str(), "blah blah blah blah..."; s != x { t.Errorf("expecting %v but %v", s, x) }
                                                         }
                                                 }
@@ -1658,7 +1658,7 @@ bar:
 `);     if err != nil { t.Errorf("parse error:", err) }
         if n, x := len(ctx.g.rules), 3; n != x { t.Errorf("wrong number of rules: %v", ctx.g.rules) }
         if r, ok := ctx.g.rules["all"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
-                if n, x := len(r.node.children), 2; n != x { t.Errorf("children %d != %d", n, x) }
+                if n, x := len(r.node.children()), 2; n != x { t.Errorf("children %d != %d", n, x) }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                         if s, x := r.targets[0], "all"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
                 }
@@ -1670,11 +1670,11 @@ bar:
                 if c, ok := r.c.(*defaultTargetUpdater); !ok { t.Errorf("wrong type of checker %v", c) }
         }
         if r, ok := ctx.g.rules["foo"]; !ok && r == nil { t.Errorf("'foo' not defined") } else {
-                if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) } else {
-                        if c, x := r.node.children[0], nodeTargets; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
-                        if c, x := r.node.children[1], nodePrerequisites; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
-                        if c, x := r.node.children[2], nodeRecipes; c.kind != x { t.Errorf("children %v != %v", c.kind, x) } else {
-                                if c, x := c.children[0], nodeRecipe; c.kind != x { t.Errorf("children %v != %v", c.kind, x) } else {
+                if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) } else {
+                        if c, x := r.node.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("children %v != %v", c.tc(), x) }
+                        if c, x := r.node.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("children %v != %v", c.tc(), x) }
+                        if c, x := r.node.child(2), nodeTypeCodeRecipes; c.tc() != x { t.Errorf("children %v != %v", c.tc(), x) } else {
+                                if c, x := c.child(0), nodeTypeCodeRecipe; c.tc() != x { t.Errorf("children %v != %v", c.tc(), x) } else {
                                         if s, x := c.str(), "@touch $@.txt "; s != x { t.Errorf("%v != %v", s, x) }
                                 }
                         }
@@ -1684,8 +1684,8 @@ bar:
                 }
                 if n, x := len(r.prerequisites), 0; n != x { t.Errorf("prerequisites %d != %d", n, x) }
                 if n, x := len(r.recipes), 1; n != x { t.Errorf("recipes %d != %d", n, x) } else {
-                        if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[0] %v != %v", k, x) }
+                        if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                if k, x := c.tc(), nodeTypeCodeRecipe; k != x { t.Errorf("recipes[0] %v != %v", k, x) }
                                 if s, x := c.str(), "@touch $@.txt "; s != x { t.Errorf("recipes[0] %v != %v", s, x) }
                                 if s, x := c.Expand(ctx), "@touch .txt "; s != x { t.Errorf("recipes[0] %v != %v", s, x) }
                         }
@@ -1693,10 +1693,10 @@ bar:
                 if c, ok := r.c.(*defaultTargetUpdater); !ok { t.Errorf("wrong type of checker %v", c) }
         }
         if r, ok := ctx.g.rules["bar"]; !ok && r == nil { t.Errorf("'bar' not defined") } else {
-                if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) } else {
-                        if c, x := r.node.children[0], nodeTargets; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
-                        if c, x := r.node.children[1], nodePrerequisites; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
-                        if c, x := r.node.children[2], nodeRecipes; c.kind != x { t.Errorf("children %v != %v", c.kind, x) }
+                if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) } else {
+                        if c, x := r.node.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("children %v != %v", c.tc(), x) }
+                        if c, x := r.node.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("children %v != %v", c.tc(), x) }
+                        if c, x := r.node.child(2), nodeTypeCodeRecipes; c.tc() != x { t.Errorf("children %v != %v", c.tc(), x) }
                 }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                         if s, x := r.targets[0], "bar"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
@@ -1704,13 +1704,13 @@ bar:
                 if n, x := len(r.prerequisites), 0; n != x { t.Errorf("prerequisites %d != %d", n, x) }
                 if n, x := len(r.recipes), 2; n != x { t.Errorf("recipes %d != %d", n, x) } else {
                         ctx.Set("@", stringitem("xxx"))
-                        if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[0] %v != %v", k, x) }
+                        if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                if k, x := c.tc(), nodeTypeCodeRecipe; k != x { t.Errorf("recipes[0] %v != %v", k, x) }
                                 if s, x := c.str(), "@echo $@ > $@.txt"; s != x { t.Errorf("recipes[0] %v != %v", s, x) }
                                 if s, x := c.Expand(ctx), "@echo xxx > xxx.txt"; s != x { t.Errorf("recipes[0] %v != %v", s, x) }
                         }
-                        if c, ok := r.recipes[1].(*node); !ok { t.Errorf("recipes[1] '%v' is not node", r.recipes[1]) } else {
-                                if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
+                        if c, ok := r.recipes[1].(node); !ok { t.Errorf("recipes[1] '%v' is not node", r.recipes[1]) } else {
+                                if k, x := c.tc(), nodeTypeCodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
                                 if s, x := c.str(), "@touch $@.txt"; s != x { t.Errorf("recipes[1] %v != %v", s, x) }
                                 if s, x := c.Expand(ctx), "@touch xxx.txt"; s != x { t.Errorf("recipes[1] %v != %v", s, x) }
                         }
@@ -1744,16 +1744,16 @@ foobar: foo bar
 `);     if err != nil { t.Errorf("parse error:", err) }
         if n, x := len(ctx.g.rules), 3; n != x { t.Errorf("wrong rules: %v", ctx.g.rules) }
         if r, ok := ctx.g.rules["foo"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
-                if k, x := r.node.kind, nodeRuleChecker; k != x { t.Errorf("%v != %v", k, x) }
-                if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
+                if k, x := r.node.tc(), nodeTypeCodeRuleChecker; k != x { t.Errorf("%v != %v", k, x) }
+                if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                         if s, x := r.targets[0], "foo"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
                 }
                 if n, x := len(r.prerequisites), 0; n != x { t.Errorf("prerequisites %d != %d", n, x) }
                 if n, x := len(r.recipes), 1; n != x { t.Errorf("recipes %d != %d", n, x) } else {
                         ctx.Set("@", stringitem("xxx"))
-                        if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
+                        if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                if k, x := c.tc(), nodeTypeCodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
                                 if s, x := c.str(), `@test -f $@.txt && test "$$(cat $@.txt)" = "foo"`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                 if s, x := c.Expand(ctx), `@test -f xxx.txt && test "$(cat xxx.txt)" = "foo"`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                         }
@@ -1766,16 +1766,16 @@ foobar: foo bar
                         }
                         if n, x := len(r.prev), 1; n != x { t.Errorf("prev: %d != %d", n, x) }
                         if r, ok := r.prev["foo"]; !ok && r == nil { t.Errorf("prev[foo] not defined") } else {
-                                if k, x := r.node.kind, nodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
-                                if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
+                                if k, x := r.node.tc(), nodeTypeCodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
+                                if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) }
                                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                                         if s, x := r.targets[0], "foo"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
                                 }
                                 if n, x := len(r.prerequisites), 0; n != x { t.Errorf("prerequisites %d != %d", n, x) }
                                 if n, x := len(r.recipes), 1; n != x { t.Errorf("recipes %d != %d", n, x) } else {
                                         ctx.Set("@", stringitem("xxx"))
-                                        if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                                if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
+                                        if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                                if k, x := c.tc(), nodeTypeCodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
                                                 if s, x := c.str(), `@echo -n foo > $@.txt`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                                 if s, x := c.Expand(ctx), `@echo -n foo > xxx.txt`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                         }
@@ -1787,16 +1787,16 @@ foobar: foo bar
                 }
         }
         if r, ok := ctx.g.rules["bar"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
-                if k, x := r.node.kind, nodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
-                if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
+                if k, x := r.node.tc(), nodeTypeCodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
+                if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                         if s, x := r.targets[0], "bar"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
                 }
                 if n, x := len(r.prerequisites), 0; n != x { t.Errorf("prerequisites %d != %d", n, x) }
                 if n, x := len(r.recipes), 1; n != x { t.Errorf("recipes %d != %d", n, x) } else {
                         ctx.Set("@", stringitem("xxx"))
-                        if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
+                        if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                if k, x := c.tc(), nodeTypeCodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
                                 if s, x := c.str(), `@echo -n bar > $@.txt`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                 if s, x := c.Expand(ctx), `@echo -n bar > xxx.txt`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                         }
@@ -1805,16 +1805,16 @@ foobar: foo bar
                 if c, ok := r.c.(*phonyTargetUpdater); !ok { t.Errorf("wrong type %v", c) } else {
                         if n, x := len(r.prev), 1; n != x { t.Errorf("prev: %d != %d", n, x) }
                         if r, ok := r.prev["bar"]; !ok && r == nil { t.Errorf("prev[foo] not defined") } else {
-                                if k, x := r.node.kind, nodeRuleChecker; k != x { t.Errorf("%v != %v", k, x) }
-                                if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
+                                if k, x := r.node.tc(), nodeTypeCodeRuleChecker; k != x { t.Errorf("%v != %v", k, x) }
+                                if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) }
                                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                                         if s, x := r.targets[0], "bar"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
                                 }
                                 if n, x := len(r.prerequisites), 0; n != x { t.Errorf("prerequisites %d != %d", n, x) }
                                 if n, x := len(r.recipes), 1; n != x { t.Errorf("recipes %d != %d", n, x) } else {
                                         ctx.Set("@", stringitem("xxx"))
-                                        if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                                if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
+                                        if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                                if k, x := c.tc(), nodeTypeCodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
                                                 if s, x := c.str(), `@test -f $@.txt && test "$$(cat $@.txt)" = "bar"`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                                 if s, x := c.Expand(ctx), `@test -f xxx.txt && test "$(cat xxx.txt)" = "bar"`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                         }
@@ -1832,8 +1832,8 @@ foobar: foo bar
                 }
         }
         if r, ok := ctx.g.rules["foobar"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
-                if k, x := r.node.kind, nodeRuleSingleColoned; k != x { t.Errorf("%v != %v", k, x) }
-                if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
+                if k, x := r.node.tc(), nodeTypeCodeRuleSingleColoned; k != x { t.Errorf("%v != %v", k, x) }
+                if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) }
                 if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                         if s, x := r.targets[0], "foobar"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
                 }
@@ -1843,8 +1843,8 @@ foobar: foo bar
                 }
                 if n, x := len(r.recipes), 1; n != x { t.Errorf("recipes %d != %d", n, x) } else {
                         ctx.Set("@", stringitem("xxx"))
-                        if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
+                        if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                if k, x := c.tc(), nodeTypeCodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
                                 if s, x := c.str(), `@touch $@`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                 if s, x := c.Expand(ctx), `@touch xxx`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                         }
@@ -1919,47 +1919,47 @@ $(info b commited)
                 if temp, ok := ctx.templates["test"]; !ok || temp == nil { t.Errorf("no test template") } else {
                         if s, x := temp.name, "test"; s != x { t.Errorf("expects %v but %v", s, x) }
                         if n, x := len(temp.declNodes), 6; n != x { t.Errorf("expects %v but %v", x, n) } else {
-                                if c, x := temp.declNodes[0], nodeDefineAppend; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.declNodes[0], nodeTypeCodeDefineAppend; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), "+="; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
-                                if c, x := temp.declNodes[1], nodeDefineDeferred; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.declNodes[1], nodeTypeCodeDefineDeferred; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), "="; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
-                                if c, x := temp.declNodes[2], nodeImmediateText; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.declNodes[2], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), `$(info $(me.name): $(~.name) - "$(~.modules)")`; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
-                                if c, x := temp.declNodes[3], nodeImmediateText; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.declNodes[3], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), `$(info $(me.name): dir = "$(me.dir)")`; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
-                                if c, x := temp.declNodes[4], nodeImmediateText; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.declNodes[4], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), `$(info $(me.name): source = "$(me.source)")`; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
-                                if c, x := temp.declNodes[5], nodeImmediateText; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.declNodes[5], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), `$(info $(me.name): before-post)`; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
                         }
                         if n, x := len(temp.postNodes), 4; n != x { t.Errorf("expects %v but %v", x, n) } else {
-                                if c, x := temp.postNodes[0], nodeImmediateText; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.postNodes[0], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), `$(info $(me.name): after-post) `; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
-                                if c, x := temp.postNodes[1], nodeImmediateText; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.postNodes[1], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), `$(info $(me.name): source = "$(me.source)")`; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
-                                if c, x := temp.postNodes[2], nodeRuleSingleColoned; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.postNodes[2], nodeTypeCodeRuleSingleColoned; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), ":"; s != x { t.Errorf("expects %v but %v", x, s) }
-                                        if n, x := len(c.children), 3; n != x { t.Errorf("%v != %v", n, x) } else {
-                                                if c, x := c.children[0], nodeTargets; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                        if n, x := len(c.children()), 3; n != x { t.Errorf("%v != %v", n, x) } else {
+                                                if c, x := c.child(0), nodeTypeCodeTargets; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                                         if s, x := c.str(), "$(me.name)/test"; s != x { t.Errorf("expects %v but %v", x, s) }
                                                 }
-                                                if c, x := c.children[1], nodePrerequisites; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                                if c, x := c.child(1), nodeTypeCodePrerequisites; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                                         if s, x := c.str(), ""; s != x { t.Errorf("expects %v but %v", x, s) }
                                                 }
-                                                if c, x := c.children[2], nodeRecipes; c.kind != x { t.Errorf("%v != %v", c.kind, x) } else {
+                                                if c, x := c.child(2), nodeTypeCodeRecipes; c.tc() != x { t.Errorf("%v != %v", c.tc(), x) } else {
                                                         if s, x := c.str(), "; @echo $@ $(me.source)\n"; s != x { t.Errorf("expects '%v' but '%v'", x, s) }
                                                 }
                                         }
                                 }
-                                if c, x := temp.postNodes[3], nodeImmediateText; c.kind != x { t.Errorf("expects %v but %v", x, c.kind) } else {
+                                if c, x := temp.postNodes[3], nodeTypeCodeImmediateText; c.tc() != x { t.Errorf("expects %v but %v", x, c.tc()) } else {
                                         if s, x := c.str(), `$(info $(me.name): before-commit) `; s != x { t.Errorf("expects %v but %v", x, s) }
                                 }
                         }

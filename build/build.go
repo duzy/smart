@@ -17,14 +17,14 @@ import (
         "strings"
         "sort"
         "github.com/duzy/worker"
+        //"github.com/google/glog"
 )
 
 var (
         workdir, _ = os.Getwd()
 
         initScript []string
-        hooksMap = HooksMap{
-        }
+        hooksMap = HooksMap{}
 
         generalMetaFiles = []*FileMatcher{
                 { "backup",     os.ModeDir | ^os.ModeType,      `[^~]*~$` },
@@ -38,12 +38,6 @@ var (
         }
 
         onRecipeExecutionFailure = func(err error, c *exec.Cmd) {
-                /*
-                if s, e := ioutil.ReadAll(c.Stderr); e != nil && 0 < len(s) {
-                        fmt.Printf(os.Stderr, "%s", string(s))
-                } else {
-                        fmt.Printf(os.Stderr, "fail to execute `%v'", c.Path)
-                } */
                 fmt.Fprintf(os.Stderr, "error: `%v` %v\n", c.Path, c.Args)
                 fmt.Fprintf(os.Stderr, "error: %v\n", err)
                 os.Exit(-1)
@@ -250,12 +244,12 @@ type templateNodesProcessor interface {
 }
 
 type template struct {
-        *namespaceEmbed
+        *namespaceBase
         name string
         bases []*template
-        declNodes []*node
-        postNodes []*node
-        post, commit *node
+        declNodes []node
+        postNodes []node
+        post, commit node
 }
 
 func (t *template) processDeclNodes(ctx *Context) {
@@ -292,41 +286,15 @@ func (t *template) processPostNodes(ctx *Context) {
         }
 }
 
-// TODO: put this into namespace, get rid of toolset
-/*
-type toolset interface {
-        // DeclModule setup the current module being processed.
-        // `args' and `vars' is passed in on the `$(module)' invocation.
-        DeclModule(p *Context, args Items, vars map[string]string)
-
-        // CommitModule setup the current module being committed.
-        CommitModule(p *Context, args Items)
-
-        // UseModule lets a toolset decides how to use a module.
-        UseModule(p *Context, o *Module) bool
-
-        // getNamespace returns toolset namespace (internal)
-        getNamespace() namespace
-}
-*/
-
 // Module is defined by a $(module) invocation in .smart script.
 type Module struct {
-        *namespaceEmbed
+        *namespaceBase
         Parent *Module // upper module
         Templates []*template
         Updating bool // marked as 'true' if module is updating
         Children map[string]*Module
         declareLoc, commitLoc location // where does it defined and commit (could be nil)
         l *lex // the lex scope where does it defined (could be nil)
-        //x *Context // the context of the module
-}
-
-func (m *Module) getNamespace(name string) (ns namespace) {
-        if c, ok := m.Children[name]; ok && c != nil {
-                ns = c
-        }
-        return
 }
 
 func (m *Module) GetDeclareLocation() (s string, lineno, colno int) {
@@ -364,7 +332,6 @@ func (m *Module) GetSources(ctx *Context) (sources []string) {
 }
 
 func (m *Module) update(ctx *Context) (updated bool) {
-        //fmt.Printf("Module.update: %s\n", m.goal)
         if !m.Updating {
                 if g, ok := m.rules[m.goal]; ok && g != nil {
                         owd, err := os.Getwd()
@@ -401,7 +368,6 @@ func (m *Module) update(ctx *Context) (updated bool) {
 }
 
 func (ctx *Context) update(target string) (updated bool) {
-        //fmt.Printf("Context.update: %s\n", target)
         if g, ok := ctx.g.rules[target]; ok && g != nil {
                 updated = g.updateAll(ctx)
         }
@@ -507,30 +473,6 @@ func traverse(d string, fun traverseFunc) (err error) {
                 files, dirs []TraverseItem
         )
 
-        /*
-        for _, name := range names {
-                dname := filepath.Join(d, name)
-                //fmt.Printf("traverse: %s\n", dname)
-
-                fi, err = os.Stat(dname)
-                if err != nil {
-                        //errorf("stat: %v\n", dname)
-                        return
-                }
-
-                if !fun(dname, fi) {
-                        continue
-                }
-
-                if fi.IsDir() {
-                        if err = traverse(dname, fun); err != nil {
-                                //errorf("traverse: %v\n", dname)
-                                return
-                        }
-                        continue
-                }
-        } */
-        
         for _, name := range names {
                 path := filepath.Join(d, name)
                 //fmt.Printf("traverse: %s\n", path)
@@ -672,7 +614,7 @@ func (c *phonyTargetUpdater) update(ctx *Context, r *rule, m *match) bool {
         }
 
         needsExecute := true
-        checkRules := r.ns.getRules(nodeRuleChecker, m.target)
+        checkRules := r.ns.getCheckRules(m.target)
         if 0 < len(checkRules) {
                 for _, cr := range checkRules {
                         if needsExecute = cr.c.check(ctx, cr, m); needsExecute {
@@ -848,7 +790,6 @@ func (r *rule) targetsFoundable(ctx *Context, m *match) bool {
 
 func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPrerequisites, updatedPrerequisites []*matchrule) {
         var foundMatchRules [][]*matchrule
-        //fmt.Printf("%v: %v\n", r.targets, r.prerequisites)
         for _, prerequisite := range r.prerequisites {
                 target, ispat := m.unstem(prerequisite)
                 matchrules := r.ns.findMatchRules(ctx, target)
@@ -859,19 +800,16 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
                                 validPatternRules = 0
                         )
                         for _, mr := range matchrules {
-                                //fmt.Printf("%v: %v: %v\n", validPatternRules, mr.rule.targets, mr.rule.prerequisites)
                                 switch mr.rule.kind {
                                 case rulePercentPattern:
                                         if mr.rule.targetsFoundable(ctx, mr.match) {
                                                 if validPatternRules++; validPatternRules == 1 {
                                                         validMatchrules = append(validMatchrules, mr)
-                                                        //fmt.Printf("%v: %v: %v (appended)\n", validPatternRules, mr.rule.targets, mr.rule.prerequisites)
                                                 }
                                         }
                                 default:
                                         validMatchrules = append(validMatchrules, mr)
                                 }
-                                fmt.Printf("%v: %v: %v\n", validPatternRules, mr.rule.targets, mr.rule.prerequisites)
                         }
                         if validPatternRules == 0 {
                                 // If no foundable pattern targets, add the first
@@ -880,7 +818,6 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
                                         if rulePercentPattern == mr.rule.kind {
                                                 if validPatternRules++; validPatternRules == 1 {
                                                         validMatchrules = append(validMatchrules, mr)
-                                                        //fmt.Printf("%v: %v: %v (appended)\n", validPatternRules, mr.rule.targets, mr.rule.prerequisites)
                                                 }
                                         }
                                 }
@@ -892,7 +829,6 @@ func (r *rule) updatePrerequisites(ctx *Context, m *match) (err error, matchedPr
                                 return
                         }
                         if ctx.targetFoundable(target) {
-                                //fmt.Printf("updatePrerequisites: found `%v` (%v)\n", target, prerequisite)
                                 foundMatchRules = append(foundMatchRules, []*matchrule{
                                         &matchrule{ &match{ target, m.stem }, nil },
                                 })
@@ -938,7 +874,6 @@ func (r *rule) makeExecuteContext(ctx *Context, ti os.FileInfo, m *match, matche
                         }
                 }
         }
-        //fmt.Printf("makeExecuteContext: prerequisites: %v %v %v\n", r.targets, ec.prerequisites, matchedPrerequisites)
         return ec
 }
 
@@ -985,26 +920,26 @@ func (r *rule) execute(ctx *Context, ec *ruleExecuteContext) error {
                 "*", "*D", "*F")
         defer ns.restoreDefines(saveIndex)
 
-        ns.set(ctx, []string{ "@" },  stringitem(ec.target))
-        ns.set(ctx, []string{ "@D" }, stringitem(filepath.Dir(ec.target)))
-        ns.set(ctx, []string{ "@F" }, stringitem(filepath.Base(ec.target)))
-        ns.set(ctx, []string{ "*" },  stringitem(ec.stem))
-        ns.set(ctx, []string{ "*D" }, stringitem(filepath.Dir(ec.stem)))
-        ns.set(ctx, []string{ "*F" }, stringitem(filepath.Base(ec.stem)))
+        ns.set(ctx, "@",  stringitem(ec.target))
+        ns.set(ctx, "@D", stringitem(filepath.Dir(ec.target)))
+        ns.set(ctx, "@F", stringitem(filepath.Base(ec.target)))
+        ns.set(ctx, "*",  stringitem(ec.stem))
+        ns.set(ctx, "*D", stringitem(filepath.Dir(ec.stem)))
+        ns.set(ctx, "*F", stringitem(filepath.Base(ec.stem)))
         if 0 < len(ec.prerequisites) {
                 l, ld, lf := targetDirBaseItems(ec.prerequisites)
-                ns.set(ctx, []string{ "<" },  l[0])
-                ns.set(ctx, []string{ "<D" }, ld[0])
-                ns.set(ctx, []string{ "<F" }, lf[0])
-                ns.set(ctx, []string{ "^" }, l...)
-                ns.set(ctx, []string{ "^D" }, ld...)
-                ns.set(ctx, []string{ "^F" }, lf...)
+                ns.set(ctx, "<",  l[0])
+                ns.set(ctx, "<D", ld[0])
+                ns.set(ctx, "<F", lf[0])
+                ns.set(ctx, "^", l...)
+                ns.set(ctx, "^D", ld...)
+                ns.set(ctx, "^F", lf...)
         }
         if 0 < len(ec.newer) {
                 l, ld, lf := targetDirBaseItems(ec.newer)
-                ns.set(ctx, []string{ "?" }, l...)
-                ns.set(ctx, []string{ "?D" }, ld...)
-                ns.set(ctx, []string{ "?F" }, lf...)
+                ns.set(ctx, "?", l...)
+                ns.set(ctx, "?D", ld...)
+                ns.set(ctx, "?F", lf...)
         }
         
         job := new(executeRecipes)
@@ -1012,7 +947,7 @@ func (r *rule) execute(ctx *Context, ec *ruleExecuteContext) error {
                 var s string
                 switch a := action.(type) {
                 case string: s = a
-                case *node: s = a.Expand(ctx)
+                case Item: s = a.Expand(ctx)
                 }
                 job.recipes = append(job.recipes, s)
         }
@@ -1118,35 +1053,6 @@ func Build(vars map[string]string, cmds ...string) (ctx *Context) {
         }
 
         // Find and process modules.
-
-        /*
-        err = filepath.Walk(d, func(path string, info os.FileInfo, err error) error {
-                fm := matchFileInfo(info, generalMetaFiles)
-                if *flagGG && fm != nil {
-                        if info.Mode() & os.ModeDir != 0 {
-                                return filepath.SkipDir
-                        } else {
-                                return nil
-                        }
-                }
-                
-                if *flagGH && info.Name() != "." && info.Mode() & os.ModeDir != 0 {
-                        if strings.HasPrefix(info.Name(), ".") {
-                                return filepath.SkipDir
-                        }
-                }
-
-                if info.Mode() & os.ModeDir == 0 {
-                        switch s := info.Name(); s {
-                        case ".smart", "build.smart":
-                                if err := ctx.include(path); err != nil {
-                                        errorf("include: `%v', %v\n", path, err)
-                                }
-                        }
-                }
-                return nil
-        }) */
-
         err = traverse(d, func(ti TraverseItem) bool {
                 fi := ti.Info
                 if *flagGG {

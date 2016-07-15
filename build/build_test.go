@@ -180,15 +180,14 @@ gcc -o a.out test.o
         os.Remove("test.o")
         os.Remove("test.cpp")
 
-        /// Source file is absensed.
+        /// Source file is absence ("test.c" nor "test.cpp").
         info.Reset(); stdout.Reset(); stderr.Reset(); echo.Reset()
         os.Remove("a.out"); os.Remove("test.o")
         Update(ctx)
         if fi, e := os.Stat("a.out"); fi != nil || e == nil { t.Errorf("TestBuildPatternRules: %s", fi.Name()) }
         if fi, e := os.Stat("test.o"); fi != nil || e == nil { t.Errorf("TestBuildPatternRules: %s", fi.Name()) }
         if s, x := info.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
-        if s, x := echo.String(), fmt.Sprintf(`gcc -o a.out test.o
-`); s != x { t.Errorf("'%s' != '%s'", s, x) }
+        if s, x := echo.String(), fmt.Sprintf("gcc -o a.out test.o\n"); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if s, x := stdout.String(), fmt.Sprintf(``); s != x { t.Errorf("'%s' != '%s'", s, x) }
         if s, x := stderr.String(), fmt.Sprintf(`gcc: error: test.o: No such file or directory
 gcc: fatal error: no input files
@@ -226,7 +225,7 @@ foobar:!:
                         }
                         if n := len(r.prerequisites); n != 0 { t.Errorf("incorrect number of prerequisites: %v %v", n, r.prerequisites) }
                         if n := len(r.recipes); n != 1 { t.Errorf("incorrect number of recipes: %v %v", n, r.recipes) }
-                        if k, x := r.node.kind, nodeRuleChecker; k != x { t.Errorf("%v != %v", k, x) }
+                        if k, x := r.node.(*nodeRuleChecker); !x { t.Errorf("%v", k) }
                 }
                 {
                         os.Remove("foo.txt")
@@ -309,16 +308,16 @@ foo:!:
         if ctx.m != nil { t.Errorf("ctx.m: %v", ctx.m) }
         if n, x := len(ctx.g.rules), 1; n != x { t.Errorf("wrong rules: %v", ctx.g.rules) } else {
                 if r, ok := ctx.g.rules["foo"]; !ok && r == nil { t.Errorf("'all' not defined") } else {
-                        if k, x := r.node.kind, nodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
-                        if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
+                        if k, x := r.node.(*nodeRulePhony); !x { t.Errorf("%v", k) }
+                        if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) }
                         if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                                 if s, x := r.targets[0], "foo"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
                         }
                         if n, x := len(r.prerequisites), 0; n != x { t.Errorf("prerequisites %d != %d", n, x) }
                         if n, x := len(r.recipes), 1; n != x { t.Errorf("recipes %d != %d", n, x) } else {
                                 ctx.Set("@", stringitem("xxxxx"))
-                                if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                        if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
+                                if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                        if k, ok := c.(*nodeRecipe); !ok { t.Errorf("recipes[1] %v", k) }
                                         if s, x := c.str(), `@echo "rule 'foo' is updated along with module 'foo'" $(info 4: $@)`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                         if s, x := c.Expand(ctx), `@echo "rule 'foo' is updated along with module 'foo'" `; s != x { t.Errorf("recipes[1]: '%v' != '%v'", s, x) }
                                 }
@@ -415,16 +414,16 @@ foo:!:
         if ctx.m != nil { t.Errorf("ctx.m: %v", ctx.m) }
         if n, x := len(ctx.g.rules), 1; n != x { t.Errorf("wrong rules: %v", ctx.g.rules) } else {
                 if r, ok := ctx.g.rules["foo"]; !ok || r == nil { t.Errorf("'foo' not defined") } else {
-                        if k, x := r.node.kind, nodeRulePhony; k != x { t.Errorf("%v != %v", k, x) }
-                        if n, x := len(r.node.children), 3; n != x { t.Errorf("children %d != %d", n, x) }
+                        if k, x := r.node.(*nodeRulePhony); !x { t.Errorf("%v", k) }
+                        if n, x := len(r.node.children()), 3; n != x { t.Errorf("children %d != %d", n, x) }
                         if n, x := len(r.targets), 1; n != x { t.Errorf("targets %d != %d", n, x) } else {
                                 if s, x := r.targets[0], "foo"; s != x { t.Errorf("targets[0] %v != %v", s, x) }
                         }
                         if n, x := len(r.prerequisites), 0; n != x { t.Errorf("prerequisites %d != %d", n, x) }
                         if n, x := len(r.recipes), 1; n != x { t.Errorf("recipes %d != %d", n, x) } else {
                                 ctx.Set("@", stringitem("xxxxx"))
-                                if c, ok := r.recipes[0].(*node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
-                                        if k, x := c.kind, nodeRecipe; k != x { t.Errorf("recipes[1] %v != %v", k, x) }
+                                if c, ok := r.recipes[0].(node); !ok { t.Errorf("recipes[0] '%v' is not node", r.recipes[0]) } else {
+                                        if k, x := c.(*nodeRecipe); !x { t.Errorf("recipes[1] %v", k) }
                                         if s, x := c.str(), `@echo "rule 'foo' is also called along with module 'foo'" $(info 4: $@)`; s != x { t.Errorf("recipes[1]: %v != %v", s, x) }
                                         if s, x := c.Expand(ctx), `@echo "rule 'foo' is also called along with module 'foo'" `; s != x { t.Errorf("recipes[1]: '%v' != '%v'", s, x) }
                                 }
@@ -750,7 +749,7 @@ commit
         if n, x := len(ctx.templates), 1; n != x { t.Errorf("wrong templates: %v", ctx.templates) } else {
                 if temp, ok := ctx.templates["test"]; !ok || temp == nil { t.Errorf("test not defined: %v", ctx.templates) } else {
                         if temp.post == nil { t.Errorf("post is nil") } else {
-                                if n, x := len(temp.post.children), 0; n != x { t.Errorf("%v != %v", n, x) }
+                                if n, x := len(temp.post.children()), 0; n != x { t.Errorf("%v != %v", n, x) }
                         }
                         if n, x := len(temp.declNodes), 1; n != x { t.Errorf("%v != %v", n, x) } else {
                                 c := temp.declNodes[0]

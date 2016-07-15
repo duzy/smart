@@ -19,6 +19,29 @@ import (
         "github.com/duzy/worker"
 )
 
+var (
+        ErrReadOnly = errors.New("modifying readonly definition")
+)
+
+type Name struct {
+        Prefixed bool
+        Prefix string
+        Ns []string
+        Sym string
+}
+
+func (name *Name) String() (s string) {
+        s = fmt.Sprintf("%s.%s", strings.Join(name.Ns, "."), name.Sym)
+        if !name.Prefixed {
+                s = fmt.Sprintf("%s:%s", name.Prefix, s)
+        }
+        return
+}
+
+func (name *Name) HasPrefix(s string) bool {
+        return name.Prefixed && name.Prefix == s
+}
+
 type Item interface {
         // Expand the item to string
         Expand(ctx *Context) string
@@ -99,10 +122,10 @@ type rule struct {
         prev map[string]*rule // previously defined rules of a specific target
         targets []string // expanded strings (target names or patterns)
         prerequisites []string // expanded strings (could be patterns)
-        recipes []interface{} // *node, string
+        recipes []interface{} // node, string
         ns namespace
         c checkupdater
-        node *node
+        node node
         kind rulekind
 }
 
@@ -112,20 +135,20 @@ type checkupdater interface {
 }
 
 type namespace interface {
-        getNamespace(name string) namespace
-        getDefineMap() map[string]*define
         findMatchRules(ctx *Context, target string) (mrs []*matchrule)
         isPhonyTarget(ctx *Context, target string) bool
         saveDefines(names ...string) (saveIndex int, m map[string]*define)
         restoreDefines(saveIndex int)
-        set(ctx *Context, ids []string, items ...Item)
-        getRules(kind nodeType, target string) (rules []*rule)
+        get(ctx *Context, name string) *define
+        set(ctx *Context, name string, items ...Item) error
+        append(ctx *Context, name string, items ...Item) error
+        getCheckRules(target string) (rules []*rule)
         getGoal() (target string)
         setGoal(target string)
         link(targets ...string) (r *rule)
 }
 
-type namespaceEmbed struct {
+type namespaceBase struct {
         defines map[string]*define
         saveList []map[string]*define // saveDefines, restoreDefines
         rules map[string]*rule
@@ -133,18 +156,18 @@ type namespaceEmbed struct {
         pattList []*rule
         goal string
 }
-func (ns *namespaceEmbed) getGoal() string { return ns.goal }
-func (ns *namespaceEmbed) setGoal(target string) { ns.goal = target }
-func (ns *namespaceEmbed) getRules(kind nodeType, target string) (rules []*rule) {
+func (ns *namespaceBase) getGoal() string { return ns.goal }
+func (ns *namespaceBase) setGoal(target string) { ns.goal = target }
+func (ns *namespaceBase) getCheckRules(target string) (rules []*rule) {
         for ru, ok := ns.rules[target]; ok && ru != nil; {
-                if ru.node.kind == kind {
+                if _, ok := ru.node.(*nodeRuleChecker); ok {
                         rules = append(rules, ru)
                 }
                 ru, ok = ru.prev[target]
         }
         return
 }
-func (ns *namespaceEmbed) link(targets ...string) (r *rule) {
+func (ns *namespaceBase) link(targets ...string) (r *rule) {
         r = &rule{ ns:ns, targets:targets }
         for i, target := range targets {
                 var prev *rule
@@ -180,7 +203,7 @@ func (ns *namespaceEmbed) link(targets ...string) (r *rule) {
         return
 }
 
-func (ns *namespaceEmbed) saveDefines(names ...string) (saveIndex int, m map[string]*define) {
+func (ns *namespaceBase) saveDefines(names ...string) (saveIndex int, m map[string]*define) {
         var ok bool
         m = make(map[string]*define, len(names))
         for _, name := range names {
@@ -191,7 +214,7 @@ func (ns *namespaceEmbed) saveDefines(names ...string) (saveIndex int, m map[str
         ns.saveList = append(ns.saveList, m)
         return
 }
-func (ns *namespaceEmbed) restoreDefines(saveIndex int) {
+func (ns *namespaceBase) restoreDefines(saveIndex int) {
         m := ns.saveList[saveIndex]
         ns.saveList = ns.saveList[0:saveIndex]
         for name, d := range m {
@@ -203,33 +226,40 @@ func (ns *namespaceEmbed) restoreDefines(saveIndex int) {
         }
 }
 
-func (ns *namespaceEmbed) set(ctx *Context, ids []string, items ...Item) {
-        if n := len(ids); n == 1 {
-                name := ids[0]
-                if d, ok := ns.defines[name]; ok && d != nil {
-                        d.value = items
-                } else {
-                        ns.defines[name] = &define{ loc:ctx.CurrentLocation(), name:name, value:items }
-                }
-        } else {
-                lineno, colno := ctx.l.caculateLocationLineColumn(ctx.l.location())
-                fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: nested referencing\n", ctx.l.scope, lineno, colno)
-
-                // FIXME: nested
+func (ns *namespaceBase) get(ctx *Context, name string) *define {
+        if d, ok := ns.defines[name]; ok && d != nil {
+                return d
         }
-}
-
-func (ns *namespaceEmbed) getNamespace(name string) namespace {
-        //lineno, colno := ctx.l.caculateLocationLineColumn(ctx.l.location())
-        //fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: nesting reference '%s'\n", ctx.l.scope, lineno, colno, name)
         return nil
 }
 
-func (ns *namespaceEmbed) getDefineMap() map[string]*define {
-        return ns.defines
+func (ns *namespaceBase) set(ctx *Context, name string, items ...Item) error {
+        if d, ok := ns.defines[name]; ok && d != nil {
+                if d.readonly {
+                        return ErrReadOnly
+                } else {
+                        d.value = items
+                }
+        } else {
+                ns.defines[name] = &define{ loc:ctx.CurrentLocation(), name:name, value:items }
+        }
+        return nil
 }
 
-func (ns *namespaceEmbed) findMatchRules(ctx *Context, target string) (matchrules []*matchrule) {
+func (ns *namespaceBase) append(ctx *Context, name string, items ...Item) error {
+        if d, ok := ns.defines[name]; ok && d != nil {
+                if d.readonly {
+                        return ErrReadOnly
+                } else {
+                        d.value = append(d.value, items...)
+                }
+        } else {
+                ns.defines[name] = &define{ loc:ctx.CurrentLocation(), name:name, value:items }
+        }
+        return nil
+}
+
+func (ns *namespaceBase) findMatchRules(ctx *Context, target string) (matchrules []*matchrule) {
         if r, ok := ns.rules[target]; ok && r != nil {
                 if m, ok := r.match(target); ok && m != nil {
                         matchrules = append(matchrules, &matchrule{ m, r })
@@ -246,133 +276,26 @@ func (ns *namespaceEmbed) findMatchRules(ctx *Context, target string) (matchrule
         return
 }
 
-func (ns *namespaceEmbed) isPhonyTarget(ctx *Context, target string) bool {
+func (ns *namespaceBase) isPhonyTarget(ctx *Context, target string) bool {
         if rr, ok := ns.rules[target]; ok && rr != nil {
-                return rr.node.kind == nodeRulePhony
+                _, ok = rr.node.(*nodeRulePhony)
+                return ok
         }
         return false
 }
 
-type nodeType int
-
-const (
-        nodeComment nodeType = iota
-        nodeEscape
-        nodeDeferredText
-        nodeImmediateText
-        nodeName
-        nodeNamePrefix          // :
-        nodeNamePart            // .
-        nodeArg
-        nodeValueText           // value text for defines (TODO: use it)
-        nodeDefineDeferred      //  =     deferred
-        nodeDefineQuestioned    // ?=     deferred
-        nodeDefineSingleColoned // :=     immediate
-        nodeDefineDoubleColoned // ::=    immediate
-        nodeDefineNot           // !=     immediate
-        nodeDefineAppend        // +=     deferred or immediate (parsed into deferred)
-        nodeRuleSingleColoned   // :
-        nodeRuleDoubleColoned   // ::
-        nodeRulePhony           // :!:    phony target
-        nodeRuleChecker         // :?:    check if the target is updated
-        nodeTargets
-        nodePrerequisites
-        nodeRecipes
-        nodeRecipe
-        nodeCall
-        nodeSpeak               // $(speak dialect, ...)
-        nodeInclude             // include filename
-        nodeTemplate            // template name, parameters
-        nodeModule              // module name, temp, parameters
-        nodeCommit              // commit
-        nodePost                // post
-        nodeUse                 // use name
-)
-
 var (
-        statements = map[string]nodeType{
-                "include":      nodeInclude,
-                "template":     nodeTemplate,
-                "module":       nodeModule,
-                "commit":       nodeCommit,
-                "post":         nodePost,
-                "use":          nodeUse,
+        statements = map[string] func(*baseNodeStruct) node {
+                "include":  func(cb *baseNodeStruct) node { return &nodeInclude {nodeBase{*cb}} },
+                "template": func(cb *baseNodeStruct) node { return &nodeTemplate{nodeBase{*cb}} },
+                "module":   func(cb *baseNodeStruct) node { return &nodeModule  {nodeBase{*cb}} },
+                "commit":   func(cb *baseNodeStruct) node { return &nodeCommit  {nodeBase{*cb}} },
+                "post":     func(cb *baseNodeStruct) node { return &nodePost    {nodeBase{*cb}} },
+                "use":      func(cb *baseNodeStruct) node { return &nodeUse     {nodeBase{*cb}} },
                 // TODO: template...endtempl
                 // TODO: module...endmod
         }
-
-        processors = map[nodeType]func(ctx *Context, n *node)(err error){
-                nodeComment:                    processNodeComment,
-                nodeImmediateText:              processNodeImmediateText,
-                nodeCall:                       processNodeCall,
-                nodeDefineQuestioned:           processNodeDefineQuestioned,
-                nodeDefineDeferred:             processNodeDefineDeferred,
-                nodeDefineSingleColoned:        processNodeDefineSingleColoned,
-                nodeDefineDoubleColoned:        processNodeDefineDoubleColoned,
-                nodeDefineAppend:               processNodeDefineAppend,
-                nodeDefineNot:                  processNodeDefineNot,
-                nodeRulePhony:                  processNodeRule,
-                nodeRuleChecker:                processNodeRule,
-                nodeRuleDoubleColoned:          processNodeRule,
-                nodeRuleSingleColoned:          processNodeRule,
-                nodeInclude:                    processNodeInclude,
-                nodeTemplate:                   processNodeTemplate,
-                nodeModule:                     processNodeModule,
-                nodeCommit:                     processNodeCommit,
-                //nodePost:                     
-                nodeUse:                        processNodeUse,
-        }
-
-        /*
-        Variable definitions are parsed as follows:
-
-        immediate = deferred
-        immediate ?= deferred
-        immediate := immediate
-        immediate ::= immediate
-        immediate += deferred or immediate
-        immediate != immediate
-
-        The directives define/endef are not supported.
-        */
-        nodeTypeNames = []string {
-                nodeComment:                    "comment",
-                nodeEscape:                     "escape",
-                nodeDeferredText:               "deferred-text",
-                nodeImmediateText:              "immediate-text",
-                nodeName:                       "name",
-                nodeNamePrefix:                 "name-prefix",
-                nodeNamePart:                   "name-part",
-                nodeArg:                        "arg",
-                nodeValueText:                  "value-text",
-                nodeDefineDeferred:             "define-deferred",
-                nodeDefineQuestioned:           "define-questioned",
-                nodeDefineSingleColoned:        "define-single-coloned",
-                nodeDefineDoubleColoned:        "define-double-coloned",
-                nodeDefineNot:                  "define-not",
-                nodeDefineAppend:               "define-append",
-                nodeRuleSingleColoned:          "rule-single-coloned",
-                nodeRuleDoubleColoned:          "rule-double-coloned",
-                nodeRulePhony:                  "rule-phony",
-                nodeRuleChecker:                "rule-checker",
-                nodeTargets:                    "targets",
-                nodePrerequisites:              "prerequisites",
-                nodeRecipes:                    "recipes",
-                nodeRecipe:                     "recipe",
-                nodeCall:                       "call",
-                nodeSpeak:                      "speak",
-                nodeInclude:                    "include",
-                nodeTemplate:                   "template",
-                nodeModule:                     "module",
-                nodeCommit:                     "commit",
-                nodePost:                       "post",
-                nodeUse:                        "use",
-        }
 )
-
-func (k nodeType) String() string {
-        return nodeTypeNames[int(k)]
-}
 
 type location struct {
         offset, end int // (node.pos, node.end)
@@ -391,7 +314,7 @@ func StringItems(ss ...string) (a Items) {
         return
 }
 
-// flatitem is a expanded string with a location
+// flatitem is an expanded string with a location information
 type flatitem struct {
         s string
         l location
@@ -400,39 +323,434 @@ type flatitem struct {
 func (fi *flatitem) Expand(ctx *Context) string { return fi.s }
 func (fi *flatitem) IsEmpty(ctx *Context) bool { return fi.s == "" }
 
-type node struct {
-        l *lex
-        kind nodeType
-        children []*node
-        pos, end int
+func nodes2Items(a ...node) (is Items) {
+        for _, n := range a {
+                is = append(is, n)
+        }
+        return
 }
 
-func (n *node) Expand(ctx *Context) (s string) {
-        var is Items
-        if nodeDefineDeferred <= n.kind && n.kind <= nodeDefineAppend {
-                is = ctx.nodeItems(n.children[1])
+type node interface {
+        Item
+        bs() *baseNodeStruct
+        tc() nodeTypeCode
+        kind() string
+        str() string
+        getPosBeg() int
+        getPosEnd() int
+        setPosBeg(n int)
+        setPosEnd(n int)
+        addPosBeg(n int)
+        addPosEnd(n int)
+        items() Items
+        children() []node
+        child(n int) node
+        addChild(c node)
+        reset(bs baseNodeStruct)
+        process(ctx *Context) (err error)
+}
+
+type baseNodeStruct struct {
+        l *lex
+        childNodes []node
+        posbeg, posend int
+}
+
+func (n *baseNodeStruct) Expand(ctx *Context) (s string) {
+        return
+}
+
+func (n *baseNodeStruct) IsEmpty(ctx *Context) bool {
+        return true
+}
+
+func (n *baseNodeStruct) children() []node {
+        return n.childNodes
+}
+
+func (n *baseNodeStruct) child(i int) node {
+        if 0 <= i && i < len(n.childNodes) {
+                return n.childNodes[i]
+        }
+        return nil
+}
+
+func (n *baseNodeStruct) addChild(c node) {
+        n.childNodes = append(n.childNodes, c)
+}
+
+func (n *baseNodeStruct) items() (is Items) {
+        // TODO: ...
+        return
+}
+
+func (n *baseNodeStruct) len() int {
+        return n.posend - n.posbeg
+}
+
+func (n *baseNodeStruct) str() (s string) {
+        if a, b := n.posbeg, n.posend; a < b { s = string(n.l.s[a:b]) }
+        return
+}
+
+func (n *baseNodeStruct) getPosBeg() int {
+        return n.posbeg
+}
+
+func (n *baseNodeStruct) getPosEnd() int {
+        return n.posend
+}
+
+func (n *baseNodeStruct) setPosBeg(i int) {
+        n.posbeg = i
+}
+
+func (n *baseNodeStruct) setPosEnd(i int) {
+        n.posend = i
+}
+
+func (n *baseNodeStruct) addPosBeg(i int) {
+        n.posbeg += i
+}
+
+func (n *baseNodeStruct) addPosEnd(i int) {
+        n.posend += i
+}
+
+func (n *baseNodeStruct) loc() location {
+        return location{n.posbeg, n.posend}
+}
+
+func (n *baseNodeStruct) expand(ctx *Context) (s string) {
+        if nc := len(n.childNodes); 0 < nc {
+                b, l, pos := new(bytes.Buffer), n.l, n.posbeg
+                for _, c := range n.childNodes {
+                        cpos := c.getPosBeg()
+                        if pos < cpos { b.Write(l.s[pos:cpos]) }
+                        pos = c.getPosEnd()
+                        switch k := c.(type) {
+                        case *nodeNamePrefix: b.WriteString(":")
+                        case *nodeNamePart:   b.WriteString(".")
+                        default: b.WriteString(c.Expand(ctx))
+                        }
+                }
+                if pos < n.posend {
+                        b.Write(l.s[pos:n.posend])
+                }
+                s = b.String()
         } else {
-                is = ctx.nodeItems(n)
+                s = n.str()
+        }
+        return
+}
+
+func (n *baseNodeStruct) process(ctx *Context) (err error) {
+        return
+}
+
+func (n *baseNodeStruct) processRule(ctx *Context, rn node) (err error) {
+        var ns namespace
+        if ctx.m == nil {
+                ns = ctx.g
+        } else {
+                ns = ctx.m
+        }
+
+        r := ns.link(Split(n.childNodes[0].Expand(ctx))...)
+        r.prerequisites, r.node = Split(n.childNodes[1].Expand(ctx)), rn
+        if 2 < len(n.childNodes) {
+                for _, c := range n.childNodes[2].children() {
+                        r.recipes = append(r.recipes, c)
+                }
+        }
+
+        // Set goal if empty.
+        if 0 < len(r.targets) {
+                if g := r.ns.getGoal(); g == "" {
+                        r.ns.setGoal(r.targets[0])
+                }
+        }
+
+        switch k := rn.(type) {
+        case *nodeRulePhony:            r.c = &phonyTargetUpdater{}
+        case *nodeRuleChecker:          r.c = &checkRuleUpdater{ r }
+        case *nodeRuleDoubleColoned:    r.c = &defaultTargetUpdater{}
+        case *nodeRuleSingleColoned:    r.c = &defaultTargetUpdater{}
+        default: errorf("unexpected rule type: %v", rn.kind())
+        }
+
+        /*
+        lineno, colno := ctx.l.caculateLocationLineColumn(n.loc())
+        fmt.Fprintf(os.Stderr, "%v:%v:%v: %v\n", ctx.l.scope, lineno, colno, n.kind) //*/
+        return
+}
+
+type nodeBase struct {
+        baseNodeStruct
+}
+
+func (n *nodeBase) reset(bs baseNodeStruct) {
+        n.baseNodeStruct = bs
+}
+
+func (n *nodeBase) bs() *baseNodeStruct {
+        return &n.baseNodeStruct
+}
+
+func convert(n0, n1 node) node {
+        n1.reset(*n0.bs())
+        return n1
+}
+
+type nodeTypeCode int
+
+const (
+        nodeTypeCodeComment nodeTypeCode = iota
+        nodeTypeCodeEscape
+        nodeTypeCodeDeferredText
+        nodeTypeCodeImmediateText
+        nodeTypeCodeName
+        nodeTypeCodeNamePrefix
+        nodeTypeCodeNamePart
+        nodeTypeCodeArg
+        nodeTypeCodeValueText
+        nodeTypeCodeDefineDeferred
+        nodeTypeCodeDefineQuestioned
+        nodeTypeCodeDefineSingleColoned
+        nodeTypeCodeDefineDoubleColoned
+        nodeTypeCodeDefineNot
+        nodeTypeCodeDefineAppend
+        nodeTypeCodeRuleSingleColoned
+        nodeTypeCodeRuleDoubleColoned
+        nodeTypeCodeRulePhony
+        nodeTypeCodeRuleChecker
+        nodeTypeCodeTargets
+        nodeTypeCodePrerequisites
+        nodeTypeCodeRecipes
+        nodeTypeCodeRecipe
+        nodeTypeCodeCall
+        nodeTypeCodeSpeak
+        nodeTypeCodeInclude
+        nodeTypeCodeTemplate
+        nodeTypeCodeModule
+        nodeTypeCodeCommit
+        nodeTypeCodePost
+        nodeTypeCodeUse
+)
+
+type (
+        /*
+        Variable definitions are parsed as follows:
+
+        immediate = deferred
+        immediate ?= deferred
+        immediate := immediate
+        immediate ::= immediate
+        immediate += deferred or immediate
+        immediate != immediate
+
+        The directives define/endef are not supported.
+        */
+        nodeComment             struct { nodeBase }
+        nodeEscape              struct { nodeBase }
+        nodeDeferredText        struct { nodeBase }
+        nodeImmediateText       struct { nodeBase }
+        nodeName                struct { nodeBase }
+        nodeNamePrefix          struct { nodeBase } // :
+        nodeNamePart            struct { nodeBase } // .
+        nodeArg                 struct { nodeBase }
+        nodeValueText           struct { nodeBase } // value text for defines (TODO: use it)
+        nodeDefineDeferred      struct { nodeBase } //  =     deferred
+        nodeDefineQuestioned    struct { nodeBase } // ?=     deferred
+        nodeDefineSingleColoned struct { nodeBase } // :=     immediate
+        nodeDefineDoubleColoned struct { nodeBase } // ::=    immediate
+        nodeDefineNot           struct { nodeBase } // !=     immediate
+        nodeDefineAppend        struct { nodeBase } // +=     deferred or immediate (parsed into deferred)
+        nodeRuleSingleColoned   struct { nodeBase } // :
+        nodeRuleDoubleColoned   struct { nodeBase } // ::
+        nodeRulePhony           struct { nodeBase } // :!:    phony target
+        nodeRuleChecker         struct { nodeBase } // :?:    check if the target is updated
+        nodeTargets             struct { nodeBase }
+        nodePrerequisites       struct { nodeBase }
+        nodeRecipes             struct { nodeBase }
+        nodeRecipe              struct { nodeBase }
+        nodeCall                struct { nodeBase }
+        nodeSpeak               struct { nodeBase } // $(speak dialect, ...)
+        nodeInclude             struct { nodeBase } // include filename
+        nodeTemplate            struct { nodeBase } // template name, parameters
+        nodeModule              struct { nodeBase } // module name, temp, parameters
+        nodeCommit              struct { nodeBase } // commit
+        nodePost                struct { nodeBase } // post
+        nodeUse                 struct { nodeBase } // use name
+)
+
+func (n *nodeComment)             tc() nodeTypeCode { return nodeTypeCodeComment }
+func (n *nodeEscape)              tc() nodeTypeCode { return nodeTypeCodeEscape }
+func (n *nodeDeferredText)        tc() nodeTypeCode { return nodeTypeCodeDeferredText }
+func (n *nodeImmediateText)       tc() nodeTypeCode { return nodeTypeCodeImmediateText }
+func (n *nodeName)                tc() nodeTypeCode { return nodeTypeCodeName }
+func (n *nodeNamePrefix)          tc() nodeTypeCode { return nodeTypeCodeNamePrefix }
+func (n *nodeNamePart)            tc() nodeTypeCode { return nodeTypeCodeNamePart }
+func (n *nodeArg)                 tc() nodeTypeCode { return nodeTypeCodeArg }
+func (n *nodeValueText)           tc() nodeTypeCode { return nodeTypeCodeValueText }
+func (n *nodeDefineDeferred)      tc() nodeTypeCode { return nodeTypeCodeDefineDeferred }
+func (n *nodeDefineQuestioned)    tc() nodeTypeCode { return nodeTypeCodeDefineQuestioned }
+func (n *nodeDefineSingleColoned) tc() nodeTypeCode { return nodeTypeCodeDefineSingleColoned }
+func (n *nodeDefineDoubleColoned) tc() nodeTypeCode { return nodeTypeCodeDefineDoubleColoned }
+func (n *nodeDefineNot)           tc() nodeTypeCode { return nodeTypeCodeDefineNot }
+func (n *nodeDefineAppend)        tc() nodeTypeCode { return nodeTypeCodeDefineAppend }
+func (n *nodeRuleSingleColoned)   tc() nodeTypeCode { return nodeTypeCodeRuleSingleColoned }
+func (n *nodeRuleDoubleColoned)   tc() nodeTypeCode { return nodeTypeCodeRuleDoubleColoned }
+func (n *nodeRulePhony)           tc() nodeTypeCode { return nodeTypeCodeRulePhony }
+func (n *nodeRuleChecker)         tc() nodeTypeCode { return nodeTypeCodeRuleChecker }
+func (n *nodeTargets)             tc() nodeTypeCode { return nodeTypeCodeTargets }
+func (n *nodePrerequisites)       tc() nodeTypeCode { return nodeTypeCodePrerequisites }
+func (n *nodeRecipes)             tc() nodeTypeCode { return nodeTypeCodeRecipes }
+func (n *nodeRecipe)              tc() nodeTypeCode { return nodeTypeCodeRecipe }
+func (n *nodeCall)                tc() nodeTypeCode { return nodeTypeCodeCall }
+func (n *nodeSpeak)               tc() nodeTypeCode { return nodeTypeCodeSpeak }
+func (n *nodeInclude)             tc() nodeTypeCode { return nodeTypeCodeInclude }
+func (n *nodeTemplate)            tc() nodeTypeCode { return nodeTypeCodeTemplate }
+func (n *nodeModule)              tc() nodeTypeCode { return nodeTypeCodeModule }
+func (n *nodeCommit)              tc() nodeTypeCode { return nodeTypeCodeCommit }
+func (n *nodePost)                tc() nodeTypeCode { return nodeTypeCodePost }
+func (n *nodeUse)                 tc() nodeTypeCode { return nodeTypeCodeUse }
+
+func (n *nodeComment)             kind() string { return "comment" }
+func (n *nodeEscape)              kind() string { return "escape" }
+func (n *nodeDeferredText)        kind() string { return "deferred-text" }
+func (n *nodeImmediateText)       kind() string { return "immediate-text" }
+func (n *nodeName)                kind() string { return "name" }
+func (n *nodeNamePrefix)          kind() string { return "name-prefix" }
+func (n *nodeNamePart)            kind() string { return "name-part" }
+func (n *nodeArg)                 kind() string { return "arg" }
+func (n *nodeValueText)           kind() string { return "value-text" }
+func (n *nodeDefineDeferred)      kind() string { return "define-deferred" }
+func (n *nodeDefineQuestioned)    kind() string { return "define-questioned" }
+func (n *nodeDefineSingleColoned) kind() string { return "define-single-coloned" }
+func (n *nodeDefineDoubleColoned) kind() string { return "define-double-coloned" }
+func (n *nodeDefineNot)           kind() string { return "define-not" }
+func (n *nodeDefineAppend)        kind() string { return "define-append" }
+func (n *nodeRuleSingleColoned)   kind() string { return "rule-single-coloned" }
+func (n *nodeRuleDoubleColoned)   kind() string { return "rule-double-coloned" }
+func (n *nodeRulePhony)           kind() string { return "rule-phony" }
+func (n *nodeRuleChecker)         kind() string { return "rule-checker" }
+func (n *nodeTargets)             kind() string { return "targets" }
+func (n *nodePrerequisites)       kind() string { return "prerequisites" }
+func (n *nodeRecipes)             kind() string { return "recipes" }
+func (n *nodeRecipe)              kind() string { return "recipe" }
+func (n *nodeCall)                kind() string { return "call" }
+func (n *nodeSpeak)               kind() string { return "speak" }
+func (n *nodeInclude)             kind() string { return "include" }
+func (n *nodeTemplate)            kind() string { return "template" }
+func (n *nodeModule)              kind() string { return "module" }
+func (n *nodeCommit)              kind() string { return "commit" }
+func (n *nodePost)                kind() string { return "post" }
+func (n *nodeUse)                 kind() string { return "use" }
+
+func (n *nodeEscape) Expand(ctx *Context) (s string) {
+        switch n.l.s[n.posbeg + 1] {
+        case '\n': s = " "
+        case '#':  s = "#"
+        }
+        return
+}
+
+func (n *nodeEscape) IsEmpty(ctx *Context) bool {
+        return n.Expand(ctx) == ""
+}
+
+func (n *nodeDeferredText) Expand(ctx *Context) (s string) {
+        return n.expand(ctx)
+}
+
+func (n *nodeDeferredText) IsEmpty(ctx *Context) bool {
+        return n.expand(ctx) == ""
+}
+
+func (n *nodeImmediateText) Expand(ctx *Context) (s string) {
+        return n.expand(ctx)
+}
+
+func (n *nodeImmediateText) IsEmpty(ctx *Context) bool {
+        return n.expand(ctx) == ""
+}
+
+func (n *nodeName) Expand(ctx *Context) (s string) {
+        return n.expand(ctx)
+}
+
+func (n *nodeName) IsEmpty(ctx *Context) bool {
+        return n.expand(ctx) == ""
+}
+
+func (n *nodeArg) Expand(ctx *Context) (s string) {
+        return n.expand(ctx)
+}
+
+func (n *nodeArg) IsEmpty(ctx *Context) bool {
+        return n.expand(ctx) == ""
+}
+
+func (n *nodeTargets) Expand(ctx *Context) (s string) {
+        return n.expand(ctx)
+}
+
+func (n *nodeTargets) IsEmpty(ctx *Context) bool {
+        return n.expand(ctx) == ""
+}
+
+func (n *nodePrerequisites) Expand(ctx *Context) (s string) {
+        return n.expand(ctx)
+}
+
+func (n *nodePrerequisites) IsEmpty(ctx *Context) bool {
+        return n.expand(ctx) == ""
+}
+
+func (n *nodeRecipes) Expand(ctx *Context) (s string) {
+        return n.expand(ctx)
+}
+
+func (n *nodeRecipes) IsEmpty(ctx *Context) bool {
+        return n.expand(ctx) == ""
+}
+
+func (n *nodeRecipe) Expand(ctx *Context) (s string) {
+        return n.expand(ctx)
+}
+
+func (n *nodeRecipe) IsEmpty(ctx *Context) bool {
+        return n.expand(ctx) == ""
+}
+
+func (n *nodeCall) Expand(ctx *Context) (s string) {
+        var args Items
+        for _, an := range n.children()[1:] {
+                args = args.Concat(ctx, stringitem(an.Expand(ctx)))
+        }
+        name := ctx.ParseName(n.childNodes[0].Expand(ctx))
+        is := ctx.call(n.loc(), name, args...)
+        return is.Expand(ctx)
+}
+
+func (n *nodeCall) IsEmpty(ctx *Context) bool {
+        return n.Expand(ctx) == ""
+}
+
+func (n *nodeSpeak) Expand(ctx *Context) (s string) {
+        var is Items
+        dialect := n.childNodes[0].Expand(ctx)
+        if 1 < len(n.childNodes) {
+                is = ctx.speak(dialect, n.childNodes[1:]...)
+        } else {
+                is = ctx.speak(dialect)
         }
         return is.Expand(ctx)
 }
 
-func (n *node) IsEmpty(ctx *Context) bool {
-        if len(n.children) == 0 { return true }
+func (n *nodeSpeak) IsEmpty(ctx *Context) bool {
         return n.Expand(ctx) == ""
-}
-
-func (n *node) len() int {
-        return n.end - n.pos
-}
-
-func (n *node) str() (s string) {
-        if a, b := n.pos, n.end; a < b { s = string(n.l.s[a:b]) }
-        return
-}
-
-func (n *node) loc() location {
-        return location{n.pos, n.end}
 }
 
 type parseBuffer struct {
@@ -457,7 +775,7 @@ func (p *parseBuffer) caculateLocationLineColumn(loc location) (lineno, colno in
 }
 
 type lexStack struct {
-        node *node
+        node node
         state func()
         code int
         delm rune // delimeter
@@ -472,7 +790,7 @@ type lex struct {
         stack []*lexStack
         step func ()
 
-        nodes []*node // parsed top level nodes
+        nodes []node // parsed top level nodes
 }
 
 func (l *lex) location() location {
@@ -579,12 +897,13 @@ func (l *lex) unget() {
         return
 }
 
-func (l *lex) new(t nodeType) *node {
-        return &node{ l:l, kind:t, pos:l.pos, end:l.pos }
+func (l *lex) new(n node) node {
+        n.reset(baseNodeStruct{ l:l, posbeg:l.pos, posend:l.pos })
+        return n
 }
 
-func (l *lex) push(t nodeType, ns func(), c int) *lexStack {
-        ls := &lexStack{ node:l.new(t), state:l.step, code:c }
+func (l *lex) push(n node, ns func(), c int) *lexStack {
+        ls := &lexStack{ node:l.new(n), state:l.step, code:c }
         l.stack, l.step = append(l.stack, ls), ns
         return ls
 }
@@ -634,7 +953,7 @@ func (l *lex) stateAppendNode() {
 
         /*
         fmt.Printf("AppendNode: %v: '%v' %v '%v' (%v, %v, %v)\n", t.kind,
-                t.children[0].str(), t.str(), t.children[1].str(), len(l.stack), l.pos, l.rune) //*/
+                t.childNodes[0].str(), t.str(), t.childNodes[1].str(), len(l.stack), l.pos, l.rune) //*/
 
         // Pop out and append the node.
         l.nodes = append(l.nodes, t)
@@ -645,12 +964,12 @@ state_loop:
         for l.get() {
                 switch {
                 case l.rune == '#':
-                        st := l.push(nodeComment, l.stateComment, 0)
-                        st.node.pos-- // for the '#'
+                        st := l.push(new(nodeComment), l.stateComment, 0)
+                        st.node.addPosBeg(-1) // for the '#'
                         break state_loop
                 case l.rune != rune(0) && !unicode.IsSpace(l.rune):
                         l.unget() // Put back the rune.
-                        l.push(nodeImmediateText, l.stateLineHeadText, 0)
+                        l.push(new(nodeImmediateText), l.stateLineHeadText, 0)
                         break state_loop
                 }
         }
@@ -671,11 +990,11 @@ state_loop:
                         }
                         fallthrough
                 case l.rune == rune(0): // end of string
-                        st := l.pop()
-                        st.node.end = l.pos
+                        st, posend := l.pop(), l.pos
                         if l.rune == '\n' {
-                                st.node.end-- // exclude the '\n'
+                                posend-- // exclude the '\n'
                         }
+                        st.node.setPosEnd(posend)
 
                         /*
                         lineno, colno := l.caculateLocationLineColumn(st.node.loc())
@@ -683,8 +1002,7 @@ state_loop:
 
                         if 0 < len(l.stack) {
                                 c := st.node
-                                st = l.top()
-                                st.node.children = append(st.node.children, c)
+                                l.top().node.addChild(c)
                         } else {
                                 l.nodes = append(l.nodes, st.node) // append the comment node
                         }
@@ -699,18 +1017,19 @@ func (l *lex) stateLineHeadText() {
 state_loop:
         for l.get() {
                 if st.code == 0 {
-                        for s, t := range statements {
+                        for s, f := range statements {
                                 if pos := l.pos; l.looking(s, &pos) {
                                         //fmt.Printf("stateLineHeadText: %v (%v)\n", string(l.rune), s)
                                         if ss := pos; l.lookingInlineSpaces(&ss) {
-                                                st.node.kind, st.node.end, l.pos = t, pos, ss
-                                                //fmt.Printf("looked: %v (%v): '%v' '%v'\n", s, t, string(l.s[pos:ss]), string(l.s[ss]))
+                                                st.node = f(st.node.bs())
+                                                st.node.setPosEnd(pos)
+                                                l.pos = ss
                                                 if r := l.peek(); r == '\n' || r == '#' {
                                                         l.pop() // end of statement
                                                         l.nodes = append(l.nodes, st.node)
                                                 } else {
                                                         //fmt.Printf("stateLineHeadText: %v (%v)\n", st.node.kind, st.node.str())
-                                                        l.push(nodeArg, l.stateStatementArg, 0)
+                                                        l.push(new(nodeArg), l.stateStatementArg, 0)
                                                 }
                                                 break state_loop
                                         }
@@ -720,19 +1039,19 @@ state_loop:
 
                 switch {
                 case l.rune == '$':
-                        st := l.push(nodeCall, l.stateDollar, 0)
-                        st.node.pos-- // for the '$'
+                        st := l.push(new(nodeCall), l.stateDollar, 0)
+                        st.node.addPosBeg(-1) // for the '$'
                         break state_loop
 
                 case l.rune == '=':
-                        l.top().code = int(nodeDefineDeferred)
+                        l.top().code = int(nodeTypeCodeDefineDeferred)
                         l.step = l.stateDefine
                         break state_loop
 
                 case l.rune == '?':
                         if l.peek() == '=' {
                                 l.get() // consume the '=' for '?='
-                                l.top().code = int(nodeDefineQuestioned)
+                                l.top().code = int(nodeTypeCodeDefineQuestioned)
                                 l.step = l.stateDefine
                                 break state_loop
                         }
@@ -740,7 +1059,7 @@ state_loop:
                 case l.rune == '!':
                         if l.peek() == '=' {
                                 l.get() // consume the '=' for '!='
-                                l.top().code = int(nodeDefineNot)
+                                l.top().code = int(nodeTypeCodeDefineNot)
                                 l.step = l.stateDefine
                                 break state_loop
                         }
@@ -748,7 +1067,7 @@ state_loop:
                 case l.rune == '+':
                         if l.peek() == '=' {
                                 l.get() // consume the '=' for '+='
-                                l.top().code = int(nodeDefineAppend)
+                                l.top().code = int(nodeTypeCodeDefineAppend)
                                 l.step = l.stateDefine
                                 break state_loop
                         }
@@ -756,32 +1075,32 @@ state_loop:
                 case l.rune == ':':
                         if r := l.peek(); r == '=' {
                                 l.get() // consume the '=' for ':='
-                                l.top().code = int(nodeDefineSingleColoned)
+                                l.top().code = int(nodeTypeCodeDefineSingleColoned)
                                 l.step = l.stateDefine
                         } else {
                                 n := l.top().node
-                                n.end = l.backwardNonSpace(n.pos, l.pos-1)
+                                n.setPosEnd(l.backwardNonSpace(n.getPosBeg(), l.pos-1))
                                 l.step = l.stateRule
                         }
                         break state_loop
 
                 case l.rune == '.':
-                        part := l.new(nodeNamePart)
-                        part.pos = l.pos - 1
+                        part := l.new(new(nodeNamePart))
+                        part.setPosBeg(l.pos - 1)
                         st := l.top()
-                        st.node.children = append(st.node.children, part)
+                        st.node.addChild(part)
 
                 case l.rune == '#': fallthrough
                 case l.rune == '\n':
                         st := l.pop() // pop out the node
-                        st.node.end = l.pos-1
+                        st.node.setPosEnd(l.pos-1)
 
                         // append the island text
                         l.nodes = append(l.nodes, st.node)
 
                         if l.rune == '#' {
-                                st = l.push(nodeComment, l.stateComment, 0)
-                                st.node.pos-- // for the '#'
+                                st = l.push(new(nodeComment), l.stateComment, 0)
+                                st.node.addPosBeg(-1) // for the '#'
                         }
                         break state_loop
 
@@ -803,30 +1122,30 @@ state_loop:
                         if l.rune != '\n' && unicode.IsSpace(l.rune) {
                                 continue
                         } else {
-                                st.node.pos = l.pos - 1
+                                st.node.setPosBeg(l.pos - 1)
                         }
                 }
                 
                 switch {
                 case l.rune == '$':
-                        l.push(nodeCall, l.stateDollar, 0).node.pos-- // 'pos--' for the '$'
+                        l.push(new(nodeCall), l.stateDollar, 0).node.addPosBeg(-1) // 'pos--' for the '$'
                         break state_loop
                 case l.rune == '\\':
                         l.escapeTextLine(st.node)
                 case l.rune == ',': fallthrough
                 case l.rune == '\n':
                         arg := st.node
-                        arg.end = l.pos - 1
+                        arg.setPosEnd(l.pos - 1)
                         l.pop()
 
                         st = l.top()
-                        st.node.children = append(st.node.children, arg)
+                        st.node.addChild(arg)
                         if l.rune == '\n' {
                                 l.pop() // end of statement
                                 l.nodes = append(l.nodes, st.node)
                                 //fmt.Printf("%v: %v %v\n", st.node.kind, st.node.str(), st.node.children)
                         } else {
-                                l.push(nodeArg, l.stateStatementArg, 0)
+                                l.push(new(nodeArg), l.stateStatementArg, 0)
                         }
                         break state_loop
                 }
@@ -842,26 +1161,32 @@ func (l *lex) stateDefine() {
         st := l.pop() // name
 
         var (
-                name, t, n = st.node, nodeType(st.code), 2
-                vt nodeType
+                name, n = st.node, 2
+                v, t node
         )
-        switch t {
-        case nodeDefineDoubleColoned: n = 3; fallthrough
-        case nodeDefineSingleColoned:        fallthrough
-        case nodeDefineNot:          vt = nodeImmediateText
-        case nodeDefineDeferred:      n = 1; fallthrough
-        default:                     vt = nodeDeferredText
+        switch nodeTypeCode(st.code) {
+        case nodeTypeCodeDefineDoubleColoned:
+                v = new(nodeImmediateText)
+                n = 3
+        case nodeTypeCodeDefineSingleColoned:
+                v = new(nodeImmediateText)
+        case nodeTypeCodeDefineNot:
+                v = new(nodeImmediateText)
+        case nodeTypeCodeDefineDeferred:
+                n = 1
+        default:
+                v = new(nodeDeferredText)
         }
 
-        name.end = l.backwardNonSpace(st.node.pos, l.pos-n) // for '=', '+=', '?=', ':=', '::='
+        name.setPosEnd(l.backwardNonSpace(st.node.getPosBeg(), l.pos-n)) // for '=', '+=', '?=', ':=', '::='
 
         st = l.push(t, l.stateAppendNode, 0)
-        st.node.children = []*node{ name }
-        st.node.pos -= n // for '=', '+=', '?=', ':='
+        st.node.addChild(name) // FIXME: setChildren([]node{ name })
+        st.node.addPosBeg(-n) // for '=', '+=', '?=', ':='
 
         // Create the value node.
-        value := l.push(vt, l.stateDefineTextLine, 0).node
-        st.node.children = append(st.node.children, value)
+        value := l.push(v, l.stateDefineTextLine, 0).node
+        st.node.addChild(value)
 }
 
 func (l *lex) stateDefineTextLine() {
@@ -870,17 +1195,18 @@ state_loop:
         for l.get() {
                 if st.code == 0 { // skip spaces after '='
                         if !unicode.IsSpace(l.rune) {
-                                st.node.pos, st.code = l.pos-1, 1
+                                st.node.setPosBeg(l.pos-1)
+                                st.code = 1
                         } else if l.rune != '\n' /* IsSpace */ {
-                                st.node.pos = l.pos
+                                st.node.setPosBeg(l.pos)
                                 continue
                         }
                 }
 
                 switch {
                 case l.rune == '$':
-                        st = l.push(nodeCall, l.stateDollar, 0)
-                        st.node.pos-- // for the '$'
+                        st = l.push(new(nodeCall), l.stateDollar, 0)
+                        st.node.addPosBeg(-1) // for the '$'
                         break state_loop
 
                 case l.rune == '#':
@@ -888,9 +1214,9 @@ state_loop:
                         fallthrough
                 case l.rune == '\n': fallthrough
                 case l.rune == rune(0): // The end of string.
-                        st.node.end = l.pos
+                        st.node.addPosEnd(l.pos)
                         if l.rune == '\n' {
-                                st.node.end-- // Exclude the '\n'.
+                                st.node.addPosEnd(-1) // Exclude the '\n'.
                         }
 
                         l.pop() // Pop out the value node and forward to the define node.
@@ -901,7 +1227,7 @@ state_loop:
         }
 }
 
-func (l *lex) escapeTextLine(t *node) {
+func (l *lex) escapeTextLine(t node) {
         if l.rune != '\\' { return }
 
         // Escape: \\n \#
@@ -909,8 +1235,8 @@ func (l *lex) escapeTextLine(t *node) {
                 switch l.rune {
                 case '#': fallthrough
                 case '\n':
-                        en := l.new(nodeEscape)
-                        en.pos -= 2 // for the '\\\n', '\\#', etc.
+                        en := l.new(new(nodeEscape))
+                        en.addPosBeg(-2) // for the '\\\n', '\\#', etc.
                         if l.rune == '\n' {
                                 /* FIXME: skip spaces after '\\\n' ?
                                 for unicode.IsSpace(l.peek()) {
@@ -918,47 +1244,47 @@ func (l *lex) escapeTextLine(t *node) {
                                         en.end = l.pos
                                 } */
                         }
-                        t.children = append(t.children, en)
+                        t.addChild(en)
                 }
         }
 }
 
 func (l *lex) stateRule() {
-        rs, t, n := l.peekN(2), nodeRuleSingleColoned, 1 // Assuming single colon.
+        var t node
+        rs, n := l.peekN(2), 1 // Assuming single colon.
 
         if len(rs) == 2 {
                 switch {
                 case rs[0] == ':': // targets :: blah blah blah
                         l.get() // drop the second ':'
-                        t, n = nodeRuleDoubleColoned, 2
+                        t, n = new(nodeRuleDoubleColoned), 2
                         if rs[1] == '=' { // ::=
                                 l.get() // consume the '=' for '::='
-                                l.top().code = int(nodeDefineDoubleColoned)
+                                l.top().code = int(nodeTypeCodeDefineDoubleColoned)
                                 l.step = l.stateDefine
                                 return
                         }
                 case rs[0] == '!' && rs[1] == ':': // targets :!:
                         l.get(); l.get() // drop the "!:"
-                        t, n = nodeRulePhony, 3
+                        t, n = new(nodeRulePhony), 3
                 case rs[0] == '?' && rs[1] == ':': // targets :?:
                         l.get(); l.get() // drop the "?:"
-                        t, n = nodeRuleChecker, 3
+                        t, n = new(nodeRuleChecker), 3
                 }
+        }
+        if t == nil {
+                t = new(nodeRuleSingleColoned)
         }
 
         targets := l.pop().node
-        targets.kind = nodeTargets
+        targets = convert(targets, new(nodeTargets))
 
         st := l.push(t, l.stateAppendNode, 0)
-        st.node.children = []*node{ targets }
-        st.node.pos -= n // for the ':', '::', ':!:', ':?:'
+        st.node.addChild(targets) // FIXME: setChildren([]node{ targets })
+        st.node.addPosBeg(-n) // for the ':', '::', ':!:', ':?:'
 
-        prerequisites := l.push(nodePrerequisites, l.stateRuleTextLine, 0).node
-        st.node.children = append(st.node.children, prerequisites)
-
-        /*
-        lineno, colno := l.caculateLocationLineColumn(st.node.loc())
-        fmt.Fprintf(os.Stderr, "%v:%v:%v: stateRule: %v\n", l.scope, lineno, colno, st.node.children[0].str()) //*/
+        prerequisites := l.push(new(nodePrerequisites), l.stateRuleTextLine, 0).node
+        st.node.addChild(prerequisites)
 }
 
 func (l *lex) stateRuleTextLine() {
@@ -966,22 +1292,23 @@ func (l *lex) stateRuleTextLine() {
 state_loop:
         for l.get() {
                 if st.code == 0 && (l.rune == '\n' || !unicode.IsSpace(l.rune)) { // skip spaces after ':' or '::'
-                        st.node.pos, st.code = l.pos-1, 1
+                        st.node.setPosBeg(l.pos-1)
+                        st.code = 1
                 }
 
                 switch {
                 case l.rune == '$':
-                        st = l.push(nodeCall, l.stateDollar, 0)
-                        st.node.pos-- // for the '$'
+                        st = l.push(new(nodeCall), l.stateDollar, 0)
+                        st.node.addPosBeg(-1) // for the '$'
                         break state_loop
 
                 case l.rune == '#':  fallthrough
                 case l.rune == ';':  fallthrough
                 case l.rune == '\n': fallthrough
                 case l.rune == rune(0): // end of string
-                        st.node.end = l.pos
+                        st.node.setPosEnd(l.pos)
                         if l.rune != rune(0) {
-                                st.node.end-- // exclude the '\n' or '#'
+                                st.node.addPosEnd(-1) // exclude the '\n' or '#'
                         }
 
                         /*
@@ -991,18 +1318,18 @@ state_loop:
                         st = l.pop() // pop out the prerequisites node
                         switch l.rune {
                         case '#':
-                                st = l.push(nodeComment, l.stateComment, 0)
-                                st.node.pos-- // for the '#'
+                                st = l.push(new(nodeComment), l.stateComment, 0)
+                                st.node.addPosBeg(-1) // for the '#'
                         case ';':
-                                st.node.end = l.backwardNonSpace(st.node.pos, l.pos-1)
-                                recipes := l.push(nodeRecipes, l.stateTabbedRecipes, 0).node
-                                recipes.pos-- // includes ';'
+                                st.node.setPosEnd(l.backwardNonSpace(st.node.getPosBeg(), l.pos-1))
+                                recipes := l.push(new(nodeRecipes), l.stateTabbedRecipes, 0).node
+                                recipes.addPosBeg(-1) // includes ';'
 
                                 l.pos = l.forwardNonSpaceInline(l.pos)
-                                l.push(nodeRecipe, l.stateRecipe, 0)
+                                l.push(new(nodeRecipe), l.stateRecipe, 0)
                         case '\n':
                                 if p := l.peek(); p == '\t' || p == '#' {
-                                        st = l.push(nodeRecipes, l.stateTabbedRecipes, 0)
+                                        st = l.push(new(nodeRecipes), l.stateTabbedRecipes, 0)
                                 }
                         }
                         break state_loop
@@ -1016,34 +1343,26 @@ func (l *lex) stateTabbedRecipes() { // tab-indented action of a rule
         if st := l.top(); l.get() {
                 switch {
                 case l.rune == '\t':
-                        st = l.push(nodeRecipe, l.stateRecipe, 0)
-                        //st.node.pos-- // for the '\t'
+                        st = l.push(new(nodeRecipe), l.stateRecipe, 0)
+                        //st.node.base().pos-- // for the '\t'
 
                 case l.rune == '#':
-                        st = l.push(nodeComment, l.stateComment, 0)
-                        st.node.pos-- // for the '#'
-
-                        /*
-                        lineno, colno := l.caculateLocationLineColumn(st.node.loc())
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: stateTabbedRecipes: %v (%v, stack=%v)\n", l.scope, lineno, colno, st.node.str(), l.top().node.kind, len(l.stack)) //*/
+                        st = l.push(new(nodeComment), l.stateComment, 0)
+                        st.node.addPosBeg(-1) // for the '#'
 
                 default:
                         recipes := st.node // the recipes node
-                        recipes.end = l.pos
+                        recipes.setPosEnd(l.pos)
                         if l.rune == '\n' {
-                                recipes.end--
+                                recipes.addPosEnd(-1)
                         } else if l.rune != rune(0) {
-                                recipes.end--
+                                recipes.addPosEnd(-1)
                                 l.unget() // put back the non-space character following by a recipe
                         }
 
                         st = l.pop() // pop out the recipes
                         st = l.top() // the rule node
-                        st.node.children = append(st.node.children, recipes)
-
-                        /*
-                        lineno, colno := l.caculateLocationLineColumn(st.node.loc())
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: stateTabbedRecipes: %v (%v)\n", l.scope, lineno, colno, st.node.str(), l.top().node.kind) //*/
+                        st.node.addChild(recipes)
                 }
         }
 }
@@ -1054,27 +1373,21 @@ state_loop:
         for l.get() {
                 switch {
                 case l.rune == '$':
-                        st = l.push(nodeCall, l.stateDollar, 0)
-                        st.node.pos-- // for the '$'
+                        st = l.push(new(nodeCall), l.stateDollar, 0)
+                        st.node.addPosBeg(-1) // for the '$'
                         break state_loop
                 case l.rune == '\n': fallthrough
                 case l.rune == rune(0): // end of string
                         recipe := st.node
-                        recipe.end = l.pos
+                        recipe.setPosEnd(l.pos)
                         if l.rune != rune(0) {
-                                recipe.end-- // exclude the '\n'
+                                recipe.addPosEnd(-1) // exclude the '\n'
                         }
 
                         l.pop() // pop out the node
 
                         st = l.top()
-                        st.node.children = append(st.node.children, recipe)
-
-                        //fmt.Printf("recipe: (%v) %v\n", st.node.kind, recipe.str())
-
-                        /*
-                        lineno, colno := l.caculateLocationLineColumn(a.loc())
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: stateRecipe: %v (of %v)\n", l.scope, lineno, colno, a.str(), st.node.kind) //*/
+                        st.node.addChild(recipe)
                         break state_loop
                 }
         }
@@ -1083,13 +1396,13 @@ state_loop:
 func (l *lex) stateDollar() {
         if l.get() {
                 switch {
-                case l.rune == '(': l.push(nodeName, l.stateCallName, 0).delm = ')'
-                case l.rune == '{': l.push(nodeName, l.stateCallName, 0).delm = '}'
+                case l.rune == '(': l.push(new(nodeName), l.stateCallName, 0).delm = ')'
+                case l.rune == '{': l.push(new(nodeName), l.stateCallName, 0).delm = '}'
                 default:
-                        name := l.new(nodeName)
-                        name.pos = l.pos - 1 // include the single char
+                        name := l.new(new(nodeName))
+                        name.setPosBeg(l.pos - 1) // include the single char
                         st := l.top() // nodeCall
-                        st.node.children = append(st.node.children, name)
+                        st.node.addChild(name)
                         l.endCall(st)
                 }
         }
@@ -1102,42 +1415,42 @@ state_loop:
         for l.get() {
                 switch {
                 case l.rune == '$':
-                        l.push(nodeCall, l.stateDollar, 0).node.pos-- // 'pos--' for the '$'
+                        l.push(new(nodeCall), l.stateDollar, 0).node.addPosBeg(-1) // 'pos--' for the '$'
                         break state_loop
                 case l.rune == ':' && st.code == 0:
-                        prefix := l.new(nodeNamePrefix)
-                        prefix.pos = l.pos - 1
-                        st.node.children = append(st.node.children, prefix)
+                        prefix := l.new(new(nodeNamePrefix))
+                        prefix.setPosBeg(l.pos - 1)
+                        st.node.addChild(prefix)
                         st.code++
                 case l.rune == '.':
-                        part := l.new(nodeNamePart)
-                        part.pos = l.pos - 1
-                        st.node.children = append(st.node.children, part)
+                        part := l.new(new(nodeNamePart))
+                        part.setPosBeg(l.pos - 1)
+                        st.node.addChild(part)
                 case l.rune == '\\':
                         l.escapeTextLine(st.node)
                 case l.rune == ' ': fallthrough
                 case l.rune == delm:
                         name := st.node
-                        name.end = l.pos - 1
+                        name.setPosEnd(l.pos - 1)
                         l.pop()
 
                         st = l.top()
                         switch s := name.str(); s {
                         case "speak":
-                                st.node.kind = nodeSpeak
+                                st.node = convert(st.node, new(nodeSpeak))
                                 if l.rune != delm {
-                                        l.push(nodeArg, l.stateSpeakDialect, 0).delm = delm
+                                        l.push(new(nodeArg), l.stateSpeakDialect, 0).delm = delm
                                 } else {
                                         lineno, colno := l.getLineColumn()
                                         errorf("%v:%v:%v: unexpected delimiter\n", l.scope, lineno, colno)
                                 }
                         default:
-                                st.node.children = append(st.node.children, name)
+                                st.node.addChild(name)
                                 switch l.rune {
                                 case delm:
                                         l.endCall(st)
                                 case ' ':
-                                        l.push(nodeArg, l.stateCallArg, 0).delm = delm
+                                        l.push(new(nodeArg), l.stateCallArg, 0).delm = delm
                                 }
                         }
                         break state_loop
@@ -1152,22 +1465,22 @@ state_loop:
         for l.get() {
                 switch {
                 case l.rune == '$':
-                        l.push(nodeCall, l.stateDollar, 0).node.pos-- // 'pos--' for the '$'
+                        l.push(new(nodeCall), l.stateDollar, 0).node.addPosBeg(-1) // 'pos--' for the '$'
                         break state_loop
                 case l.rune == '\\':
                         l.escapeTextLine(st.node)
                 case l.rune == ',': fallthrough
                 case l.rune == delm:
                         arg := st.node
-                        arg.end = l.pos - 1
+                        arg.setPosEnd(l.pos - 1)
                         l.pop()
 
                         st = l.top()
-                        st.node.children = append(st.node.children, arg)
+                        st.node.addChild(arg)
                         if l.rune == delm {
                                 l.endCall(st)
                         } else {
-                                l.push(nodeArg, l.stateCallArg, 0).delm = delm
+                                l.push(new(nodeArg), l.stateCallArg, 0).delm = delm
                         }
                         break state_loop
                 }
@@ -1181,22 +1494,22 @@ state_loop:
         for l.get() {
                 switch {
                 case l.rune == '$':
-                        l.push(nodeCall, l.stateDollar, 0).node.pos-- // 'pos--' for the '$'
+                        l.push(new(nodeCall), l.stateDollar, 0).node.addPosBeg(-1) // 'pos--' for the '$'
                         break state_loop
                 case l.rune == '\\':
                         l.escapeTextLine(st.node)
                 case l.rune == ',': fallthrough
                 case l.rune == delm:
                         arg := st.node
-                        arg.end = l.pos - 1
+                        arg.setPosEnd(l.pos - 1)
                         l.pop()
 
                         st = l.top()
-                        st.node.children = append(st.node.children, arg)
+                        st.node.addChild(arg)
                         if l.rune == delm {
                                 l.endCall(st)
                         } else {
-                                l.push(nodeArg, l.stateSpeakScript, 0).delm = delm
+                                l.push(new(nodeArg), l.stateSpeakScript, 0).delm = delm
                         }
                         break state_loop
                 }
@@ -1210,7 +1523,7 @@ state_loop:
         for l.get() {
                 switch {
                 case l.rune == '$':
-                        l.push(nodeCall, l.stateDollar, 0).node.pos-- // 'pos--' for the '$'
+                        l.push(new(nodeCall), l.stateDollar, 0).node.addPosBeg(-1) // 'pos--' for the '$'
                         break state_loop
                 case l.rune == '\\':
                         if st.code == 0 {
@@ -1225,7 +1538,8 @@ state_loop:
                         }
                 case l.rune == '-' && st.code == 0: /* skip */
                 case l.rune != '-' && st.code == 0:
-                        st.code, st.node.pos = 1, l.pos
+                        st.node.setPosBeg(l.pos)
+                        st.code = 1
                 case l.rune == '\n' && st.code == 1 && l.peek() == '-':
                 delimiter_loop:
                         for i, r, n := l.pos, rune(0), 1; i < len(l.s); i += n {
@@ -1234,12 +1548,12 @@ state_loop:
                                 case '-': /* skip */
                                 case delm:
                                         script := st.node
-                                        script.end = l.backwardNonSpace(script.pos, l.pos)
+                                        script.setPosEnd(l.backwardNonSpace(script.getPosBeg(), l.pos))
 
                                         l.rune, l.pos, st = delm, i+1, l.pop()
 
                                         st = l.top() // the $(speak) node
-                                        st.node.children = append(st.node.children, script)
+                                        st.node.addChild(script)
                                         l.endCall(st)
                                         break state_loop
                                 }
@@ -1247,16 +1561,16 @@ state_loop:
                 case l.rune == ',': fallthrough
                 case l.rune == delm:
                         script := st.node
-                        script.end = l.pos - 1
+                        script.setPosEnd(l.pos - 1)
 
                         l.pop()
 
                         st = l.top() // the $(speak) node
-                        st.node.children = append(st.node.children, script)
+                        st.node.addChild(script)
                         if l.rune == delm {
                                 l.endCall(st)
                         } else {
-                                l.push(nodeArg, l.stateSpeakScript, 0).delm = delm
+                                l.push(new(nodeArg), l.stateSpeakScript, 0).delm = delm
                         }
                         break state_loop
                 }
@@ -1265,18 +1579,18 @@ state_loop:
 
 func (l *lex) endCall(st *lexStack) {
         call := st.node
-        call.end = l.pos
+        call.setPosEnd(l.pos)
 
         l.pop() // pop out the current nodeCall
 
         // Append the call to it's parent.
         t := l.top().node
-        t.children = append(t.children, call)
+        t.addChild(call)
 }
 
 /*
 stateDollar:
-        st.node.children = []*node{ l.new(nodeName) }
+        st.node.children = []*node{ l.new(new(nodeName)) }
         l.step = l.stateCallee 
 */
 func (l *lex) stateCallee() {
@@ -1288,47 +1602,48 @@ state_loop:
                 switch {
                 case l.rune == '(' && st.code == init: st.delm = ')'; fallthrough
                 case l.rune == '{' && st.code == init: if st.delm == 0 { st.delm = '}' }
-                        st.node.children[0].pos = l.pos
-                        st.node.end, st.code = l.pos, name
+                        st.node.child(0).setPosBeg(l.pos)
+                        st.node.setPosEnd(l.pos)
+                        st.code = name
 
                 case l.rune == ' ' && st.code == name:
                         st.code = args; fallthrough
                 case l.rune == ',' && st.code == args:
-                        a := l.new(nodeArg)
-                        i := len(st.node.children)-1
-                        st.node.children[i].end = l.pos-1
-                        st.node.children = append(st.node.children, a)
+                        a := l.new(new(nodeArg))
+                        i := len(st.node.children())-1
+                        st.node.child(i).setPosEnd(l.pos-1)
+                        st.node.addChild(a)
 
                 case l.rune == '\\':
-                        i := len(st.node.children)-1
+                        i := len(st.node.children())-1
                         if 0 <= i {
-                                l.escapeTextLine(st.node.children[i])
+                                l.escapeTextLine(st.node.child(i))
                         }
 
                 case l.rune == '$' && st.code != init:
-                        st = l.push(nodeCall, l.stateDollar, 0)
-                        st.node.pos-- // for the '$'
+                        st = l.push(new(nodeCall), l.stateDollar, 0)
+                        st.node.addPosBeg(-1) // for the '$'
                         break state_loop
 
                 case l.rune == st.delm: //&& st.code != init:
                         fallthrough
                 case st.code == init: // $$, $a, $<, $@, $^, etc.
-                        call, i, n := st.node, len(st.node.children)-1, 1
+                        call, i, n := st.node, len(st.node.children())-1, 1
                         if st.delm == rune(0) { n = 0 } // don't shift for single char like '$a'
-                        call.end, call.children[i].end = l.pos, l.pos-n
+                        call.child(i).setPosEnd(l.pos-n)
+                        call.setPosEnd(l.pos)
 
                         l.pop() // pop out the current nodeCall
 
                         t := l.top().node
-                        switch t.kind {
-                        case nodeDeferredText: fallthrough
-                        case nodeImmediateText:
-                                t.children = append(t.children, call)
+                        switch k := t.(type) {
+                        case *nodeDeferredText:  t.addChild(call)
+                        case *nodeImmediateText: t.addChild(call)
                         default:
                                 // Add to the last child.
-                                i = len(t.children)-1
-                                if 0 <= i { t = t.children[i] }
-                                t.children = append(t.children, call)
+                                i = len(t.children())-1
+                                if 0 <= i { t = t.child(i) }
+                                t.addChild(call)
                         }
 
                         break state_loop
@@ -1352,10 +1667,10 @@ func (l *lex) parse() bool {
         return l.pos == end
 }
 
-type pendedBuild struct {
+type committedModule struct {
         m *Module
         p *Context
-        args Items
+        a Items
 }
 
 // Context hold a parse context and the current module being processed.
@@ -1364,28 +1679,28 @@ type Context struct {
         moduleStack []*Module
 
         l *lex // the current lexer
-        m *Module // the current module being processed
-        t *template // the current template being processed
-        tild *template // the current template referred by '~'
+        m *Module // the active module being processed
+        t *template // the active template being processed
+        tild *template // the active template referred by '~'
 
-        g *namespaceEmbed // the global namespace
+        g *namespaceBase // the global namespace
 
         templates map[string]*template
 
         modules map[string]*Module
         moduleOrderList []*Module
-        moduleBuildList []pendedBuild
+        moduleBuildList []committedModule
 
         w *worker.Worker
 }
 
 func (ctx *Context) GetModules() map[string]*Module { return ctx.modules }
 func (ctx *Context) GetModuleOrderList() []*Module { return ctx.moduleOrderList }
-func (ctx *Context) GetModuleBuildList() []pendedBuild { return ctx.moduleBuildList }
+func (ctx *Context) GetModuleBuildList() []committedModule { return ctx.moduleBuildList }
 func (ctx *Context) ResetModules() {
         ctx.modules = make(map[string]*Module, 8)
         ctx.moduleOrderList = []*Module{}
-        ctx.moduleBuildList = []pendedBuild{}
+        ctx.moduleBuildList = []committedModule{}
 }
 
 func (ctx *Context) CurrentScope() string {
@@ -1411,158 +1726,112 @@ func (ctx *Context) With(m *Module, work func()) {
 }
 
 func (ctx *Context) Call(name string, args ...Item) (is Items) {
-        return ctx.call(ctx.l.location(), name, args...)
+        return ctx.call(ctx.l.location(), ctx.ParseName(name), args...)
 }
 
 func (ctx *Context) Set(name string, items ...Item) {
-        hasPrefix, prefix, parts := ctx.expandNameString(name)
-        ctx.setWithDetails(hasPrefix, prefix, parts, items...)
+        ctx.set(ctx.ParseName(name), items...)
 }
 
-func (ctx *Context) setWithDetails(hasPrefix bool, prefix string, parts []string, items ...Item) {
-        if ns := ctx.getNamespaceWithDetails(hasPrefix, prefix, parts); ns != nil {
-                if m, n := ns.getDefineMap(), len(parts); m != nil && 0 < n {
-                        var (
-                                d *define
-                                found bool
-                                sym = parts[n-1]
-                                loc = ctx.l.location()
-                        )
-                        if d, found = m[sym]; !found {
-                                d = new(define)
-                                m[sym] = d
-                        }
-                        if d.readonly {
-                                lineno, colno := ctx.l.caculateLocationLineColumn(loc)
-                                fmt.Printf("%v:%v:%v:warning: readonly '%s'\n", ctx.l.scope, lineno, colno, strings.Join(parts, "."))
-                        } else {
-                                d.name, d.value, d.loc = sym, items, loc
-                        }
-                }
+func (ctx *Context) set(name Name, items ...Item) {
+        if ns := ctx.getNamespace(name); ns != nil {
+                ns.set(ctx, name.Sym, items...)
         } else {
                 var loc = ctx.l.location()
                 lineno, colno := ctx.l.caculateLocationLineColumn(loc)
-                if hasPrefix {
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: missing '%s:%s'\n", ctx.l.scope, lineno, colno, prefix, strings.Join(parts, "."))
-                } else {
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: missing '%s'\n", ctx.l.scope, lineno, colno, strings.Join(parts, "."))
-                }
-                //errorf("unknown namespace '%s'", strings.Join(parts, "."))
+                fmt.Fprintf(os.Stderr, "%v:%v:%v: missing '%s'\n", ctx.l.scope, lineno, colno, &name)
         }
 }
 
-func (ctx *Context) call(loc location, name string, args ...Item) (is Items) {
-        hasPrefix, prefix, parts := ctx.expandNameString(name)
-        is = ctx.callWithDetails(loc, hasPrefix, prefix, parts, args...)
-        return
-}
-
-func (ctx *Context) callWithDetails(loc location, hasPrefix bool, prefix string, parts []string, args ...Item) (is Items) {
-        n := len(parts)
-
+func (ctx *Context) call(loc location, name Name, args ...Item) (is Items) {
         call := func(ns namespace) (called bool) {
                 if ns == nil { return }
-                if m := ns.getDefineMap(); m != nil && 0 < n {
-                        sym := parts[n-1]
-                        if hasPrefix {
-                                if ht, ok := hooksMap[prefix]; ok && ht != nil {
-                                        if h, ok := ht[sym]; ok && h != nil {
-                                                is, called = h(ctx, args), true
-                                        }
+                if name.Prefixed {
+                        if ht, ok := hooksMap[name.Prefix]; ok && ht != nil {
+                                if h, ok := ht[name.Sym]; ok && h != nil {
+                                        is, called = h(ctx, args), true
                                 }
                         }
-                        if !called {
-                                if d, ok := m[sym]; ok && d != nil {
-                                        is, called = d.value, true
-                                }
+                }
+                if !called {
+                        if d := ns.get(ctx, name.Sym); d != nil {
+                                is, called = d.value, true
                         }
                 }
                 return
         }
         
         // Process special symbols and builtins first.
-        if hasPrefix {
-                if prefix == "~" && ctx.tild != nil {
-                        if prefix = ctx.tild.name; call(ctx.getNamespaceWithDetails(hasPrefix, prefix, parts)) {
+        if name.Prefixed {
+                if name.Prefix == "~" && ctx.tild != nil {
+                        if name.Prefix = ctx.tild.name; call(ctx.getNamespace(name)) {
                                 return
                         }
                 }
-        } else if n == 1 {
-                switch sym := parts[0]; sym {
+        } else if len(name.Ns) == 0 {
+                switch name.Sym {
                 case "$":  is = append(is, stringitem("$"))
                 case "me": // rename: $(me) -> $(me.name)
-                        parts, n = append(parts, "name"), 2
+                        name.Ns = []string{ "me" }
+                        name.Sym = "name"
                 default:
-                        if f, ok := builtins[sym]; ok && f != nil {
+                        if f, ok := builtins[name.Sym]; ok && f != nil {
                                 is = f(ctx, loc, args)
                                 return
                         }
                 }
         }
 
-        if ns := ctx.getNamespaceWithDetails(hasPrefix, prefix, parts); ns != nil {
+        if ns := ctx.getNamespace(name); ns != nil {
                 _ = call(ns)
         } else {
                 lineno, colno := ctx.l.caculateLocationLineColumn(loc)
-                if hasPrefix {
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: no namespace for '%s:%s'\n", ctx.l.scope, lineno, colno, prefix, strings.Join(parts, "."))
-                } else {
-                        fmt.Fprintf(os.Stderr, "%v:%v:%v: no namespace for '%s'\n", ctx.l.scope, lineno, colno, strings.Join(parts, "."))
-                }
+                fmt.Fprintf(os.Stderr, "%v:%v:%v: no namespace for '%s'\n", ctx.l.scope, lineno, colno, name)
         }
         return
 }
 
 // getDefine returns a define for hierarchy names like `tool:m1.m2.var`, `m1.m2.var`, etc.
-func (ctx *Context) getDefine(name string) (d *define, hasPrefix bool, prefix string, parts []string) {
-        hasPrefix, prefix, parts = ctx.expandNameString(name)
-        d = ctx.getDefineWithDetails(hasPrefix, prefix, parts)
-        return
-}
-func (ctx *Context) getDefineWithDetails(hasPrefix bool, prefix string, parts []string) (d *define) {
-        if ns := ctx.getNamespaceWithDetails(hasPrefix, prefix, parts); ns != nil {
-                if m, n := ns.getDefineMap(), len(parts); m != nil && 0 < n {
-                        d, _ = m[parts[n-1]]
-                }
+func (ctx *Context) getDefine(name Name) (d *define) {
+        if ns := ctx.getNamespace(name); ns != nil {
+                d = ns.get(ctx, name.Sym)
         }
         return
 }
 
-// getNamespaceAndDetails returns a namespace for hierarchy names like `tool:m1.m2.var`, `m1.m2.var`, etc.
-func (ctx *Context) getNamespaceAndDetails(name string) (ns namespace, hasPrefix bool, prefix string, parts []string) {
-        hasPrefix, prefix, parts = ctx.expandNameString(name)
-        ns = ctx.getNamespaceWithDetails(hasPrefix, prefix, parts)
-        return
-}
-
-func (ctx *Context) getNamespaceWithDetails(hasPrefix bool, prefix string, parts []string) (ns namespace) {
-        num := len(parts)
-
-        if hasPrefix {
-                if prefix == "~" && ctx.tild != nil {
-                        ns, prefix = ctx.tild.namespaceEmbed, ctx.tild.name
-                }
-                if ns != nil {
-                        // ~ // fmt.Printf("tild: %v\n", ns)
-                } else if t, ok := ctx.templates[prefix]; ok && t != nil {
-                        ns = t.namespaceEmbed
+func (ctx *Context) getNamespace(name Name) (ns namespace) {
+        lineno, colno := ctx.l.caculateLocationLineColumn(ctx.l.location())
+        
+        if name.Prefixed {
+                if name.Prefix == "~" {
+                        if ctx.tild != nil {
+                                ns, name.Prefix = ctx.tild.namespaceBase, ctx.tild.name
+                        } else {
+                                fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: tild is nil\n",
+                                        ctx.l.scope, lineno, colno)
+                                return
+                        }
+                } else if t, ok := ctx.templates[name.Prefix]; ok && t != nil {
+                        ns = t.namespaceBase
                 } else {
-                        lineno, colno := ctx.l.caculateLocationLineColumn(ctx.l.location())
                         fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: undefined toolset prefix `%s'\n",
-                                ctx.l.scope, lineno, colno, prefix)
+                                ctx.l.scope, lineno, colno, name.Prefix)
                         return
                 }
-        }
-
-        if num == 1 && ns == nil {
+        } else if len(name.Ns) == 0 && ns == nil {
                 ns = ctx.g
                 return
         }
 
-        lineno, colno := ctx.l.caculateLocationLineColumn(ctx.l.location())
-        for i, s := range parts[0:num-1] {
+        for i, s := range name.Ns {
                 if ns != nil {
-                        ns = ns.getNamespace(s)
+                        var nns namespace
+                        if m, ok := ns.(*Module); ok && m != nil {
+                                if c, ok := m.Children[s]; ok && c != nil {
+                                        nns = c
+                                }
+                        }
+                        ns = nns;
                 } else if i == 0 {
                         switch s {
                         default:
@@ -1582,67 +1851,40 @@ func (ctx *Context) getNamespaceWithDetails(hasPrefix bool, prefix string, parts
                         case "~":
                                 if ctx.tild == nil {
                                         if ctx.m != nil && 0 < len(ctx.m.Templates) {
-                                                ns = ctx.m.Templates[0].namespaceEmbed
+                                                ns = ctx.m.Templates[0].namespaceBase
                                         } else {
                                                 fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: tild is referred to nil template\n", ctx.l.scope, lineno, colno)
                                                 //break loop_parts
                                         }
                                 } else {
-                                        ns = ctx.tild.namespaceEmbed
+                                        ns = ctx.tild.namespaceBase
                                 }
                         }
                 }
                 if ns == nil {
                         fmt.Fprintf(os.Stderr, "%v:%v:%v:warning: `%s' is undefined scope\n", ctx.l.scope, lineno, colno,
-                                strings.Join(parts[0:i+1], "."))
+                                strings.Join(name.Ns[0:i+1], "."))
                         break
                 }
         }
         return
 }
 
-func (ctx *Context) multipart(n *node) (*bytes.Buffer, []int) {
-        b, l, pos, parts := new(bytes.Buffer), n.l, n.pos, []int{ -1 }
-        for _, c := range n.children {
-                if pos < c.pos { b.Write(l.s[pos:c.pos]) }; pos = c.end
-                switch c.kind {
-                case nodeNamePrefix: b.WriteString(":"); parts[0] = b.Len()
-                case nodeNamePart:   b.WriteString("."); parts = append(parts, b.Len())
-                default:   b.WriteString(ctx.nodeItems(c).Expand(ctx))
-                }
+// ParseName parses a name like "prefix:a.b.c.var" into Name struct.
+func (ctx *Context) ParseName(s string) (name Name) {
+        if i := strings.Index(s, ":"); 0 <= i {
+                name.Prefix, name.Prefixed = s[0:i], true
+                s = s[i+1:]
         }
-        if pos < n.end {
-                b.Write(l.s[pos:n.end])
+        a := strings.Split(s, ".")
+        if n := len(a); 0 < n {
+                name.Ns = a[0:n-1]
+                name.Sym = a[n-1]
         }
-        return b, parts
-}
-
-func (ctx *Context) expandNameString(name string) (hasPrefix bool, prefix string, parts []string) {
-        if i := strings.Index(name, ":"); 0 <= i {
-                prefix, hasPrefix = name[0:i], true
-                name = name[i+1:]
-        }
-        parts = strings.Split(name, ".")
         return
 }
 
-func (ctx *Context) expandNameNode(n *node) (scoped bool, name string, parts []string) {
-        pos := 0
-        b, i := ctx.multipart(n)
-        if 0 <= i[0] {
-                pos, scoped = i[0], true
-                name = string(b.Bytes()[0:pos-1])
-        }
-
-        for _, n := range i[1:] {
-                parts = append(parts, string(b.Bytes()[pos:n-1]))
-                pos = n
-        }
-        parts = append(parts, string(b.Bytes()[pos:]))
-        return
-}
-
-func (ctx *Context) speak(name string, scripts ...*node) (is Items) {
+func (ctx *Context) speak(name string, scripts ...node) (is Items) {
         if dialect, ok := dialects[name]; ok {
                 for _, sn := range scripts {
                         is = append(is, dialect(ctx, sn)...)
@@ -1666,7 +1908,8 @@ func (ctx *Context) speak(name string, scripts ...*node) (is Items) {
         return
 }
 
-func (ctx *Context) nodeItems(n *node) (is Items) {
+/*
+func (ctx *Context) nodeItems(n node) (is Items) {
         switch n.kind {
         case nodeEscape:
                 //fmt.Printf("%v, %v\n%s\n", n.pos, len(ctx.l.s), string(ctx.l.s))
@@ -1675,19 +1918,18 @@ func (ctx *Context) nodeItems(n *node) (is Items) {
                 case '\n': is = Items{ stringitem(" ") }
                 case '#':  is = Items{ stringitem("#") }
                 }
-
         case nodeCall:
                 var args Items
-                for _, an := range n.children[1:] {
+                for _, an := range n.childNodes[1:] {
                         args = args.Concat(ctx, ctx.nodeItems(an)...)
                 }
-                scoped, name, parts := ctx.expandNameNode(n.children[0])
-                is = ctx.callWithDetails(n.loc(), scoped, name, parts, args...)
+                name := ctx.ParseName(n.childNodes[0].Expand(ctx))
+                is = ctx.call(n.loc(), name, args...)
 
         case nodeSpeak:
-                dialect := n.children[0].Expand(ctx)
+                dialect := n.childNodes[0].Expand(ctx)
                 if 1 < len(n.children) {
-                        is = ctx.speak(dialect, n.children[1:]...)
+                        is = ctx.speak(dialect, n.childNodes[1:]...)
                 } else {
                         is = ctx.speak(dialect)
                 }
@@ -1704,7 +1946,20 @@ func (ctx *Context) nodeItems(n *node) (is Items) {
                         nc = len(n.children)
                 )
                 if 0 < nc {
-                        b, _ := ctx.multipart(n)
+                        //b, _ := ctx.multipart(n)
+                        b, l, pos := new(bytes.Buffer), n.l, n.pos
+                        for _, c := range n.children {
+                                if pos < c.pos { b.Write(l.s[pos:c.pos]) }
+                                pos = c.end
+                                switch c.kind {
+                                case nodeNamePrefix: b.WriteString(":")
+                                case nodeNamePart:   b.WriteString(".")
+                                default: b.WriteString(ctx.nodeItems(c).Expand(ctx))
+                                }
+                        }
+                        if pos < n.end {
+                                b.Write(l.s[pos:n.end])
+                        }
                         s = b.String()
                 } else {
                         if n.end < n.pos {
@@ -1731,7 +1986,8 @@ func (ctx *Context) nodesItems(nodes... *node) (is Items) {
         }
         return
 }
-                
+*/
+
 func (ctx *Context) ItemsStrings(a ...Item) (s []string) {
         for _, i := range a {
                 s = append(s, i.Expand(ctx))
@@ -1739,13 +1995,11 @@ func (ctx *Context) ItemsStrings(a ...Item) (s []string) {
         return
 }
 
-func (ctx *Context) processNode(n *node) (err error) {
+func (ctx *Context) processNode(n node) (err error) {
         if ctx.t != nil {
-                switch n.kind {
-                case nodeCommit:
-                        processTemplateCommit(ctx, n)
-                case nodePost:
-                        processTemplatePost(ctx, n)
+                switch k := n.(type) {
+                case *nodeCommit: processTemplateCommit(ctx, n)
+                case *nodePost:   processTemplatePost(ctx, n)
                 default:
                         if ctx.t.post != nil {
                                 ctx.t.postNodes = append(ctx.t.postNodes, n)
@@ -1754,11 +2008,13 @@ func (ctx *Context) processNode(n *node) (err error) {
                         }
                 }
         } else {
+                /*
                 if f, ok := processors[n.kind]; ok && f != nil {
                         err = f(ctx, n)
                 } else {
                         panic(fmt.Sprintf("'%v' not implemented", n.kind))
-                }
+                } */
+                err = n.process(ctx)
         }
         return
 }
@@ -1770,7 +2026,7 @@ func (ctx *Context) parseBuffer() (err error) {
         }
 
         for _, n := range ctx.l.nodes {
-                if n.kind == nodeComment { continue }
+                if _, ok := n.(*nodeComment); ok { continue }
                 if e := ctx.processNode(n); e != nil {
                         break
                 }
@@ -1821,110 +2077,85 @@ func (ctx *Context) include(fn string) (err error) {
         return
 }
 
-func processNodeComment(ctx *Context, n *node) (err error) {
-        return
-}
-
-func processNodeCall(ctx *Context, n *node) (err error) {
-        if s := strings.TrimSpace(ctx.nodeItems(n).Expand(ctx)); s != "" {
+func (n *nodeCall) process(ctx *Context) (err error) {
+        if s := strings.TrimSpace(n.Expand(ctx)); s != "" {
                 lineno, colno := ctx.l.caculateLocationLineColumn(n.loc())
                 fmt.Fprintf(os.Stderr, "%v:%v:%v: illigal: '%v'\n", ctx.l.scope, lineno, colno, s)
         }
         return
 }
 
-func processNodeImmediateText(ctx *Context, n *node) (err error) {
-        if s := strings.TrimSpace(ctx.nodeItems(n).Expand(ctx)); s != "" {
+func (n *nodeImmediateText) process(ctx *Context) (err error) {
+        if s := strings.TrimSpace(n.Expand(ctx)); s != "" {
                 lineno, colno := ctx.l.caculateLocationLineColumn(n.loc())
                 fmt.Fprintf(os.Stderr, "%v:%v:%v: syntax error: '%v'\n", ctx.l.scope, lineno, colno, s)
         }
         return
 }
 
-func processNodeDefineQuestioned(ctx *Context, n *node) (err error) {
-        scoped, name, parts := ctx.expandNameNode(n.children[0])
-        if is := ctx.callWithDetails(n.loc(), scoped, name, parts); is.IsEmpty(ctx) {
-                ctx.setWithDetails(scoped, name, parts, n)
+func (n *nodeDefineQuestioned) process(ctx *Context) (err error) {
+        name := ctx.ParseName(n.childNodes[0].Expand(ctx))
+        if is := ctx.call(n.loc(), name); is.IsEmpty(ctx) {
+                ctx.set(name, n)
         }
         return
 }
 
-func processNodeDefineDeferred(ctx *Context, n *node) (err error) {
-        scoped, name, parts := ctx.expandNameNode(n.children[0])
-        ctx.setWithDetails(scoped, name, parts, n)
+func (n *nodeDefineDeferred) process(ctx *Context) (err error) {
+        ctx.set(ctx.ParseName(n.childNodes[0].Expand(ctx)), n)
         return
 }
 
-func processNodeDefineSingleColoned(ctx *Context, n *node) (err error) {
-        scoped, name, parts := ctx.expandNameNode(n.children[0])
-        ctx.setWithDetails(scoped, name, parts, ctx.nodeItems(n.children[1])...)
+func (n *nodeDefineSingleColoned) process(ctx *Context) (err error) {
+        name := ctx.ParseName(n.childNodes[0].Expand(ctx))
+        ctx.set(name, stringitem(n.childNodes[1].Expand(ctx)))
         return
 }
 
-func processNodeDefineDoubleColoned(ctx *Context, n *node) (err error) {
-        return processNodeDefineSingleColoned(ctx, n)
+func (n *nodeDefineDoubleColoned) process(ctx *Context) (err error) {
+        name := ctx.ParseName(n.childNodes[0].Expand(ctx))
+        ctx.set(name, stringitem(n.childNodes[1].Expand(ctx)))
+        return
 }
 
-func processNodeDefineAppend(ctx *Context, n *node) (err error) {
-        scoped, name, parts := ctx.expandNameNode(n.children[0])
-        if d := ctx.getDefineWithDetails(scoped, name, parts); d != nil {
-                d.value = append(d.value, n.children[1])
+func (n *nodeDefineAppend) process(ctx *Context) (err error) {
+        name := ctx.ParseName(n.childNodes[0].Expand(ctx))
+        if d := ctx.getDefine(name); d != nil {
+                d.value = append(d.value, n.childNodes[1])
         } else {
-                value := ctx.nodeItems(n.children[1])
-                ctx.setWithDetails(scoped, name, parts, value...)
+                ctx.set(name, stringitem(n.childNodes[1].Expand(ctx)))
         }
         return
 }
 
-func processNodeDefineNot(ctx *Context, n *node) (err error) {
+func (n *nodeDefineNot) process(ctx *Context) (err error) {
         panic("'!=' not implemented")
 }
 
-func processNodeRule(ctx *Context, n *node) (err error) {
-        var ns namespace
-        if ctx.m == nil {
-                ns = ctx.g
-        } else {
-                ns = ctx.m
-        }
-
-        r := ns.link(Split(ctx.nodeItems(n.children[0]).Expand(ctx))...)
-        r.prerequisites, r.node = Split(ctx.nodeItems(n.children[1]).Expand(ctx)), n
-        if 2 < len(n.children) {
-                for _, c := range n.children[2].children {
-                        r.recipes = append(r.recipes, c)
-                }
-        }
-
-        // Set goal if empty.
-        if 0 < len(r.targets) {
-                if g := r.ns.getGoal(); g == "" {
-                        r.ns.setGoal(r.targets[0])
-                }
-        }
-
-        switch n.kind {
-        case nodeRulePhony:             r.c = &phonyTargetUpdater{}
-        case nodeRuleChecker:           r.c = &checkRuleUpdater{ r }
-        case nodeRuleDoubleColoned:     r.c = &defaultTargetUpdater{}
-        case nodeRuleSingleColoned:     r.c = &defaultTargetUpdater{}
-        default: errorf("unexpected rule type: %v", n.kind)
-        }
-
-        /*
-        lineno, colno := ctx.l.caculateLocationLineColumn(n.loc())
-        fmt.Fprintf(os.Stderr, "%v:%v:%v: %v\n", ctx.l.scope, lineno, colno, n.kind) //*/
-        return
+func (n *nodeRuleSingleColoned) process(ctx *Context) (err error) {
+        return n.processRule(ctx, n)
 }
 
-func processNodeInclude(ctx *Context, n *node) (err error) {
+func (n *nodeRuleDoubleColoned) process(ctx *Context) (err error) {
+        return n.processRule(ctx, n)
+}
+
+func (n *nodeRulePhony) process(ctx *Context) (err error) {
+        return n.processRule(ctx, n)
+}
+
+func (n *nodeRuleChecker) process(ctx *Context) (err error) {
+        return n.processRule(ctx, n)
+}
+
+func (n *nodeInclude) process(ctx *Context) (err error) {
         fmt.Printf("todo: %v %v\n", n.kind, n.children)
         return
 }
 
-func processNodeTemplate(ctx *Context, n *node) (err error) {
+func (n *nodeTemplate) process(ctx *Context) (err error) {
         var (
-                args, loc = ctx.nodesItems(n.children...), n.loc()
+                args, loc = ctx.ItemsStrings(nodes2Items(n.children()...)...), n.loc()
         )
         if ctx.t != nil {
                 errorf("template already defined (%v)", args)
@@ -1940,7 +2171,7 @@ func processNodeTemplate(ctx *Context, n *node) (err error) {
                         return
                 }
 
-                name := strings.TrimSpace(args[0].Expand(ctx))
+                name := strings.TrimSpace(args[0])
                 if name == "" {
                         lineno, colno := ctx.l.caculateLocationLineColumn(loc)
                         fmt.Fprintf(os.Stderr, "%v:%v:%v: empty template name", ctx.l.scope, lineno, colno)
@@ -1957,18 +2188,18 @@ func processNodeTemplate(ctx *Context, n *node) (err error) {
 
                 ctx.t = &template{
                         name:name,
-                        namespaceEmbed: &namespaceEmbed{
+                        namespaceBase: &namespaceBase{
                                 defines: make(map[string]*define, 8),
                                 rules: make(map[string]*rule, 4),
                                 patts: make(map[string]*rule, 2),
                         },
                 }
 
-                ctx.t.set(ctx, []string{ "name" }, StringItem(name))
+                ctx.t.set(ctx, "name", StringItem(name))
                 
                 if 1 < len(args) {
                         for _, a := range args[1:] {
-                                name := strings.TrimSpace(a.Expand(ctx))
+                                name := strings.TrimSpace(a)
                                 if t, ok := ctx.templates[name]; !ok || t == nil {
                                         errorf("template '%s' is not declared", name)
                                         return
@@ -1981,12 +2212,12 @@ func processNodeTemplate(ctx *Context, n *node) (err error) {
         return
 }
 
-func processNodeModule(ctx *Context, n *node) (err error) {
+func (n *nodeModule) process(ctx *Context) (err error) {
         var (
                 name, exportName string
-                args, loc = ctx.nodesItems(n.children...), n.loc()
+                args, loc = ctx.ItemsStrings(nodes2Items(n.children()...)...), n.loc()
         )
-        if 0 < len(args) { name = strings.TrimSpace(args[0].Expand(ctx)) }
+        if 0 < len(args) { name = strings.TrimSpace(args[0]) }
         if name == "" {
                 errorf("module name is required")
                 return
@@ -2006,7 +2237,7 @@ func processNodeModule(ctx *Context, n *node) (err error) {
                 m = &Module{
                         l: nil,
                         Children: make(map[string]*Module, 2),
-                        namespaceEmbed: &namespaceEmbed{
+                        namespaceBase: &namespaceBase{
                                 defines: make(map[string]*define, 8),
                                 rules: make(map[string]*rule, 4),
                                 patts: make(map[string]*rule, 2),
@@ -2039,7 +2270,7 @@ func processNodeModule(ctx *Context, n *node) (err error) {
 
                 if 1 < len(args) {
                         for _, nameItem := range args[1:] {
-                                name := strings.TrimSpace(nameItem.Expand(ctx))
+                                name := strings.TrimSpace(nameItem)
                                 if t, _ := ctx.templates[name]; t != nil {
                                         m.Templates = append(m.Templates, t)
                                 } else {
@@ -2061,7 +2292,7 @@ func processNodeModule(ctx *Context, n *node) (err error) {
                         l: m.l,
                         Parent: m,
                         Children: make(map[string]*Module),
-                        namespaceEmbed: &namespaceEmbed{
+                        namespaceBase: &namespaceBase{
                                 defines: make(map[string]*define, 4),
                                 rules: make(map[string]*rule, 4),
                                 patts: make(map[string]*rule, 2),
@@ -2100,7 +2331,7 @@ func processNodeModule(ctx *Context, n *node) (err error) {
         return
 }
 
-func processTemplateCommit(ctx *Context, n *node) (err error) {
+func processTemplateCommit(ctx *Context, n node) (err error) {
         if ctx.m != nil {
                 errorf("declared template inside module")
                 return
@@ -2114,7 +2345,7 @@ func processTemplateCommit(ctx *Context, n *node) (err error) {
         return
 }
 
-func processTemplatePost(ctx *Context, n *node) (err error) {
+func processTemplatePost(ctx *Context, n node) (err error) {
         //fmt.Printf("processTemplatePost: %v\n", n.children)
         if ctx.t != nil {
                 ctx.t.post = n
@@ -2124,13 +2355,13 @@ func processTemplatePost(ctx *Context, n *node) (err error) {
         return
 }
 
-func processNodeCommit(ctx *Context, n *node) (err error) {
+func (n *nodeCommit) process(ctx *Context) (err error) {
         if ctx.m == nil {
                 panic("nil module")
         }
         
         var (
-                args, loc = ctx.nodesItems(n.children...), n.loc()
+                args, loc = ctx.ItemsStrings(nodes2Items(n.children()...)...), n.loc()
         )
         
         if *flagVV {
@@ -2145,7 +2376,7 @@ func processNodeCommit(ctx *Context, n *node) (err error) {
         }
 
         ctx.m.commitLoc = loc
-        ctx.moduleBuildList = append(ctx.moduleBuildList, pendedBuild{ctx.m, ctx, args})
+        ctx.moduleBuildList = append(ctx.moduleBuildList, committedModule{ctx.m, ctx, StringItems(args...)})
         if i := len(ctx.moduleStack)-1; 0 <= i {
                 up := ctx.moduleStack[i]
                 ctx.m.Parent = up
@@ -2157,20 +2388,22 @@ func processNodeCommit(ctx *Context, n *node) (err error) {
         return
 }
 
-func processNodeUse(ctx *Context, n *node) (err error) {       
+func (n *nodeUse) process(ctx *Context) (err error) {       
         if ctx.m == nil { errorf("no module defined") }
 
         var (
-                args = ctx.nodesItems(n.children...)
+                args = ctx.ItemsStrings(nodes2Items(n.children()...)...)
                 name = "using"
         )
 
+        argItems := StringItems(args...)
+        
         if d, ok := ctx.m.defines[name]; ok && d != nil {
-                d.value = append(d.value, args...)
+                d.value = append(d.value, argItems...)
         } else {
                 ctx.m.defines[name] = &define{
                         loc:ctx.CurrentLocation(),
-                        name:name, value:args,
+                        name:name, value:argItems,
                 }
         }
         return
@@ -2181,7 +2414,7 @@ func NewContext(scope string, s []byte, vars map[string]string) (ctx *Context, e
                 templates: make(map[string]*template, 8),
                 modules: make(map[string]*Module, 8),
                 l: &lex{ parseBuffer:&parseBuffer{ scope:scope, s: s }, pos: 0 },
-                g: &namespaceEmbed{
+                g: &namespaceBase{
                         defines: make(map[string]*define, len(vars) + 16),
                         rules: make(map[string]*rule, 8),
                         patts: make(map[string]*rule, 2),

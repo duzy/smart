@@ -169,9 +169,7 @@ func builtinSet(ctx *Context, loc location, args Items) (is Items) {
 
 func builtinSetEqual(ctx *Context, loc location, args Items) (is Items) {
         if num := len(args); 1 < num {
-                name := strings.TrimSpace(args[0].Expand(ctx))
-                hasPrefix, prefix, parts := ctx.expandNameString(name)
-                ctx.setWithDetails(hasPrefix, prefix, parts, args[1:]...)
+                ctx.Set(strings.TrimSpace(args[0].Expand(ctx)), args[1:]...)
         }
         return
 }
@@ -183,10 +181,9 @@ func builtinSetNot(ctx *Context, loc location, args Items) (is Items) {
 
 func builtinSetQuestioned(ctx *Context, loc location, args Items) (is Items) {
         if num := len(args); 1 < num {
-                name := strings.TrimSpace(args[0].Expand(ctx))
-                hasPrefix, prefix, parts := ctx.expandNameString(name)
-                if d := ctx.getDefineWithDetails(hasPrefix, prefix, parts); d == nil || d.value.IsEmpty(ctx) {
-                        ctx.setWithDetails(hasPrefix, prefix, parts, args[1:]...)
+                name := ctx.ParseName(strings.TrimSpace(args[0].Expand(ctx)))
+                if d := ctx.getDefine(name); d == nil || d.value.IsEmpty(ctx) {
+                        ctx.set(name, args[1:]...)
                 }
         }
         return
@@ -194,10 +191,9 @@ func builtinSetQuestioned(ctx *Context, loc location, args Items) (is Items) {
 
 func builtinSetAppend(ctx *Context, loc location, args Items) (is Items) {
         if num := len(args); 1 < num {
-                name := strings.TrimSpace(args[0].Expand(ctx))
-                hasPrefix, prefix, parts := ctx.expandNameString(name)
-                if d := ctx.getDefineWithDetails(hasPrefix, prefix, parts); d == nil {
-                        ctx.setWithDetails(hasPrefix, prefix, parts, args[1:]...)
+                name := ctx.ParseName(strings.TrimSpace(args[0].Expand(ctx)))
+                if d := ctx.getDefine(name); d == nil {
+                        ctx.set(name, args[1:]...)
                 } else {
                         d.value = append(d.value, args...)
                 }

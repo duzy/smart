@@ -23,7 +23,7 @@ func testCleanFiles(t *testing.T) {
         }
 }
 
-func testToolsetCC(t *testing.T) {
+func TestToolsetCC(t *testing.T) {
         testCleanFiles(t)
 
         ctx := Build(make(map[string]string))
@@ -33,33 +33,33 @@ func testToolsetCC(t *testing.T) {
         var ok bool
         if m, ok = modules["foo_cc_exe"]; !ok { t.Errorf("expecting module foo_cc_exe") }
         if s, x := m.GetName(ctx), "foo_cc_exe"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.GetDir(ctx), "exe"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.GetDir(ctx), "test/exe"; s != x { t.Errorf("%v != %v", s, x) }
         if s, x := m.Get(ctx, "name"), "foo_cc_exe"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.Get(ctx, "dir"), "exe"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.Get(ctx, "dir"), "test/exe"; s != x { t.Errorf("%v != %v", s, x) }
 
         if m, ok = modules["foo_shared"]; !ok { t.Errorf("expecting module foo_shared") }
         if s, x := m.GetName(ctx), "foo_shared"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.GetDir(ctx), "shared"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.GetDir(ctx), "test/shared"; s != x { t.Errorf("%v != %v", s, x) }
         if s, x := m.Get(ctx, "name"), "foo_shared"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.Get(ctx, "dir"), "shared"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.Get(ctx, "dir"), "test/shared"; s != x { t.Errorf("%v != %v", s, x) }
 
         if m, ok = modules["foo_static"]; !ok { t.Errorf("expecting module foo_static") }
         if s, x := m.GetName(ctx), "foo_static"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.GetDir(ctx), "static"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.GetDir(ctx), "test/static"; s != x { t.Errorf("%v != %v", s, x) }
         if s, x := m.Get(ctx, "name"), "foo_static"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.Get(ctx, "dir"), "static"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.Get(ctx, "dir"), "test/static"; s != x { t.Errorf("%v != %v", s, x) }
 
         if m, ok = modules["foo_cc_exe_use_shared"]; !ok { t.Errorf("expecting module foo_cc_exe_use_shared") }
         if s, x := m.GetName(ctx), "foo_cc_exe_use_shared"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.GetDir(ctx), "exe_use_shared"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.GetDir(ctx), "test/exe_use_shared"; s != x { t.Errorf("%v != %v", s, x) }
         if s, x := m.Get(ctx, "name"), "foo_cc_exe_use_shared"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.Get(ctx, "dir"), "exe_use_shared"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.Get(ctx, "dir"), "test/exe_use_shared"; s != x { t.Errorf("%v != %v", s, x) }
 
         if m, ok = modules["foo_cc_exe_use_static"]; !ok { t.Errorf("expecting module foo_cc_exe_static") }
         if s, x := m.GetName(ctx), "foo_cc_exe_use_static"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.GetDir(ctx), "exe_use_static"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.GetDir(ctx), "test/exe_use_static"; s != x { t.Errorf("%v != %v", s, x) }
         if s, x := m.Get(ctx, "name"), "foo_cc_exe_use_static"; s != x { t.Errorf("%v != %v", s, x) }
-        if s, x := m.Get(ctx, "dir"), "exe_use_static"; s != x { t.Errorf("%v != %v", s, x) }
+        if s, x := m.Get(ctx, "dir"), "test/exe_use_static"; s != x { t.Errorf("%v != %v", s, x) }
 
         if fi, e := os.Stat("shared/libfoo_shared.so"); fi == nil || e != nil { t.Errorf("%v", e) }
         if fi, e := os.Stat("static/libfoo_static.a"); fi == nil || e != nil { t.Errorf("%v", e) }
@@ -78,8 +78,4 @@ func testToolsetCC(t *testing.T) {
         }
 
         testCleanFiles(t)
-}
-
-func TestToolsetCC(t *testing.T) {
-        RunToolsetTestCase(t, "../..", "cc", testToolsetCC)
 }
