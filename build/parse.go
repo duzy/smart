@@ -346,6 +346,7 @@ type node interface {
         children() []node
         child(n int) node
         addChild(c node)
+        setChildren(ca ...node)
         reset(bs baseNodeStruct)
         process(ctx *Context) (err error)
 }
@@ -375,6 +376,10 @@ func (n *baseNodeStruct) child(i int) node {
         return nil
 }
 
+func (n *baseNodeStruct) setChildren(ca ...node) {
+        n.childNodes = ca
+}
+
 func (n *baseNodeStruct) addChild(c node) {
         n.childNodes = append(n.childNodes, c)
 }
@@ -389,7 +394,10 @@ func (n *baseNodeStruct) len() int {
 }
 
 func (n *baseNodeStruct) str() (s string) {
-        if a, b := n.posbeg, n.posend; a < b { s = string(n.l.s[a:b]) }
+        if a, b := n.posbeg, n.posend; /*n.l != nil &&*/ a < b {
+                //fmt.Printf("%v, %v, %v\n", a, b, len(n.l.s))
+                s = string(n.l.s[a:b])
+        }
         return
 }
 
@@ -897,13 +905,13 @@ func (l *lex) unget() {
         return
 }
 
-func (l *lex) new(n node) node {
+func (l *lex) reset(n node) node {
         n.reset(baseNodeStruct{ l:l, posbeg:l.pos, posend:l.pos })
         return n
 }
 
 func (l *lex) push(n node, ns func(), c int) *lexStack {
-        ls := &lexStack{ node:l.new(n), state:l.step, code:c }
+        ls := &lexStack{ node:l.reset(n), state:l.step, code:c }
         l.stack, l.step = append(l.stack, ls), ns
         return ls
 }
@@ -1085,7 +1093,7 @@ state_loop:
                         break state_loop
 
                 case l.rune == '.':
-                        part := l.new(new(nodeNamePart))
+                        part := l.reset(new(nodeNamePart))
                         part.setPosBeg(l.pos - 1)
                         st := l.top()
                         st.node.addChild(part)
@@ -1166,22 +1174,29 @@ func (l *lex) stateDefine() {
         )
         switch nodeTypeCode(st.code) {
         case nodeTypeCodeDefineDoubleColoned:
+                t = new(nodeDefineDoubleColoned)
                 v = new(nodeImmediateText)
-                n = 3
+                n = 3 // len("::=")
         case nodeTypeCodeDefineSingleColoned:
+                t = new(nodeDefineSingleColoned)
                 v = new(nodeImmediateText)
+                n = 2 // len(":=")
         case nodeTypeCodeDefineNot:
+                t = new(nodeDefineNot)
                 v = new(nodeImmediateText)
+                n = 2 // len("!=")
         case nodeTypeCodeDefineDeferred:
-                n = 1
-        default:
+                t = new(nodeDefineDeferred)
                 v = new(nodeDeferredText)
+                n = 1 // len("=")
+        default:
+                panic("unexpected define")
         }
 
         name.setPosEnd(l.backwardNonSpace(st.node.getPosBeg(), l.pos-n)) // for '=', '+=', '?=', ':=', '::='
 
         st = l.push(t, l.stateAppendNode, 0)
-        st.node.addChild(name) // FIXME: setChildren([]node{ name })
+        st.node.setChildren(name)
         st.node.addPosBeg(-n) // for '=', '+=', '?=', ':='
 
         // Create the value node.
@@ -1235,7 +1250,7 @@ func (l *lex) escapeTextLine(t node) {
                 switch l.rune {
                 case '#': fallthrough
                 case '\n':
-                        en := l.new(new(nodeEscape))
+                        en := l.reset(new(nodeEscape))
                         en.addPosBeg(-2) // for the '\\\n', '\\#', etc.
                         if l.rune == '\n' {
                                 /* FIXME: skip spaces after '\\\n' ?
@@ -1280,7 +1295,7 @@ func (l *lex) stateRule() {
         targets = convert(targets, new(nodeTargets))
 
         st := l.push(t, l.stateAppendNode, 0)
-        st.node.addChild(targets) // FIXME: setChildren([]node{ targets })
+        st.node.setChildren(targets)
         st.node.addPosBeg(-n) // for the ':', '::', ':!:', ':?:'
 
         prerequisites := l.push(new(nodePrerequisites), l.stateRuleTextLine, 0).node
@@ -1399,7 +1414,7 @@ func (l *lex) stateDollar() {
                 case l.rune == '(': l.push(new(nodeName), l.stateCallName, 0).delm = ')'
                 case l.rune == '{': l.push(new(nodeName), l.stateCallName, 0).delm = '}'
                 default:
-                        name := l.new(new(nodeName))
+                        name := l.reset(new(nodeName))
                         name.setPosBeg(l.pos - 1) // include the single char
                         st := l.top() // nodeCall
                         st.node.addChild(name)
@@ -1418,12 +1433,12 @@ state_loop:
                         l.push(new(nodeCall), l.stateDollar, 0).node.addPosBeg(-1) // 'pos--' for the '$'
                         break state_loop
                 case l.rune == ':' && st.code == 0:
-                        prefix := l.new(new(nodeNamePrefix))
+                        prefix := l.reset(new(nodeNamePrefix))
                         prefix.setPosBeg(l.pos - 1)
                         st.node.addChild(prefix)
                         st.code++
                 case l.rune == '.':
-                        part := l.new(new(nodeNamePart))
+                        part := l.reset(new(nodeNamePart))
                         part.setPosBeg(l.pos - 1)
                         st.node.addChild(part)
                 case l.rune == '\\':
@@ -1590,7 +1605,7 @@ func (l *lex) endCall(st *lexStack) {
 
 /*
 stateDollar:
-        st.node.children = []*node{ l.new(new(nodeName)) }
+        st.node.children = []*node{ l.reset(new(nodeName)) }
         l.step = l.stateCallee 
 */
 func (l *lex) stateCallee() {
@@ -1609,7 +1624,7 @@ state_loop:
                 case l.rune == ' ' && st.code == name:
                         st.code = args; fallthrough
                 case l.rune == ',' && st.code == args:
-                        a := l.new(new(nodeArg))
+                        a := l.reset(new(nodeArg))
                         i := len(st.node.children())-1
                         st.node.child(i).setPosEnd(l.pos-1)
                         st.node.addChild(a)
