@@ -342,7 +342,7 @@ type node interface {
         setPosEnd(n int)
         addPosBeg(n int)
         addPosEnd(n int)
-        items() Items
+        //items() Items
         children() []node
         child(n int) node
         addChild(c node)
@@ -355,14 +355,6 @@ type baseNodeStruct struct {
         l *lex
         childNodes []node
         posbeg, posend int
-}
-
-func (n *baseNodeStruct) Expand(ctx *Context) (s string) {
-        return
-}
-
-func (n *baseNodeStruct) IsEmpty(ctx *Context) bool {
-        return true
 }
 
 func (n *baseNodeStruct) children() []node {
@@ -382,11 +374,6 @@ func (n *baseNodeStruct) setChildren(ca ...node) {
 
 func (n *baseNodeStruct) addChild(c node) {
         n.childNodes = append(n.childNodes, c)
-}
-
-func (n *baseNodeStruct) items() (is Items) {
-        // TODO: ...
-        return
 }
 
 func (n *baseNodeStruct) len() int {
@@ -436,7 +423,7 @@ func (n *baseNodeStruct) expand(ctx *Context) (s string) {
                         cpos := c.getPosBeg()
                         if pos < cpos { b.Write(l.s[pos:cpos]) }
                         pos = c.getPosEnd()
-                        switch k := c.(type) {
+                        switch c.(type) {
                         case *nodeNamePrefix: b.WriteString(":")
                         case *nodeNamePart:   b.WriteString(".")
                         default: b.WriteString(c.Expand(ctx))
@@ -452,11 +439,36 @@ func (n *baseNodeStruct) expand(ctx *Context) (s string) {
         return
 }
 
-func (n *baseNodeStruct) process(ctx *Context) (err error) {
+func (n *baseNodeStruct) items() (is Items) {
+        // TODO: ...
         return
 }
 
-func (n *baseNodeStruct) processRule(ctx *Context, rn node) (err error) {
+type nodeBase struct {
+        baseNodeStruct
+}
+
+func (n *nodeBase) Expand(ctx *Context) (s string) {
+        return
+}
+
+func (n *nodeBase) IsEmpty(ctx *Context) bool {
+        return true
+}
+
+func (n *nodeBase) reset(bs baseNodeStruct) {
+        n.baseNodeStruct = bs
+}
+
+func (n *nodeBase) bs() *baseNodeStruct {
+        return &n.baseNodeStruct
+}
+
+func (n *nodeBase) process(ctx *Context) (err error) {
+        return
+}
+
+func (n *nodeBase) processRule(ctx *Context, rn node) (err error) {
         var ns namespace
         if ctx.m == nil {
                 ns = ctx.g
@@ -479,7 +491,7 @@ func (n *baseNodeStruct) processRule(ctx *Context, rn node) (err error) {
                 }
         }
 
-        switch k := rn.(type) {
+        switch rn.(type) {
         case *nodeRulePhony:            r.c = &phonyTargetUpdater{}
         case *nodeRuleChecker:          r.c = &checkRuleUpdater{ r }
         case *nodeRuleDoubleColoned:    r.c = &defaultTargetUpdater{}
@@ -493,19 +505,7 @@ func (n *baseNodeStruct) processRule(ctx *Context, rn node) (err error) {
         return
 }
 
-type nodeBase struct {
-        baseNodeStruct
-}
-
-func (n *nodeBase) reset(bs baseNodeStruct) {
-        n.baseNodeStruct = bs
-}
-
-func (n *nodeBase) bs() *baseNodeStruct {
-        return &n.baseNodeStruct
-}
-
-func convert(n0, n1 node) node {
+func copy_bs(n0, n1 node) node {
         n1.reset(*n0.bs())
         return n1
 }
@@ -1292,7 +1292,7 @@ func (l *lex) stateRule() {
         }
 
         targets := l.pop().node
-        targets = convert(targets, new(nodeTargets))
+        targets = copy_bs(targets, new(nodeTargets))
 
         st := l.push(t, l.stateAppendNode, 0)
         st.node.setChildren(targets)
@@ -1452,7 +1452,7 @@ state_loop:
                         st = l.top()
                         switch s := name.str(); s {
                         case "speak":
-                                st.node = convert(st.node, new(nodeSpeak))
+                                st.node = copy_bs(st.node, new(nodeSpeak))
                                 if l.rune != delm {
                                         l.push(new(nodeArg), l.stateSpeakDialect, 0).delm = delm
                                 } else {
@@ -1651,7 +1651,7 @@ state_loop:
                         l.pop() // pop out the current nodeCall
 
                         t := l.top().node
-                        switch k := t.(type) {
+                        switch t.(type) {
                         case *nodeDeferredText:  t.addChild(call)
                         case *nodeImmediateText: t.addChild(call)
                         default:
@@ -1923,86 +1923,6 @@ func (ctx *Context) speak(name string, scripts ...node) (is Items) {
         return
 }
 
-/*
-func (ctx *Context) nodeItems(n node) (is Items) {
-        switch n.kind {
-        case nodeEscape:
-                //fmt.Printf("%v, %v\n%s\n", n.pos, len(ctx.l.s), string(ctx.l.s))
-                //switch ctx.l.s[n.pos + 1] {
-                switch n.l.s[n.pos + 1] {
-                case '\n': is = Items{ stringitem(" ") }
-                case '#':  is = Items{ stringitem("#") }
-                }
-        case nodeCall:
-                var args Items
-                for _, an := range n.childNodes[1:] {
-                        args = args.Concat(ctx, ctx.nodeItems(an)...)
-                }
-                name := ctx.ParseName(n.childNodes[0].Expand(ctx))
-                is = ctx.call(n.loc(), name, args...)
-
-        case nodeSpeak:
-                dialect := n.childNodes[0].Expand(ctx)
-                if 1 < len(n.children) {
-                        is = ctx.speak(dialect, n.childNodes[1:]...)
-                } else {
-                        is = ctx.speak(dialect)
-                }
-
-        case nodeName:          fallthrough
-        case nodeArg:           fallthrough
-        case nodeRecipe:        fallthrough
-        case nodeDeferredText:  fallthrough
-        case nodeTargets:       fallthrough
-        case nodePrerequisites: fallthrough
-        case nodeImmediateText:
-                var (
-                        s string
-                        nc = len(n.children)
-                )
-                if 0 < nc {
-                        //b, _ := ctx.multipart(n)
-                        b, l, pos := new(bytes.Buffer), n.l, n.pos
-                        for _, c := range n.children {
-                                if pos < c.pos { b.Write(l.s[pos:c.pos]) }
-                                pos = c.end
-                                switch c.kind {
-                                case nodeNamePrefix: b.WriteString(":")
-                                case nodeNamePart:   b.WriteString(".")
-                                default: b.WriteString(ctx.nodeItems(c).Expand(ctx))
-                                }
-                        }
-                        if pos < n.end {
-                                b.Write(l.s[pos:n.end])
-                        }
-                        s = b.String()
-                } else {
-                        if n.end < n.pos {
-                                //fmt.Printf("%v: %v, %v: %v\n", n.kind, n.pos, n.end, string(n.l.s[n.pos:n.pos+9]))
-                        }
-                        s = n.str()
-                }
-                is = Items{ stringitem(s) }
-
-        case nodeComment:
-                // Convert inline comment into "\n". This happens when a comment
-                // recipt occured.
-                is = Items{ stringitem("\n") }
-
-        default:
-                panic(fmt.Sprintf("fixme: %v: %v (%v children)\n", n.kind, n.str(), len(n.children)))
-        }
-        return
-}
-
-func (ctx *Context) nodesItems(nodes... *node) (is Items) {
-        for _, n := range nodes {
-                is = is.Concat(ctx, ctx.nodeItems(n)...)
-        }
-        return
-}
-*/
-
 func (ctx *Context) ItemsStrings(a ...Item) (s []string) {
         for _, i := range a {
                 s = append(s, i.Expand(ctx))
@@ -2012,7 +1932,7 @@ func (ctx *Context) ItemsStrings(a ...Item) (s []string) {
 
 func (ctx *Context) processNode(n node) (err error) {
         if ctx.t != nil {
-                switch k := n.(type) {
+                switch n.(type) {
                 case *nodeCommit: processTemplateCommit(ctx, n)
                 case *nodePost:   processTemplatePost(ctx, n)
                 default:
@@ -2023,12 +1943,6 @@ func (ctx *Context) processNode(n node) (err error) {
                         }
                 }
         } else {
-                /*
-                if f, ok := processors[n.kind]; ok && f != nil {
-                        err = f(ctx, n)
-                } else {
-                        panic(fmt.Sprintf("'%v' not implemented", n.kind))
-                } */
                 err = n.process(ctx)
         }
         return
