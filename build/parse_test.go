@@ -1365,7 +1365,7 @@ i2 = $a$($i)-$($i$i)
 
         for _, s := range []string{ "a", "i", "ii", "i1", "i2" } {
                 if d, ok := ctx.g.defines[s]; !ok || d == nil { t.Errorf("missing '%v'", s) } else {
-                        if s := d.value.Expand(ctx); s == "" { t.Errorf("empty '%v'", s) }
+                        if v := d.value.Expand(ctx); v == "" { t.Errorf("'%v', '%v'", s, v) }
                 }
         }
 

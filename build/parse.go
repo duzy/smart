@@ -1173,24 +1173,32 @@ func (l *lex) stateDefine() {
                 v, t node
         )
         switch nodeTypeCode(st.code) {
-        case nodeTypeCodeDefineDoubleColoned:
-                t = new(nodeDefineDoubleColoned)
-                v = new(nodeImmediateText)
-                n = 3 // len("::=")
-        case nodeTypeCodeDefineSingleColoned:
-                t = new(nodeDefineSingleColoned)
-                v = new(nodeImmediateText)
-                n = 2 // len(":=")
-        case nodeTypeCodeDefineNot:
-                t = new(nodeDefineNot)
-                v = new(nodeImmediateText)
-                n = 2 // len("!=")
         case nodeTypeCodeDefineDeferred:
                 t = new(nodeDefineDeferred)
                 v = new(nodeDeferredText)
                 n = 1 // len("=")
+        case nodeTypeCodeDefineQuestioned:
+                t = new(nodeDefineQuestioned)
+                v = new(nodeDeferredText)
+                n = 2 // len("?=")
+        case nodeTypeCodeDefineSingleColoned:
+                t = new(nodeDefineSingleColoned)
+                v = new(nodeImmediateText)
+                n = 2 // len(":=")
+        case nodeTypeCodeDefineDoubleColoned:
+                t = new(nodeDefineDoubleColoned)
+                v = new(nodeImmediateText)
+                n = 3 // len("::=")
+        case nodeTypeCodeDefineNot:
+                t = new(nodeDefineNot)
+                v = new(nodeImmediateText)
+                n = 2 // len("!=")
+        case nodeTypeCodeDefineAppend:
+                t = new(nodeDefineAppend)
+                v = new(nodeDeferredText)
+                n = 2 // len("+=")
         default:
-                panic("unexpected define")
+                panic(fmt.Sprintf("unexpected define code [%v]", st.code))
         }
 
         name.setPosEnd(l.backwardNonSpace(st.node.getPosBeg(), l.pos-n)) // for '=', '+=', '?=', ':=', '::='
@@ -1200,11 +1208,11 @@ func (l *lex) stateDefine() {
         st.node.addPosBeg(-n) // for '=', '+=', '?=', ':='
 
         // Create the value node.
-        value := l.push(v, l.stateDefineTextLine, 0).node
+        value := l.push(v, l.stateDefineValueLine, 0).node
         st.node.addChild(value)
 }
 
-func (l *lex) stateDefineTextLine() {
+func (l *lex) stateDefineValueLine() {
         st := l.top()
 state_loop:
         for l.get() {
@@ -1229,7 +1237,7 @@ state_loop:
                         fallthrough
                 case l.rune == '\n': fallthrough
                 case l.rune == rune(0): // The end of string.
-                        st.node.addPosEnd(l.pos)
+                        st.node.setPosEnd(l.pos)
                         if l.rune == '\n' {
                                 st.node.addPosEnd(-1) // Exclude the '\n'.
                         }
@@ -2031,7 +2039,7 @@ func (n *nodeDefineQuestioned) process(ctx *Context) (err error) {
 }
 
 func (n *nodeDefineDeferred) process(ctx *Context) (err error) {
-        ctx.set(ctx.ParseName(n.childNodes[0].Expand(ctx)), n)
+        ctx.set(ctx.ParseName(n.childNodes[0].Expand(ctx)), n.childNodes[1])
         return
 }
 
