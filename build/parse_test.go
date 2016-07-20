@@ -1888,6 +1888,24 @@ $(info $(me.name): before-commit)
 commit
 $(info after-commit)
 
+template a
+$(info $(me.name): pre - a)
+post
+$(info $(me.name): post - a)
+commit
+
+template b
+$(info $(me.name): pre - b)
+post
+$(info $(me.name): post - b)
+commit
+
+template c
+$(info $(me.name): pre - c)
+post
+$(info $(me.name): post - c)
+commit
+
 ### Using the new toolset template
 module a, test, a, b, c
 $(info a - $(me.dir),$(me.out))
@@ -1971,19 +1989,31 @@ a: test - "a"
 a: dir = "%s"
 a: source = ""
 a: before-post
+a: pre - a
+a: pre - b
+a: pre - c
 a - %s %s/out
 a: after-post
 a: source = "a.cpp"
 a: before-commit
+a: post - a
+a: post - b
+a: post - c
 a commited
 b: test - "a b"
 b: dir = "%s"
 b: source = ""
 b: before-post
+b: pre - a
+b: pre - b
+b: pre - c
 b - %s %s/out
 b: after-post
 b: source = "b.cpp"
 b: before-commit
+b: post - a
+b: post - b
+b: post - c
 b commited
 `, wd, wd, wd, wd, wd, wd); s != x { t.Errorf("'%s' != '%s'", s, x) }
 }
