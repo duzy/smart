@@ -51,7 +51,7 @@
 ** TODO *for*, *foreach*
 
    $(foreach $(list),"This is item $2: $1")
-
+   
 * Fundamental Improvements [0/2]
 
 ** TODO General logger

@@ -134,18 +134,24 @@ type checkupdater interface {
         update(ctx *Context, r *rule, m *match) bool
 }
 
+// namespace is a scope containing rules and defines
 type namespace interface {
-        findMatchRules(ctx *Context, target string) (mrs []*matchrule)
-        isPhonyTarget(ctx *Context, target string) bool
-        saveDefines(names ...string) (saveIndex int, m map[string]*define)
-        restoreDefines(saveIndex int)
         get(ctx *Context, name string) *define
         set(ctx *Context, name string, items ...Item) error
         append(ctx *Context, name string, items ...Item) error
+
+        saveDefines(names ...string) (saveIndex int, m map[string]*define)
+        restoreDefines(saveIndex int)
+        
+        findMatchRules(ctx *Context, target string) (mrs []*matchrule)
         getCheckRules(target string) (rules []*rule)
+        
+        link(targets ...string) (r *rule)
+
+        isPhonyTarget(ctx *Context, target string) bool
+        
         getGoal() (target string)
         setGoal(target string)
-        link(targets ...string) (r *rule)
 }
 
 type namespaceBase struct {
@@ -153,7 +159,7 @@ type namespaceBase struct {
         saveList []map[string]*define // saveDefines, restoreDefines
         rules map[string]*rule
         patts map[string]*rule
-        pattList []*rule
+        pattList []*rule // preserve the order as rules are declared
         goal string
 }
 func (ns *namespaceBase) getGoal() string { return ns.goal }
