@@ -1,4 +1,4 @@
-# Smart (Drafting)
+# Smart (Simpler Make ART) (Drafting)
 
 **Smart** is a [Semi-Functional Scripting Language]() designed to perform
 recursive tasks easily. It's written in [Go](http://golang.org) programming
