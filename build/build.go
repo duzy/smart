@@ -368,11 +368,20 @@ func (m *Module) update(ctx *Context) (updated bool) {
 }
 
 func (ctx *Context) update(target string) (updated bool) {
-        if g, ok := ctx.g.rules[target]; ok && g != nil {
-                updated = g.updateAll(ctx)
+        
+        // TODO:
+        //    foo,bar:
+        //    foo,bar:foo.txt,bar.txt
+
+        if !*flagM {
+                if g, ok := ctx.g.rules[target]; ok && g != nil {
+                        updated = g.updateAll(ctx)
+                }
         }
-        if m, ok := ctx.modules[target]; ok && m != nil {
-                updated = m.update(ctx) || updated
+        if !*flagG {
+                if m, ok := ctx.modules[target]; ok && m != nil {
+                        updated = m.update(ctx) || updated
+                }
         }
         return
 }
@@ -993,8 +1002,11 @@ func (job *executeRecipes) Action() worker.Result {
 //      # Updates global target 'foo.txt' (only)
 //      smart -g foo.txt
 //      
-//      # Updates module foo's target 'bar.txt'
-//      smart foo:bar.txt
+//      # Updates module foo's target 'foo.txt,bar.txt'
+//      smart foo:foo.txt,bar.txt
+//      
+//      # Updates module foo's and bar's default goal
+//      smart foo,bar:
 //      
 //      # Updates module 'foobar'
 //      smart -m foobar
@@ -1004,6 +1016,12 @@ func (job *executeRecipes) Action() worker.Result {
 // 
 func Update(ctx *Context, cmds ...string) {
         ctx.w.SpawnN(*flagJ); defer ctx.w.KillAll()
+
+        //
+        // TODO:
+        //      flagM
+        //      flagG
+        //      
 
         if n := len(cmds); n == 0 {
                 if ctx.g.goal == "" {

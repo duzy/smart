@@ -17,8 +17,8 @@ import (
 
 var (
         flagA = flag.Bool("a", false, "auto mode")
-        flagM = flag.Bool("m", false, "searching module for targets")
-        flagG = flag.Bool("g", false, "searching global targets")
+        flagM = flag.Bool("m", false, "update modules only")
+        flagG = flag.Bool("g", false, "update global targets only")
         flagGG = flag.Bool("G", true, "ignore names like \".git\", \".svn\", etc.")
         flagGH = flag.Bool("H", true, "ignore hidden files")
         flagJ = flag.Int("j", 3, "Allow N jobs at once.")
@@ -129,7 +129,7 @@ func splitVarArgs(args []string) (vars map[string]string, rest []string) {
         vars = make(map[string]string, 10)
 
         for _, arg := range args {
-                if i := strings.Index(arg, "="); 0 < i /* false at '=foo' */ {
+                if i := strings.Index(arg, "="); 0 < i /* false when '=foo' */ {
                         vars[strings.TrimSpace(arg[0:i])] = strings.TrimSpace(arg[i+1:])
                 } else {
                         rest = append(rest, arg)
