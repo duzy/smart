@@ -25,7 +25,7 @@
   "Regex used to find $(macro) uses in a makefile.")
 
 (defconst smart-statements
-  `("include" "template" "module" "commit" "use" "post"
+  `("include" "template" "module" "commit" "use" "post" "export"
     ,@(cdr makefile-statements))
   "List of keywords understood by smart.")
 

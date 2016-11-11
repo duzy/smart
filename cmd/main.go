@@ -14,5 +14,5 @@ import (
 )
 
 func main() {
-        smart.Main()
+        smart.CommandLine()
 }
