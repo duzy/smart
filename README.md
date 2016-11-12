@@ -6,7 +6,7 @@ language.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 
-Support: [https://www.bountysource.com/teams/smart] -- ([Salt It Now!](https://salt.bountysource.com/checkout/amount?team=smart))
+Support: https://www.bountysource.com/teams/smart -- ([Salt It Now!](https://salt.bountysource.com/checkout/amount?team=smart))
 
 ## Overview
 
