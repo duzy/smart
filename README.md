@@ -6,6 +6,8 @@ language.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 
+Support: [https://www.bountysource.com/teams/smart] ([Salt It Now!](https://salt.bountysource.com/checkout/amount?team=smart))
+
 ## Overview
 
 The language is inspired by [GNU make](https://www.gnu.org/software/make/).
