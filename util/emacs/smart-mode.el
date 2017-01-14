@@ -85,4 +85,5 @@
 
 (progn (add-to-list 'auto-mode-alist '("\\.smart" . smart-mode))
        (message "smart-mode"))
+
 (provide 'smart-mode)
