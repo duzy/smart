@@ -14,11 +14,24 @@
   :prefix "smart-")
 
 (defface smart-module-name-face
-  ;; This needs to go along both with foreground and background colors (i.e. shell)
-  '((t (:inherit font-lock-variable-name-face))) ;; (:background  "LightBlue1")
+  '((t :inherit font-lock-variable-name-face)) ;; :background  "LightBlue1"
   "Face to use for additionally highlighting rule targets in Font-Lock mode."
-  :group 'smart
-  :version "22.1")
+  :group 'smart)
+
+;; http://raebear.net/comp/emacscolors.html
+(defface smart-receipt-indent-face
+  '((((class color) (background light)) :background "gray88" :italic t)
+    (((class color) (background dark)) :background "LightDim" :italic t)
+    (t :inherit font-lock-constant-face))
+  "Face to use for additionally highlighting rule targets in Font-Lock mode."
+  :group 'smart)
+
+(defface smart-receipt-face '((t :background "gray96"))
+  "Face to use for additionally highlighting rule targets in Font-Lock mode."
+  :group 'smart)
+
+(defvar smart-receipt-indent-face 'smart-receipt-indent-face)
+(defvar smart-receipt-face 'smart-receipt-face)
 
 (defconst smart-var-use-regex
   "[^$]\\$[({]\\([-a-zA-Z0-9_.]+\\|[@%<?^+*][FD]?\\)"
@@ -56,6 +69,12 @@
    ;; $(commit ...)
    '("[^$]\\$[({]\\(commit\\|post\\)[ \t)}]"
      1 font-lock-builtin-face prepend)
+
+   ;; recipts
+   '("^\\(\t\\)\\(.+\\)"
+     (1 smart-receipt-indent-face prepend)
+     (2 smart-receipt-face prepend)
+     )
    ))
 
 (define-derived-mode smart-mode makefile-gmake-mode "smart"
