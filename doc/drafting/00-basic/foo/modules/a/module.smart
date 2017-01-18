@@ -1,4 +1,4 @@
-module a
+module
 
 start:!: a.out
         ./$< Test

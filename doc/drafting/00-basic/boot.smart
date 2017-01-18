@@ -1,3 +1,155 @@
-project main
+# coments going here...
 
-include modules/*.smart
+# unescapable string ($a, $b, $c are part of it)
+string1 = 'a b c $a $b $c'
+
+# escapable string ($a, $b, $c are expended)
+string2 = "a b c $a $b $c"
+string3 = "a b c \"1 2 3\""
+
+# concate two strings is simple
+string_concate = $(string1)$(string2)
+
+# Escape Sequences in strings:
+# 
+# \b         - backspace       (U+0008)
+# \t         - tab             (U+0009)
+# \n         - linefeed        (U+000A)
+# \f         - form feed       (U+000C)
+# \r         - carriage return (U+000D)
+# \"         - quote           (U+0022)
+# \\         - backslash       (U+005C)
+# \uXXXX     - unicode         (U+XXXX)
+# \UXXXXXXXX - unicode         (U+XXXXXXXX)
+# 
+
+# or '''...''' if unescapable
+string4 = """
+string line 1
+string line 2
+string line 3
+"""
+
+# using '\' to trim consequence whitespaces (including newlines)
+string5 = """\
+    string line 1 \
+    string line 2 \
+    string line 3 \
+    """
+
+# strings (array of two strings)
+strings = 'abc' "xx $(string1) xx"
+
+# empty string (can be used as 'false' in boolean contexts)
+empty1 = ''
+empty2 = ""
+
+# or just empty ('false' in boolean contexts)
+empty3 =
+
+# a text is a sequence of no white space (evaluated to the same result as string)
+text1 = this-is-a-text
+
+# array of 5 texts element
+texts = this is a text array
+
+# Integers
+integer1 = +100
+integer2 = 99
+integer3 = -38
+
+# Integers using underscores to enhance readability
+integer4 = 10_000_000
+integer5 = 1_2_3_4_5 # VALID but discouraged
+
+# Octal integers (leading with '0')
+octal1 = 01234567
+octal2 = 0_10_000
+
+# Hex integers (leading with '0x' or '0X')
+hex1 = 0x123456789ABCDEF
+hex2 = 0xAAAA_BBBB_1111
+
+# Binary integers (leading with '0b' or '0B' -- TODO: discussion)
+bin1 = 0b0011001100
+bin2 = 0b1100110011
+
+# Floating
+float1 = +1.0
+float2 = 3.1415
+float3 = - 0.001
+
+float4 = 5e+22
+float5 = 1e6
+float6 = -2E-2
+
+float7 = 3.1415e-100
+float8 = 6.18_16_18_16
+
+# TODO: big numbers??
+
+# Booleans (all non-zero, non-empty values are 'true', else are 'false')
+
+# Offset Date-Time (RFC 3339)
+t1 = 1979-05-27T07:32:00Z
+t2 = 1979-05-27T07:32:00-07:00
+t3 = 1979-05-27T07:32:00.999999-07:00
+
+# Local Date-Time (RFC 3339)
+t4 = 1979-05-27T07:32:00
+t5 = 1979-05-27T07:32:00.999999
+
+# Local Date (RFC 3339)
+d1 = 1979-05-27
+
+# Local Time (RFC 3339)
+t6 = 07:32:00
+t7 = 07:32:00.999999
+
+# array of mixes (space seperated)
+array1 = text1 text2 text3 '' 1 2 3 1.2 (a b c 1 2 3 '' "")
+
+# array in multiline
+array2 = \
+  text1 \
+  text2 \
+  text3 \
+  '' \
+  1 \
+  2 \
+  3
+
+# map ??
+map1 = (
+   k1 value1,
+   k2 value2,
+   k3 value3,
+   k4 value,
+)
+
+map2 = (k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4)
+
+v1 = $(get map1 k1)
+v2 = $(get map1 k2)
+v3 = $(get map1 k3)
+v4 = $(get map1 k4)
+v5 = $(get map1 k1 k2 k3)
+
+v6 = $(set map2 k1 1111)
+
+num1 = $(count map1)
+num2 = $(count map2 k1)
+num3 = $(count map2 k1 k2 k3)
+num4 = $(count map2 'k*')
+num5 = $(count map2 'k???s')
+
+## funtional program with local variables
+$(let (a 1, b 2, c 3)
+      (print "a = $a\n")
+      (print "b = $b\n")
+      (print "c = $c\n")
+      (set a 123))
+
+include "foo/*.smart"
+
+instance foo # launch project foo
