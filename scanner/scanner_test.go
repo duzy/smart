@@ -500,8 +500,7 @@ string line 3
                 {-1, token.IDENT, `k4` },
                 {-1, token.SEP, " " },
                 {-1, token.IDENT, `v4` },
-                {-1, token.SEP, "  " }, // TODO: get rid of it
-                {-1, token.RPAREN, `` },
+                {-1, token.RPAREN, `  )` },
                 {-1, token.LINEND, `` },
         }
 

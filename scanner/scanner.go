@@ -589,7 +589,7 @@ func (s *Scanner) scanText() string {
 	return string(s.src[offs:s.offset])
 } */
 
-func (s *Scanner) scanSep() string {
+func (s *Scanner) scanSep() (tok token.Token, lit string) {
 	offs := s.offset - 1
         
 	for s.ch == ' ' || s.ch == '\t' || s.ch == '\\' || (s.ch == '\n' && s.parenDepth > 0) {
@@ -604,7 +604,16 @@ func (s *Scanner) scanSep() string {
                 }
 	}
 
-        return string(s.src[offs:s.offset])
+        if s.ch == ')' {
+                s.next() // consume ')'
+                s.parenDepth--
+                tok = token.RPAREN
+        } else {
+                tok = token.SEP
+        }
+
+        lit = string(s.src[offs:s.offset])
+        return
 }
 
 func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
@@ -699,7 +708,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 tok = token.LINEND
                                 s.sepAware = false
                         } else {
-                                tok, lit = token.SEP, s.scanSep()
+                                tok, lit = s.scanSep()
                         }
                 case ',':
                         tok = token.COMMA
@@ -713,7 +722,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 			lit = string(ch)
                 }
                 if (s.sepAware && (ch == ' ' || ch == '\t')) { // FIXME: \\\n
-                        tok, lit = token.SEP, s.scanSep()
+                        tok, lit = s.scanSep()
                 }
 	}
 
