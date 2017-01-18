@@ -150,6 +150,16 @@ $(let (a 1, b 2, c 3)
       (print "c = $c\n")
       (set a 123))
 
+# binding
+f1 = $(bind (arg1 arg2 arg3)
+            (print "arg1 = $arg1")
+            (print "arg2 = $arg2")
+            (print "arg3 = $arg2")
+            "$arg1.$arg2.$arg3")
+
+v1 = $(f1 a, b, c) # "a.b.c"
+v2 = $(f1 1, 2, 3) # "1.2.3"
+
 include "foo/*.smart"
 
 instance foo # launch project foo

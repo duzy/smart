@@ -174,6 +174,11 @@ func isDigit(ch rune) bool {
 	return '0' <= ch && ch <= '9' || ch >= 0x80 && unicode.IsDigit(ch)
 }
 
+func isDatetimeTerminator(ch rune) bool {
+        return  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || 
+                ch == '(' || ch == ')' || ch == '$'
+}
+
 func (s *Scanner) scanIdentifier() string {
 	offs := s.offset
 	for isLetter(s.ch) || isDigit(s.ch) || s.ch == '-' || s.ch == '/' {
@@ -258,7 +263,7 @@ checkDate:
         
         if o += 10; o == l {
                 goto success // 1979-05-27
-        } else if ch = s.src[o]; ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+        } else if ch = s.src[o]; isDatetimeTerminator(rune(ch)) {
                 goto success // 1979-05-27
         } 
 
@@ -298,7 +303,7 @@ checkTime:
                 s.error(o+7, "bad second"); goto exit
         }
 
-        if ch = s.src[o+8]; ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+        if ch = s.src[o+8]; isDatetimeTerminator(rune(ch)) {
                 o += 8; goto success // consume 00:00:00
         } else if ch == 'Z' || ch == 'z' {
                 o += 9; goto success // consume 00:00:00Z
@@ -306,7 +311,7 @@ checkTime:
                 for o += 9; o < l; o++ {// consume 00:00:00.
                         if ch = s.src[o]; ch == 'Z' || ch == 'z' {
                                 o += 1; goto success // consume 'Z'
-                        } else if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+                        } else if isDatetimeTerminator(rune(ch)) {
                                 goto success
                         } else if ch == '+' || ch == '-' {
                                 o += 1; goto checkNumOffset // consume '+' or '-'
@@ -646,6 +651,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 switch ch {
                 case '#':
                         tok, lit = token.COMMENT, s.scanComment()
+                        skipWhitespaceAfter = true
                 case '+':
                         tok = token.ADD
                         skipWhitespaceAfter = true
@@ -697,8 +703,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         s.parenDepth++
                         skipWhitespaceAfter = true
                 case ')':
-                        tok = token.RPAREN
-                        s.parenDepth--
+                        if s.parenDepth == 0 {
+				s.error(s.offset, "unexpected right parenthesis")
+                        } else {
+                                tok = token.RPAREN
+                                s.parenDepth--
+                        }
                 case '=':
                         tok = token.ASSIGN
                         s.sepAware = true
@@ -707,6 +717,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         if s.parenDepth == 0 {
                                 tok = token.LINEND
                                 s.sepAware = false
+                                skipWhitespaceAfter = true
                         } else {
                                 tok, lit = s.scanSep()
                         }

@@ -503,7 +503,102 @@ string line 3
                 {-1, token.RPAREN, `  )` },
                 {-1, token.LINEND, `` },
         }
+        for i, r := range results {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+}
 
+func TestDatetime(t *testing.T) {
+}
+
+func TestCalls(t *testing.T) {
+	var s Scanner
+
+        src1 := `
+# bare lets
+
+$(let ((a "value of a")
+       (b 'value of b')
+       (c 'value of c'))
+      (print "$a.$b.$c"))
+
+$(let ( (a 1e-10) (b 2017-01-18) (c 19:25:30) )
+      ( print "$a $b $c" ) )
+`
+	f1 := fset.AddFile(filepath.Join("TestCalls", "src1"), fset.Base(), len(src1))
+	s.Init(f1, []byte(src1), nil, ScanComments)
+	if f1.Size() != len(src1) {
+		t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
+	}
+        results := []scanResult{
+                { 1, token.COMMENT, `# bare lets` },
+                {-1, token.CALL, `` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `let` },
+                {-1, token.LPAREN, `` },
+                
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `a` },
+                {-1, token.STRING, `"value of a"` },
+                {-1, token.RPAREN, `` },
+                
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `b` },
+                {-1, token.STRING, `'value of b'` },
+                {-1, token.RPAREN, `` },
+                
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `c` },
+                {-1, token.STRING, `'value of c'` },
+                {-1, token.RPAREN, `` },
+                
+                {-1, token.RPAREN, `` }, // 'let' enclosed
+                
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `print` },
+                {-1, token.STRING, `"$a.$b.$c"` },
+                {-1, token.RPAREN, `` },
+                
+                {-1, token.RPAREN, `` },
+
+                {-1, token.CALL, `` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `let` },
+                {-1, token.LPAREN, `` },
+                
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `a` },
+                {-1, token.FLOAT, `1e-10` },
+                {-1, token.RPAREN, `` },
+                
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `b` },
+                {-1, token.DATE, `2017-01-18` },
+                {-1, token.RPAREN, `` },
+                
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `c` },
+                {-1, token.TIME, `19:25:30` },
+                {-1, token.RPAREN, `` },
+                
+                {-1, token.RPAREN, `` }, // 'let' enclosed
+                
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `print` },
+                {-1, token.STRING, `"$a $b $c"` },
+                {-1, token.RPAREN, `` },
+                
+                {-1, token.RPAREN, `` },
+        }
         for i, r := range results {
                 pos, tok, lit := s.Scan()
                 if 0 <= r.offset && pos != s.file.Pos(r.offset) {

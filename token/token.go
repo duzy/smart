@@ -35,15 +35,17 @@ const (
         LINEND  // significant line break (LF or CRLF)
         RECIEPT // tab to indicate a command reciept
 
+        CONCAT  // concatenation
+
 	LPAREN  // (
 	LBRACK  // [
-	LBRACE  // {
+	LBRACE  // {    left curly
 	COMMA   // ,
 	PERIOD  // .
 
 	RPAREN  // )
 	RBRACK  // ]
-	RBRACE  // }
+	RBRACE  // }    right curly
 	COLON   // :
 
         CALL    // $
@@ -88,6 +90,8 @@ var tokens = [...]string{
         SEP:     "SEP",
         LINEND:  "LINEND",
         RECIEPT: "RECIEPT",
+
+        CONCAT: "CONCAT",
 
 	LPAREN: "(",
 	LBRACK: "[",
