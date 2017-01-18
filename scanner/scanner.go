@@ -176,7 +176,7 @@ func isDigit(ch rune) bool {
 
 func isDatetimeTerminator(ch rune) bool {
         return  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || 
-                ch == '(' || ch == ')' || ch == '$'
+                ch == '(' || ch == ')' || ch == '$' || ch == '#' || ch == '\\'
 }
 
 func (s *Scanner) scanIdentifier() string {
