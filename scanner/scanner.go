@@ -29,11 +29,9 @@ type Scanner struct {
 	// scanning state
 	ch         rune // current character
 	offset     int  // character offset
-	rdOffset   int  // reading offset (position after current character)
+	readOffset int  // reading offset (position after current character)
 	lineOffset int  // current line offset
         parenDepth int  // number of nested parentheses
-        //sepAware   bool // spaces as separator
-        //lineSignificant bool // line is significant (non-empty)
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -45,26 +43,26 @@ const bom = 0xFEFF // byte order mark, only permitted as very first character
 // s.ch < 0 means end-of-file.
 //
 func (s *Scanner) next() {
-	if s.rdOffset < len(s.src) {
-		s.offset = s.rdOffset
+	if s.readOffset < len(s.src) {
+		s.offset = s.readOffset
 		if s.ch == '\n' {
 			s.lineOffset = s.offset
 			s.file.AddLine(s.offset)
 		}
-		r, w := rune(s.src[s.rdOffset]), 1
+		r, w := rune(s.src[s.readOffset]), 1
 		switch {
 		case r == 0:
 			s.error(s.offset, "illegal character NUL")
 		case r >= 0x80:
 			// not ASCII
-			r, w = utf8.DecodeRune(s.src[s.rdOffset:])
+			r, w = utf8.DecodeRune(s.src[s.readOffset:])
 			if r == utf8.RuneError && w == 1 {
 				s.error(s.offset, "illegal UTF-8 encoding")
 			} else if r == bom && s.offset > 0 {
 				s.error(s.offset, "illegal byte order mark")
 			}
 		}
-		s.rdOffset += w
+		s.readOffset += w
 		s.ch = r
 	} else {
 		s.offset = len(s.src)
@@ -120,7 +118,7 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 
 	s.ch = ' '
 	s.offset = 0
-	s.rdOffset = 0
+	s.readOffset = 0
 	s.lineOffset = 0
 	s.ErrorCount = 0
 
@@ -137,13 +135,17 @@ func (s *Scanner) error(offs int, msg string) {
 	s.ErrorCount++
 }
 
-func (s *Scanner) skipWhitespace(lf bool) {
-	for s.ch == ' ' || s.ch == '\t' || s.ch == '\r' || s.ch == '\\' || (s.ch == '\n' && (s.parenDepth > 0 || lf)) {
+func (s *Scanner) isUselessWhitespace(lf bool) bool {
+        return s.ch == ' ' || s.ch == '\r' || 
+                (s.ch == '\t' && s.lineOffset < s.offset) || 
+                (s.ch == '\n' && (s.lineOffset == s.offset || s.parenDepth > 0 || lf)) ||
+                (s.ch == '\\' && s.readOffset < len(s.src) && s.src[s.readOffset] == '\n')
+}
+
+func (s *Scanner) skipUselessWhitespace(lf bool) {
+	for s.isUselessWhitespace(lf) {
                 if s.ch == '\\' {
-                        if s.next(); s.ch != '\n' {
-				s.error(s.offset, fmt.Sprintf("illegal escape %#U", s.ch))
-                                return
-                        }
+                        s.next()
                 }
 		s.next()
 	}
@@ -174,15 +176,36 @@ func isDigit(ch rune) bool {
 	return '0' <= ch && ch <= '9' || ch >= 0x80 && unicode.IsDigit(ch)
 }
 
+// punctuation used as non-terminator
+func isUntermPunct(ch rune) bool {
+        // Most chars accepted in URI (RFC3986)
+        return ch == '-' || ch == '+' || ch == '/' || ch == '@' || ch == '.';
+}
+
 func isDatetimeTerminator(ch rune) bool {
         return  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || 
                 ch == '(' || ch == ')' || ch == '$' || ch == '#' || ch == '\\'
 }
 
 func (s *Scanner) scanIdentifier() string {
+        // first char is letter (ensured)
 	offs := s.offset
-	for isLetter(s.ch) || isDigit(s.ch) || s.ch == '-' || s.ch == '/' {
-		s.next()
+loop:
+	for isLetter(s.ch) || isDigit(s.ch) || isUntermPunct(s.ch) || s.ch == '\\' {
+                /*
+                if ident && (isUntermPunct(s.ch) || s.ch == '\\') {
+                        ident = false
+                } */
+                if s.ch == '\\' {
+                        switch s.next(); s.ch {
+                        case '\n': break loop
+                        default:
+				s.error(s.offset, fmt.Sprintf("illegal escape %#U", s.ch))
+                                break loop
+                        }
+                } else {
+                        s.next()
+                }
 	}
 	return string(s.src[offs:s.offset])
 }
@@ -203,11 +226,13 @@ func (s *Scanner) scanMantissa(base int) {
 	if digitVal(s.ch) < base { // first digit
 		s.next()
                 for s.ch == '_' || digitVal(s.ch) < base {
-                        ch := s.ch
-                        s.next()
-                        if ch == '_' && s.ch == '_' {
-                                s.error(s.offset-1, "invalid digit group")
-                                break
+                        if s.ch == '_' {
+                                if s.next(); s.ch == '_' {
+                                        s.error(s.offset-1, "invalid digit group")
+                                        break
+                                }
+                        } else {
+                                s.next()
                         }
                 }
 	}
@@ -532,10 +557,6 @@ func (s *Scanner) scanEscape(quote rune) bool {
 	return true
 }
 
-func (s *Scanner) scanCall() {
-        // TODO: $(...)
-}
-
 func (s *Scanner) scanString(ml bool) string {
 	// '"' opening already consumed
 	offs := s.offset - 1
@@ -565,10 +586,19 @@ func (s *Scanner) scanString(ml bool) string {
                 case '\\':
 			s.scanEscape('"')
                 case '$':
-                        s.scanCall()
+                        //
 		}
 	}
 
+	return string(s.src[offs:s.offset])
+}
+
+func (s *Scanner) scanReciept() string {
+	// '\t' opening already consumed
+	offs := s.offset
+	for s.ch != '\n' {
+		s.next()
+	}
 	return string(s.src[offs:s.offset])
 }
 
@@ -626,7 +656,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 //scanAgain:
         // remove line preceeding spaces (FIXME: avoid receipt)
         if s.offset == s.lineOffset {
-                s.skipWhitespace(true)
+                s.skipUselessWhitespace(true)
         }
         
 	// current token start
@@ -664,7 +694,14 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.QUO
                 case '%':
                         tok = token.REM
-                //case '\\':
+                        /*
+                case '\\': // bare escape (differs from string escape)
+                        switch s.ch {
+                        case '$': ...
+                        case '\n': ...
+                        default:
+				s.error(s.offset, fmt.Sprintf("illegal escape %#U", s.ch))
+                        } */
                 case '\'':
                         tok = token.STRING
                         if s.ch == '\'' {
@@ -706,17 +743,72 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.parenDepth--
                         }
                 case '=':
-                        tok = token.ASSIGN
-                        //s.sepAware = true
+                        if /*s.context & ctxDefine == 0*/true {
+                                tok = token.ASSIGN
+                        } else {
+                                s.error(s.offset, "duplicate define context")
+                        }
                 case '\n':
                         if s.parenDepth == 0 {
                                 tok = token.LINEND
-                                //s.sepAware = false
                         } else {
                                 // ..
                         }
+                case '\t':
+                        if s.lineOffset == s.offset-1 {
+                                tok, lit = token.RECIEPT, s.scanReciept()
+                        } else {
+				s.error(s.offset, "unexpected tab")
+                        }
                 case ',':
                         tok = token.COMMA
+                case ':':
+                        if s.parenDepth == 0 {
+                                switch s.ch {
+                                case ':':
+                                        tok = token.COLON2
+                                        s.next() // consume the second ':'
+                                case '!', '?':
+                                        ch = s.ch
+                                        switch s.next(); s.ch {
+                                        case ':':
+                                                s.next() // consume the second ':'
+                                                switch ch {
+                                                case '!': tok = token.COLON_EXC
+                                                case '?': tok = token.COLON_QUE
+                                                }
+                                        case '[':
+                                                s.next() // consume the second '['
+                                                switch ch {
+                                                case '!': tok = token.COLON_LBE
+                                                case '?': tok = token.COLON_LBQ
+                                                }
+                                        default:
+                                                s.error(s.offset, fmt.Sprintf("unexpected character %#U", s.ch))
+                                                tok = token.ILLEGAL
+                                        }
+                                case '[':
+                                        tok = token.COLON_LBK
+                                        s.next() // consume '['
+                                default:
+                                        tok = token.COLON
+                                }
+                        } else {
+                                
+                        }
+                case '[':
+                        tok = token.LBRACK
+                case ']':
+                        if s.ch == ':' {
+                                tok = token.COLON_RBK
+                                s.next() // consume ':'
+                        } else {
+                                tok = token.RBRACK
+                        }
+                case '{':
+                        tok = token.LBRACE
+                case '}':
+                        tok = token.RBRACE
                 default:
 			// next reports unexpected BOMs - don't repeat
 			if ch != bom {
@@ -725,13 +817,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 			tok = token.ILLEGAL
 			lit = string(ch)
                 }
-                /*
-                if (s.sepAware && (ch == ' ' || ch == '\t')) { // FIXME: \\\n
-                        //tok, lit = s.scanSep()
-                } */
 	}
 
-        // eat consequence spaces                
-        s.skipWhitespace(false)
+        // eat consequence spaces
+        s.skipUselessWhitespace(false)
 	return
 }

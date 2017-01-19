@@ -26,13 +26,13 @@ const (
         DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
         DATE     // 1979-05-27 (internet date format - RFC3339)
         TIME     // 07:32:00.999999 (internet time format - RFC3339)
-	STRING // "abc"
-        SHSTR  // `echo shell command`
+        URI      // 'mailto:Duzy.Chan@example.com' (uniform resource identifier - RFC3986)
+	STRING   // "abc" 'abc'
+        RECIEPT  // tab to indicate a command reciept
 	literal_end
         
 	operator_beg
         LINEND  // significant line break (LF or CRLF)
-        RECIEPT // tab to indicate a command reciept
 
 	LPAREN  // (
 	LBRACK  // [
@@ -43,7 +43,15 @@ const (
 	RPAREN  // )
 	RBRACK  // ]
 	RBRACE  // }    right curly
-	COLON   // :
+	SEMICOLON // ;
+	COLON     // :
+	COLON2    // ::
+	COLON_EXC // :!:
+	COLON_QUE // :?:
+        COLON_LBK // :[
+        COLON_LBE // :![
+        COLON_LBQ // :?[
+        COLON_RBK // ]:
 
         CALL    // $
         
@@ -82,13 +90,11 @@ var tokens = [...]string{
         DATETIME: "DATETIME",
         DATE:     "DATE",
         TIME:     "TIME",
+        URI:      "URI",
         STRING:   "STRING",
 
-        //SEP:     "SEP",
         LINEND:  "LINEND",
         RECIEPT: "RECIEPT",
-
-        CONCAT: "CONCAT",
 
 	LPAREN: "(",
 	LBRACK: "[",
@@ -100,6 +106,13 @@ var tokens = [...]string{
 	RBRACK:    "]",
 	RBRACE:    "}",
 	COLON:     ":",
+        COLON2:    "::",
+        COLON_EXC: ":!:",
+        COLON_QUE: ":?:",
+        COLON_LBK: ":[",
+        COLON_LBE: ":![",
+        COLON_LBQ: ":?[",
+        COLON_RBK: "]:",
         
 	CALL: "$",
         
@@ -146,3 +159,7 @@ func Lookup(ident string) Token {
 	}
 	return IDENT
 }
+
+func (tok Token) IsLiteral() bool { return literal_beg < tok && tok < literal_end }
+func (tok Token) IsOperator() bool { return operator_beg < tok && tok < operator_end }
+func (tok Token) IsKeyword() bool { return keyword_beg < tok && tok < keyword_end }

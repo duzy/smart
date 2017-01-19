@@ -753,3 +753,213 @@ v2 = $(concat "a" 'b' c)
                 }
         }
 }
+
+func TestRules(t *testing.T) {
+	var s Scanner
+
+        src1 := `
+# rules
+
+prog: obj/file.o
+	gcc -o $@ $<
+obj/file.o: src/file.c
+	gcc -c -o $@ $^
+`
+	f1 := fset.AddFile(filepath.Join("TestRules", "src1"), fset.Base(), len(src1))
+	s.Init(f1, []byte(src1), nil, ScanComments)
+	if f1.Size() != len(src1) {
+		t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
+	}
+        results1 := []scanResult{
+                { 1, token.COMMENT, `# rules` },
+
+                {-1, token.IDENT, `prog` },
+                {-1, token.COLON, `` },
+                {-1, token.IDENT, `obj/file.o` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `gcc -o $@ $<` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `obj/file.o` },
+                {-1, token.COLON, `` },
+                {-1, token.IDENT, `src/file.c` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `gcc -c -o $@ $^` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results1 {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+
+        src2 := `
+# rules
+
+start:
+	echo one
+	echo one
+	echo one
+start::
+	echo two
+	echo two
+	echo two
+start::
+	echo three
+	echo three
+	echo three
+`
+	f2 := fset.AddFile(filepath.Join("TestRules", "src2"), fset.Base(), len(src2))
+	s.Init(f2, []byte(src2), nil, ScanComments)
+	if f2.Size() != len(src2) {
+		t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
+	}
+        results2 := []scanResult{
+                { 1, token.COMMENT, `# rules` },
+
+                {-1, token.IDENT, `start` },
+                {-1, token.COLON, `` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo one` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo one` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo one` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `start` },
+                {-1, token.COLON2, `` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo two` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo two` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo two` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `start` },
+                {-1, token.COLON2, `` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo three` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo three` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo three` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results2 {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+
+        src3 := `
+# rules
+
+start:!:
+	echo okay
+start:?:
+	test src/file.c
+`
+	f3 := fset.AddFile(filepath.Join("TestRules", "src3"), fset.Base(), len(src3))
+	s.Init(f3, []byte(src3), nil, ScanComments)
+	if f3.Size() != len(src3) {
+		t.Errorf("bad file size: got %d, expected %d", f3.Size(), len(src3))
+	}
+        results3 := []scanResult{
+                { 1, token.COMMENT, `# rules` },
+
+                {-1, token.IDENT, `start` },
+                {-1, token.COLON_EXC, `` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo okay` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `start` },
+                {-1, token.COLON_QUE, `` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `test src/file.c` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results3 {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+        
+        src4 := `
+# brack rules
+
+start:[shell]:
+	echo okay
+start:![shell]:
+	echo okay okay
+start:?[shell]:
+	test ok ok
+`
+	f4 := fset.AddFile(filepath.Join("TestRules", "src4"), fset.Base(), len(src4))
+	s.Init(f4, []byte(src4), nil, ScanComments)
+	if f4.Size() != len(src4) {
+		t.Errorf("bad file size: got %d, expected %d", f4.Size(), len(src4))
+	}
+        results4 := []scanResult{
+                { 1, token.COMMENT, `# brack rules` },
+
+                {-1, token.IDENT, `start` },
+                {-1, token.COLON_LBK, `` },
+                {-1, token.IDENT, `shell` },
+                {-1, token.COLON_RBK, `` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo okay` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `start` },
+                {-1, token.COLON_LBE, `` },
+                {-1, token.IDENT, `shell` },
+                {-1, token.COLON_RBK, `` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `echo okay okay` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `start` },
+                {-1, token.COLON_LBQ, `` },
+                {-1, token.IDENT, `shell` },
+                {-1, token.COLON_RBK, `` },
+                {-1, token.LINEND, `` },
+                {-1, token.RECIEPT, `test ok ok` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results4 {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+}
