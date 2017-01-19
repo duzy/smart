@@ -82,7 +82,7 @@ func TestInit(t *testing.T) {
 	}
 }
 
-func TestDefines(t *testing.T) {
+func TestStrings(t *testing.T) {
 	var s Scanner
 
         src := `
@@ -112,67 +112,8 @@ empty3 =
 
 text1 = this-is-a-text
 texts = this is a text array
-
-integer1 = +100
-integer2 = 99
-integer3 = -38
-
-integer4 = 10_000_000
-integer5 = 1_2_3_4_5 # VALID but discouraged
-
-octal1 = 01234567
-octal2 = 01_0_000
-
-hex1 = 0x123456789ABCDEF
-hex2 = 0xAAAA_BBBB_1111
-
-bin1 = 0b0011001100
-bin2 = 0b1100110011
-
-float1 = +1.0
-float2 = 3.1415
-float3 = - 0.001
-
-float4 = 5e+22
-float5 = 1e6
-float6 = -2E-2
-
-float7 = 3.1415e-100
-float8 = 6.18_16_18_16
-
-t1 = 1979-05-27T07:32:00Z
-t2 = 1979-05-27T07:32:00-07:00
-t3 = 1979-05-27T07:32:00.999999-07:00
-
-t4 = 1979-05-27T07:32:00
-t5 = 1979-05-27T07:32:00.999999
-
-d1 = 1979-05-27
-
-t6 = 07:32:00
-t7 = 07:32:00.999999
-
-array1 = text1 text2 text3 '' 1 2 3 1.2 ( a b c 1 2 3 '' "")
-
-array2 = \
-  text1 \
-  text2 \
-  text3 \
-  '' \
-  1 \
-  2 \
-  3
-
-map1 = (
-   k1 value1,
-   k2 value2,
-   k3 value3,
-   k4 value,
-)
-
-map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
 `
-	f := fset.AddFile(filepath.Join("TestDefines", "src"), fset.Base(), len(src))
+	f := fset.AddFile(filepath.Join("TestStrings", "src"), fset.Base(), len(src))
 	s.Init(f, []byte(src), nil, ScanComments)
 	if f.Size() != len(src) {
 		t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
@@ -184,22 +125,22 @@ map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
                 {-1, token.STRING, `'a b c $a $b $c'` },
                 {-1, token.LINEND, `` },
 
-                { 28, token.IDENT, `string2` },
+                {-1, token.IDENT, `string2` },
                 {-1, token.ASSIGN, `` },
                 {-1, token.STRING, `"a b c $a $b $c"` },
                 {-1, token.LINEND, `` },
 
-                { 55, token.IDENT, `string3` },
+                {-1, token.IDENT, `string3` },
                 {-1, token.ASSIGN, `` },
                 {-1, token.STRING, `"a b c \"1 2 3\""` },
                 {-1, token.LINEND, `` },
 
-                { 84, token.IDENT, `string_concate` },
-                { 99, token.ASSIGN, `` },
-                {101, token.CALL, `` },
-                {102, token.LPAREN, `` },
-                {103, token.IDENT, `string1` },
-                {110, token.RPAREN, `` },
+                {-1, token.IDENT, `string_concate` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.CALL, `` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `string1` },
+                {-1, token.RPAREN, `` },
                 {-1, token.CALL, `` },
                 {-1, token.LPAREN, `` },
                 {-1, token.IDENT, `string2` },
@@ -227,7 +168,6 @@ string line 3
                 {-1, token.IDENT, `strings` },
                 {-1, token.ASSIGN, `` },
                 {-1, token.STRING, `'abc'` },
-                {-1, token.SEP, ` ` },
                 {-1, token.STRING, `"xx $(string1) xx"` },
                 {-1, token.LINEND, `` },
 
@@ -244,25 +184,48 @@ string line 3
                 {-1, token.IDENT, `empty3` },
                 {-1, token.ASSIGN, `` },
                 {-1, token.LINEND, `` },
-                
-                {-1, token.IDENT, `text1` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.IDENT, `this-is-a-text` },
-                {-1, token.LINEND, `` },
+        }
+        for i, r := range results {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+}
 
-                {-1, token.IDENT, `texts` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.IDENT, `this` },
-                {-1, token.SEP, ` ` },
-                {-1, token.IDENT, `is` },
-                {-1, token.SEP, ` ` },
-                {-1, token.IDENT, `a` },
-                {-1, token.SEP, ` ` },
-                {-1, token.IDENT, `text` },
-                {-1, token.SEP, ` ` },
-                {-1, token.IDENT, `array` },
-                {-1, token.LINEND, `` },
-                
+func TestIntegers(t *testing.T) {
+	var s Scanner
+
+        src := `
+integer1 = +100
+integer2 = 99
+integer3 = -38
+
+integer4 = 10_000_000
+integer5 = 1_2_3_4_5 # VALID but discouraged
+
+octal1 = 01234567
+octal2 = 01_0_000
+
+hex1 = 0x123456789ABCDEF
+hex2 = 0xAAAA_BBBB_1111
+
+bin1 = 0b0011001100
+bin2 = 0b1100110011
+`
+	f := fset.AddFile(filepath.Join("TestIntegers", "src"), fset.Base(), len(src))
+	s.Init(f, []byte(src), nil, ScanComments)
+	if f.Size() != len(src) {
+		t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
+	}
+
+        results := []scanResult{
                 {-1, token.IDENT, `integer1` },
                 {-1, token.ASSIGN, `` },
                 {-1, token.ADD, `` },
@@ -288,10 +251,8 @@ string line 3
                 {-1, token.IDENT, `integer5` },
                 {-1, token.ASSIGN, `` },
                 {-1, token.INT, `1_2_3_4_5` },
-                {-1, token.SEP, ` ` },
 
                 {-1, token.COMMENT, `# VALID but discouraged` },
-                {-1, token.LINEND, `` },
 
                 {-1, token.IDENT, `octal1` },
                 {-1, token.ASSIGN, `` },
@@ -322,7 +283,120 @@ string line 3
                 {-1, token.ASSIGN, `` },
                 {-1, token.INT, `0b1100110011` },
                 {-1, token.LINEND, `` },
+        }
+        for i, r := range results {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+}
 
+func TestDatetime(t *testing.T) {
+	var s Scanner
+
+        src := `
+t1 = 1979-05-27T07:32:00Z
+t2 = 1979-05-27T07:32:00-07:00
+t3 = 1979-05-27T07:32:00.999999-07:00
+
+t4 = 1979-05-27T07:32:00
+t5 = 1979-05-27T07:32:00.999999
+
+d1 = 1979-05-27
+
+t6 = 07:32:00
+t7 = 07:32:00.999999
+`
+	f := fset.AddFile(filepath.Join("TestDatetime", "src"), fset.Base(), len(src))
+	s.Init(f, []byte(src), nil, ScanComments)
+	if f.Size() != len(src) {
+		t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
+	}
+
+        results := []scanResult{
+                {-1, token.IDENT, `t1` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.DATETIME, `1979-05-27T07:32:00Z` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `t2` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.DATETIME, `1979-05-27T07:32:00-07:00` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `t3` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.DATETIME, `1979-05-27T07:32:00.999999-07:00` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `t4` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.DATETIME, `1979-05-27T07:32:00` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `t5` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.DATETIME, `1979-05-27T07:32:00.999999` },
+                {-1, token.LINEND, `` },
+                
+                {-1, token.IDENT, `d1` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.DATE, `1979-05-27` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `t6` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.TIME, `07:32:00` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `t7` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.TIME, `07:32:00.999999` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+}
+
+func TestFloats(t *testing.T) {
+	var s Scanner
+
+        src := `
+float1 = +1.0
+float2 = 3.1415
+float3 = - 0.001
+
+float4 = 5e+22
+float5 = 1e6
+float6 = -2E-2
+
+float7 = 3.1415e-100
+float8 = 6.18_16_18_16
+`
+	f := fset.AddFile(filepath.Join("TestFloats", "src"), fset.Base(), len(src))
+	s.Init(f, []byte(src), nil, ScanComments)
+	if f.Size() != len(src) {
+		t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
+	}
+
+        results := []scanResult{
                 {-1, token.IDENT, `float1` },
                 {-1, token.ASSIGN, `` },
                 {-1, token.ADD, `` },
@@ -365,80 +439,61 @@ string line 3
                 {-1, token.ASSIGN, `` },
                 {-1, token.FLOAT, `6.18_16_18_16` },
                 {-1, token.LINEND, `` },
+        }
+        for i, r := range results {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+}
 
-                {-1, token.IDENT, `t1` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.DATETIME, `1979-05-27T07:32:00Z` },
-                {-1, token.LINEND, `` },
+func TestArrays(t *testing.T) {
+	var s Scanner
 
-                {-1, token.IDENT, `t2` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.DATETIME, `1979-05-27T07:32:00-07:00` },
-                {-1, token.LINEND, `` },
+        src := `
+array1 = text1 text2 text3 '' 1 2 3 1.2 ( a b c 1 2 3 '' "")
 
-                {-1, token.IDENT, `t3` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.DATETIME, `1979-05-27T07:32:00.999999-07:00` },
-                {-1, token.LINEND, `` },
+array2 = \
+  text1 \
+  text2 \
+  text3 \
+  '' \
+  1 \
+  2 \
+  3
+`
+	f := fset.AddFile(filepath.Join("TestArrays", "src"), fset.Base(), len(src))
+	s.Init(f, []byte(src), nil, ScanComments)
+	if f.Size() != len(src) {
+		t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
+	}
 
-                {-1, token.IDENT, `t4` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.DATETIME, `1979-05-27T07:32:00` },
-                {-1, token.LINEND, `` },
-
-                {-1, token.IDENT, `t5` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.DATETIME, `1979-05-27T07:32:00.999999` },
-                {-1, token.LINEND, `` },
-                
-                {-1, token.IDENT, `d1` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.DATE, `1979-05-27` },
-                {-1, token.LINEND, `` },
-
-                {-1, token.IDENT, `t6` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.TIME, `07:32:00` },
-                {-1, token.LINEND, `` },
-
-                {-1, token.IDENT, `t7` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.TIME, `07:32:00.999999` },
-                {-1, token.LINEND, `` },
-
-                { 977, token.IDENT, `array1` },
+        results := []scanResult{
+                {-1, token.IDENT, `array1` },
                 {-1, token.ASSIGN, `` },
                 {-1, token.IDENT, `text1` },
-                {-1, token.SEP, ` ` },
                 {-1, token.IDENT, `text2` },
-                {-1, token.SEP, ` ` },
                 {-1, token.IDENT, `text3` },
-                {-1, token.SEP, ` ` },
                 {-1, token.STRING, `''` },
-                {-1, token.SEP, ` ` },
                 {-1, token.INT, `1` },
-                {-1, token.SEP, ` ` },
                 {-1, token.INT, `2` },
-                {-1, token.SEP, ` ` },
                 {-1, token.INT, `3` },
-                {-1, token.SEP, ` ` },
                 {-1, token.FLOAT, `1.2` },
-                {-1, token.SEP, ` ` },
                 {-1, token.LPAREN, `` },
                 {-1, token.IDENT, `a` },
-                {-1, token.SEP, ` ` },
                 {-1, token.IDENT, `b` },
-                {-1, token.SEP, ` ` },
                 {-1, token.IDENT, `c` },
-                {-1, token.SEP, ` ` },
                 {-1, token.INT, `1` },
-                {-1, token.SEP, ` ` },
                 {-1, token.INT, `2` },
-                {-1, token.SEP, ` ` },
                 {-1, token.INT, `3` },
-                {-1, token.SEP, ` ` },
                 {-1, token.STRING, `''` },
-                {-1, token.SEP, ` ` },
                 {-1, token.STRING, `""` },
                 {-1, token.RPAREN, `` },
                 {-1, token.LINEND, `` },
@@ -446,61 +501,12 @@ string line 3
                 {-1, token.IDENT, `array2` },
                 {-1, token.ASSIGN, `` }, // consequence \\n and spaces are ignored
                 {-1, token.IDENT, `text1` },
-                {-1, token.SEP, " \\\n  " },
                 {-1, token.IDENT, `text2` },
-                {-1, token.SEP, " \\\n  " },
                 {-1, token.IDENT, `text3` },
-                {-1, token.SEP, " \\\n  " },
                 {-1, token.STRING, `''` },
-                {-1, token.SEP, " \\\n  " },
                 {-1, token.INT, `1` },
-                {-1, token.SEP, " \\\n  " },
                 {-1, token.INT, `2` },
-                {-1, token.SEP, " \\\n  " },
                 {-1, token.INT, `3` },
-                {-1, token.LINEND, `` },
-
-                {-1, token.IDENT, `map1` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.LPAREN, `` },
-                {-1, token.IDENT, `k1` },
-                {-1, token.SEP, " " },
-                {-1, token.IDENT, `value1` },
-                {-1, token.COMMA, `` },
-                {-1, token.IDENT, `k2` },
-                {-1, token.SEP, " " },
-                {-1, token.IDENT, `value2` },
-                {-1, token.COMMA, `` },
-                {-1, token.IDENT, `k3` },
-                {-1, token.SEP, " " },
-                {-1, token.IDENT, `value3` },
-                {-1, token.COMMA, `` },
-                {-1, token.IDENT, `k4` },
-                {-1, token.SEP, " " },
-                {-1, token.IDENT, `value` },
-                {-1, token.COMMA, `` },
-                {-1, token.RPAREN, `` },
-                {-1, token.LINEND, `` },
-
-                {-1, token.IDENT, `map2` },
-                {-1, token.ASSIGN, `` },
-                {-1, token.LPAREN, `` },
-                {-1, token.IDENT, `k1` },
-                {-1, token.SEP, " " },
-                {-1, token.IDENT, `v1` },
-                {-1, token.COMMA, `` },
-                {-1, token.IDENT, `k2` },
-                {-1, token.SEP, " " },
-                {-1, token.STRING, `'v2 v2'` },
-                {-1, token.COMMA, `` },
-                {-1, token.IDENT, `k3` },
-                {-1, token.SEP, " " },
-                {-1, token.STRING, `"v3 v3 v3"` },
-                {-1, token.COMMA, `` },
-                {-1, token.IDENT, `k4` },
-                {-1, token.SEP, " " },
-                {-1, token.IDENT, `v4` },
-                {-1, token.RPAREN, `  )` },
                 {-1, token.LINEND, `` },
         }
         for i, r := range results {
@@ -517,7 +523,73 @@ string line 3
         }
 }
 
-func TestDatetime(t *testing.T) {
+func TestMaps(t *testing.T) {
+	var s Scanner
+
+        src := `
+map1 = (
+   k1 value1,
+   k2 value2,
+   k3 value3,
+   k4 value,
+)
+
+map2 = (  k1 v1, k2 'v2 v2', k3 "v3 v3 v3", k4 v4  )
+`
+	f := fset.AddFile(filepath.Join("TestMaps", "src"), fset.Base(), len(src))
+	s.Init(f, []byte(src), nil, ScanComments)
+	if f.Size() != len(src) {
+		t.Errorf("bad file size: got %d, expected %d", f.Size(), len(src))
+	}
+
+        results := []scanResult{
+                {-1, token.IDENT, `map1` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `k1` },
+                {-1, token.IDENT, `value1` },
+                {-1, token.COMMA, `` },
+                {-1, token.IDENT, `k2` },
+                {-1, token.IDENT, `value2` },
+                {-1, token.COMMA, `` },
+                {-1, token.IDENT, `k3` },
+                {-1, token.IDENT, `value3` },
+                {-1, token.COMMA, `` },
+                {-1, token.IDENT, `k4` },
+                {-1, token.IDENT, `value` },
+                {-1, token.COMMA, `` },
+                {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `map2` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `k1` },
+                {-1, token.IDENT, `v1` },
+                {-1, token.COMMA, `` },
+                {-1, token.IDENT, `k2` },
+                {-1, token.STRING, `'v2 v2'` },
+                {-1, token.COMMA, `` },
+                {-1, token.IDENT, `k3` },
+                {-1, token.STRING, `"v3 v3 v3"` },
+                {-1, token.COMMA, `` },
+                {-1, token.IDENT, `k4` },
+                {-1, token.IDENT, `v4` },
+                {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
 }
 
 func TestCalls(t *testing.T) {
@@ -539,7 +611,7 @@ $(let ( (a 1e-10) (b 2017-01-18) (c 19:25:30) )
 	if f1.Size() != len(src1) {
 		t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
 	}
-        results := []scanResult{
+        results1 := []scanResult{
                 { 1, token.COMMENT, `# bare lets` },
                 {-1, token.CALL, `` },
                 {-1, token.LPAREN, `` },
@@ -569,6 +641,7 @@ $(let ( (a 1e-10) (b 2017-01-18) (c 19:25:30) )
                 {-1, token.RPAREN, `` },
                 
                 {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
 
                 {-1, token.CALL, `` },
                 {-1, token.LPAREN, `` },
@@ -598,8 +671,76 @@ $(let ( (a 1e-10) (b 2017-01-18) (c 19:25:30) )
                 {-1, token.RPAREN, `` },
                 
                 {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
         }
-        for i, r := range results {
+        for i, r := range results1 {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+
+        src2 := `
+# binds
+
+concat = $(bind (a b c) "$a.$b.$c")
+
+v1 = $(concat 1 2 3)
+
+v2 = $(concat "a" 'b' c)
+
+`
+	f2 := fset.AddFile(filepath.Join("TestCalls", "src2"), fset.Base(), len(src2))
+	s.Init(f2, []byte(src2), nil, ScanComments)
+	if f2.Size() != len(src2) {
+		t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
+	}
+        results2 := []scanResult{
+                { 1, token.COMMENT, `# binds` },
+
+                {-1, token.IDENT, `concat` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.CALL, `` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `bind` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `a` },
+                {-1, token.IDENT, `b` },
+                {-1, token.IDENT, `c` },
+                {-1, token.RPAREN, `` },
+                {-1, token.STRING, `"$a.$b.$c"` },
+                {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.IDENT, `v1` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.CALL, `` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `concat` },
+                {-1, token.INT, `1` },
+                {-1, token.INT, `2` },
+                {-1, token.INT, `3` },
+                {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
+                
+                {-1, token.IDENT, `v2` },
+                {-1, token.ASSIGN, `` },
+                {-1, token.CALL, `` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `concat` },
+                {-1, token.STRING, `"a"` },
+                {-1, token.STRING, `'b'` },
+                {-1, token.IDENT, `c` },
+                {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results2 {
                 pos, tok, lit := s.Scan()
                 if 0 <= r.offset && pos != s.file.Pos(r.offset) {
                         t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)

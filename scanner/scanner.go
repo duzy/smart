@@ -32,8 +32,8 @@ type Scanner struct {
 	rdOffset   int  // reading offset (position after current character)
 	lineOffset int  // current line offset
         parenDepth int  // number of nested parentheses
-        sepAware   bool // spaces as separator
-        lineSignificant bool // line is significant (non-empty)
+        //sepAware   bool // spaces as separator
+        //lineSignificant bool // line is significant (non-empty)
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -594,6 +594,7 @@ func (s *Scanner) scanText() string {
 	return string(s.src[offs:s.offset])
 } */
 
+/*
 func (s *Scanner) scanSep() (tok token.Token, lit string) {
 	offs := s.offset - 1
         
@@ -619,18 +620,17 @@ func (s *Scanner) scanSep() (tok token.Token, lit string) {
 
         lit = string(s.src[offs:s.offset])
         return
-}
+} */
 
 func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 //scanAgain:
-        if !s.sepAware || s.offset == 0 {
+        // remove line preceeding spaces (FIXME: avoid receipt)
+        if s.offset == s.lineOffset {
                 s.skipWhitespace(true)
         }
-
+        
 	// current token start
 	pos = s.file.Pos(s.offset)
-
-        skipWhitespaceAfter := false
 
 	// determine token value
 	switch ch := s.ch; {
@@ -640,6 +640,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 			switch tok = token.Lookup(lit); tok {
                         case token.IDENT, token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE:
                                 // ...
+                        default:
+				s.error(s.offset, "unexpected right parenthesis")
 			}
                 } else {
                         tok = token.IDENT
@@ -651,22 +653,17 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 switch ch {
                 case '#':
                         tok, lit = token.COMMENT, s.scanComment()
-                        skipWhitespaceAfter = true
+                        s.next() // discard '\n'
                 case '+':
                         tok = token.ADD
-                        skipWhitespaceAfter = true
                 case '-':
                         tok = token.SUB
-                        skipWhitespaceAfter = true
                 case '*':
                         tok = token.MUL
-                        skipWhitespaceAfter = true
                 case '/':
                         tok = token.QUO
-                        skipWhitespaceAfter = true
                 case '%':
                         tok = token.REM
-                        skipWhitespaceAfter = true
                 //case '\\':
                 case '\'':
                         tok = token.STRING
@@ -701,7 +698,6 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case '(':
                         tok = token.LPAREN
                         s.parenDepth++
-                        skipWhitespaceAfter = true
                 case ')':
                         if s.parenDepth == 0 {
 				s.error(s.offset, "unexpected right parenthesis")
@@ -711,19 +707,16 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                 case '=':
                         tok = token.ASSIGN
-                        s.sepAware = true
-                        skipWhitespaceAfter = true
+                        //s.sepAware = true
                 case '\n':
                         if s.parenDepth == 0 {
                                 tok = token.LINEND
-                                s.sepAware = false
-                                skipWhitespaceAfter = true
+                                //s.sepAware = false
                         } else {
-                                tok, lit = s.scanSep()
+                                // ..
                         }
                 case ',':
                         tok = token.COMMA
-                        skipWhitespaceAfter = true
                 default:
 			// next reports unexpected BOMs - don't repeat
 			if ch != bom {
@@ -732,14 +725,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 			tok = token.ILLEGAL
 			lit = string(ch)
                 }
+                /*
                 if (s.sepAware && (ch == ' ' || ch == '\t')) { // FIXME: \\\n
-                        tok, lit = s.scanSep()
-                }
+                        //tok, lit = s.scanSep()
+                } */
 	}
 
-        if skipWhitespaceAfter {
-                // eat consequence spaces                
-                s.skipWhitespace(false)
-        }
+        // eat consequence spaces                
+        s.skipWhitespace(false)
 	return
 }

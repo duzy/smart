@@ -31,11 +31,8 @@ const (
 	literal_end
         
 	operator_beg
-        SEP     // spaces (or \\\n) used as an element separator
         LINEND  // significant line break (LF or CRLF)
         RECIEPT // tab to indicate a command reciept
-
-        CONCAT  // concatenation
 
 	LPAREN  // (
 	LBRACK  // [
@@ -87,7 +84,7 @@ var tokens = [...]string{
         TIME:     "TIME",
         STRING:   "STRING",
 
-        SEP:     "SEP",
+        //SEP:     "SEP",
         LINEND:  "LINEND",
         RECIEPT: "RECIEPT",
 
