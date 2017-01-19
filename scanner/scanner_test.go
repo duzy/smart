@@ -228,7 +228,7 @@ bin2 = 0b1100110011
         results := []scanResult{
                 {-1, token.IDENT, `integer1` },
                 {-1, token.ASSIGN, `` },
-                {-1, token.ADD, `` },
+                {-1, token.PLUS, `` },
                 {-1, token.INT, `100` },
                 {-1, token.LINEND, `` },
 
@@ -239,7 +239,7 @@ bin2 = 0b1100110011
 
                 {-1, token.IDENT, `integer3` },
                 {-1, token.ASSIGN, `` },
-                {-1, token.SUB, `` },
+                {-1, token.MINUS, `` },
                 {-1, token.INT, `38` },
                 {-1, token.LINEND, `` },
 
@@ -399,7 +399,7 @@ float8 = 6.18_16_18_16
         results := []scanResult{
                 {-1, token.IDENT, `float1` },
                 {-1, token.ASSIGN, `` },
-                {-1, token.ADD, `` },
+                {-1, token.PLUS, `` },
                 {-1, token.FLOAT, `1.0` },
                 {-1, token.LINEND, `` },
 
@@ -410,7 +410,7 @@ float8 = 6.18_16_18_16
 
                 {-1, token.IDENT, `float3` },
                 {-1, token.ASSIGN, `` },
-                {-1, token.SUB, `` },
+                {-1, token.MINUS, `` },
                 {-1, token.FLOAT, `0.001` },
                 {-1, token.LINEND, `` },
                 
@@ -426,7 +426,7 @@ float8 = 6.18_16_18_16
 
                 {-1, token.IDENT, `float6` },
                 {-1, token.ASSIGN, `` },
-                {-1, token.SUB, `` },
+                {-1, token.MINUS, `` },
                 {-1, token.FLOAT, `2E-2` },
                 {-1, token.LINEND, `` },
 
@@ -775,14 +775,20 @@ obj/file.o: src/file.c
 
                 {-1, token.IDENT, `prog` },
                 {-1, token.COLON, `` },
-                {-1, token.IDENT, `obj/file.o` },
+                {-1, token.IDENT, `obj` },
+                {-1, token.PCON, `` },
+                {-1, token.IDENT, `file.o` },
                 {-1, token.LINEND, `` },
                 {-1, token.RECIEPT, `gcc -o $@ $<` },
                 {-1, token.LINEND, `` },
 
-                {-1, token.IDENT, `obj/file.o` },
+                {-1, token.IDENT, `obj` },
+                {-1, token.PCON, `` },
+                {-1, token.IDENT, `file.o` },
                 {-1, token.COLON, `` },
-                {-1, token.IDENT, `src/file.c` },
+                {-1, token.IDENT, `src` },
+                {-1, token.PCON, `` },
+                {-1, token.IDENT, `file.c` },
                 {-1, token.LINEND, `` },
                 {-1, token.RECIEPT, `gcc -c -o $@ $^` },
                 {-1, token.LINEND, `` },
@@ -951,6 +957,95 @@ start:?[shell]:
                 {-1, token.LINEND, `` },
         }
         for i, r := range results4 {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+}
+
+func TestProgConstructs(t *testing.T) {
+	var s Scanner
+
+        src1 := `
+project A
+
+include modules/foo.smart
+
+instance
+`
+	f1 := fset.AddFile(filepath.Join("TestProgConstructs", "src1"), fset.Base(), len(src1))
+	s.Init(f1, []byte(src1), nil, ScanComments)
+	if f1.Size() != len(src1) {
+		t.Errorf("bad file size: got %d, expected %d", f1.Size(), len(src1))
+	}
+        results1 := []scanResult{
+                {-1, token.PROJECT, `project` },
+                {-1, token.IDENT, `A` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.INCLUDE, `include` },
+                {-1, token.IDENT, `modules` },
+                {-1, token.PCON, `` },
+                {-1, token.IDENT, `foo.smart` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.INSTANCE, `instance` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results1 {
+                pos, tok, lit := s.Scan()
+                if 0 <= r.offset && pos != s.file.Pos(r.offset) {
+                        t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)
+                }
+                if tok != r.tok {
+                        t.Errorf("%d: bad token: got %s, expected %s (%s)", i, tok, r.tok, r.lit)
+                }
+                if lit != r.lit {
+                        t.Errorf("%d: bad literal: got %s, expected %s", i, lit, r.lit)
+                }
+        }
+
+        src2 := `
+module M1
+
+use ( M2 M3 )
+use (
+  M4
+  M5
+)
+`
+	f2 := fset.AddFile(filepath.Join("TestProgConstructs", "src2"), fset.Base(), len(src2))
+	s.Init(f2, []byte(src2), nil, ScanComments)
+	if f2.Size() != len(src2) {
+		t.Errorf("bad file size: got %d, expected %d", f2.Size(), len(src2))
+	}
+        results2 := []scanResult{
+                {-1, token.MODULE, `module` },
+                {-1, token.IDENT, `M1` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.USE, `use` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `M2` },
+                {-1, token.IDENT, `M3` },
+                {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
+
+                {-1, token.USE, `use` },
+                {-1, token.LPAREN, `` },
+                {-1, token.IDENT, `M4` },
+                {-1, token.IDENT, `M5` },
+                {-1, token.RPAREN, `` },
+                {-1, token.LINEND, `` },
+        }
+        for i, r := range results2 {
                 pos, tok, lit := s.Scan()
                 if 0 <= r.offset && pos != s.file.Pos(r.offset) {
                         t.Errorf("%d: bad pos: got %d, expected %d (%s)", i, pos, s.file.Pos(r.offset), r.lit)

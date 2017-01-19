@@ -63,11 +63,16 @@ const (
         EXC_ASSIGN // !=     exclamation */
         ADD_ASSIGN // +=
 
+        /*
 	ADD // +
 	SUB // -
 	MUL // *
 	QUO // /
-	REM // %
+	REM // % */
+
+	PLUS  // +
+	MINUS // -
+	PCON  // path concatenation /
 	operator_end
 
 	keyword_beg
@@ -76,6 +81,7 @@ const (
         USE        // use b
         EXPORT
         INCLUDE    // include a.smart
+        INSTANCE   // instance
 	keyword_end
 )
 
@@ -119,11 +125,9 @@ var tokens = [...]string{
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",
 
-	ADD: "+",
-	SUB: "-",
-	MUL: "*",
-	QUO: "/",
-	REM: "%",
+        PLUS: "+",
+        MINUS: "-",
+	PCON: "/",
         
         PROJECT:  "project",
         MODULE:   "module",
