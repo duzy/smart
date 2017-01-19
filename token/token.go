@@ -125,11 +125,12 @@ var tokens = [...]string{
 	QUO: "/",
 	REM: "%",
         
-        PROJECT: "project",
-        MODULE:  "module",
-        USE:     "use",
-        EXPORT:  "export",
-        INCLUDE: "include",
+        PROJECT:  "project",
+        MODULE:   "module",
+        USE:      "use",
+        EXPORT:   "export",
+        INCLUDE:  "include",
+        INSTANCE: "instance",
 }
 
 func (tok Token) String() (s string) {
