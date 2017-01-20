@@ -29,6 +29,10 @@ func (f *File) Offset(p Pos) int {
         return f.File.Offset(got.Pos(p))
 }
 
+func (f *File) Line(p Pos) int {
+	return f.File.Line(got.Pos(p))
+}
+
 func (f *File) Pos(offset int) Pos {
         return Pos(f.File.Pos(offset))
 }

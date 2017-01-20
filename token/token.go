@@ -81,6 +81,7 @@ const (
         USE        // use b
         EXPORT
         INCLUDE    // include a.smart
+        IMPORT     // import a.smart
         INSTANCE   // instance
 	keyword_end
 )
@@ -134,6 +135,7 @@ var tokens = [...]string{
         USE:      "use",
         EXPORT:   "export",
         INCLUDE:  "include",
+        IMPORT:   "import",
         INSTANCE: "instance",
 }
 
