@@ -1,0 +1,31 @@
+# Project documentation goes here, right before the 'project' clause.
+# No empty line between documentation comments and the 'project' clause.
+#
+# The project name 'example' can be emitted and containing directory name
+# will be used.
+project example
+
+## Import Spec (can't import another project, only modules)
+import (
+    "./modules/a"
+    "./modules/b"
+)
+
+## Defines visible to the whole project (including it's modules)
+VAR = project scoped
+
+## Defines visible to files only in the this directory
+var1 = module scoped
+var2 = module scoped
+
+## Rules are also classified by project-scoped and module-scoped.
+## The first rule will be default rule to run when the project is
+## instanced (instanciation).
+
+start: print-a print-b
+	print "......"
+	print "......"
+print-a: a::print-var
+	print "a::VAR = $(a::VAR)"
+print-b: b::print-var
+	print "b::VAR = $(b::VAR)"

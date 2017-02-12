@@ -29,3 +29,4 @@
 /test/android-toolchain/sysroot/
 
 /.emacs.desktop
+/.emacs.desktop.lock

@@ -52,8 +52,8 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 type Mode uint
 
 const (
-	PackageClauseOnly Mode             = 1 << iota // stop parsing after package clause
-	//ImportsOnly                                    // stop parsing after import declarations
+	ModuleClauseOnly Mode             = 1 << iota  // stop parsing after project or module clause
+	ImportsOnly                                    // stop parsing after import declarations
 	ParseComments                                  // parse comments and add them to AST
 	Trace                                          // print a trace of parsed productions
 	DeclarationErrors                              // report declaration errors
@@ -130,7 +130,7 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 // returned. If a parse error occurred, a non-nil but incomplete map and the
 // first error encountered are returned.
 //
-func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (pkgs map[string]*ast.Package, first error) {
+func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (pkgs map[string]*ast.Project, first error) {
 	fd, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -142,7 +142,7 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
 		return nil, err
 	}
 
-	pkgs = make(map[string]*ast.Package)
+	pkgs = make(map[string]*ast.Project)
 	for _, d := range list {
 		if strings.HasSuffix(d.Name(), ".go") && (filter == nil || filter(d)) {
 			filename := filepath.Join(path, d.Name())
@@ -150,9 +150,12 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
 				name := src.Name.Name
 				pkg, found := pkgs[name]
 				if !found {
-					pkg = &ast.Package{
-						Name:  name,
-						Files: make(map[string]*ast.File),
+					pkg = &ast.Project{
+                                                Module: ast.Module {
+                                                        Name:  name,
+                                                        Files: make(map[string]*ast.File),
+                                                },
+                                                Modules: make(map[string]*ast.Module),
 					}
 					pkgs[name] = pkg
 				}

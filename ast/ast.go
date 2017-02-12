@@ -129,12 +129,310 @@ type (
 	Ident struct {
 		NamePos token.Pos // identifier position
 		Name    string    // identifier name
-		Sym     *Symbol   // denoted object; or nil
+		Sym     *Symbol   // denoted symbol; or nil
 	}
 
-        
-        
+	// A BasicLit node represents a literal of basic type.
+	BasicLit struct {
+		ValuePos token.Pos   // literal position
+		Kind     token.Token // token.INT, token.FLOAT, token.IMAG, token.CHAR, or token.STRING
+		Value    string      // literal string; e.g. 42, 0x7f, 3.14, 1e-9, 2.4i, 'a', '\x7f', "foo" or `\m\n\o`
+	}
+
+        // ArgList expression represents a list seperated by a comma as an argument.
+        ArgExpr struct {
+                Elems []Expr
+        }
+
+        // Call expression
+        CallExpr struct {
+                Dollar token.Pos
+                Lparen token.Pos
+                Name Expr
+                Args []*ArgExpr
+                Rparen token.Pos
+                TokLp token.Token // left paren token
+        }
+
+        // Group expression
+        GroupExpr struct {
+                Lparen token.Pos
+                Elems []Expr
+                Rparen token.Pos
+        }
+
+        // GroupedList expression represents a list seperated by a comma within a group.
+        GroupedListExpr struct {
+                Elems []Expr
+        }
+
+	// A UnaryExpr node represents a unary expression.
+	// Currently only '+', '-' are defined for numbers.
+	//
+	UnaryExpr struct {
+		OpPos token.Pos   // position of Op
+		Op    token.Token // operator
+		X     Expr        // operand
+	}
+
+	// A BinaryExpr node represents a binary expression.
+	BinaryExpr struct {
+		X     Expr        // left operand
+		OpPos token.Pos   // position of Op
+		Op    token.Token // operator
+		Y     Expr        // right operand
+	}
+
+	// A KeyValueExpr node represents (key : value) pairs
+	// in composite literals.
+	//
+	KeyValueExpr struct {
+		Key   Expr
+		Colon token.Pos // position of ":"
+		Value Expr
+	}
 )
+
+func (d *BadExpr) Pos() token.Pos         { return d.From }
+func (d *Ident) Pos() token.Pos           { return d.NamePos }
+func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
+func (d *CallExpr) Pos() token.Pos        { return d.Dollar }
+func (d *ArgExpr) Pos() token.Pos         { return d.Elems[0].Pos() }
+func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
+func (d *GroupedListExpr) Pos() token.Pos { return d.Elems[0].Pos() }
+func (d *UnaryExpr) Pos() token.Pos       { return d.OpPos }
+func (d *BinaryExpr) Pos() token.Pos      { return d.OpPos }
+func (d *KeyValueExpr) Pos() token.Pos    { return d.Colon }
+
+func (d *BadExpr) End() token.Pos         { return d.From }
+func (d *Ident) End() token.Pos           { return d.NamePos }
+func (d *BasicLit) End() token.Pos        { return d.ValuePos }
+func (d *CallExpr) End() token.Pos        { return d.Rparen }
+func (d *ArgExpr) End() token.Pos         { return d.Elems[len(d.Elems)-1].End() }
+func (d *GroupExpr) End() token.Pos       { return d.Rparen }
+func (d *GroupedListExpr) End() token.Pos { return d.Elems[len(d.Elems)-1].End() }
+func (d *UnaryExpr) End() token.Pos       { return d.OpPos }
+func (d *BinaryExpr) End() token.Pos      { return d.OpPos }
+func (d *KeyValueExpr) End() token.Pos    { return d.Colon }
+
+func (*BadExpr) exprNode()         {}
+func (*Ident) exprNode()           {}
+func (*BasicLit) exprNode()        {}
+func (*CallExpr) exprNode()        {}
+func (*ArgExpr) exprNode()         {}
+func (*GroupExpr) exprNode()       {}
+func (*GroupedListExpr) exprNode() {}
+func (*UnaryExpr) exprNode()       {}
+func (*BinaryExpr) exprNode()      {}
+func (*KeyValueExpr) exprNode()    {}
+
+func NewIdent(name string) *Ident { return &Ident{token.NoPos, name, nil} }
+
+func (id *Ident) String() string {
+	if id != nil {
+		return id.Name
+	}
+	return "<nil>"
+}
+
+// A statement is represented by a tree consisting of one
+// or more of the following concrete statement nodes.
+//
+type (
+	// A BadStmt node is a placeholder for statements containing
+	// syntax errors for which no correct statement nodes can be
+	// created.
+	//
+	BadStmt struct {
+		From, To token.Pos // position range of bad statement
+	}
+
+	// An ExprStmt node represents a (stand-alone) expression
+	// in a statement list.
+	//
+	ExprStmt struct {
+		X Expr // expression
+	}
+
+	LetStmt struct {
+		X Expr // expression
+	}
+
+	BindStmt struct {
+		X Expr // expression
+	}
+)
+
+// A declaration is represented by one of the following declaration nodes.
+//
+type (
+	// The Spec type stands for any directive.
+        // 
+	Spec interface {
+		Node
+		specNode()
+	}
+
+	// An ImportSpec node represents a single project import.
+        // 
+	ImportSpec struct {
+		Doc     *CommentGroup // associated documentation; or nil
+		Name    *Ident        // local project name (including "."); or nil
+		Path    *BasicLit     // import path
+		Comment *CommentGroup // line comments; or nil
+		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
+	}
+
+	// An UseSpec node represents a single project import.
+        // 
+	UseSpec struct {
+		Doc     *CommentGroup // associated documentation; or nil
+		Module  *Ident        // local project name (including "."); or nil
+		Comment *CommentGroup // line comments; or nil
+		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
+	}
+        
+	// An IncludeSpec node represents a single project include.
+        // 
+        IncludeSpec struct {
+		Doc     *CommentGroup // associated documentation; or nil
+		Path    *BasicLit     // import path
+		Comment *CommentGroup // line comments; or nil
+		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
+        }
+
+        // A InstanceSpec node represents a project instanciation.
+        // 
+	InstanceSpec struct {
+		Doc     *CommentGroup // associated documentation; or nil
+		Name    *Ident        // local project name (including "."); or nil
+		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
+        }
+)
+
+func (s *ImportSpec) Pos() token.Pos {
+	if s.Name != nil {
+		return s.Name.Pos()
+	}
+	return s.Path.Pos()
+}
+func (s *UseSpec) Pos() token.Pos {
+        return s.Module.Pos()
+}
+func (s *IncludeSpec) Pos() token.Pos {
+        return s.Path.Pos() 
+}
+func (s *InstanceSpec) Pos() token.Pos {
+        return s.Name.Pos() 
+}
+
+func (s *ImportSpec) End() token.Pos {
+	if s.Name != nil {
+		return s.Name.Pos()
+	}
+	return s.Path.End()
+}
+func (s *UseSpec) End() token.Pos {
+        return s.Module.Pos()
+}
+func (s *IncludeSpec) End() token.Pos {
+        return s.Path.Pos() 
+}
+func (s *InstanceSpec) End() token.Pos {
+        return s.Name.Pos() 
+}
+
+func (*ImportSpec) specNode() {}
+func (*UseSpec) specNode() {}
+func (*IncludeSpec) specNode() {}
+func (*InstanceSpec) specNode() {}
+
+// A declaration is represented by one of the following declaration nodes.
+//
+type (
+	// A BadDecl node is a placeholder for declarations containing
+	// syntax errors for which no correct declaration nodes can be
+	// created.
+	//
+	BadDecl struct {
+		From, To token.Pos // position range of bad declaration
+	}
+
+	// A GenDecl node (generic declaration node) represents an import,
+	// use, instance declaration.
+        //
+        // A valid Lparen position (Lparen.Line > 0) indicates a parenthesized
+        // declaration.
+	//
+	// Relationship between Tok value and Specs element type:
+	//
+	//	token.IMPORT   *ImportSpec
+	//	token.USE      *UseSpec
+	//	token.INCLUDE  *IncludeSpec
+	//	token.INSTANCE *InstanceSpec
+	//
+	GenDecl struct {
+		Doc    *CommentGroup // associated documentation; or nil
+		TokPos token.Pos     // position of Tok
+		Tok    token.Token   // IMPORT, USE, INCLUDE, INSTANCE
+		Lparen token.Pos     // position of '(', if any
+		Specs  []Spec
+		Rparen token.Pos // position of ')', if any
+	}
+
+	// A DefineDecl node represents a definition of a symbol in a statement list.
+        // 
+	DefineDecl struct {
+		Doc     *CommentGroup // associated documentation; or nil
+		TokPos  token.Pos     // position of Tok
+		Tok     token.Token   // '=', ':='
+		Name    Expr //*Ident
+                Elems   []Expr
+	}
+
+	// A RuleDecl node represents a function declaration.
+	RuleDecl struct {
+		Doc     *CommentGroup // associated documentation; or nil
+		Targets []Expr        // targets
+                Depends []Expr        // prerequisites
+                TokPos  token.Pos     // position of ':', ':!:', ':[', etc
+		Tok     token.Token
+	}
+
+        // A ExecDecl node represents an execution of statement
+        ExecDecl struct {
+		Doc     *CommentGroup // associated documentation; or nil
+                Exec    []Expr
+                TermPos token.Pos
+        }
+)
+
+func (d *BadDecl) Pos() token.Pos    { return d.From }
+func (d *GenDecl) Pos() token.Pos    { return d.TokPos }
+func (d *DefineDecl) Pos() token.Pos { return d.Name.Pos() }
+func (d *RuleDecl) Pos() token.Pos   { return d.TokPos }
+func (d *ExecDecl) Pos() token.Pos   { return d.Exec[0].Pos() }
+
+func (d *BadDecl) End() token.Pos { return d.To }
+func (d *GenDecl) End() token.Pos {
+	if d.Rparen.IsValid() {
+		return d.Rparen + 1
+	}
+	return d.Specs[0].End()
+}
+func (d *DefineDecl) End() token.Pos {
+        return d.Name.Pos() 
+}
+func (d *RuleDecl) End() token.Pos {
+        return d.TokPos 
+}
+func (d *ExecDecl) End() token.Pos { return d.TermPos }
+
+func (*BadDecl) declNode()    {}
+func (*GenDecl) declNode()    {}
+func (*DefineDecl) declNode() {}
+func (*RuleDecl) declNode()   {}
+func (*ExecDecl) declNode()   {}
 
 // A File node represents a Smart source file.
 //
@@ -144,24 +442,31 @@ type (
 //
 type File struct {
 	Doc        *CommentGroup   // associated documentation; or nil
-	Package    token.Pos       // position of "package" keyword
-	Name       *Ident          // package name
+	Module     token.Pos       // position of "module" or "project" keyword
+	Name       *Ident          // project name
 	Decls      []Decl          // top-level declarations; or nil
-	Scope      *Scope          // package scope (this file only)
-	//Imports    []*ImportSpec   // imports in this file
-	//Unresolved []*Ident        // unresolved identifiers in this file
+	Scope      *Scope          // project scope (this file only)
+	Imports    []*ImportSpec   // imports in this file
 	Comments   []*CommentGroup // list of all comments in the source file
 }
 
-// A Package node represents a set of source files
-// collectively building a Go package.
+// A Module node represents a set of source files
+// collectively building a Go Module.
 //
-type Package struct {
-	Name    string             // package name
-	Scope   *Scope             // package scope across all files
-	Imports map[string]*Symbol // map of package id -> package symbol
+type Module struct {
+	Name    string             // project name
+	Scope   *Scope             // project scope across all files
+	Imports map[string]*Symbol // map of project id -> project symbol
 	Files   map[string]*File   // Go source files by filename
 }
 
-func (p *Package) Pos() token.Pos { return token.NoPos }
-func (p *Package) End() token.Pos { return token.NoPos }
+// A Project node represents a set of source files
+// collectively building a Go project.
+//
+type Project struct {
+        Module // project is a module
+        Modules map[string]*Module // map of modules in the project
+}
+
+func (p *Project) Pos() token.Pos { return token.NoPos }
+func (p *Project) End() token.Pos { return token.NoPos }

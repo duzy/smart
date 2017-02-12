@@ -678,6 +678,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 }
 	case '0' <= ch && ch <= '9':
                 tok, lit = s.scanNumber(false)
+        case ch == -1 && s.offset == len(s.src):
+                tok = token.EOF
         default:
                 s.next() // always progress to the next
                 switch ch {

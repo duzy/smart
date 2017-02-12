@@ -11,13 +11,15 @@ import (
 )
 
 func TestParseFile(t *testing.T) {
+        mode := DeclarationErrors | Trace
         files := []string{
                 `testdata/defines.smart`,
+                `testdata/simple.smart`,
         }
-	for _, filename := range files {
-		_, err := ParseFile(token.NewFileSet(), filename, nil, DeclarationErrors)
+	for i, filename := range files {
+		_, err := ParseFile(token.NewFileSet(), filename, nil, mode)
 		if err != nil {
-			t.Fatalf("ParseFile(%s): %v", filename, err)
+			t.Fatalf("ParseFile: #%d: %v", i, err)
 		}
 	}
 }

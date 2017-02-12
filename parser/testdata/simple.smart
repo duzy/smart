@@ -1,0 +1,35 @@
+# this is a simple project...
+project simple
+
+import (
+    "./modules/a"
+    "./modules/b"
+)
+
+include (
+    "./incs/a.smart"
+    "./incs/b.smart"
+    "./incs/c.smart"
+)
+
+instance (
+    # proc: self, process, namespace (NAMESPACES(7))
+    proc: namespace,
+
+    # explicitly specify the entrance
+    entry: start,
+)
+
+use (a b)
+
+VAR = project scoped var
+
+var = module scoped var
+
+start: print-a print-b
+	print "......"
+	print "......"
+print-a: a::print-var
+	print "a::VAR = $(a::VAR)"
+print-b: b::print-var
+	print "b::VAR = $(b::VAR)"
