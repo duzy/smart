@@ -411,6 +411,9 @@ func (p *parser) isEndOfList(lhs bool) bool {
                 // FIXME: check pared LPAREN?
                 return true
         }
+        if token.COLON <= p.tok && p.tok < token.CALL {
+                return true;
+        }
         return p.tok == token.EOF || p.tok == token.LINEND || 
                 p.tok == token.COMMA || (lhs && (
                 p.tok == token.ASSIGN))
@@ -564,6 +567,19 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
                         X: x,
                 }
 
+        case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, token.IMPORT, token.INSTANCE:
+                if p.inRhs {
+                        pos, lit := p.pos, p.lit
+                        p.next()
+                        // convert keyword into IDENT
+                        return &ast.BasicLit{
+                                ValuePos: pos,
+                                Kind: token.IDENT,
+                                Value: lit,
+                        }
+                }
+                fallthrough
+
         default:
                 pos := p.pos
                 p.errorExpected(pos, "'"+p.tok.String()+"'")
@@ -620,6 +636,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 		Name:    ident,
 		Path:    &ast.BasicLit{ValuePos: pos, Kind: token.STRING, Value: path},
 		Comment: p.lineComment,
+                EndPos:  p.pos,
 	}
 	p.imports = append(p.imports, spec)
 
@@ -627,24 +644,53 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 }
 
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        return nil
+        x := p.parseExpr(false)
+        return &ast.IncludeSpec{
+                Doc:     doc,
+                Path:    x,
+                EndPos:  p.pos,
+		Comment: p.lineComment,
+        }
+}
+
+func (p *parser) parseSpecProps() (props []ast.Expr) {
+        props = append(props, p.parseExpr(false))
+        for p.tok != token.RPAREN {
+                if p.tok == token.COMMA {
+                        p.next()
+                        break
+                }
+                props = append(props, p.parseExpr(false))
+        }
+        return
 }
 
 func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        return nil
+        props := p.parseSpecProps()
+        return &ast.UseSpec{
+                Doc:     doc,
+                Props:   props,
+		Comment: p.lineComment,
+                EndPos:  p.pos,
+        }
 }
 
 func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        return nil
+        props := p.parseSpecProps()
+        return &ast.InstanceSpec{
+                Doc:     doc,
+                Props:   props,
+		Comment: p.lineComment,
+                EndPos:  p.pos,
+        }
 }
 
-func (p *parser) parseDefineDecl(ident ast.Expr) ast.Decl {
+func (p *parser) parseDefineDecl(tok token.Token, ident ast.Expr) ast.Decl {
 	if p.trace {
 		defer un(trace(p, "Define"))
 	}
 
         doc := p.leadComment
-        tok := token.ASSIGN
         pos := p.expect(tok)
         elems := p.parseRhsList()
         return &ast.DefineDecl{ 
@@ -656,17 +702,19 @@ func (p *parser) parseDefineDecl(ident ast.Expr) ast.Decl {
         }
 }
 
-func (p *parser) parseRuleDecl(idents []ast.Expr) ast.Decl {
+func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
 	if p.trace {
 		defer un(trace(p, "Rule"))
 	}
 
         doc := p.leadComment
+        pos := p.expect(tok)
         depends := p.parseRhsList()
-
         return &ast.RuleDecl{
                 Doc: doc,
-                Targets: idents,
+                TokPos: pos,
+                Tok: tok,
+                Targets: targets,
                 Depends: depends,
         }
 }
@@ -728,13 +776,13 @@ func (p *parser) parseDecl(sync func(*parser)) ast.Decl {
                         }
                 case token.ASSIGN:
                         if len(list) == 1 {
-                                return p.parseDefineDecl(list[0])
+                                return p.parseDefineDecl(p.tok, list[0])
                         } else {
                                 p.errorExpected(p.pos, "assign to multiple names")
                                 return &ast.BadDecl{From: p.pos, To: p.pos}
                         }
                 case token.COLON, token.COLON2, token.COLON_EXC, token.COLON_QUE, token.COLON_LBK, token.COLON_LBE, token.COLON_LBQ, token.COLON_RBK:
-                        return p.parseRuleDecl(list)
+                        return p.parseRuleDecl(p.tok, list)
                 default:
                         pos := p.pos
                         p.errorExpected(pos, "'"+p.tok.String()+"'")
@@ -783,12 +831,11 @@ func (p *parser) parseFile() *ast.File {
 		for p.tok == token.IMPORT {
 			decls = append(decls, p.parseGenDecl(token.IMPORT, p.parseImportSpec))
 		}
-
 		if p.mode&ImportsOnly == 0 {
 			// rest of module body
 			for p.tok != token.EOF {
                                  switch p.tok {
-                                 case token.LINEND:
+                                 case token.LINEND: 
                                          p.next() // skip empty lines
                                  default:
                                          decls = append(decls, p.parseDecl(syncDecl))

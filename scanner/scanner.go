@@ -524,6 +524,8 @@ func (s *Scanner) scanEscape(quote rune) bool {
 	case 'U':
 		s.next()
 		n, base, max = 8, 16, unicode.MaxRune
+        case '\n':
+                s.next()
 	default:
 		msg := "unknown escape sequence"
 		if s.ch < 0 {
@@ -668,10 +670,10 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 		lit = s.scanIdentifier()
 		if len(lit) > 1 {
 			switch tok = token.Lookup(lit); tok {
-                        case token.IDENT, token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE:
+                        case token.IDENT, token.PROJECT, token.MODULE, token.IMPORT, token.EXPORT, token.USE, token.INCLUDE:
                                 // ...
                         default:
-				s.error(s.offset, "unexpected right parenthesis")
+				s.error(s.offset, "unexpected token '"+tok.String()+"'")
 			}
                 } else {
                         tok = token.IDENT

@@ -14,10 +14,10 @@ include (
 
 instance (
     # proc: self, process, namespace (NAMESPACES(7))
-    proc: namespace,
+    proc namespace,
 
     # explicitly specify the entrance
-    entry: start,
+    entry start,
 )
 
 use (a b)
@@ -29,7 +29,9 @@ var = module scoped var
 start: print-a print-b
 	print "......"
 	print "......"
-print-a: a::print-var
-	print "a::VAR = $(a::VAR)"
-print-b: b::print-var
-	print "b::VAR = $(b::VAR)"
+print-a: a.print-var
+	print "a.VAR = $(a.VAR)"
+print-b: b.print-var
+	print "b.VAR = $(b.VAR)"
+a b c :
+	print $@

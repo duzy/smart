@@ -278,34 +278,35 @@ type (
 	ImportSpec struct {
 		Doc     *CommentGroup // associated documentation; or nil
 		Name    *Ident        // local project name (including "."); or nil
-		Path    *BasicLit     // import path
+		Path    *BasicLit     // import path (string)
 		Comment *CommentGroup // line comments; or nil
 		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
 	}
+
+	// An IncludeSpec node represents a single project include.
+        // 
+        IncludeSpec struct {
+		Doc     *CommentGroup // associated documentation; or nil
+		Path    Expr          // import path
+		Comment *CommentGroup // line comments; or nil
+		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
+        }
 
 	// An UseSpec node represents a single project import.
         // 
 	UseSpec struct {
 		Doc     *CommentGroup // associated documentation; or nil
-		Module  *Ident        // local project name (including "."); or nil
+		Props   []Expr        // instance property
 		Comment *CommentGroup // line comments; or nil
 		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
 	}
         
-	// An IncludeSpec node represents a single project include.
-        // 
-        IncludeSpec struct {
-		Doc     *CommentGroup // associated documentation; or nil
-		Path    *BasicLit     // import path
-		Comment *CommentGroup // line comments; or nil
-		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
-        }
-
         // A InstanceSpec node represents a project instanciation.
         // 
 	InstanceSpec struct {
 		Doc     *CommentGroup // associated documentation; or nil
-		Name    *Ident        // local project name (including "."); or nil
+		Props   []Expr        // instance property
+		Comment *CommentGroup // line comments; or nil
 		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
         }
 )
@@ -317,13 +318,13 @@ func (s *ImportSpec) Pos() token.Pos {
 	return s.Path.Pos()
 }
 func (s *UseSpec) Pos() token.Pos {
-        return s.Module.Pos()
+        return s.Props[0].Pos()
 }
 func (s *IncludeSpec) Pos() token.Pos {
         return s.Path.Pos() 
 }
 func (s *InstanceSpec) Pos() token.Pos {
-        return s.Name.Pos() 
+        return s.Props[0].Pos()
 }
 
 func (s *ImportSpec) End() token.Pos {
@@ -333,13 +334,13 @@ func (s *ImportSpec) End() token.Pos {
 	return s.Path.End()
 }
 func (s *UseSpec) End() token.Pos {
-        return s.Module.Pos()
+        return s.Props[len(s.Props)-1].End()
 }
 func (s *IncludeSpec) End() token.Pos {
         return s.Path.Pos() 
 }
 func (s *InstanceSpec) End() token.Pos {
-        return s.Name.Pos() 
+        return s.Props[len(s.Props)-1].End()
 }
 
 func (*ImportSpec) specNode() {}

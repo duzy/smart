@@ -44,6 +44,7 @@ const (
 	RBRACK  // ]
 	RBRACE  // }    right curly
 	SEMICOLON // ;
+
 	COLON     // :
 	COLON2    // ::
 	COLON_EXC // :!:
@@ -52,7 +53,6 @@ const (
         COLON_LBE // :![
         COLON_LBQ // :?[
         COLON_RBK // ]:
-
         CALL    // $
         
         ASSIGN     // =
