@@ -32,6 +32,7 @@ type Scanner struct {
 	readOffset int  // reading offset (position after current character)
 	lineOffset int  // current line offset
         parenDepth int  // number of nested parentheses
+        skipPostLineFeeds bool
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -138,7 +139,7 @@ func (s *Scanner) error(offs int, msg string) {
 func (s *Scanner) isUselessWhitespace(lf bool) bool {
         return s.ch == ' ' || s.ch == '\r' || 
                 (s.ch == '\t' && s.lineOffset < s.offset) || 
-                (s.ch == '\n' && (s.lineOffset == s.offset || s.parenDepth > 0 || lf)) ||
+                (s.ch == '\n' && (s.lineOffset == s.offset || s.skipPostLineFeeds /*|| s.parenDepth > 0*/ || lf)) ||
                 (s.ch == '\\' && s.readOffset < len(s.src) && s.src[s.readOffset] == '\n')
 }
 
@@ -149,6 +150,7 @@ func (s *Scanner) skipUselessWhitespace(lf bool) {
                 }
 		s.next()
 	}
+        s.skipPostLineFeeds = false
 }
 
 func (s *Scanner) scanComment() string {
@@ -745,6 +747,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.CALL
                 case '(':
                         tok = token.LPAREN
+                        s.skipPostLineFeeds = true
                         s.parenDepth++
                 case ')':
                         if s.parenDepth == 0 {
@@ -760,11 +763,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.error(s.offset, "duplicate define context")
                         }
                 case '\n':
-                        if s.parenDepth == 0 {
+                        /* if s.parenDepth == 0 {
                                 tok = token.LINEND
                         } else {
                                 // ..
-                        }
+                        } */
+                        tok = token.LINEND
                 case '\t':
                         if s.lineOffset == s.offset-1 {
                                 tok, lit = token.RECIEPT, s.scanReciept()
@@ -773,6 +777,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                 case ',':
                         tok = token.COMMA
+                        s.skipPostLineFeeds = true
                 case ':':
                         if s.parenDepth == 0 {
                                 switch s.ch {

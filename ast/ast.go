@@ -163,7 +163,9 @@ type (
 
         // GroupedList expression represents a list seperated by a comma within a group.
         GroupedListExpr struct {
+		//Doc     *CommentGroup // associated documentation; or nil
                 Elems []Expr
+		//Comment *CommentGroup // line comments after RPAREN; or nil
         }
 
 	// A UnaryExpr node represents a unary expression.
@@ -273,80 +275,55 @@ type (
 		specNode()
 	}
 
-	// An ImportSpec node represents a single project import.
+	// An DirectiveSpec node represents a single directive spec.
         // 
-	ImportSpec struct {
-		Doc     *CommentGroup // associated documentation; or nil
-		Name    *Ident        // local project name (including "."); or nil
-		Path    *BasicLit     // import path (string)
-		Comment *CommentGroup // line comments; or nil
-		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
-	}
-
-	// An IncludeSpec node represents a single project include.
-        // 
-        IncludeSpec struct {
-		Doc     *CommentGroup // associated documentation; or nil
-		Path    Expr          // import path
-		Comment *CommentGroup // line comments; or nil
-		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
-        }
-
-	// An UseSpec node represents a single project import.
-        // 
-	UseSpec struct {
+	DirectiveSpec struct {
 		Doc     *CommentGroup // associated documentation; or nil
 		Props   []Expr        // instance property
 		Comment *CommentGroup // line comments; or nil
 		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
 	}
         
+	// An ImportSpec node represents a single project import.
+        // 
+	ImportSpec struct {
+                *DirectiveSpec
+	}
+
+	// An IncludeSpec node represents a single project include.
+        // 
+        IncludeSpec struct {
+                *DirectiveSpec
+        }
+
+	// An UseSpec node represents a single project import.
+        // 
+	UseSpec struct {
+                *DirectiveSpec
+	}
+        
         // A InstanceSpec node represents a project instanciation.
         // 
 	InstanceSpec struct {
-		Doc     *CommentGroup // associated documentation; or nil
-		Props   []Expr        // instance property
-		Comment *CommentGroup // line comments; or nil
-		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
+                *DirectiveSpec
+        }
+
+        // A EvalSpec node represents evaluation statements.
+        // 
+	EvalSpec struct {
+                *DirectiveSpec
         }
 )
 
-func (s *ImportSpec) Pos() token.Pos {
-	if s.Name != nil {
-		return s.Name.Pos()
-	}
-	return s.Path.Pos()
-}
-func (s *UseSpec) Pos() token.Pos {
-        return s.Props[0].Pos()
-}
-func (s *IncludeSpec) Pos() token.Pos {
-        return s.Path.Pos() 
-}
-func (s *InstanceSpec) Pos() token.Pos {
+func (s *DirectiveSpec) Pos() token.Pos {
         return s.Props[0].Pos()
 }
 
-func (s *ImportSpec) End() token.Pos {
-	if s.Name != nil {
-		return s.Name.Pos()
-	}
-	return s.Path.End()
-}
-func (s *UseSpec) End() token.Pos {
-        return s.Props[len(s.Props)-1].End()
-}
-func (s *IncludeSpec) End() token.Pos {
-        return s.Path.Pos() 
-}
-func (s *InstanceSpec) End() token.Pos {
+func (s *DirectiveSpec) End() token.Pos {
         return s.Props[len(s.Props)-1].End()
 }
 
-func (*ImportSpec) specNode() {}
-func (*UseSpec) specNode() {}
-func (*IncludeSpec) specNode() {}
-func (*InstanceSpec) specNode() {}
+func (*DirectiveSpec) specNode() {}
 
 // A declaration is represented by one of the following declaration nodes.
 //
@@ -359,7 +336,7 @@ type (
 		From, To token.Pos // position range of bad declaration
 	}
 
-	// A GenDecl node (generic declaration node) represents an import,
+	// A DirectiveDecl node (generic declaration node) represents an import,
 	// use, instance declaration.
         //
         // A valid Lparen position (Lparen.Line > 0) indicates a parenthesized
@@ -368,17 +345,19 @@ type (
 	// Relationship between Tok value and Specs element type:
 	//
 	//	token.IMPORT   *ImportSpec
-	//	token.USE      *UseSpec
 	//	token.INCLUDE  *IncludeSpec
 	//	token.INSTANCE *InstanceSpec
+	//	token.EVAL     *EvalSpec
+	//	token.USE      *UseSpec
 	//
-	GenDecl struct {
+	DirectiveDecl struct {
 		Doc    *CommentGroup // associated documentation; or nil
 		TokPos token.Pos     // position of Tok
 		Tok    token.Token   // IMPORT, USE, INCLUDE, INSTANCE
 		Lparen token.Pos     // position of '(', if any
 		Specs  []Spec
-		Rparen token.Pos // position of ')', if any
+		Rparen token.Pos     // position of ')', if any
+                //EndPos token.Pos     // Rparen or LINEND position
 	}
 
 	// A DefineDecl node represents a definition of a symbol in a statement list.
@@ -399,23 +378,15 @@ type (
                 TokPos  token.Pos     // position of ':', ':!:', ':[', etc
 		Tok     token.Token
 	}
-
-        // A ExecDecl node represents an execution of statement
-        ExecDecl struct {
-		Doc     *CommentGroup // associated documentation; or nil
-                Exec    []Expr
-                TermPos token.Pos
-        }
 )
 
 func (d *BadDecl) Pos() token.Pos    { return d.From }
-func (d *GenDecl) Pos() token.Pos    { return d.TokPos }
+func (d *DirectiveDecl) Pos() token.Pos    { return d.TokPos }
 func (d *DefineDecl) Pos() token.Pos { return d.Name.Pos() }
 func (d *RuleDecl) Pos() token.Pos   { return d.TokPos }
-func (d *ExecDecl) Pos() token.Pos   { return d.Exec[0].Pos() }
 
 func (d *BadDecl) End() token.Pos { return d.To }
-func (d *GenDecl) End() token.Pos {
+func (d *DirectiveDecl) End() token.Pos {
 	if d.Rparen.IsValid() {
 		return d.Rparen + 1
 	}
@@ -427,13 +398,11 @@ func (d *DefineDecl) End() token.Pos {
 func (d *RuleDecl) End() token.Pos {
         return d.TokPos 
 }
-func (d *ExecDecl) End() token.Pos { return d.TermPos }
 
 func (*BadDecl) declNode()    {}
-func (*GenDecl) declNode()    {}
+func (*DirectiveDecl) declNode()    {}
 func (*DefineDecl) declNode() {}
 func (*RuleDecl) declNode()   {}
-func (*ExecDecl) declNode()   {}
 
 // A File node represents a Smart source file.
 //

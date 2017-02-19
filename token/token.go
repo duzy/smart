@@ -79,7 +79,8 @@ const (
         PROJECT    // project a
         MODULE     // module a
         USE        // use b
-        EXPORT
+        EVAL       // evaluate a builtin immediately
+        EXPORT     //
         INCLUDE    // include a.smart
         IMPORT     // import a.smart
         INSTANCE   // instance
@@ -133,6 +134,7 @@ var tokens = [...]string{
         PROJECT:  "project",
         MODULE:   "module",
         USE:      "use",
+        EVAL:     "eval",
         EXPORT:   "export",
         INCLUDE:  "include",
         IMPORT:   "import",

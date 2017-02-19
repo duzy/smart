@@ -256,7 +256,10 @@ func (p *parser) expect(tok token.Token) token.Pos {
 }
 
 func (p *parser) expectLinend() {
-        if p.tok == token.LINEND {
+        if p.lineComment != nil {
+                // The line comment is treated as LINEND, simply ignore it.
+                p.lineComment = nil
+        } else if p.tok == token.LINEND {
                 p.next()
         } else {
                 p.errorExpected(p.pos, "'\n'")
@@ -331,7 +334,7 @@ func assert(cond bool, msg string) {
 func syncDecl(p *parser) {
 	for {
 		switch p.tok {
-		case token.ASSIGN, token.IMPORT, token.INCLUDE, token.USE, token.INSTANCE:
+		case token.IMPORT, token.INCLUDE, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
 			if p.pos == p.syncPos && p.syncCnt < 10 {
 				p.syncCnt++
 				return
@@ -341,6 +344,8 @@ func syncDecl(p *parser) {
 				p.syncCnt = 0
 				return
 			}
+                // case token.ASSIGN:
+                // case token.COLON:
 		case token.EOF:
 			return
 		}
@@ -431,11 +436,6 @@ func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
                 if p.lineComment != nil {
                         break
                 }
-                /*
-                switch p.tok {
-                case token.COLON:
-                        fmt.Printf("TODO: KeyValue: %s\n", p.tok)
-                } */
         }
 	return
 }
@@ -478,6 +478,32 @@ func (p *parser) parseRhsList() []ast.Expr {
 
 // ----------------------------------------------------------------------------
 // Expressions
+
+func (p *parser) parseGroupExpr() ast.Expr {
+        lpos := p.pos
+        p.next()
+        elems, converted := p.parseExprList(false), false
+        for p.tok == token.COMMA {
+                p.next()
+                next := p.parseExprList(false)
+                if !converted {
+                        elems = []ast.Expr{ 
+                                &ast.GroupedListExpr{ elems },
+                                &ast.GroupedListExpr{ next },
+                        }
+                        converted = true
+                } else {
+                        elems = append(elems, &ast.GroupedListExpr{ next })
+                }
+        }
+        rpos := p.expect(token.RPAREN)
+        // FIXME: return BadExpr if RPAREN is unexpected
+        return &ast.GroupExpr{
+                Lparen: lpos,
+                Elems: elems,
+                Rparen: rpos,
+        }
+}
 
 func (p *parser) parseExpr(lhs bool) ast.Expr {
 	if p.trace {
@@ -530,29 +556,7 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
                 }
                 
         case token.LPAREN:
-                lpos := p.pos
-                p.next()
-                elems, commas := p.parseExprList(false), 0
-                for p.tok == token.COMMA {
-                        p.next()
-                        next := p.parseExprList(false)
-                        if commas == 0 {
-                                elems = []ast.Expr{ 
-                                        &ast.GroupedListExpr{ elems },
-                                        &ast.GroupedListExpr{ next },
-                                }
-                        } else {
-                                elems = append(elems, &ast.GroupedListExpr{ next })
-                        }
-                        commas++ 
-                }
-                rpos := p.expect(token.RPAREN)
-                // FIXME: return BadExpr if RPAREN is unexpected
-                return &ast.GroupExpr{
-                        Lparen: lpos,
-                        Elems: elems,
-                        Rparen: rpos,
-                }
+                return p.parseGroupExpr()
                 
         //case token.LBRACK:
         //case token.LBRACE:
@@ -603,7 +607,8 @@ func isValidImport(lit string) bool {
 	return s != ""
 }
 
-func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+/*
+func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int, gs *ast.DirectiveSpec) ast.Spec {
 	if p.trace {
 		defer un(trace(p, "ImportSpec"))
 	}
@@ -628,7 +633,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 	} else {
 		p.expect(token.STRING) // use expect() error handling
 	}
-	p.expectLinend() // call before accessing p.linecomment
+	//p.expectLinend() // call before accessing p.linecomment
 
 	// collect imports
 	spec := &ast.ImportSpec{
@@ -641,48 +646,107 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 	p.imports = append(p.imports, spec)
 
 	return spec
+} */
+func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        gs := p.parseDirectiveSpec()
+	return &ast.ImportSpec{ gs }
 }
 
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        x := p.parseExpr(false)
-        return &ast.IncludeSpec{
-                Doc:     doc,
-                Path:    x,
-                EndPos:  p.pos,
-		Comment: p.lineComment,
-        }
+        gs := p.parseDirectiveSpec()
+        return &ast.IncludeSpec{ gs }
 }
 
-func (p *parser) parseSpecProps() (props []ast.Expr) {
+func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        gs := p.parseDirectiveSpec()
+        return &ast.UseSpec{ gs }
+}
+
+func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        gs := p.parseDirectiveSpec()
+        return &ast.InstanceSpec{ gs }
+}
+
+func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        gs := p.parseDirectiveSpec()
+        return &ast.EvalSpec{ gs }
+}
+
+func (p *parser) parseDirectiveSpec() (gs *ast.DirectiveSpec) {
+	if p.trace {
+		defer un(trace(p, "DirectiveSpec"))
+	}
+        
+        var (
+                doc = p.leadComment
+                comment *ast.CommentGroup
+                props []ast.Expr
+        )
         props = append(props, p.parseExpr(false))
-        for p.tok != token.RPAREN {
-                if p.tok == token.COMMA {
-                        p.next()
+        for p.tok != token.EOF {
+                if p.tok == token.COMMA || p.tok == token.LINEND || p.tok == token.RPAREN {
+                        break
+                }
+                if p.lineComment != nil {
+                        // found a line comment at the end
+                        comment = p.lineComment
                         break
                 }
                 props = append(props, p.parseExpr(false))
         }
-        return
-}
-
-func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        props := p.parseSpecProps()
-        return &ast.UseSpec{
-                Doc:     doc,
-                Props:   props,
-		Comment: p.lineComment,
-                EndPos:  p.pos,
+        return &ast.DirectiveSpec{
+                Doc: doc,
+                Props: props,
+                Comment: comment,
+                EndPos: p.pos,
         }
 }
 
-func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        props := p.parseSpecProps()
-        return &ast.InstanceSpec{
-                Doc:     doc,
-                Props:   props,
-		Comment: p.lineComment,
-                EndPos:  p.pos,
-        }
+func (p *parser) parseDirectiveDecl(f parseSpecFunc) *ast.DirectiveDecl {
+	if p.trace {
+		defer un(trace(p, "Directive("+p.tok.String()+")"))
+	}
+
+        var (
+                keyword = p.tok
+                doc = p.leadComment
+                pos = p.expect(keyword)
+                lparen, rparen token.Pos
+                specs []ast.Spec
+        )
+	if p.tok == token.LPAREN {
+		lparen = p.pos
+		p.next()
+		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF; iota++ {
+			specs = append(specs, f(p.leadComment, keyword, iota))
+                        if p.tok == token.COMMA || p.tok == token.LINEND {
+                                p.next()
+                        }
+		}
+		rparen = p.expect(token.RPAREN)
+                p.expectLinend()
+	} else {
+		for iota := 0; p.tok != token.LINEND && p.tok != token.EOF; iota++ {
+                        specs = append(specs, f(nil, keyword, iota))
+                        if p.lineComment != nil {
+                                break
+                        }
+                        if p.tok == token.COMMA {
+                                p.next()
+                        }
+                }
+		p.expectLinend() // endpos = p.expect(token.LINEND)
+	}
+
+	return &ast.DirectiveDecl{
+		Doc:    doc,
+		TokPos: pos,
+		Tok:    keyword,
+		Lparen: lparen,
+		Specs:  specs,
+		Rparen: rparen,
+                //EndPos: endpos,
+	}
 }
 
 func (p *parser) parseDefineDecl(tok token.Token, ident ast.Expr) ast.Decl {
@@ -719,37 +783,6 @@ func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
         }
 }
 
-func (p *parser) parseGenDecl(keyword token.Token, f parseSpecFunc) *ast.GenDecl {
-	if p.trace {
-		defer un(trace(p, "GenDecl("+keyword.String()+")"))
-	}
-
-	doc := p.leadComment
-	pos := p.expect(keyword)
-	var lparen, rparen token.Pos
-	var list []ast.Spec
-	if p.tok == token.LPAREN {
-		lparen = p.pos
-		p.next()
-		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF; iota++ {
-			list = append(list, f(p.leadComment, keyword, iota))
-		}
-		rparen = p.expect(token.RPAREN)
-		p.expectLinend()
-	} else {
-		list = append(list, f(nil, keyword, 0))
-	}
-
-	return &ast.GenDecl{
-		Doc:    doc,
-		TokPos: pos,
-		Tok:    keyword,
-		Lparen: lparen,
-		Specs:  list,
-		Rparen: rparen,
-	}
-}
-
 func (p *parser) parseDecl(sync func(*parser)) ast.Decl {
 	if p.trace {
 		defer un(trace(p, "Declaration"))
@@ -760,28 +793,25 @@ func (p *parser) parseDecl(sync func(*parser)) ast.Decl {
 	case token.INCLUDE:
 		f = p.parseIncludeSpec
 
-	case token.USE:
-		f = p.parseUseSpec
-
 	case token.INSTANCE:
 		f = p.parseInstanceSpec
 
+        case token.EVAL:
+		f = p.parseEvalSpec
+
+	case token.USE:
+		f = p.parseUseSpec
+
         default:
-                switch list := p.parseLhsList(); p.tok {
-                case token.LINEND:
-                        return &ast.ExecDecl{
-                                Doc: p.leadComment,
-                                Exec: list,
-                                TermPos: p.pos,
-                        }
-                case token.ASSIGN:
+                switch list := p.parseLhsList(); {
+                case p.tok == token.ASSIGN:
                         if len(list) == 1 {
                                 return p.parseDefineDecl(p.tok, list[0])
                         } else {
                                 p.errorExpected(p.pos, "assign to multiple names")
                                 return &ast.BadDecl{From: p.pos, To: p.pos}
                         }
-                case token.COLON, token.COLON2, token.COLON_EXC, token.COLON_QUE, token.COLON_LBK, token.COLON_LBE, token.COLON_LBQ, token.COLON_RBK:
+                case token.COLON <= p.tok && p.tok < token.CALL:
                         return p.parseRuleDecl(p.tok, list)
                 default:
                         pos := p.pos
@@ -790,8 +820,7 @@ func (p *parser) parseDecl(sync func(*parser)) ast.Decl {
                         return &ast.BadDecl{From: pos, To: p.pos}
                 }
 	}
-        // FIXME: report error instead of parsing GenDecl
-	return p.parseGenDecl(p.tok, f)
+	return p.parseDirectiveDecl(f)
 }
 
 func (p *parser) parseFile() *ast.File {
@@ -829,7 +858,7 @@ func (p *parser) parseFile() *ast.File {
 	if p.mode&ModuleClauseOnly == 0 {
 		// import decls
 		for p.tok == token.IMPORT {
-			decls = append(decls, p.parseGenDecl(token.IMPORT, p.parseImportSpec))
+			decls = append(decls, p.parseDirectiveDecl(p.parseImportSpec))
 		}
 		if p.mode&ImportsOnly == 0 {
 			// rest of module body

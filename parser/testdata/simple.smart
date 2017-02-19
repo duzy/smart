@@ -14,13 +14,25 @@ include (
 
 instance (
     # proc: self, process, namespace (NAMESPACES(7))
-    proc namespace,
+    proc namespace
 
     # explicitly specify the entrance
-    entry start,
+    entry start
 )
 
-use (a b)
+use (
+    m1 a b c,
+    m2 1 2 3
+)
+
+eval (print a b c, 1 2 3)
+eval  print a b c # restriction: comma is not allow here
+eval  print a b c, print 1 2 3
+eval (let (a 1, b 2, c 3)
+      (print "a = $a\n")
+      (print "b = $b\n")
+      (print "c = $c\n")
+      (set a 123))
 
 VAR = project scoped var
 
