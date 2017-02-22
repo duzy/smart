@@ -263,7 +263,7 @@ func (p *parser) expectLinend() {
                 p.next()
         } else {
                 p.errorExpected(p.pos, "'\n'")
-                //syncStmt(p)
+                syncDecl(p) //syncStmt(p)
 	}
 }
 
@@ -510,7 +510,9 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
 		defer un(trace(p, "Expression"))
 	}
         switch p.tok {
-        case token.IDENT, token.INT, token.FLOAT, token.DATETIME, token.DATE, token.TIME, token.URI, token.STRING, token.RECIEPT:
+        case    token.IDENT, token.INT, token.FLOAT, token.DATETIME, 
+                token.DATE, token.TIME, token.URI, token.STRING, 
+                token.RECIPE:
                 pos, tok, lit := p.pos, p.tok, p.lit
                 p.next()
                 return &ast.BasicLit{
@@ -519,11 +521,23 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
                         Value: lit,
                 }
 
+         case   token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S,
+                token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
+                token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
+                token.CALL_9:
+                var tok = p.tok
+                p.next()
+                return &ast.CallExpr{
+                        Dollar: p.pos,
+                        Tok: tok,
+                }
+
         case token.CALL:
                 var (
                         lpos = token.NoPos
                         rpos = token.NoPos
                         pos = p.pos
+                        tok = p.tok
                         name ast.Expr
                         rest []*ast.ArgExpr
                         tokLp token.Token
@@ -553,6 +567,7 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
                         Args: rest,
                         Rparen: rpos,
                         TokLp: tokLp,
+                        Tok: tok,
                 }
                 
         case token.LPAREN:
@@ -571,7 +586,8 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
                         X: x,
                 }
 
-        case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, token.IMPORT, token.INSTANCE:
+                case token.PROJECT, token.MODULE, token.USE, token.EXPORT, 
+                token.INCLUDE, token.IMPORT, token.INSTANCE:
                 if p.inRhs {
                         pos, lit := p.pos, p.lit
                         p.next()
@@ -607,46 +623,6 @@ func isValidImport(lit string) bool {
 	return s != ""
 }
 
-/*
-func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int, gs *ast.DirectiveSpec) ast.Spec {
-	if p.trace {
-		defer un(trace(p, "ImportSpec"))
-	}
-
-	var ident *ast.Ident
-	switch p.tok {
-	case token.PERIOD:
-		ident = &ast.Ident{NamePos: p.pos, Name: "."}
-		p.next()
-	case token.IDENT:
-		ident = p.parseIdent()
-	}
-
-	pos := p.pos
-	var path string
-	if p.tok == token.STRING {
-		path = p.lit
-		if !isValidImport(path) {
-			p.error(pos, "invalid import path: "+path)
-		}
-		p.next()
-	} else {
-		p.expect(token.STRING) // use expect() error handling
-	}
-	//p.expectLinend() // call before accessing p.linecomment
-
-	// collect imports
-	spec := &ast.ImportSpec{
-		Doc:     doc,
-		Name:    ident,
-		Path:    &ast.BasicLit{ValuePos: pos, Kind: token.STRING, Value: path},
-		Comment: p.lineComment,
-                EndPos:  p.pos,
-	}
-	p.imports = append(p.imports, spec)
-
-	return spec
-} */
 func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         gs := p.parseDirectiveSpec()
 	return &ast.ImportSpec{ gs }
@@ -766,6 +742,37 @@ func (p *parser) parseDefineDecl(tok token.Token, ident ast.Expr) ast.Decl {
         }
 }
 
+func (p *parser) parseRecipeExpr() ast.Expr {
+	if p.trace {
+		defer un(trace(p, "Recipe"))
+	}
+        
+        var (
+                comment *ast.CommentGroup
+                elems []ast.Expr
+                doc = p.leadComment
+                pos = p.pos
+        )
+        p.next() // skip token RECIPE
+        for p.tok != token.LINEND && p.tok != token.EOF {
+                elems = append(elems, p.parseExpr(false))
+                if p.lineComment != nil {
+                        comment = p.lineComment
+                        break
+                }
+        }
+        if p.tok != token.EOF {
+                p.expectLinend()
+        }
+        return &ast.RecipeExpr{
+                Doc:     doc,
+                TabPos:  pos,
+                Elems:   elems,
+                Comment: comment,
+                //LendPos: ...,
+        }
+}
+
 func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
 	if p.trace {
 		defer un(trace(p, "Rule"))
@@ -774,12 +781,31 @@ func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
         doc := p.leadComment
         pos := p.expect(tok)
         depends := p.parseRhsList()
+	p.expectLinend()
+        
+        var (
+                program *ast.ProgramExpr
+                recipes []ast.Expr
+        )
+
+        for p.tok == token.RECIPE {
+                recipes = append(recipes, p.parseRecipeExpr())
+        }
+
+        if len(recipes) > 0 {
+                program = &ast.ProgramExpr{
+                        Lang: 0, // FIXME: language definition
+                        Values: recipes,
+                }
+        }
+        
         return &ast.RuleDecl{
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
                 Targets: targets,
                 Depends: depends,
+                Program: program,
         }
 }
 

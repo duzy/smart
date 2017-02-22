@@ -597,17 +597,16 @@ func (s *Scanner) scanString(ml bool) string {
 	return string(s.src[offs:s.offset])
 }
 
-func (s *Scanner) scanReciept() string {
+/* func (s *Scanner) scanRecipe() string {
 	// '\t' opening already consumed
 	offs := s.offset
 	for s.ch != '\n' {
 		s.next()
 	}
 	return string(s.src[offs:s.offset])
-}
+} */
 
-/*
-func (s *Scanner) scanText() string {
+/* func (s *Scanner) scanText() string {
 	offs := s.offset - 1
 
 	for {
@@ -628,8 +627,7 @@ func (s *Scanner) scanText() string {
 	return string(s.src[offs:s.offset])
 } */
 
-/*
-func (s *Scanner) scanSep() (tok token.Token, lit string) {
+/* func (s *Scanner) scanSep() (tok token.Token, lit string) {
 	offs := s.offset - 1
         
 	for s.ch == ' ' || s.ch == '\t' || s.ch == '\\' || (s.ch == '\n' && s.parenDepth > 0) {
@@ -671,8 +669,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	case isLetter(ch):
 		lit = s.scanIdentifier()
 		if len(lit) > 1 {
-			switch tok = token.Lookup(lit); tok {
-                        case token.IDENT, token.PROJECT, token.MODULE, token.IMPORT, token.EXPORT, token.USE, token.INCLUDE:
+			switch tok = token.Lookup(lit); {
+                        case tok == token.IDENT || tok.IsKeyword():
                                 // ...
                         default:
 				s.error(s.offset, "unexpected token '"+tok.String()+"'")
@@ -745,6 +743,26 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                 case '$':
                         tok = token.CALL
+                        switch ch = rune(s.src[s.readOffset-1]); {
+                        case ch == '@': tok = token.CALL_A
+                        case ch == '<': tok = token.CALL_L
+                        case ch == '^': tok = token.CALL_U
+                        case ch == '*': tok = token.CALL_S
+                        case ch == '1': tok = token.CALL_1
+                        case ch == '2': tok = token.CALL_2
+                        case ch == '3': tok = token.CALL_3
+                        case ch == '4': tok = token.CALL_4
+                        case ch == '5': tok = token.CALL_5
+                        case ch == '6': tok = token.CALL_6
+                        case ch == '7': tok = token.CALL_7
+                        case ch == '8': tok = token.CALL_8
+                        case ch == '9': tok = token.CALL_9
+                        }
+                        if tok != token.CALL {
+                                lit = string(ch)
+                                s.next() // eat special
+                        }
+                        
                 case '(':
                         tok = token.LPAREN
                         s.skipPostLineFeeds = true
@@ -771,7 +789,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.LINEND
                 case '\t':
                         if s.lineOffset == s.offset-1 {
-                                tok, lit = token.RECIEPT, s.scanReciept()
+                                tok, lit = token.RECIPE, string(ch) /*s.scanRecipe()*/
                         } else {
 				s.error(s.offset, "unexpected tab")
                         }

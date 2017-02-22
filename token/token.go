@@ -28,7 +28,6 @@ const (
         TIME     // 07:32:00.999999 (internet time format - RFC3339)
         URI      // 'mailto:Duzy.Chan@example.com' (uniform resource identifier - RFC3986)
 	STRING   // "abc" 'abc'
-        RECIEPT  // tab to indicate a command reciept
 	literal_end
         
 	operator_beg
@@ -53,7 +52,22 @@ const (
         COLON_LBE // :![
         COLON_LBQ // :?[
         COLON_RBK // ]:
-        CALL    // $
+        CALL      // $
+        CALL_A    // $@
+        CALL_L    // $<
+        CALL_U    // $^
+        CALL_S    // $*
+        CALL_1    // $1
+        CALL_2    // $2
+        CALL_3    // $3
+        CALL_4    // $4
+        CALL_5    // $5
+        CALL_6    // $6
+        CALL_7    // $7
+        CALL_8    // $8
+        CALL_9    // $9
+
+        RECIPE  // tab to indicate a command recipe
         
         ASSIGN     // =
         /*
@@ -70,8 +84,8 @@ const (
 	QUO // /
 	REM // % */
 
-	PLUS  // +
-	MINUS // -
+	PLUS  // unary +
+	MINUS // unary -
 	PCON  // path concatenation /
 	operator_end
 
@@ -101,8 +115,7 @@ var tokens = [...]string{
         URI:      "URI",
         STRING:   "STRING",
 
-        LINEND:  "LINEND",
-        RECIEPT: "RECIEPT",
+        LINEND:   "LINEND",
 
 	LPAREN: "(",
 	LBRACK: "[",
@@ -113,6 +126,7 @@ var tokens = [...]string{
 	RPAREN:    ")",
 	RBRACK:    "]",
 	RBRACE:    "}",
+        
 	COLON:     ":",
         COLON2:    "::",
         COLON_EXC: ":!:",
@@ -121,15 +135,29 @@ var tokens = [...]string{
         COLON_LBE: ":![",
         COLON_LBQ: ":?[",
         COLON_RBK: "]:",
-        
-	CALL: "$",
+	CALL:      "$",
+        CALL_A:    "$@",
+        CALL_L:    "$<",
+        CALL_U:    "$^",
+        CALL_S:    "$*",
+        CALL_1:    "$1",
+        CALL_2:    "$2",
+        CALL_3:    "$3",
+        CALL_4:    "$4",
+        CALL_5:    "$5",
+        CALL_6:    "$6",
+        CALL_7:    "$7",
+        CALL_8:    "$8",
+        CALL_9:    "$9",
+
+        RECIPE:    "RECIPE",
         
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",
 
-        PLUS: "+",
+        PLUS:  "+",
         MINUS: "-",
-	PCON: "/",
+	PCON:  "/",
         
         PROJECT:  "project",
         MODULE:   "module",

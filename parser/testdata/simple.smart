@@ -39,8 +39,11 @@ VAR = project scoped var
 var = module scoped var
 
 start: print-a print-b
-	print "......"
-	print "......"
+	print "......1"
+	print "......2"
+# .... ignored
+	print "......3"
+	print "......4"
 print-a: a.print-var
 	print "a.VAR = $(a.VAR)"
 print-b: b.print-var

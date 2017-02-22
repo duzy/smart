@@ -152,6 +152,7 @@ type (
                 Args []*ArgExpr
                 Rparen token.Pos
                 TokLp token.Token // left paren token
+                Tok token.Token
         }
 
         // Group expression
@@ -193,6 +194,19 @@ type (
 		Colon token.Pos // position of ":"
 		Value Expr
 	}
+
+        RecipeExpr struct {
+		Doc     *CommentGroup // associated documentation; or nil
+                TabPos  token.Pos
+                Elems   []Expr
+		Comment *CommentGroup // line comments after RPAREN; or nil
+                LendPos token.Pos
+        }
+
+        ProgramExpr struct {
+                Lang    int // TODO: language definition (default is recipes)
+                Values  []Expr
+        }
 )
 
 func (d *BadExpr) Pos() token.Pos         { return d.From }
@@ -205,6 +219,8 @@ func (d *GroupedListExpr) Pos() token.Pos { return d.Elems[0].Pos() }
 func (d *UnaryExpr) Pos() token.Pos       { return d.OpPos }
 func (d *BinaryExpr) Pos() token.Pos      { return d.OpPos }
 func (d *KeyValueExpr) Pos() token.Pos    { return d.Colon }
+func (d *RecipeExpr) Pos() token.Pos     { return d.TabPos }
+func (d *ProgramExpr) Pos() token.Pos     { return d.Values[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Ident) End() token.Pos           { return d.NamePos }
@@ -216,6 +232,8 @@ func (d *GroupedListExpr) End() token.Pos { return d.Elems[len(d.Elems)-1].End()
 func (d *UnaryExpr) End() token.Pos       { return d.OpPos }
 func (d *BinaryExpr) End() token.Pos      { return d.OpPos }
 func (d *KeyValueExpr) End() token.Pos    { return d.Colon }
+func (d *RecipeExpr) End() token.Pos     { return d.LendPos }
+func (d *ProgramExpr) End() token.Pos     { return d.Values[len(d.Values)-1].End() }
 
 func (*BadExpr) exprNode()         {}
 func (*Ident) exprNode()           {}
@@ -227,6 +245,8 @@ func (*GroupedListExpr) exprNode() {}
 func (*UnaryExpr) exprNode()       {}
 func (*BinaryExpr) exprNode()      {}
 func (*KeyValueExpr) exprNode()    {}
+func (*RecipeExpr) exprNode()     {}
+func (*ProgramExpr) exprNode()     {}
 
 func NewIdent(name string) *Ident { return &Ident{token.NoPos, name, nil} }
 
@@ -370,11 +390,12 @@ type (
                 Elems   []Expr
 	}
 
-	// A RuleDecl node represents a function declaration.
+	// A RuleDecl node represents a rule declaration.
 	RuleDecl struct {
 		Doc     *CommentGroup // associated documentation; or nil
 		Targets []Expr        // targets
                 Depends []Expr        // prerequisites
+                Program Expr          // program (e.g. recipes)
                 TokPos  token.Pos     // position of ':', ':!:', ':[', etc
 		Tok     token.Token
 	}
