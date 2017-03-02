@@ -15,6 +15,7 @@ func TestParseFile(t *testing.T) {
         files := []string{
                 `testdata/defines.smart`,
                 `testdata/simple.smart`,
+                `testdata/dialect.smart`,
         }
 	for i, filename := range files {
 		_, err := ParseFile(token.NewFileSet(), filename, nil, mode)

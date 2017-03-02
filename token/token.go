@@ -20,28 +20,32 @@ const (
 	literal_beg
 	// Identifiers and basic type literals
 	// (these tokens stand for classes of literals)
-        IDENT  // abc
-	INT    // 12345
-	FLOAT  // 123.45
+        IDENT    // abc
+	INT      // 12345
+	FLOAT    // 123.45
         DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
         DATE     // 1979-05-27 (internet date format - RFC3339)
         TIME     // 07:32:00.999999 (internet time format - RFC3339)
         URI      // 'mailto:Duzy.Chan@example.com' (uniform resource identifier - RFC3986)
-	STRING   // "abc" 'abc'
+	STRING   // 'abc'
+        ESCAPE   // \", \\n, etc.
+        COMPOUND // "abc $(foo) 123"
 	literal_end
-        
+
+        COMPOSED // the ending quote of a compound literal
+
 	operator_beg
-        LINEND  // significant line break (LF or CRLF)
+        LINEND    // significant line break (LF or CRLF)
 
-	LPAREN  // (
-	LBRACK  // [
-	LBRACE  // {    left curly
-	COMMA   // ,
-	PERIOD  // .
+	LPAREN    // (
+	LBRACK    // [
+	LBRACE    // {    left curly
+	COMMA     // ,
+	PERIOD    // .
 
-	RPAREN  // )
-	RBRACK  // ]
-	RBRACE  // }    right curly
+	RPAREN    // )
+	RBRACK    // ]
+	RBRACE    // }    right curly
 	SEMICOLON // ;
 
 	COLON     // :
@@ -49,8 +53,8 @@ const (
 	COLON_EXC // :!:
 	COLON_QUE // :?:
         COLON_LBK // :[
-        COLON_LBE // :![
-        COLON_LBQ // :?[
+        //COLON_LBE // :![
+        //COLON_LBQ // :?[
         COLON_RBK // ]:
         CALL      // $
         CALL_A    // $@
@@ -67,9 +71,9 @@ const (
         CALL_8    // $8
         CALL_9    // $9
 
-        RECIPE  // tab to indicate a command recipe
+        RECIPE    // tab to indicate a command recipe
         
-        ASSIGN     // =
+        ASSIGN    // =
         /*
         QUE_ASSIGN // ?=
         SCO_ASSIGN // :=
@@ -114,6 +118,9 @@ var tokens = [...]string{
         TIME:     "TIME",
         URI:      "URI",
         STRING:   "STRING",
+        ESCAPE:   "\\",
+        COMPOUND: "COMPOUND",
+        COMPOSED: "COMPOSED",
 
         LINEND:   "LINEND",
 
@@ -132,8 +139,8 @@ var tokens = [...]string{
         COLON_EXC: ":!:",
         COLON_QUE: ":?:",
         COLON_LBK: ":[",
-        COLON_LBE: ":![",
-        COLON_LBQ: ":?[",
+        //COLON_LBE: ":![",
+        //COLON_LBQ: ":?[",
         COLON_RBK: "]:",
 	CALL:      "$",
         CALL_A:    "$@",

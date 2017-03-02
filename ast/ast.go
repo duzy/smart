@@ -139,6 +139,14 @@ type (
 		Value    string      // literal string; e.g. 42, 0x7f, 3.14, 1e-9, 2.4i, 'a', '\x7f', "foo" or `\m\n\o`
 	}
 
+        // A CompoundLit node represents a composed list of BasicLit and CallExpr
+        CompoundLit struct {
+                BegPos token.Pos
+                Elems []Expr
+                EndPos token.Pos
+                Quote  bool // is quoted compound literal?
+        }
+
         // ArgList expression represents a list seperated by a comma as an argument.
         ArgExpr struct {
                 Elems []Expr
@@ -212,6 +220,7 @@ type (
 func (d *BadExpr) Pos() token.Pos         { return d.From }
 func (d *Ident) Pos() token.Pos           { return d.NamePos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
+func (d *CompoundLit) Pos() token.Pos     { return d.BegPos }
 func (d *CallExpr) Pos() token.Pos        { return d.Dollar }
 func (d *ArgExpr) Pos() token.Pos         { return d.Elems[0].Pos() }
 func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
@@ -219,12 +228,13 @@ func (d *GroupedListExpr) Pos() token.Pos { return d.Elems[0].Pos() }
 func (d *UnaryExpr) Pos() token.Pos       { return d.OpPos }
 func (d *BinaryExpr) Pos() token.Pos      { return d.OpPos }
 func (d *KeyValueExpr) Pos() token.Pos    { return d.Colon }
-func (d *RecipeExpr) Pos() token.Pos     { return d.TabPos }
+func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
 func (d *ProgramExpr) Pos() token.Pos     { return d.Values[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Ident) End() token.Pos           { return d.NamePos }
 func (d *BasicLit) End() token.Pos        { return d.ValuePos }
+func (d *CompoundLit) End() token.Pos     { return d.EndPos }
 func (d *CallExpr) End() token.Pos        { return d.Rparen }
 func (d *ArgExpr) End() token.Pos         { return d.Elems[len(d.Elems)-1].End() }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen }
@@ -232,12 +242,13 @@ func (d *GroupedListExpr) End() token.Pos { return d.Elems[len(d.Elems)-1].End()
 func (d *UnaryExpr) End() token.Pos       { return d.OpPos }
 func (d *BinaryExpr) End() token.Pos      { return d.OpPos }
 func (d *KeyValueExpr) End() token.Pos    { return d.Colon }
-func (d *RecipeExpr) End() token.Pos     { return d.LendPos }
+func (d *RecipeExpr) End() token.Pos      { return d.LendPos }
 func (d *ProgramExpr) End() token.Pos     { return d.Values[len(d.Values)-1].End() }
 
 func (*BadExpr) exprNode()         {}
 func (*Ident) exprNode()           {}
 func (*BasicLit) exprNode()        {}
+func (*CompoundLit) exprNode()     {}
 func (*CallExpr) exprNode()        {}
 func (*ArgExpr) exprNode()         {}
 func (*GroupExpr) exprNode()       {}
@@ -245,7 +256,7 @@ func (*GroupedListExpr) exprNode() {}
 func (*UnaryExpr) exprNode()       {}
 func (*BinaryExpr) exprNode()      {}
 func (*KeyValueExpr) exprNode()    {}
-func (*RecipeExpr) exprNode()     {}
+func (*RecipeExpr) exprNode()      {}
 func (*ProgramExpr) exprNode()     {}
 
 func NewIdent(name string) *Ident { return &Ident{token.NoPos, name, nil} }

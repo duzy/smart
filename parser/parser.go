@@ -373,12 +373,13 @@ func (p *parser) safePos(pos token.Pos) (res token.Pos) {
 	return pos
 }
 
-// checkExpr checks that x is an expression (and not a type).
+// checkExpr checks that x is a valid expression (and not a Decl).
 func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	switch /*unparen(x)*/x.(type) {
 	case *ast.BadExpr:
 	case *ast.Ident:
 	case *ast.BasicLit:
+	case *ast.CompoundLit:
 	case *ast.CallExpr:
 	case *ast.GroupExpr:
 	case *ast.GroupedListExpr:
@@ -412,8 +413,8 @@ func (p *parser) parseIdent() *ast.Ident {
 // Common productions
 
 func (p *parser) isEndOfList(lhs bool) bool {
-        if p.tok == token.RPAREN {
-                // FIXME: check pared LPAREN?
+        if p.tok == token.RPAREN || p.tok == token.COLON_RBK {
+                // FIXME: check pared LPAREN or COLON_LBK?
                 return true
         }
         if token.COLON <= p.tok && p.tok < token.CALL {
@@ -505,14 +506,11 @@ func (p *parser) parseGroupExpr() ast.Expr {
         }
 }
 
-func (p *parser) parseExpr(lhs bool) ast.Expr {
-	if p.trace {
-		defer un(trace(p, "Expression"))
-	}
+func (p *parser) parseExpr0(lhs bool) ast.Expr {
         switch p.tok {
         case    token.IDENT, token.INT, token.FLOAT, token.DATETIME, 
                 token.DATE, token.TIME, token.URI, token.STRING, 
-                token.RECIPE:
+                token.ESCAPE:
                 pos, tok, lit := p.pos, p.tok, p.lit
                 p.next()
                 return &ast.BasicLit{
@@ -521,6 +519,24 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
                         Value: lit,
                 }
 
+        case token.COMPOUND:
+                var (
+                        lpos = p.pos
+                        elems []ast.Expr
+                        rpos token.Pos
+                )
+                p.next()
+                for p.tok != token.COMPOSED && p.tok != token.EOF {
+                        elems = append(elems, p.checkExpr(p.parseExpr(false)))
+                }
+                rpos = p.expect(token.COMPOSED)
+                return &ast.CompoundLit{
+                        BegPos: lpos,
+                        Elems:  elems,
+                        EndPos: rpos,
+                        Quote:  true,
+                }
+                
          case   token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S,
                 token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
                 token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
@@ -569,13 +585,13 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
                         TokLp: tokLp,
                         Tok: tok,
                 }
-                
+
         case token.LPAREN:
                 return p.parseGroupExpr()
                 
         //case token.LBRACK:
         //case token.LBRACE:
-                
+
         case token.PLUS, token.MINUS:
                 tok, pos := p.tok, p.pos
                 p.next()
@@ -603,8 +619,43 @@ func (p *parser) parseExpr(lhs bool) ast.Expr {
         default:
                 pos := p.pos
                 p.errorExpected(pos, "'"+p.tok.String()+"'")
+                p.next() // go to next token
                 return &ast.BadExpr{ From:pos, To:p.pos }
         }
+}
+
+func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
+	if p.trace {
+		defer un(trace(p, "Expression"))
+	}
+        if x = p.parseExpr0(lhs); x.End()+1 == p.pos && p.lineComment == nil {
+                // Check implicit composing.
+                switch p.tok {
+                case token.COMPOSED, token.RPAREN, token.COMMA, token.COLON_RBK,
+                     token.LINEND, token.ILLEGAL:
+                        // don't compose expression
+                default:
+                        var (
+                                lpos = x.Pos()
+                                elems = []ast.Expr{ x }
+                                y = p.checkExpr(p.parseExpr(lhs))
+                                rpos = y.End()
+                        )
+                        if c, ok := y.(*ast.CompoundLit); ok {
+                                elems = append(elems, c.Elems...)
+                        } else {
+                                elems = append(elems, y)
+                        }
+                        x = &ast.CompoundLit{
+                                BegPos: lpos,
+                                Elems:  elems,
+                                EndPos: rpos,
+                                Quote:  false,
+                        }
+                        //fmt.Printf("composed: %v elems, %v (%v,%v)\n", elems, p.tok, x.Pos(), x.End())
+                }
+        }
+        return
 }
 
 // ----------------------------------------------------------------------------
@@ -742,7 +793,7 @@ func (p *parser) parseDefineDecl(tok token.Token, ident ast.Expr) ast.Decl {
         }
 }
 
-func (p *parser) parseRecipeExpr() ast.Expr {
+func (p *parser) parseRecipeExpr(std bool) ast.Expr {
 	if p.trace {
 		defer un(trace(p, "Recipe"))
 	}
@@ -753,13 +804,20 @@ func (p *parser) parseRecipeExpr() ast.Expr {
                 doc = p.leadComment
                 pos = p.pos
         )
-        p.next() // skip token RECIPE
-        for p.tok != token.LINEND && p.tok != token.EOF {
-                elems = append(elems, p.parseExpr(false))
-                if p.lineComment != nil {
-                        comment = p.lineComment
-                        break
+        if std {
+                p.next() // skip RECIPE and parse next token
+                for p.tok != token.LINEND && p.tok != token.EOF {
+                        elems = append(elems, p.parseExpr(false))
+                        if p.lineComment != nil {
+                                comment = p.lineComment
+                                break
+                        }
                 }
+        } else {
+                p.scanner.StartLineString() // s.StartLineRaw()
+                p.next() // skip RECIPE and parse next in line-string mode
+                elems = append(elems, p.parseExpr(false))
+                //fmt.Printf("recipe: %v %v %v\n", x, p.tok, p.lit)
         }
         if p.tok != token.EOF {
                 p.expectLinend()
@@ -778,9 +836,37 @@ func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
 		defer un(trace(p, "Rule"))
 	}
 
-        doc := p.leadComment
-        pos := p.expect(tok)
-        depends := p.parseRhsList()
+        var (
+                doc = p.leadComment
+                pos = p.expect(tok)
+                opers []ast.Expr
+                depends []ast.Expr
+                stdRecipe = true
+        )
+        switch tok {
+        case token.COLON:
+                depends = p.parseRhsList()
+
+        case token.COLON2:
+                depends = p.parseRhsList()
+
+        case token.COLON_EXC:
+                depends = p.parseRhsList()
+
+        case token.COLON_QUE:
+                depends = p.parseRhsList()
+
+        case token.COLON_LBK:
+                for p.tok != token.COLON_RBK && p.tok != token.EOF {
+                        fmt.Printf("LBK: %v %v\n", p.tok, p.lit)
+                        opers = append(opers, p.checkExpr(p.parseExpr(false)))
+                }
+                fmt.Printf("RBK: %v %v\n", p.tok, p.lit)
+                p.expect(token.COLON_RBK)
+                depends = p.parseRhsList()
+                stdRecipe = false
+        }
+        
 	p.expectLinend()
         
         var (
@@ -789,7 +875,7 @@ func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
         )
 
         for p.tok == token.RECIPE {
-                recipes = append(recipes, p.parseRecipeExpr())
+                recipes = append(recipes, p.parseRecipeExpr(stdRecipe))
         }
 
         if len(recipes) > 0 {

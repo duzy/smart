@@ -9,19 +9,19 @@ string1 = 'a b c $a $b $c'
 string2 = "a b c $a $b $c"
 string3 = "a b c \"1 2 3\""
 
-string_concate = $(string1)$(string2)
+composed = $(string1)$(string2)$(string3)"abc"
 
-string4 = """
+string4 = "
 string line 1
 string line 2
 string line 3
-"""
+"
 
-string5 = """\
+string5 = "\
     string line 1 \
     string line 2 \
     string line 3 \
-    """
+    "
 
 strings = 'abc' "xx $(string1) xx"
 

@@ -32,6 +32,8 @@ type Scanner struct {
 	readOffset int  // reading offset (position after current character)
 	lineOffset int  // current line offset
         parenDepth int  // number of nested parentheses
+        composing bool  // scanning COMPOUND
+        
         skipPostLineFeeds bool
 
 	// public state - ok to modify
@@ -89,7 +91,13 @@ type Mode uint
 
 const (
 	ScanComments    Mode = 1 << iota // return comments as COMMENT tokens
+        scanLineString
+        scanLineRaw
 )
+
+func (s *Scanner) StartLineString() {
+        s.mode |= scanLineString
+}
 
 // Init prepares the scanner s to tokenize the text src by setting the
 // scanner at the beginning of src. The scanner uses the file set file
@@ -210,6 +218,91 @@ loop:
                 }
 	}
 	return string(s.src[offs:s.offset])
+}
+
+func (s *Scanner) scanCompound() (tok token.Token, lit string) {
+	offs := s.offset
+        switch s.ch {
+        case '\\':
+                /* switch s.next(); s.ch {
+                case '\n', '"':
+                        tok, lit = token.ESCAPE, string(s.ch)
+                        s.next() // escape
+                        return
+                default:
+                        tok, lit = token.ILLEGAL, string(s.ch)
+                        s.error(s.offset-1, fmt.Sprintf("illegal escape %#U", s.ch))
+                        s.next() // discard
+                        return
+                } */
+                if s.scanEscape('"') {
+                        tok, lit = token.ESCAPE, string(s.src[offs:s.offset])
+                        s.next() // escape
+                        return
+                } else {
+                        tok, lit = token.ILLEGAL, string(s.src[offs:s.offset])
+                        s.error(s.offset-1, fmt.Sprintf("illegal escape %#U", s.ch))
+                        s.next() // discard
+                        return
+                }
+        case '"':
+                tok = token.COMPOSED
+                s.composing = false
+                s.next() // take the ending '"'
+                return
+        case '$':
+                tok = token.CALL // escape to do token.CALL
+                return
+        }
+loop:   
+        for s.ch != '"' {
+                switch s.ch {
+                case '\\', '$':
+                        // just break it out, further scanning will decide escape
+                        break loop
+                default:
+                        s.next()
+                }
+        }
+        tok, lit = token.STRING, string(s.src[offs:s.offset])
+	return 
+}
+
+func (s *Scanner) scanLineString() (tok token.Token, lit string) {
+	offs := s.offset
+        switch s.ch {
+        case '\\':
+                switch s.next(); s.ch {
+                case '\n', '"':
+                        tok, lit = token.ESCAPE, string(s.ch)
+                        s.next() // escape
+                        return
+                default:
+                        tok, lit = token.ILLEGAL, string(s.ch)
+                        s.error(s.offset-1, fmt.Sprintf("illegal escape %#U", s.ch))
+                        s.next() // discard
+                        return
+                }
+        case '\n':
+                tok = token.LINEND
+                s.mode &= ^scanLineString
+                s.next() // take the line-end
+                return
+        case '$':
+                tok = token.CALL // escape to do token.CALL
+                return
+        }
+loop:   
+        for s.ch != '\n' {
+                switch s.ch {
+                case '\\', '$':
+                        // just break it out, further scanning will decide
+                        break loop
+                default:
+                        s.next()
+                }
+        }
+	return token.STRING, string(s.src[offs:s.offset])
 }
 
 func digitVal(ch rune) int {
@@ -656,14 +749,27 @@ func (s *Scanner) scanString(ml bool) string {
 
 func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 //scanAgain:
+	// current token start
+	pos = s.file.Pos(s.offset)
+
+        switch {
+        case s.mode&scanLineString != 0:
+                //tok, lit = token.STRING, s.scanLineString()
+                //return
+                if tok, lit = s.scanLineString(); tok != token.CALL {
+                        return
+                }
+        case s.composing:
+                if tok, lit = s.scanCompound(); tok != token.CALL {
+                        return
+                }
+        }
+
         // remove line preceeding spaces (FIXME: avoid receipt)
         if s.offset == s.lineOffset {
                 s.skipUselessWhitespace(true)
         }
         
-	// current token start
-	pos = s.file.Pos(s.offset)
-
 	// determine token value
 	switch ch := s.ch; {
 	case isLetter(ch):
@@ -728,7 +834,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 lit = s.scanRawString(false)
                         }
                 case '"':
-                        tok = token.STRING
+                        /* tok = token.STRING
                         if s.ch == '"' {
                                 s.next()
                                 if s.ch == '"' { // """
@@ -740,7 +846,14 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 }
                         } else {
                                 lit = s.scanString(false)
+                        } */
+                        if s.composing {
+				s.error(s.offset, "nested compound")
+                        } else {
+                                tok = token.COMPOUND
+                                s.composing = true
                         }
+                        
                 case '$':
                         tok = token.CALL
                         switch ch = rune(s.src[s.readOffset-1]); {
@@ -813,10 +926,10 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                                 }
                                         case '[':
                                                 s.next() // consume the second '['
-                                                switch ch {
+                                                /* switch ch {
                                                 case '!': tok = token.COLON_LBE
                                                 case '?': tok = token.COLON_LBQ
-                                                }
+                                                } */
                                         default:
                                                 s.error(s.offset, fmt.Sprintf("unexpected character %#U", s.ch))
                                                 tok = token.ILLEGAL
