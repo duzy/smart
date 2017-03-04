@@ -749,9 +749,6 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	// current token start
 	pos = s.file.Pos(s.offset)
 
-        var (
-                discardWhitespaces = true
-        )
         if s.context&(isCompoundLine|isCompoundString) != 0 {
                 //fmt.Printf("context: %v %v %v\n", isCallContext, s.context&(isCallIdent|isCallParen), s.callPdepth)
                 if s.context&(isCompoundCallIdent|isCompoundCallParen) == 0 {
@@ -765,11 +762,10 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 return // escape from '$'
                         }
                 }
-                discardWhitespaces = false
         }
 
         // remove line preceeding spaces
-        if discardWhitespaces && s.offset == s.lineOffset {
+        if s.offset == s.lineOffset && s.context&(isCompoundLine|isCompoundString) != 0 {
                 s.skipUselessWhitespace(true)
         }
 
@@ -903,7 +899,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         s.context &= ^isCompoundLine
                 case '\t':
                         if s.lineOffset == s.offset-1 {
-                                tok, lit = token.RECIPE, string(ch) /*s.scanRecipe()*/
+                                tok, lit = token.RECIPE, string(ch)
                                 s.context |= isCompoundLine
                         } else {
 				s.error(s.offset-2, "unexpected tab")
@@ -969,7 +965,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	}
 
         // eat consequence spaces
-        if discardWhitespaces {
+        if s.context&(isCompoundLine|isCompoundString) == 0 {
                 s.skipUselessWhitespace(false)
         }
 	return
