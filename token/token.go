@@ -53,8 +53,6 @@ const (
 	COLON_EXC // :!:
 	COLON_QUE // :?:
         COLON_LBK // :[
-        //COLON_LBE // :![
-        //COLON_LBQ // :?[
         COLON_RBK // ]:
         CALL      // $
         CALL_A    // $@
@@ -90,7 +88,7 @@ const (
 
 	PLUS  // unary +
 	MINUS // unary -
-	PCON  // path concatenation /
+	PCON  // path concatenation '/'
 	operator_end
 
 	keyword_beg
@@ -139,8 +137,6 @@ var tokens = [...]string{
         COLON_EXC: ":!:",
         COLON_QUE: ":?:",
         COLON_LBK: ":[",
-        //COLON_LBE: ":![",
-        //COLON_LBQ: ":?[",
         COLON_RBK: "]:",
 	CALL:      "$",
         CALL_A:    "$@",

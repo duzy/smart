@@ -399,6 +399,7 @@ type (
 		Tok     token.Token   // '=', ':='
 		Name    Expr //*Ident
                 Elems   []Expr
+		Comment *CommentGroup // line comments; or nil
 	}
 
 	// A RuleDecl node represents a rule declaration.

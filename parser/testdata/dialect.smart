@@ -1,0 +1,32 @@
+# this is a simple project...
+project dialect
+
+instance (
+    proc chroot
+)
+
+TAG_BOOK = book
+TAG_TITLE = title
+
+BOOK_TITLE_1 = book one
+BOOK_TITLE_2 = book two
+
+## Suppose 
+start:[xml (process-xml-doc)]: \
+  something-1 \
+  something-2
+	<books>
+	  <$(TAG_BOOK)>
+	    <$(TAG_TITLE)>$(BOOK_TITLE_1)</$(TAG_TITLE)>
+	  </$(TAG_BOOK)>
+	  <$(TAG_BOOK)>
+	    <$(TAG_TITLE)>$(BOOK_TITLE_2)</$(TAG_TITLE)>
+	  </$(TAG_BOOK)>
+	  <book> <title>  abc  </title> </book>
+	</books>
+
+something-1:[?(file-exists filename-1.txt)!]:
+something-1:[shell]:
+	echo > filename-1.txt
+something-2:[python, ?(file-exists filename-2.txt)!]:
+	import base64, sys; base64.decode(open($(in), "rb"), open($(out), "wb"))

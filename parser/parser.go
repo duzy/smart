@@ -413,12 +413,17 @@ func (p *parser) parseIdent() *ast.Ident {
 // Common productions
 
 func (p *parser) isEndOfList(lhs bool) bool {
+        // If there's a comment right after the parsed expression, we break
+        // the expression list to treat the end-of-line comment like a LINEND.
+        if p.lineComment != nil {
+                return true
+        }
         if p.tok == token.RPAREN || p.tok == token.COLON_RBK {
                 // FIXME: check pared LPAREN or COLON_LBK?
                 return true
         }
         if token.COLON <= p.tok && p.tok < token.CALL {
-                return true;
+                return true
         }
         return p.tok == token.EOF || p.tok == token.LINEND || 
                 p.tok == token.COMMA || (lhs && (
@@ -434,14 +439,18 @@ func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
                 list = append(list, p.checkExpr(p.parseExpr(lhs)))
                 // If there's a comment right after the parsed expression, we break
                 // the expression list to treat the end-of-line comment like a LINEND.
-                if p.lineComment != nil {
+                /* if p.lineComment != nil {
                         break
-                }
+                } */
         }
 	return
 }
 
 func (p *parser) parseLhsList() []ast.Expr {
+        // Line comment of previous Decl will break the parsing loop,
+        // so we clear the previous line comment
+        p.lineComment = nil
+        
 	old := p.inRhs
 	p.inRhs = false
 	list := p.parseExprList(true)
@@ -784,12 +793,19 @@ func (p *parser) parseDefineDecl(tok token.Token, ident ast.Expr) ast.Decl {
         doc := p.leadComment
         pos := p.expect(tok)
         elems := p.parseRhsList()
+        comment := p.lineComment
+
+        // Take it from parser, since the line comment is assigned
+        // to the DefineDecl.
+        p.lineComment = nil
+        
         return &ast.DefineDecl{ 
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
                 Name: ident,
                 Elems: elems,
+                Comment: comment,
         }
 }
 
@@ -814,10 +830,11 @@ func (p *parser) parseRecipeExpr(std bool) ast.Expr {
                         }
                 }
         } else {
-                p.scanner.StartLineString() // s.StartLineRaw()
                 p.next() // skip RECIPE and parse next in line-string mode
-                elems = append(elems, p.parseExpr(false))
-                //fmt.Printf("recipe: %v %v %v\n", x, p.tok, p.lit)
+                for p.tok != token.LINEND && p.tok != token.EOF {
+                        elems = append(elems, p.parseExpr(false))
+                        //fmt.Printf("recipe: %v %v %v\n", x, p.tok, p.lit)
+                }
         }
         if p.tok != token.EOF {
                 p.expectLinend()
@@ -858,10 +875,8 @@ func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
 
         case token.COLON_LBK:
                 for p.tok != token.COLON_RBK && p.tok != token.EOF {
-                        fmt.Printf("LBK: %v %v\n", p.tok, p.lit)
                         opers = append(opers, p.checkExpr(p.parseExpr(false)))
                 }
-                fmt.Printf("RBK: %v %v\n", p.tok, p.lit)
                 p.expect(token.COLON_RBK)
                 depends = p.parseRhsList()
                 stdRecipe = false
