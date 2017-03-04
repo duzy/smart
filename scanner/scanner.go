@@ -96,8 +96,8 @@ const (
 )
 
 const (
-        isLineString    context = 1 << iota
-        isCompound
+        isCompoundLine    context = 1 << iota
+        isCompoundString
         isCompoundCallIdent
         isCompoundCallParen
 )
@@ -228,7 +228,7 @@ func (s *Scanner) scanIdentifier() string {
 	return string(s.src[offs:s.offset])
 }
 
-func (s *Scanner) scanCompound() (tok token.Token, lit string) {
+func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
 	offs := s.offset
         switch s.ch {
         case '\\':
@@ -244,7 +244,7 @@ func (s *Scanner) scanCompound() (tok token.Token, lit string) {
                 }
         case '"':
                 tok = token.COMPOSED
-                s.context &= ^isCompound
+                s.context &= ^isCompoundString
                 s.next() // take the ending '"'
                 return
         case '$':
@@ -265,7 +265,7 @@ loop:
 	return 
 }
 
-func (s *Scanner) scanLineString() (tok token.Token, lit string) {
+func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
 	offs := s.offset
         switch s.ch {
         case '\\':
@@ -282,7 +282,7 @@ func (s *Scanner) scanLineString() (tok token.Token, lit string) {
                 }
         case '\n':
                 tok = token.LINEND
-                s.context &= ^isLineString
+                s.context &= ^isCompoundLine
                 s.next() // take the line-end
                 return
         case '$':
@@ -752,16 +752,18 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
         var (
                 discardWhitespaces = true
         )
-        if s.context&(isLineString|isCompound) != 0 && s.context&(isCompoundCallIdent|isCompoundCallParen) == 0 {
+        if s.context&(isCompoundLine|isCompoundString) != 0 {
                 //fmt.Printf("context: %v %v %v\n", isCallContext, s.context&(isCallIdent|isCallParen), s.callPdepth)
-                switch {
-                case s.context&isLineString != 0:
-                        tok, lit = s.scanLineString()
-                case s.context&isCompound != 0:
-                        tok, lit = s.scanCompound()
-                }
-                if tok != token.CALL {
-                        return // escape from '$'
+                if s.context&(isCompoundCallIdent|isCompoundCallParen) == 0 {
+                        switch {
+                        case s.context&isCompoundLine != 0:
+                                tok, lit = s.scanCompoundLine()
+                        case s.context&isCompoundString != 0:
+                                tok, lit = s.scanCompoundString()
+                        }
+                        if tok != token.CALL {
+                                return // escape from '$'
+                        }
                 }
                 discardWhitespaces = false
         }
@@ -830,13 +832,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 lit = s.scanRawString(false)
                         }
                 case '"':
-                        if s.context&isCompound != 0 {
+                        if s.context&isCompoundString != 0 {
                                 tok = token.COMPOSED
-                                s.context &= ^isCompound
+                                s.context &= ^isCompoundString
                                 s.next() // take the ending '"'
                         } else {
                                 tok = token.COMPOUND
-                                s.context |= isCompound
+                                s.context |= isCompoundString
                         }
                         
                 case '$':
@@ -858,7 +860,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         if token.CALL < tok {
                                 lit = string(ch)
                                 s.next() // eat special
-                        } else if s.context&isCompound != 0 {
+                        } else if s.context&isCompoundString != 0 {
                                 if ch == '(' {
                                         s.callPdepth = s.parenDepth
                                         s.context |= isCompoundCallParen
@@ -898,11 +900,11 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 // ..
                         } */
                         tok = token.LINEND
-                        s.context &= ^isLineString
+                        s.context &= ^isCompoundLine
                 case '\t':
                         if s.lineOffset == s.offset-1 {
                                 tok, lit = token.RECIPE, string(ch) /*s.scanRecipe()*/
-                                s.context |= isLineString
+                                s.context |= isCompoundLine
                         } else {
 				s.error(s.offset-2, "unexpected tab")
                         }
