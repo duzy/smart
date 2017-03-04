@@ -626,8 +626,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 fallthrough
 
         default:
-                pos := p.pos
-                p.errorExpected(pos, "'"+p.tok.String()+"'")
+                pos := p.pos-1
+                p.errorExpected(pos, "expression") //(pos, "'"+p.tok.String()+"'")
                 p.next() // go to next token
                 return &ast.BadExpr{ From:pos, To:p.pos }
         }
@@ -876,6 +876,9 @@ func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
         case token.COLON_LBK:
                 for p.tok != token.COLON_RBK && p.tok != token.EOF {
                         opers = append(opers, p.checkExpr(p.parseExpr(false)))
+                        if p.tok == token.COMMA {
+                                p.next() // TODO: grouping opers
+                        }
                 }
                 p.expect(token.COLON_RBK)
                 depends = p.parseRhsList()

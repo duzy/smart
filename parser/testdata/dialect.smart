@@ -25,8 +25,8 @@ start:[xml (process-xml-doc)]: \
 	  <book> <title>  abc  </title> </book>
 	</books>
 
-something-1:[?(file-exists filename-1.txt)!]:
+something-1:[(file-exists filename-1.txt)]:
 something-1:[shell]:
 	echo > filename-1.txt
-something-2:[python, ?(file-exists filename-2.txt)!]:
+something-2:[python, (file-exists filename-2.txt)]:
 	import base64, sys; base64.decode(open($(in), "rb"), open($(out), "wb"))

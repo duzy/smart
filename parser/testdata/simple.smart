@@ -45,8 +45,10 @@ start: print-a print-b
 	print "......3"
 	print "......4"
 print-a: a.print-var
-	print "a.VAR = $(a.VAR $(var))"
+	print "a.VAR = $(a.VAR)"
 print-b: b.print-var
 	print "b.VAR = $(b.VAR $(var))"
+	print "$(b.VAR $(var)$(v1)$(v2)$v)"
+	print "$(b.VAR $(var$(v$(v)v)))"
 a b c :
 	print $@

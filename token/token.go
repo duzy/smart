@@ -96,7 +96,7 @@ const (
         MODULE     // module a
         USE        // use b
         EVAL       // evaluate a builtin immediately
-        EXPORT     //
+        EXPORT     // export ...
         INCLUDE    // include a.smart
         IMPORT     // import a.smart
         INSTANCE   // instance

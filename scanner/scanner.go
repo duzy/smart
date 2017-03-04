@@ -32,8 +32,8 @@ type Scanner struct {
 	readOffset int  // reading offset (position after current character)
 	lineOffset int  // current line offset
         parenDepth int  // number of nested parentheses
-        callPdepth int  // paren detph of call
         context context // scanning context
+        callParenDepths []int // paren detphs of call
         
         skipPostLineFeeds bool
 
@@ -133,7 +133,7 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 	s.readOffset = 0
 	s.lineOffset = 0
         s.parenDepth = 0
-        s.callPdepth = -1
+        s.callParenDepths = []int{}
         s.context = 0
         
         s.skipPostLineFeeds = false
@@ -299,6 +299,7 @@ loop:
                         s.next()
                 }
         }
+        //fmt.Printf("line: %v\n", string(s.src[offs:s.offset]))
 	return token.STRING, string(s.src[offs:s.offset])
 }
 
@@ -687,63 +688,6 @@ func (s *Scanner) scanString(ml bool) string {
 	return string(s.src[offs:s.offset])
 }
 
-/* func (s *Scanner) scanRecipe() string {
-	// '\t' opening already consumed
-	offs := s.offset
-	for s.ch != '\n' {
-		s.next()
-	}
-	return string(s.src[offs:s.offset])
-} */
-
-/* func (s *Scanner) scanText() string {
-	offs := s.offset - 1
-
-	for {
-		ch := s.ch
-		if ch == '\n' || ch < 0 {
-			s.error(offs, "string literal not terminated")
-			break
-		}
-		s.next()
-                if s.ch == ' ' || s.ch == '\t' || s.ch == '\n' || s.ch == '\r' {
-			break
-		}
-                if ch == '$' {
-                        s.scanCall()
-		}
-	}
-
-	return string(s.src[offs:s.offset])
-} */
-
-/* func (s *Scanner) scanSep() (tok token.Token, lit string) {
-	offs := s.offset - 1
-        
-	for s.ch == ' ' || s.ch == '\t' || s.ch == '\\' || (s.ch == '\n' && s.parenDepth > 0) {
-                ch := s.ch
-		s.next()
-                if ch == '\\' {
-                        if s.ch != '\n' {
-                                s.error(s.offset, "\\ not following \\n")
-                                break
-                        }
-                        s.next()
-                }
-	}
-
-        if s.ch == ')' {
-                s.next() // consume ')'
-                s.parenDepth--
-                tok = token.RPAREN
-        } else {
-                tok = token.SEP
-        }
-
-        lit = string(s.src[offs:s.offset])
-        return
-} */
-
 func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 //scanAgain:
 	// current token start
@@ -856,9 +800,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         if token.CALL < tok {
                                 lit = string(ch)
                                 s.next() // eat special
-                        } else if s.context&isCompoundString != 0 {
+                        } else if s.context&(isCompoundString|isCompoundLine) != 0 {
                                 if ch == '(' {
-                                        s.callPdepth = s.parenDepth
+                                        s.callParenDepths = append(s.callParenDepths, s.parenDepth)
                                         s.context |= isCompoundCallParen
                                 } else {
                                         s.context |= isCompoundCallIdent
@@ -878,9 +822,15 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                         if s.context&isCompoundCallParen != 0 {
                                 //fmt.Printf("call-paren: %v %v\n", s.callPdepth, s.parenDepth)
-                                if  s.parenDepth == s.callPdepth {
-                                        s.context &= ^isCompoundCallParen
-                                        s.callPdepth = -1
+                                var (
+                                        l = len(s.callParenDepths)
+                                        callDepth = s.callParenDepths[l-1]
+                                )
+                                if  s.parenDepth == callDepth {
+                                        s.callParenDepths = s.callParenDepths[0:l-1]
+                                        if l == 1 {
+                                                s.context &= ^isCompoundCallParen
+                                        }
                                 }
                         }
                 case '=':
@@ -957,7 +907,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 default:
 			// next reports unexpected BOMs - don't repeat
 			if ch != bom {
-				s.error(s.file.Offset(pos)-1, fmt.Sprintf("illegal character %#U", ch))
+				s.error(s.file.Offset(pos-2), fmt.Sprintf("illegal character %#U", ch))
 			}
 			tok = token.ILLEGAL
 			lit = string(ch)
@@ -965,7 +915,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	}
 
         // eat consequence spaces
-        if s.context&(isCompoundLine|isCompoundString) == 0 {
+        if s.context&(isCompoundLine|isCompoundString) == 0 || 
+                s.context&isCompoundCallParen != 0 {
                 s.skipUselessWhitespace(false)
         }
 	return
