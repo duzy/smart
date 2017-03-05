@@ -10,8 +10,13 @@ import (
         "testing"
 )
 
+var testtrace = false
+
 func TestParseFile(t *testing.T) {
-        mode := DeclarationErrors | Trace
+        mode := DeclarationErrors
+        if testtrace {
+                mode |= Trace
+        }
         files := []string{
                 `testdata/defines.smart`,
                 `testdata/simple.smart`,

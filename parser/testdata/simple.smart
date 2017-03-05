@@ -35,7 +35,6 @@ eval (let (a 1, b 2, c 3)
       (set a 123))
 
 VAR = project scoped var
-
 var = module scoped var
 
 start: print-a print-b
@@ -47,8 +46,8 @@ start: print-a print-b
 print-a: a.print-var
 	print "a.VAR = $(a.VAR)"
 print-b: b.print-var
-	print "b.VAR = $(b.VAR $(var))"
-	print "$(b.VAR $(var)$(v1)$(v2)$v)"
-	print "$(b.VAR $(var$(v$(v)v)))"
+	print "b.VAR = $(VAR $(var))"
+	print "$(VAR $(var)$(v1)$(v2)$v)"
+	print "$(VAR $(var$(v$(v)v)))"
 a b c :
 	print $@
