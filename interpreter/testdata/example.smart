@@ -1,0 +1,26 @@
+# this is an example project
+project example
+
+import "fs"
+
+TAG_BOOK = book
+TAG_TITLE = title
+
+include "part.smart"
+
+BOOK_TITLE_1 = book one
+BOOK_TITLE_2 = book two
+
+start:[xml (process-xml-doc)]: something
+	<books>
+	  <$(TAG_BOOK)>
+	    <$(TAG_TITLE)>$(BOOK_TITLE_1)</$(TAG_TITLE)>
+	  </$(TAG_BOOK)>
+	  <$(TAG_BOOK)>
+	    <$(TAG_TITLE)>$(BOOK_TITLE_2)</$(TAG_TITLE)>
+	  </$(TAG_BOOK)>
+	  <book> <title>  abc  </title> </book>
+	</books>
+
+something:[shell]:
+	echo > filename-1.txt

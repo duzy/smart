@@ -69,15 +69,16 @@ func (s *Scope) String() string {
 // The Data fields contains object-specific data:
 //
 //	Kind    Data type         Data value
-//	Pkg	*types.Package    package scope
-//	Con     int               iota for the respective declaration
+//	Pro	*types.Project    project scope
+//	Mod	*types.Module     module scope
+//	Rul	*types.Rule       rule scope
+//	Def	*types.Define     rule scope
 //	Con     != nil            constant value
-//	Typ     *Scope            (used as method scope during type checking - transient)
 //
 type Symbol struct {
 	Kind SymKind
 	Name string      // declared name
-	Decl interface{} // corresponding Field, XxxSpec, FuncDecl, LabeledStmt, AssignStmt, Scope; or nil
+	Decl interface{} // corresponding declaration; or nil
 	Data interface{} // object-specific data; or nil
 	Type interface{} // placeholder for type information; may be nil
 }
@@ -141,18 +142,20 @@ type SymKind int
 // The list of possible Symbol kinds.
 const (
 	Bad SymKind = iota // for error handling
-	Pkg                // package
+	Pro                // project
+	Mod                // module
+	Def                // definition
+	Rul                // rule
 	Con                // constant
-	Typ                // type
-	Def                // definition or method
 )
 
 var symKindStrings = [...]string{
 	Bad: "bad",
-	Pkg: "package",
-	Con: "const",
-	Typ: "type",
+	Pro: "project",
+	Mod: "module",
 	Def: "define",
+	Rul: "rule",
+	Con: "const",
 }
 
 func (kind SymKind) String() string { return symKindStrings[kind] }

@@ -55,6 +55,7 @@ const (
 	ModuleClauseOnly Mode             = 1 << iota  // stop parsing after project or module clause
 	ImportsOnly                                    // stop parsing after import declarations
 	ParseComments                                  // parse comments and add them to AST
+        Flat                                           // parsing in flat mode (no module/project/import keywords)
 	Trace                                          // print a trace of parsed productions
 	DeclarationErrors                              // report declaration errors
 	SpuriousErrors                                 // same as AllErrors, for backward-compatibility
@@ -102,7 +103,7 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 			// ParseFile API and return a valid (but) empty
 			// *ast.File
 			f = &ast.File{
-				Name:  new(ast.Ident),
+				Name:  new(ast.Bareword),
 				Scope: ast.NewScope(nil),
 			}
 		}
@@ -130,7 +131,7 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 // returned. If a parse error occurred, a non-nil but incomplete map and the
 // first error encountered are returned.
 //
-func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (pkgs map[string]*ast.Project, first error) {
+func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (pkgs map[string]*ast.Module, first error) {
 	fd, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -142,21 +143,20 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
 		return nil, err
 	}
 
-	pkgs = make(map[string]*ast.Project)
+	pkgs = make(map[string]*ast.Module)
 	for _, d := range list {
-		if strings.HasSuffix(d.Name(), ".go") && (filter == nil || filter(d)) {
+		if strings.HasSuffix(d.Name(), ".smart") && (filter == nil || filter(d)) {
 			filename := filepath.Join(path, d.Name())
 			if src, err := ParseFile(fset, filename, nil, mode); err == nil {
-				name := src.Name.Name
+				name := src.Name.Value
 				pkg, found := pkgs[name]
 				if !found {
-					pkg = &ast.Project{
-                                                Module: ast.Module {
-                                                        Name:  name,
-                                                        Files: make(map[string]*ast.File),
-                                                },
-                                                Modules: make(map[string]*ast.Module),
-					}
+					pkg = &ast.Module{
+                                                Keyword: src.Keyword,
+                                                Name:    name,
+                                                Scope:   ast.NewScope(nil),
+                                                Files:   make(map[string]*ast.File),
+                                        }
 					pkgs[name] = pkg
 				}
 				pkg.Files[filename] = src

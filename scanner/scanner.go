@@ -719,13 +719,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 		lit = s.scanIdentifier()
 		if len(lit) > 1 {
 			switch tok = token.Lookup(lit); {
-                        case tok == token.IDENT || tok.IsKeyword():
+                        case tok == token.BAREWORD || tok.IsKeyword():
                                 // ...
                         default:
 				s.error(s.offset, "unexpected token '"+tok.String()+"'")
 			}
                 } else {
-                        tok = token.IDENT
+                        tok = token.BAREWORD
                 }
                 if s.context&isCompoundCallIdent != 0 {
                         s.context &= ^isCompoundCallIdent

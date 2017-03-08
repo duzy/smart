@@ -49,7 +49,7 @@ type parser struct {
 	// Ordinary identifier scopes
 	pkgScope   *ast.Scope        // pkgScope.Outer == nil
 	topScope   *ast.Scope        // top-most scope; may be pkgScope
-	unresolved []*ast.Ident      // unresolved identifiers (reference to project symbols)
+	unresolved []*ast.Bareword      // unresolved identifiers (reference to project symbols)
 	imports    []*ast.ImportSpec // list of imports
 }
 
@@ -263,7 +263,7 @@ func (p *parser) expectLinend() {
                 p.next()
         } else {
                 p.errorExpected(p.pos, "'\n'")
-                syncDecl(p) //syncStmt(p)
+                syncClause(p) //syncStmt(p)
 	}
 }
 
@@ -277,7 +277,7 @@ var unresolved = new(ast.Symbol)
 // set, x is marked as unresolved and collected in the list of unresolved
 // identifiers.
 //
-func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
+/* func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 	// nothing to do if x is not an identifier or the blank identifier
 	ident, _ := x.(*ast.Ident)
 	if ident == nil {
@@ -306,7 +306,7 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 
 func (p *parser) resolve(x ast.Expr) {
 	p.tryResolve(x, true)
-}
+} */
 
 // ----------------------------------------------------------------------------
 // Scoping
@@ -324,14 +324,14 @@ func (p *parser) closeScope() {
 
 func assert(cond bool, msg string) {
 	if !cond {
-		panic("go/parser internal error: " + msg)
+		panic("parser internal error: " + msg)
 	}
 }
 
-// syncDecl advances to the next declaration.
+// syncClause advances to the next declaration.
 // Used for synchronization after an error.
 //
-func syncDecl(p *parser) {
+func syncClause(p *parser) {
 	for {
 		switch p.tok {
 		case token.IMPORT, token.INCLUDE, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
@@ -373,17 +373,16 @@ func (p *parser) safePos(pos token.Pos) (res token.Pos) {
 	return pos
 }
 
-// checkExpr checks that x is a valid expression (and not a Decl).
+// checkExpr checks that x is a valid expression (and not a Clause).
 func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	switch /*unparen(x)*/x.(type) {
 	case *ast.BadExpr:
-	case *ast.Ident:
+	case *ast.Bareword:
 	case *ast.BasicLit:
 	case *ast.CompoundLit:
 	case *ast.CallExpr:
-	case *ast.GroupExpr:
-	case *ast.GroupedListExpr:
-		panic("unreachable")
+	case *ast.GroupExpr: //panic("unreachable")
+	case *ast.ListExpr:  panic("unreachable")
 	case *ast.UnaryExpr:
 	case *ast.BinaryExpr:
         case *ast.KeyValueExpr:
@@ -396,17 +395,17 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 }
 
 // ----------------------------------------------------------------------------
-// Identifiers
+// Barewords & Identifiers
 
-func (p *parser) parseIdent() *ast.Ident {
-	pos, name := p.pos, ""
-	if p.tok == token.IDENT {
-		name = p.lit
+func (p *parser) parseBareword() *ast.Bareword {
+	pos, value := p.pos, ""
+	if p.tok == token.BAREWORD {
+		value = p.lit
 		p.next()
 	} else {
-		p.expect(token.IDENT) // use expect() error handling
+		p.expect(token.BAREWORD) // use expect() error handling
 	}
-	return &ast.Ident{NamePos: pos, Name: name}
+	return &ast.Bareword{ValuePos: pos, Value: value}
 }
 
 // ----------------------------------------------------------------------------
@@ -433,7 +432,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
 // If lhs is set, result list elements which are identifiers are not resolved.
 func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
 	if p.trace {
-		defer un(trace(p, "ExpressionList"))
+		defer un(trace(p, "List"))
 	}
         for !p.isEndOfList(lhs) {
                 list = append(list, p.checkExpr(p.parseExpr(lhs)))
@@ -446,8 +445,12 @@ func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
 	return
 }
 
+func (p *parser) parseListExpr(lhs bool) *ast.ListExpr {
+        return &ast.ListExpr{ p.parseExprList(lhs) }
+}
+
 func (p *parser) parseLhsList() []ast.Expr {
-        // Line comment of previous Decl will break the parsing loop,
+        // Line comment of previous Clause will break the parsing loop,
         // so we clear the previous line comment
         p.lineComment = nil
         
@@ -470,9 +473,9 @@ func (p *parser) parseLhsList() []ast.Expr {
 		//   to resolve the identifier in that case
 	default:
 		// identifiers must be declared elsewhere
-		for _, x := range list {
+		/* for _, x := range list {
 			p.resolve(x)
-		}
+		} */
 	}
 	p.inRhs = old
 	return list
@@ -495,15 +498,12 @@ func (p *parser) parseGroupExpr() ast.Expr {
         elems, converted := p.parseExprList(false), false
         for p.tok == token.COMMA {
                 p.next()
-                next := p.parseExprList(false)
+                next := p.parseListExpr(false)
                 if !converted {
-                        elems = []ast.Expr{ 
-                                &ast.GroupedListExpr{ elems },
-                                &ast.GroupedListExpr{ next },
-                        }
+                        elems = []ast.Expr{ &ast.ListExpr{ elems }, next }
                         converted = true
                 } else {
-                        elems = append(elems, &ast.GroupedListExpr{ next })
+                        elems = append(elems, next)
                 }
         }
         rpos := p.expect(token.RPAREN)
@@ -517,9 +517,9 @@ func (p *parser) parseGroupExpr() ast.Expr {
 
 func (p *parser) parseExpr0(lhs bool) ast.Expr {
         switch p.tok {
-        case    token.IDENT, token.INT, token.FLOAT, token.DATETIME, 
-                token.DATE, token.TIME, token.URI, token.STRING, 
-                token.ESCAPE:
+        case token.BAREWORD, token.INT, token.FLOAT, token.DATETIME, 
+             token.DATE, token.TIME, token.URI, token.STRING, 
+             token.ESCAPE:
                 pos, tok, lit := p.pos, p.tok, p.lit
                 p.next()
                 return &ast.BasicLit{
@@ -546,10 +546,10 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         Quote:  true,
                 }
                 
-         case   token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S,
-                token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
-                token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
-                token.CALL_9:
+         case token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S,
+              token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
+              token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
+              token.CALL_9:
                 var tok = p.tok
                 p.next()
                 return &ast.CallExpr{
@@ -564,7 +564,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         pos = p.pos
                         tok = p.tok
                         name ast.Expr
-                        rest []*ast.ArgExpr
+                        rest []ast.Expr //*ast.ListExpr
                         tokLp token.Token
                 )
                 switch p.next(); p.tok {
@@ -573,12 +573,10 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         p.next()
                         name = p.checkExpr(p.parseExpr(false))
                         if p.tok != token.RPAREN {
-                                list := p.parseExprList(false)
-                                rest = append(rest, &ast.ArgExpr{ list })
+                                rest = append(rest, p.parseListExpr(false))
                                 for p.tok == token.COMMA {
                                         p.next()
-                                        list = p.parseExprList(false)
-                                        rest = append(rest, &ast.ArgExpr{ list })
+                                        rest = append(rest, p.parseListExpr(false))
                                 }
                         }
                         rpos = p.expect(token.RPAREN)
@@ -611,15 +609,15 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         X: x,
                 }
 
-                case token.PROJECT, token.MODULE, token.USE, token.EXPORT, 
-                token.INCLUDE, token.IMPORT, token.INSTANCE:
+        case token.PROJECT, token.MODULE, token.USE, token.EXPORT, 
+             token.INCLUDE, token.IMPORT, token.INSTANCE:
                 if p.inRhs {
                         pos, lit := p.pos, p.lit
                         p.next()
-                        // convert keyword into IDENT
+                        // convert keyword into BAREWORD
                         return &ast.BasicLit{
                                 ValuePos: pos,
-                                Kind: token.IDENT,
+                                Kind: token.BAREWORD,
                                 Value: lit,
                         }
                 }
@@ -668,7 +666,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 }
 
 // ----------------------------------------------------------------------------
-// Declarations
+// Clauses & Declarations
 
 type parseSpecFunc func(doc *ast.CommentGroup, keyword token.Token, iota int) ast.Spec
 
@@ -684,33 +682,30 @@ func isValidImport(lit string) bool {
 }
 
 func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        gs := p.parseDirectiveSpec()
-	return &ast.ImportSpec{ gs }
+	spec := &ast.ImportSpec{ p.parseDirectiveSpec() }
+        p.imports = append(p.imports, spec)
+        return spec
 }
 
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        gs := p.parseDirectiveSpec()
-        return &ast.IncludeSpec{ gs }
+        return &ast.IncludeSpec{ p.parseDirectiveSpec() }
 }
 
 func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        gs := p.parseDirectiveSpec()
-        return &ast.UseSpec{ gs }
+        return &ast.UseSpec{ p.parseDirectiveSpec() }
 }
 
 func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        gs := p.parseDirectiveSpec()
-        return &ast.InstanceSpec{ gs }
+        return &ast.InstanceSpec{ p.parseDirectiveSpec() }
 }
 
 func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        gs := p.parseDirectiveSpec()
-        return &ast.EvalSpec{ gs }
+        return &ast.EvalSpec{ p.parseDirectiveSpec() }
 }
 
-func (p *parser) parseDirectiveSpec() (gs *ast.DirectiveSpec) {
+func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
 	if p.trace {
-		defer un(trace(p, "DirectiveSpec"))
+		defer un(trace(p, "Spec"))
 	}
         
         var (
@@ -730,7 +725,7 @@ func (p *parser) parseDirectiveSpec() (gs *ast.DirectiveSpec) {
                 }
                 props = append(props, p.parseExpr(false))
         }
-        return &ast.DirectiveSpec{
+        return ast.DirectiveSpec{
                 Doc: doc,
                 Props: props,
                 Comment: comment,
@@ -738,9 +733,9 @@ func (p *parser) parseDirectiveSpec() (gs *ast.DirectiveSpec) {
         }
 }
 
-func (p *parser) parseDirectiveDecl(f parseSpecFunc) *ast.DirectiveDecl {
+func (p *parser) parseGenericClause(f parseSpecFunc) *ast.GenericClause {
 	if p.trace {
-		defer un(trace(p, "Directive("+p.tok.String()+")"))
+		defer un(trace(p, "Clause("+p.tok.String()+")"))
 	}
 
         var (
@@ -774,7 +769,7 @@ func (p *parser) parseDirectiveDecl(f parseSpecFunc) *ast.DirectiveDecl {
 		p.expectLinend() // endpos = p.expect(token.LINEND)
 	}
 
-	return &ast.DirectiveDecl{
+	return &ast.GenericClause{
 		Doc:    doc,
 		TokPos: pos,
 		Tok:    keyword,
@@ -785,7 +780,7 @@ func (p *parser) parseDirectiveDecl(f parseSpecFunc) *ast.DirectiveDecl {
 	}
 }
 
-func (p *parser) parseDefineDecl(tok token.Token, ident ast.Expr) ast.Decl {
+func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
 	if p.trace {
 		defer un(trace(p, "Define"))
 	}
@@ -796,10 +791,10 @@ func (p *parser) parseDefineDecl(tok token.Token, ident ast.Expr) ast.Decl {
         comment := p.lineComment
 
         // Take it from parser, since the line comment is assigned
-        // to the DefineDecl.
+        // to the DefineClause.
         p.lineComment = nil
         
-        return &ast.DefineDecl{ 
+        return &ast.DefineClause{ 
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
@@ -848,7 +843,7 @@ func (p *parser) parseRecipeExpr(std bool) ast.Expr {
         }
 }
 
-func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
+func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause {
 	if p.trace {
 		defer un(trace(p, "Rule"))
 	}
@@ -903,7 +898,7 @@ func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
                 }
         }
         
-        return &ast.RuleDecl{
+        return &ast.RuleClause{
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
@@ -913,44 +908,40 @@ func (p *parser) parseRuleDecl(tok token.Token, targets []ast.Expr) ast.Decl {
         }
 }
 
-func (p *parser) parseDecl(sync func(*parser)) ast.Decl {
-	if p.trace {
-		defer un(trace(p, "Declaration"))
-	}
-
-	var f parseSpecFunc
+func (p *parser) parseClause(sync func(*parser)) ast.Clause {
 	switch p.tok {
 	case token.INCLUDE:
-		f = p.parseIncludeSpec
-
+                return p.parseGenericClause(p.parseIncludeSpec)
 	case token.INSTANCE:
-		f = p.parseInstanceSpec
-
+                return p.parseGenericClause(p.parseInstanceSpec)
         case token.EVAL:
-		f = p.parseEvalSpec
-
+                return p.parseGenericClause(p.parseEvalSpec)
 	case token.USE:
-		f = p.parseUseSpec
+                return p.parseGenericClause(p.parseUseSpec)
+        }
 
-        default:
-                switch list := p.parseLhsList(); {
-                case p.tok == token.ASSIGN:
-                        if len(list) == 1 {
-                                return p.parseDefineDecl(p.tok, list[0])
-                        } else {
-                                p.errorExpected(p.pos, "assign to multiple names")
-                                return &ast.BadDecl{From: p.pos, To: p.pos}
-                        }
-                case token.COLON <= p.tok && p.tok < token.CALL:
-                        return p.parseRuleDecl(p.tok, list)
-                default:
-                        pos := p.pos
-                        p.errorExpected(pos, "'"+p.tok.String()+"'")
-                        sync(p)
-                        return &ast.BadDecl{From: pos, To: p.pos}
-                }
-	}
-	return p.parseDirectiveDecl(f)
+        if p.trace {
+                //defer un(trace(p, "Clause("+p.tok.String()+")"))
+                defer un(trace(p, "Clause(?)"))
+        }
+
+        x := p.parseExpr(true)
+        if p.tok == token.ASSIGN {
+                return p.parseDefineClause(p.tok, x)
+        }
+
+        list := []ast.Expr{ x }
+        if p.tok < token.COLON || token.CALL <= p.tok {
+                list = append(list, p.parseLhsList()...)
+        }
+        if token.COLON <= p.tok && p.tok < token.CALL {
+                return p.parseRuleClause(p.tok, list)
+        }
+
+        pos := p.pos
+        p.errorExpected(pos, "'"+p.tok.String()+"'")
+        sync(p)
+        return &ast.BadClause{From: pos, To: p.pos}
 }
 
 func (p *parser) parseFile() *ast.File {
@@ -966,38 +957,55 @@ func (p *parser) parseFile() *ast.File {
 
 	// package clause
 	doc := p.leadComment
-	pos := p.expect(token.PROJECT)
-	// Smart-lang spec:
-        //   * the project clause is not a declaration;
-	//   * the project name does not appear in any scope.
-	ident := p.parseIdent()
-	if ident.Name == "_" && p.mode&DeclarationErrors != 0 {
-		p.error(p.pos, "invalid package name _")
-	}
-	p.expectLinend()
+	pos := p.pos
 
-	// Don't bother parsing the rest if we had errors parsing the package clause.
-	// Likely not a Go source file at all.
-	if p.errors.Len() != 0 {
-		return nil
-	}
+        var (
+                keyword token.Token
+                ident *ast.Bareword
+        )
+        if p.mode&Flat == 0 {
+                if keyword = p.tok; keyword == token.PROJECT || keyword == token.MODULE {
+                        p.next()
+                } else {
+                        p.errorExpected(pos, "package keyword")
+                }
+
+                // Smart-lang spec:
+                //   * the project clause is not a declaration;
+                //   * the project name does not appear in any scope.
+                ident = p.parseBareword()
+                if ident.Value == "_" && p.mode&DeclarationErrors != 0 {
+                        p.error(p.pos, "invalid package name _")
+                }
+                p.expectLinend()
+
+                // Don't bother parsing the rest if we had errors parsing the package clause.
+                // Likely not a Go source file at all.
+                if p.errors.Len() != 0 {
+                        return nil
+                }
+        }
 
 	p.openScope()
 	p.pkgScope = p.topScope
-	var decls []ast.Decl
+	var clauses []ast.Clause
 	if p.mode&ModuleClauseOnly == 0 {
-		// import decls
-		for p.tok == token.IMPORT {
-			decls = append(decls, p.parseDirectiveDecl(p.parseImportSpec))
-		}
+                if p.mode&Flat == 0 {
+                        // import clauses
+                        for p.tok == token.IMPORT {
+                                clauses = append(clauses, p.parseGenericClause(p.parseImportSpec))
+                        }
+                }
 		if p.mode&ImportsOnly == 0 {
 			// rest of module body
 			for p.tok != token.EOF {
                                  switch p.tok {
                                  case token.LINEND: 
                                          p.next() // skip empty lines
+                                 case token.IMPORT:
+                                         p.errorExpected(p.pos, "'"+p.tok.String()+"'")
                                  default:
-                                         decls = append(decls, p.parseDecl(syncDecl))
+                                         clauses = append(clauses, p.parseClause(syncClause))
                                  }
 			}
 		}
@@ -1008,9 +1016,10 @@ func (p *parser) parseFile() *ast.File {
 
 	return &ast.File{
 		Doc:        doc,
-		Module:     pos,
+		Keypos:     pos,
+                Keyword:    keyword,
 		Name:       ident,
-		Decls:      decls,
+		Clauses:    clauses,
 		Scope:      p.pkgScope,
 		Imports:    p.imports,
 		Comments:   p.comments,

@@ -20,7 +20,7 @@ const (
 	literal_beg
 	// Identifiers and basic type literals
 	// (these tokens stand for classes of literals)
-        IDENT    // abc
+        BAREWORD // abc
 	INT      // 12345
 	FLOAT    // 123.45
         DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
@@ -33,10 +33,10 @@ const (
 	literal_end
 
         COMPOSED // the ending quote of a compound literal
+        RECIPE   // tab to indicate a command recipe
+        LINEND   // significant line break (LF or CRLF)
 
 	operator_beg
-        LINEND    // significant line break (LF or CRLF)
-
 	LPAREN    // (
 	LBRACK    // [
 	LBRACE    // {    left curly
@@ -69,8 +69,7 @@ const (
         CALL_8    // $8
         CALL_9    // $9
 
-        RECIPE    // tab to indicate a command recipe
-        
+       
         ASSIGN    // =
         /*
         QUE_ASSIGN // ?=
@@ -108,7 +107,7 @@ var tokens = [...]string{
         EOF:     "EOF",
         COMMENT: "COMMENT",
 
-        IDENT:    "IDENT",
+        BAREWORD: "BAREWORD",
         INT:      "INT",
         FLOAT:    "FLOAT",
         DATETIME: "DATETIME",
@@ -119,7 +118,7 @@ var tokens = [...]string{
         ESCAPE:   "\\",
         COMPOUND: "COMPOUND",
         COMPOSED: "COMPOSED",
-
+        RECIPE:   "RECIPE",
         LINEND:   "LINEND",
 
 	LPAREN: "(",
@@ -153,8 +152,6 @@ var tokens = [...]string{
         CALL_8:    "$8",
         CALL_9:    "$9",
 
-        RECIPE:    "RECIPE",
-        
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",
 
@@ -197,7 +194,7 @@ func Lookup(ident string) Token {
 	if tok, is_keyword := keywords[ident]; is_keyword {
 		return tok
 	}
-	return IDENT
+	return BAREWORD
 }
 
 func (tok Token) IsLiteral() bool { return literal_beg < tok && tok < literal_end }
