@@ -10,7 +10,7 @@ import (
         "testing"
 )
 
-var testtrace = false
+var testtrace = true
 
 func TestParseFile(t *testing.T) {
         mode := DeclarationErrors

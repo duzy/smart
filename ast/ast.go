@@ -151,6 +151,13 @@ type (
                 Elems []Expr
         }
 
+        // Group expression surrounded by '(' and ')'.
+        GroupExpr struct {
+                Lparen token.Pos
+                Elems []Expr
+                Rparen token.Pos
+        }
+
         // Call expression
         CallExpr struct {
                 Dollar token.Pos
@@ -160,13 +167,6 @@ type (
                 Rparen token.Pos
                 TokLp token.Token // left paren token
                 Tok token.Token
-        }
-
-        // Group expression surrounded by '(' and ')'.
-        GroupExpr struct {
-                Lparen token.Pos
-                Elems []Expr
-                Rparen token.Pos
         }
 
 	// A UnaryExpr node represents a unary expression.
@@ -359,7 +359,7 @@ type (
 		TokPos  token.Pos     // position of Tok
 		Tok     token.Token   // '=', ':='
 		Name    Expr          // name for the defining symbol
-                Elems   []Expr
+                Value   Expr          // value of the definition
 		Comment *CommentGroup // line comments; or nil
 	}
 
@@ -419,6 +419,7 @@ type File struct {
 // collectively building a Module.
 //
 type Module struct {
+	Keypos  token.Pos          // position of "module" or "project" keyword
         Keyword token.Token        // e.g. "module", "project"
 	Name    string             // project name
 	Scope   *Scope             // project scope across all files

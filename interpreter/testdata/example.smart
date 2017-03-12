@@ -11,6 +11,11 @@ include "part.smart"
 BOOK_TITLE_1 = book one
 BOOK_TITLE_2 = book two
 
+numbers = -123 +100
+
+eval print "this is a test\n"
+eval println 'this is a test'
+
 start:[xml (process-xml-doc)]: something
 	<books>
 	  <$(TAG_BOOK)>
@@ -22,5 +27,13 @@ start:[xml (process-xml-doc)]: something
 	  <book> <title>  abc  </title> </book>
 	</books>
 
+## New rule for `something`
 something:[shell]:
-	echo > filename-1.txt
+	echo '# filename' > filename.txt
+
+## append rule to `something`
+#something::[shell]:
+#	echo '$@' >> filename.txt
+
+## the main clause
+#eval run start # run is a builtin function

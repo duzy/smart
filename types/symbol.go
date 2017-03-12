@@ -7,6 +7,7 @@ package types
 
 import (
         "github.com/duzy/smart/token"
+        //"fmt"
 )
 
 type Symbol interface {
@@ -14,6 +15,8 @@ type Symbol interface {
         Module() *Module
         Name() string
         Type() Type
+        Value() Value
+        Call(args... Value) Value
 
         String() string
 
@@ -44,13 +47,15 @@ type symbol struct {
         scopePos_ token.Pos
 }
 
-func (sym *symbol) Parent() *Scope      { return sym.parent }
-func (sym *symbol) Module() *Module     { return sym.module }
-func (sym *symbol) Name() string        { return sym.name }
-func (sym *symbol) Type() Type          { return sym.typ }
-func (sym *symbol) String() string      { panic("abstract") }
-func (sym *symbol) order() uint32       { return sym.ord }
-func (sym *symbol) scopePos() token.Pos { return sym.scopePos_ }
+func (sym *symbol) Parent() *Scope        { return sym.parent }
+func (sym *symbol) Module() *Module       { return sym.module }
+func (sym *symbol) Name() string          { return sym.name }
+func (sym *symbol) Type() Type            { return sym.typ }
+func (sym *symbol) Value() Value          { panic("abstract") }
+func (sym *symbol) Call(a... Value) Value { panic("abstract") }
+func (sym *symbol) String() string        { panic("abstract") }
+func (sym *symbol) order() uint32         { return sym.ord }
+func (sym *symbol) scopePos() token.Pos   { return sym.scopePos_ }
 
 func (sym *symbol) setParent(parent *Scope)   { sym.parent = parent }
 func (sym *symbol) setOrder(order uint32)     { /*assert(order > 0);*/ sym.ord= order }
@@ -63,7 +68,7 @@ type ModuleName struct {
 }
 
 func NewModuleName(pos token.Pos, mod *Module, name string, imported *Module) *ModuleName {
-	return &ModuleName{symbol{nil, mod, name, Types[Invalid], 0, pos, token.NoPos}, imported, false}
+	return &ModuleName{symbol{nil, mod, name, Invalid, 0, pos, token.NoPos}, imported, false}
 }
 
 // A Const represents a declared constant.
@@ -74,19 +79,45 @@ type Const struct {
 // A Def represents a definition.
 type Def struct {
         symbol
+        value Value
 }
 
-func NewDef(pos token.Pos, mod *Module, name string, typ Type) *Def {
-	return &Def{symbol{nil, mod, name, typ, 0, pos, token.NoPos}}
+func (d *Def) String() string {
+        //return fmt.Sprintf("% = %s", d.name, d.value)
+        return d.name + " = " + d.value.String()
 }
 
-// A Rule represents a declared rule.
-type Rule struct {
-        symbol
+func (d *Def) Value() Value { return d.value }
+func (d *Def) Call(a... Value) Value {
+        panic("implementation") 
+}
+
+func NewDef(pos token.Pos, mod *Module, name string, value Value) *Def {
+        var typ = value.Type()
+	return &Def{symbol{nil, mod, name, typ, 0, pos, token.NoPos}, value}
 }
 
 // A Builtin represents a built-in function.
 // Builtins don't have a valid type.
 type Builtin struct {
         symbol
+        f builtin
+}
+
+func (p *Builtin) Value() Value { return p.Call() }
+func (p *Builtin) Call(a... Value) Value { return p.f(a...) }
+
+// 
+type RuleBody struct {
+        // Programs
+}
+
+type Rule struct {
+}
+
+// A RuleEntry represents a declared rule.
+type RuleEntry struct {
+        symbol
+        Target *Rule
+        Bodies []*RuleBody
 }

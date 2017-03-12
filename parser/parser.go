@@ -175,6 +175,13 @@ func (p *parser) consumeCommentGroup(n int) (comments *ast.CommentGroup, endline
 // stored in the AST.
 //
 func (p *parser) next() {
+        /* if p.lineComment != nil {
+                fmt.Printf("next: %v", p.lineComment.Text())
+                p.lineComment = nil
+                p.tok = token.LINEND
+                return
+        } */
+        
 	p.leadComment = nil
 	p.lineComment = nil
 	prev := p.pos
@@ -263,7 +270,7 @@ func (p *parser) expectLinend() {
                 p.next()
         } else {
                 p.errorExpected(p.pos, "'\n'")
-                syncClause(p) //syncStmt(p)
+                syncClause(p)
 	}
 }
 
@@ -438,9 +445,9 @@ func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
                 list = append(list, p.checkExpr(p.parseExpr(lhs)))
                 // If there's a comment right after the parsed expression, we break
                 // the expression list to treat the end-of-line comment like a LINEND.
-                /* if p.lineComment != nil {
+                if p.lineComment != nil {
                         break
-                } */
+                }
         }
 	return
 }
@@ -518,7 +525,7 @@ func (p *parser) parseGroupExpr() ast.Expr {
 func (p *parser) parseExpr0(lhs bool) ast.Expr {
         switch p.tok {
         case token.BAREWORD, token.INT, token.FLOAT, token.DATETIME, 
-             token.DATE, token.TIME, token.URI, token.STRING, 
+             token.DATE, token.TIME, token.URI, token.STRING,
              token.ESCAPE:
                 pos, tok, lit := p.pos, p.tok, p.lit
                 p.next()
@@ -527,7 +534,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         Kind: tok,
                         Value: lit,
                 }
-
+                
         case token.COMPOUND:
                 var (
                         lpos = p.pos
@@ -755,7 +762,9 @@ func (p *parser) parseGenericClause(f parseSpecFunc) *ast.GenericClause {
                         }
 		}
 		rparen = p.expect(token.RPAREN)
-                p.expectLinend()
+                if p.tok != token.EOF {
+                        p.expectLinend()
+                }
 	} else {
 		for iota := 0; p.tok != token.LINEND && p.tok != token.EOF; iota++ {
                         specs = append(specs, f(nil, keyword, iota))
@@ -766,7 +775,9 @@ func (p *parser) parseGenericClause(f parseSpecFunc) *ast.GenericClause {
                                 p.next()
                         }
                 }
-		p.expectLinend() // endpos = p.expect(token.LINEND)
+                if p.tok != token.EOF {
+                        p.expectLinend() // endpos = p.expect(token.LINEND)
+                }
 	}
 
 	return &ast.GenericClause{
@@ -785,21 +796,29 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
 		defer un(trace(p, "Define"))
 	}
 
+        var value ast.Expr
+        
         doc := p.leadComment
         pos := p.expect(tok)
         elems := p.parseRhsList()
         comment := p.lineComment
-
+        
         // Take it from parser, since the line comment is assigned
         // to the DefineClause.
         p.lineComment = nil
+
+        if n := len(elems); n == 1 {
+                value = elems[0]
+        } else if n > 1 {
+                value = &ast.ListExpr{ elems }
+        }
         
         return &ast.DefineClause{ 
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
                 Name: ident,
-                Elems: elems,
+                Value: value,
                 Comment: comment,
         }
 }
@@ -879,8 +898,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 depends = p.parseRhsList()
                 stdRecipe = false
         }
-        
-	p.expectLinend()
+        if p.tok != token.EOF {
+                p.expectLinend()
+        }
         
         var (
                 program *ast.ProgramExpr

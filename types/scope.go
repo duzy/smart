@@ -29,7 +29,7 @@ type Scope struct {
 func NewScope(parent *Scope, pos, end token.Pos, comment string) *Scope {
         scope := &Scope{ parent, nil, nil, pos, end, comment }
  	// don't add children to Universe scope!
-	if parent != nil && parent != Universe {
+	if parent != nil && parent != universe {
 		parent.children = append(parent.children, scope)
 	}
        return scope
@@ -126,7 +126,7 @@ func (s *Scope) Contains(pos token.Pos) bool {
 func (s *Scope) Innermost(pos token.Pos) *Scope {
 	// Package scopes do not have extents since they may be
 	// discontiguous, so iterate over the package's files.
-	if s.parent == Universe {
+	if s.parent == universe {
 		for _, s := range s.children {
 			if inner := s.Innermost(pos); inner != nil {
 				return inner

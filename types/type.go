@@ -15,42 +15,62 @@ type Type interface {
 
 	// String returns a string representation of a type.
 	String() string
+
+        // Kind of the type
+        Kind() Kind
 }
 
-type BasicKind int
+type Kind int
 
+// kinds for predeclared types
 const (
-        Invalid BasicKind = iota
-        
-        // predeclared types
-        Int
-        Float
-        DateTime
-        Date
-        Time
-        Uri
-        String
-        Bareword
+        InvalidKind Kind = iota
 
-        // type for empty defines
-        None
+        IntKind
+        FloatKind
+        DateTimeKind
+        DateKind
+        TimeKind
+        UriKind
+        StringKind
+        BarewordKind
+        
+        // composite types
+        CompoundKind
+        ListKind
+        GroupKind
+        MapKind
+
+        // named types
+        NamedKind
+
+        // type for expressions compute to nothing/empty
+        NoneKind
 )
 
-var basicNames = [...]string{
-        Invalid:    "Invalid",
-        Int:        "Int",
-        Float:      "Float",
-        DateTime:   "DateTime",
-        Date:       "Date",
-        Time:       "Time",
-        Uri:        "Uri",
-        String:     "String",
-        Bareword:   "Bareword",
-}
+var (
+        typeNames = [...]string{
+                InvalidKind:  "Invalid",
+                IntKind:      "Int",
+                FloatKind:    "Float",
+                DateTimeKind: "DateTime",
+                DateKind:     "Date",
+                TimeKind:     "Time",
+                UriKind:      "Uri",
+                StringKind:   "String",
+                BarewordKind: "Bareword",
+                CompoundKind: "Compound",
+                ListKind:     "List",
+                GroupKind:    "Group",
+                MapKind:      "Map",
+                NamedKind:    "Named",
+                NoneKind:     "None",
+        }
+)
 
-func (t BasicKind) String() (s string) {
-	if 0 <= t && t < BasicKind(len(basicNames)) {
-		s = basicNames[t]
+func (t Kind) String() (s string) {
+	if 0 <= t && t < Kind(len(typeNames)) {
+		s = typeNames[t]
 	}
 	if s == "" {
 		s = "type(" + strconv.Itoa(int(t)) + ")"
@@ -60,9 +80,9 @@ func (t BasicKind) String() (s string) {
 
 // BasicInfo is a set of flags describing properties of a basic type.
 type BasicInfo int
-
-// Properties of basic types.
+type CompositeInfo int
 const (
+        // Properties of basic types.
 	IsBoolean BasicInfo = 1 << iota
 	IsInteger
 	IsUnsigned
@@ -71,40 +91,78 @@ const (
         IsDate     // Time type with date component
         IsTime     // Time type with time component
         IsUri
-        //IsCompound
-        //IsList
+        IsBareword
 	IsNone
 
         IsDateTime  = IsDate | IsTime
 	IsOrdered   = IsInteger | IsFloat | IsString
 	IsNumeric   = IsInteger | IsFloat
-	IsConstType = IsBoolean | IsNumeric | IsString
+	IsConstType = IsBoolean | IsNumeric | IsString | IsBareword
+
+        // Properties of composite types.
+        IsCompound CompositeInfo = 1 << iota
+        IsList
+        IsGroup
+        IsMap
 )
 
 // A Basic represents a basic type.
 type Basic struct {
-	kind BasicKind
+	kind Kind
 	info BasicInfo
 	name string
 }
 
-type Compound struct {
-        
+func (t *Basic) Underlying() Type { return t }
+func (t *Basic) String() string   { return TypeString(t, nil) }
+func (t *Basic) Kind() Kind       { return t.kind }
+func (t *Basic) Info() BasicInfo  { return t.info }
+func (t *Basic) IsBoolean() bool  { return t.info&IsBoolean != 0 }
+func (t *Basic) IsInteger() bool  { return t.info&IsInteger != 0 }
+func (t *Basic) IsUnsigned() bool { return t.info&IsUnsigned != 0 }
+func (t *Basic) IsFloat() bool    { return t.info&IsFloat != 0 }
+func (t *Basic) IsNumeric() bool  { return t.info&IsNumeric != 0 }
+func (t *Basic) IsString() bool   { return t.info&IsString != 0 }
+func (t *Basic) IsDate() bool     { return t.info&IsDate != 0 }
+func (t *Basic) IsTime() bool     { return t.info&IsTime != 0 }
+func (t *Basic) IsDateTime() bool { return t.info&IsDateTime != 0 }
+func (t *Basic) IsUri() bool      { return t.info&IsUri != 0 }
+func (t *Basic) IsBareword() bool { return t.info&IsBareword != 0 }
+func (t *Basic) IsNone() bool     { return t.info&IsNone != 0 }
+
+type Composite struct {
+        kind Kind
+        info CompositeInfo
+	name string
+        //length int
 }
 
-type List struct {
+func (t *Composite) Kind() Kind          { return t.kind }
+func (t *Composite) Info() CompositeInfo { return t.info }
+func (t *Composite) Underlying() Type    { return t }
+func (t *Composite) String() string      { return TypeString(t, nil) }
+
+/*
+func (t *Composite) Length() int { return t.length }
+
+func NewCompound(length int) (t *Composite) {
+        return &Composite{IsCompound, length}
 }
+
+func NewList(length int) (t *Composite) {
+        return &Composite{IsList, length}
+}
+
+func NewGroup(length int) (t *Composite) {
+        return &Composite{IsGroup, length}
+}
+*/
 
 type Named struct {
         underlying Type
+	name string
 }
 
-func (t *Basic) Underlying() Type     { return t }
-func (t *Compound) Underlying() Type  { return t }
-func (t *List) Underlying() Type      { return t }
-func (t *Named) Underlying() Type     { return t.underlying }
-
-func (t *Basic) String() string     { return TypeString(t, nil) }
-func (t *Compound) String() string  { return TypeString(t, nil) }
-func (t *List) String() string      { return TypeString(t, nil) }
-func (t *Named) String() string     { return TypeString(t, nil) }
+func (t *Named) Kind() Kind       { return NamedKind }
+func (t *Named) Underlying() Type { return t.underlying }
+func (t *Named) String() string   { return TypeString(t, nil) }

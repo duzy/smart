@@ -3,6 +3,7 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
+
 package interpreter
 
 import (
@@ -10,16 +11,16 @@ import (
         "github.com/duzy/smart/parser"
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
-        "github.com/duzy/smart/literal"
+        "github.com/duzy/smart/values"
         "path/filepath"
-        //"errors"
+        "errors"
         "fmt"
         "os"
 )
 
 var parseMode = parser.DeclarationErrors |parser.Trace
 
-func popLoadingInfo(i *Interpreter) {
+func restoreLoadingInfo(i *Interpreter) {
         i.loading = i.loading[0:len(i.loading)-1]
 }
 
@@ -56,31 +57,64 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) error 
         return nil
 }
 
-func (i *Interpreter) evalExpr(expr ast.Expr) types.Value {
+func (i *Interpreter) evalUnary(x *ast.UnaryExpr) (v types.Value) {
+        operand := i.evalExpr(x.X)
+        if t, ok := operand.Type().(*types.Basic); ok && t.IsFloat() {
+                switch x.Op {
+                case token.PLUS:  v = values.NewFloat(+operand.Float())
+                case token.MINUS: v = values.NewFloat(-operand.Float())
+                }
+        } else {
+                switch x.Op {
+                case token.PLUS:  v = values.NewInt(+operand.Integer())
+                case token.MINUS: v = values.NewInt(-operand.Integer())
+                }
+        }
+        return
+}
+
+func (i *Interpreter) evalBinary(x *ast.BinaryExpr) (v types.Value) {
+        operand1, operand2 := i.evalExpr(x.X), i.evalExpr(x.Y)
+        switch x.Op {
+        default:
+                assert(operand1 != nil)
+                assert(operand2 != nil)
+                unreachable();
+        }
+        return
+}
+
+func (i *Interpreter) evalProgram(p *ast.ProgramExpr) (v types.Value) {
+        return
+}
+
+func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         switch x := expr.(type) {
         case *ast.BadExpr:
-                panic("bad expression")
+                unreachable();
         case *ast.Bareword:
-                return literal.NewBareword(x.ValuePos, x.Value)
+                v = values.NewBarewordLiteral(x.ValuePos, x.Value)
         case *ast.BasicLit:
-                return literal.NewValue(x.ValuePos, x.Kind, x.Value)
+                v = values.NewLiteralValue(x.ValuePos, x.Kind, x.Value)
         case *ast.CompoundLit:
-                return types.NewCompound(x.BegPos, x.EndPos, i.evalExprs(x.Elems)...)
+                v = values.NewCompound(x.BegPos, x.EndPos, i.evalExprs(x.Elems)...)
+        case *ast.GroupExpr:
+                v = values.NewGroup(x.Pos(), x.End(), i.evalExprs(x.Elems)...)
         case *ast.ListExpr:
-                return types.NewList(x.Pos(), x.End(), i.evalExprs(x.Elems)...)
+                v = values.NewList(x.Pos(), x.End(), i.evalExprs(x.Elems)...)
         case *ast.CallExpr:
                 sym := i.lookupAt(i.evalExpr(x.Name).String(), x.Dollar)
-                return i.call(sym, i.evalExprs(x.Args))
-        case *ast.GroupExpr:
-                // TODO: ...
+                v = i.call(sym, i.evalExprs(x.Args))
         case *ast.UnaryExpr:
-                // TODO: ...
+                v = i.evalUnary(x)
         case *ast.RecipeExpr:
-                // TODO: ...
+                v = values.NewCompound(x.TabPos, x.LendPos, i.evalExprs(x.Elems)...)
         case *ast.ProgramExpr:
-                // TODO: ...
+                v = i.evalProgram(x)
+        default:
+                unreachable()
         }
-        return nil
+        return
 }
 
 func (i *Interpreter) evalExprs(exprs []ast.Expr) (values []types.Value) {
@@ -95,17 +129,30 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
         return nil
 }
 
-func (i *Interpreter) eval(spec *ast.EvalSpec) error {
-        fmt.Printf("eval: %v\n", spec) // TODO: eval
+func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
+        if num := len(spec.Props); num > 0 {
+                name := i.evalExpr(spec.Props[0])
+                //fmt.Printf("eval: %v\n", name)
+                if fun := i.lookupAt(name.String(), spec.EndPos); fun != nil {
+                        args := i.evalExprs(spec.Props[1:])
+                        res = fun.Call(args...)
+                        //fmt.Printf("eval: %v\n", res)
+                } else {
+                        err = errors.New(fmt.Sprintf("undefined '%s'", name))
+                        //fmt.Printf("error: `%v' is invalid\n", name)
+                }
+        }
+        return
+}
+
+func (i *Interpreter) define(d *ast.DefineClause) error {
+        m := i.currentModule()
+        n, v := i.evalExpr(d.Name), i.evalExpr(d.Value)
+        m.Scope().Insert(types.NewDef(d.TokPos, m, n.String(), v))
         return nil
 }
 
-func (i *Interpreter) declDefine(d *ast.DefineClause) error {
-        fmt.Printf("define: %v\n", d.Name)
-        return nil
-}
-
-func (i *Interpreter) declRule(d *ast.RuleClause) error {
+func (i *Interpreter) rule(d *ast.RuleClause) error {
         fmt.Printf("rule: %v, %v\n", d.Targets, d.Depends)
         return nil
 }
@@ -118,18 +165,19 @@ func (i *Interpreter) clause(clause ast.Clause) error {
                         switch s := spec.(type) {
                         case *ast.IncludeSpec:  err = i.include(s)
                         case *ast.UseSpec:      err = i.use(s)
-                        case *ast.EvalSpec:     err = i.eval(s)
+                        case *ast.EvalSpec:  _, err = i.eval(s)
                         }
                         if err != nil {
                                 return err
                         }
                 }
         case *ast.DefineClause:
-                return i.declDefine(d)
+                return i.define(d)
         case *ast.RuleClause:
-                return i.declRule(d)
+                return i.rule(d)
         default:
-                fmt.Printf("clause: %v\n", clause)
+                //fmt.Printf("clause: %v\n", clause)
+                unreachable()
         }
         return nil
 }
@@ -145,14 +193,16 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
                 params = i.evalExprs(spec.Props[1:])
         }
 
-        var s = filepath.Join(linfo.dir, filename.String())
+        var (
+                s = filepath.Join(linfo.dir, filename.String())
+                dir, file = filepath.Split(s)
+        )
+        defer restoreLoadingInfo(saveLoadingInfo(i, dir, file))
+        
         doc, err := parser.ParseFile(i.fset, s, nil, parseMode|parser.Flat)
         if err != nil {
                 return err
         }
-
-        dir, file := filepath.Split(s)
-        defer popLoadingInfo(saveLoadingInfo(i, dir, file))
 
         if len(params) > 0 {
                 // TODO: parsing parameters
@@ -168,20 +218,25 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
 
 // Interpreter.Load loads script from a file or source code (string, []byte).
 func (i *Interpreter) Load(filename string, source interface{}) error {
+        dir, file := filepath.Split(filename)
+        defer restoreLoadingInfo(saveLoadingInfo(i, dir, file))
+        
         doc, err := parser.ParseFile(i.fset, filename, source, parseMode)
         if err != nil {
                 return err
         }
 
-        dir, file := filepath.Split(filename)
-        defer popLoadingInfo(saveLoadingInfo(i, dir, file))
-        
+        m := i.newModule(doc.Keypos, doc.Keyword, filename, doc.Name.Value)
+        defer i.upperScope()
+
+        if m == nil { }
+
         for _, spec := range doc.Imports {
                 if err = i.loadImportSpec(doc, spec); err != nil {
                         return err
                 }
         }
-        
+
         for _, d := range doc.Clauses {
                 if err = i.clause(d); err != nil {
                         return err
@@ -191,19 +246,22 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
 }
 
 func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) error {
+        defer restoreLoadingInfo(saveLoadingInfo(i, path, ""))
+
         mods, err := parser.ParseDir(i.fset, path, filter, parseMode)
         if err != nil {
                 return err
         }
 
-        defer popLoadingInfo(saveLoadingInfo(i, path, ""))
+        //m := i.newModule(doc.Keyword, filename, doc.Name.value)
+        //defer i.upperScope()
         
         var keyword token.Token
         for name, mod := range mods {
                 if keyword == token.ILLEGAL {
                         keyword = mod.Keyword
                 }
-                fmt.Printf("%v: %v\n", keyword, name)
+                fmt.Printf("module: %v: %v\n", keyword, name)
         }
         return nil
 }

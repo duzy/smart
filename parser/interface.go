@@ -131,7 +131,7 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 // returned. If a parse error occurred, a non-nil but incomplete map and the
 // first error encountered are returned.
 //
-func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (pkgs map[string]*ast.Module, first error) {
+func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Module, first error) {
 	fd, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -143,23 +143,23 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
 		return nil, err
 	}
 
-	pkgs = make(map[string]*ast.Module)
+	mods = make(map[string]*ast.Module)
 	for _, d := range list {
 		if strings.HasSuffix(d.Name(), ".smart") && (filter == nil || filter(d)) {
 			filename := filepath.Join(path, d.Name())
 			if src, err := ParseFile(fset, filename, nil, mode); err == nil {
 				name := src.Name.Value
-				pkg, found := pkgs[name]
+				mod, found := mods[name]
 				if !found {
-					pkg = &ast.Module{
+					mod = &ast.Module{
                                                 Keyword: src.Keyword,
                                                 Name:    name,
                                                 Scope:   ast.NewScope(nil),
                                                 Files:   make(map[string]*ast.File),
                                         }
-					pkgs[name] = pkg
+					mods[name] = mod
 				}
-				pkg.Files[filename] = src
+				mod.Files[filename] = src
 			} else if first == nil {
 				first = err
 			}

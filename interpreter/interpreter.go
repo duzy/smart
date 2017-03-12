@@ -8,13 +8,15 @@ package interpreter
 import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
+        "errors"
 )
 
 type Interpreter struct {
-        fset *token.FileSet
+        fset    *token.FileSet
+        globe   *types.Globe
+        scope   *types.Scope
+        modules []*types.Module
         loading []*loadingInfo
-        scope *types.Scope
-        modules map[string]*types.Module
 }
 
 type loadingInfo struct {
@@ -23,10 +25,36 @@ type loadingInfo struct {
 
 // Create and initialize a new interpreter.
 func New() *Interpreter {
+        globe := types.NewGlobe("interpreter")
         return &Interpreter{
-                fset: token.NewFileSet(),
-                scope: types.NewScope(types.Universe, token.NoPos, token.NoPos, "top scope"),
-                modules: make(map[string]*types.Module),
+                fset: token.NewFileSet(), 
+                globe: globe,
+                scope: globe.Scope(),
+        }
+}
+
+func (i *Interpreter) newModule(pos token.Pos, kw token.Token, path, name string) *types.Module {
+        m := types.NewModule(kw, path, name)
+        modName := types.NewModuleName(pos, m, name, nil)
+        i.scope.Insert(modName)
+
+        //scope := 
+        //scope.SetParent(i.scope)
+        i.scope = m.Scope()
+        i.modules = append(i.modules, m)
+        return m
+}
+
+func (i *Interpreter) currentModule() *types.Module {
+        if n := len(i.modules); n > 0 {
+                return i.modules[n-1]
+        }
+        return nil
+}
+
+func (i *Interpreter) upperScope() {
+        if scope := i.scope.Parent(); !types.IsUniverse(scope) {
+                i.scope = scope
         }
 }
 
@@ -46,4 +74,9 @@ func (i *Interpreter) call(sym types.Symbol, args... interface{}) types.Value {
 
 func (i *Interpreter) Call(name string, args... interface{}) types.Value {
         return i.call(i.lookupAt(name, token.NoPos), args...)
+}
+
+func (i *Interpreter) Run() error {
+        // TODO: run entry rules of each project
+        return errors.New("TODO: run entry rules of projects")
 }

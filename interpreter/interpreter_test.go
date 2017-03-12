@@ -11,8 +11,10 @@ import (
 
 func TestLoad(t *testing.T) {
         i := New()
-        err := i.Load(`testdata/example.smart`, nil)
-        if err != nil {
+        if err := i.Load(`testdata/example.smart`, nil); err != nil {
+                t.Fatalf("Load: %v", err)
+        }
+        if err := i.Run(); err != nil {
                 t.Fatalf("Load: %v", err)
         }
 }

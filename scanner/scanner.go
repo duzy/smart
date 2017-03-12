@@ -232,9 +232,9 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
 	offs := s.offset
         switch s.ch {
         case '\\':
-                if s.scanEscape('"') {
-                        tok, lit = token.ESCAPE, string(s.src[offs:s.offset])
-                        s.next() // escape
+                if s.next(); s.scanEscape('"') {
+                        tok, lit = token.ESCAPE, string(s.src[offs+1:s.offset])
+                        //s.next() // escape
                         return
                 } else {
                         tok, lit = token.ILLEGAL, string(s.src[offs:s.offset])
@@ -594,7 +594,7 @@ func (s *Scanner) scanRawString(ml bool) string {
 		}
 	}
 
-	return string(s.src[offs:s.offset])
+	return string(s.src[offs+1:s.offset-1])
 }
 
 func (s *Scanner) scanEscape(quote rune) bool {

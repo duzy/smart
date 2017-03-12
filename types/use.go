@@ -7,5 +7,5 @@ package types
 
 type Use struct {
         module *Module
-        params []Expr
+        params []Value
 }

@@ -10,29 +10,107 @@ package types
 
 import (
         "github.com/duzy/smart/token"
+        "fmt"
 )
 
 var (
-	Universe *Scope
-	Unsafe   *Module
+	universe *Scope
+	//unsafe   *Module
 )
 
-var Types = []*Basic {
-	Invalid:  {Invalid, 0, "invalid type"},
+// Predeclared types.
+var (
+        BasicTypes = []*Basic {
+                InvalidKind:  {InvalidKind, 0, "invalid"},
+                IntKind:      {IntKind, IsInteger, "int"},
+                FloatKind:    {FloatKind, IsFloat, "float"},
+                DateTimeKind: {DateTimeKind, IsDateTime, "datetime"},
+                DateKind:     {DateKind, IsDate, "date"},
+                TimeKind:     {TimeKind, IsTime, "time"},
+                UriKind:      {UriKind, IsUri, "uri"},
+                StringKind:   {StringKind, IsString, "string"},
+                BarewordKind: {BarewordKind, IsBareword, "bareword"},
+                NoneKind:     {NoneKind, IsNone, "none"},
+        }
         
-        Int:      {Int, IsInteger, "int"},
-        Float:    {Float, IsFloat, "float"},
-        DateTime: {DateTime, IsDateTime, "datetime"},
-        Date:     {Date, IsDate, "date"},
-        Time:     {Time, IsTime, "time"},
-        Uri:      {Uri, IsUri, "uri"},
-        String:   {String, IsString, "string"},
+        CompositeTypes = []*Composite {
+                CompoundKind: {CompoundKind, IsCompound, "compound"},
+                ListKind:     {ListKind, IsList, "list"},
+                GroupKind:    {GroupKind, IsGroup, "group"},
+                MapKind:      {MapKind, IsMap, "map"},
+        }
 
-        None:     {None, IsNone, "none"},
+        // Shortcuts of basic types.
+        Invalid  = BasicTypes[InvalidKind]
+        Int      = BasicTypes[IntKind]
+        Float    = BasicTypes[FloatKind]
+        DateTime = BasicTypes[DateTimeKind]
+        Date     = BasicTypes[DateKind]
+        Time     = BasicTypes[TimeKind]
+        Uri      = BasicTypes[UriKind]
+        String   = BasicTypes[StringKind]
+        Bareword = BasicTypes[BarewordKind]
+        None     = BasicTypes[NoneKind]
+
+        // Shortcuts for composite types.
+        Compound = CompositeTypes[CompoundKind]
+        List     = CompositeTypes[ListKind]
+        Group    = CompositeTypes[GroupKind]
+        Map      = CompositeTypes[MapKind]
+)
+
+func defUniverseBuiltins() {
+        for name, f := range builtins {
+                universe.Insert(&Builtin{symbol{
+                        parent: nil, 
+                        module: nil, 
+                        name: name, 
+                        typ: None,
+                        ord: 0,
+                        pos: token.NoPos,
+                        scopePos_: token.NoPos,
+                }, f })
+        }
 }
 
 func init() {
-        Universe = NewScope(nil, token.NoPos, token.NoPos, "universe")
-        Unsafe = NewModule("unsafe", "unsafe")
-        Unsafe.complete = true
+        universe = NewScope(nil, token.NoPos, token.NoPos, "universe")
+        //unsafe = NewModule(token.ILLEGAL, "unsafe", "unsafe")
+        //unsafe.complete = true
+
+        defUniverseBuiltins()
+}
+
+// IsUniverse checks if the scope is universe.
+func IsUniverse(scope *Scope) bool {
+        return scope == universe
+}
+
+// A Globe represents a global execution context in the Universe. 
+type Globe struct {
+        scope  *Scope
+	unsafe *Module
+        main   *Module
+}
+
+// Scope returns the globe scope.
+func (g *Globe) Scope() *Scope { return g.scope }
+
+// Main returns the main module.
+func (g *Globe) Main() *Module { return g.main }
+
+// SetMain changes the main module.
+func (g *Globe) SetMain(m *Module) { g.main = m }
+
+/* func (g *Globe) NewType(m *Module) *Named {
+        g.main = m...
+} */
+
+// NewGlobe creates a new Globe context.
+func NewGlobe(name string) *Globe {
+        scope := NewScope(universe, token.NoPos, token.NoPos, fmt.Sprintf("globe %q", name))
+        return &Globe{
+                scope: scope,
+                main: nil,
+        }
 }
