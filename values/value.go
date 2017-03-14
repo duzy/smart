@@ -79,6 +79,8 @@ type (
         }
 )
 
+var None = &value{ types.None }
+
 func NewIntLiteral(pos token.Pos, s string) (v *Int) {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
                 v = &Int{literal{value{types.Int}, pos}, i}
@@ -183,7 +185,7 @@ func EscapeChar(s string) string {
 
 func NewLiteralValue(pos token.Pos, tok token.Token, s string) (v types.Value) {
         switch tok {
-        default:             v = &value{ types.None }
+        default:             v = None
         case token.INT:      v = NewIntLiteral(pos, s)
         case token.FLOAT:    v = NewFloatLiteral(pos, s)
         case token.DATETIME: v = NewDateTimeLiteral(pos, s)
@@ -193,6 +195,28 @@ func NewLiteralValue(pos token.Pos, tok token.Token, s string) (v types.Value) {
         case token.BAREWORD: v = NewBarewordLiteral(pos, s)
         case token.STRING:   v = NewStringLiteral(pos, s)
         case token.ESCAPE:   v = NewStringLiteral(pos, EscapeChar(s))
+        }
+        return
+}
+
+func Make(in interface{}) (out types.Value) {
+        switch v := in.(type) {
+        case int:         out = NewInt(int64(v))
+        case int32:       out = NewInt(int64(v))
+        case int64:       out = NewInt(v)
+        //case float:     out = NewFloat(float64(v))
+        case float32:     out = NewFloat(float64(v))
+        case float64:     out = NewFloat(v)
+        case string:      out = NewString(v)
+        case time.Time:   out = NewDateTime(v) // FIXME: NewDate, NewTime
+        case types.Value: out = v;
+        }
+        return None
+}
+
+func MakeAll(in... interface{}) (out []types.Value) {
+        for _, v := range in {
+                out = append(out, Make(v))
         }
         return
 }

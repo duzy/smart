@@ -8,15 +8,19 @@ package interpreter
 import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
-        "errors"
+        "github.com/duzy/smart/values"
+        "github.com/duzy/smart/runtime"
+        //"errors"
+        //"fmt"
 )
 
 type Interpreter struct {
-        fset    *token.FileSet
-        globe   *types.Globe
-        scope   *types.Scope
-        modules []*types.Module
-        loading []*loadingInfo
+        fset     *token.FileSet
+        globe    *types.Globe
+        scope    *types.Scope
+        registry *runtime.Registry
+        modules  []*types.Module
+        loading  []*loadingInfo
 }
 
 type loadingInfo struct {
@@ -27,9 +31,10 @@ type loadingInfo struct {
 func New() *Interpreter {
         globe := types.NewGlobe("interpreter")
         return &Interpreter{
-                fset: token.NewFileSet(), 
-                globe: globe,
-                scope: globe.Scope(),
+                fset:     token.NewFileSet(), 
+                globe:    globe,
+                scope:    globe.Scope(),
+                registry: runtime.NewRegistry(),
         }
 }
 
@@ -38,8 +43,6 @@ func (i *Interpreter) newModule(pos token.Pos, kw token.Token, path, name string
         modName := types.NewModuleName(pos, m, name, nil)
         i.scope.Insert(modName)
 
-        //scope := 
-        //scope.SetParent(i.scope)
         i.scope = m.Scope()
         i.modules = append(i.modules, m)
         return m
@@ -66,17 +69,45 @@ func (i *Interpreter) lookupAt(name string, pos token.Pos) (sym types.Symbol) {
 }
 
 func (i *Interpreter) call(sym types.Symbol, args... interface{}) types.Value {
-        if sym != nil {
-                // TODO: expend a definition
+        if sym == nil {
+                return values.None
         }
-        return nil // FIXME: return value of empty string
+
+        var av = values.MakeAll(args)
+        if sym.Callable() {
+                return sym.Call(av...)
+        }
+
+        if na := len(av); na > 0 {
+                // TODO: create calling scope (lexical $1, $2, etc)
+        }
+        
+        return sym.Value()
 }
 
 func (i *Interpreter) Call(name string, args... interface{}) types.Value {
         return i.call(i.lookupAt(name, token.NoPos), args...)
 }
 
-func (i *Interpreter) Run() error {
-        // TODO: run entry rules of each project
-        return errors.New("TODO: run entry rules of projects")
+func (i *Interpreter) Run(targets... string) (err error) {
+        var updated = 0
+        if len(targets) == 0 {
+                if entry := i.registry.GetDefaultEntry(); entry != nil {
+                        if err = entry.Execute(); err == nil {
+                                updated += 1
+                        }
+                }
+        } else {
+                for _, target := range targets {
+                        entry := i.registry.Lookup(target)
+                        if err = entry.Execute(); err == nil {
+                                updated += 1
+                        } else {
+                                break
+                        }
+                }
+        }
+        //fmt.Printf("updated %v targets\n", updated)
+        //return errors.New("TODO: run entry rules of projects")
+        return
 }

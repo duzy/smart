@@ -12,6 +12,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
+        "github.com/duzy/smart/runtime"
         "path/filepath"
         "errors"
         "fmt"
@@ -153,7 +154,22 @@ func (i *Interpreter) define(d *ast.DefineClause) error {
 }
 
 func (i *Interpreter) rule(d *ast.RuleClause) error {
-        fmt.Printf("rule: %v, %v\n", d.Targets, d.Depends)
+        var (
+                depends []*runtime.RuleEntry
+                recipes []types.Value
+        )
+        for _, depend := range i.evalExprs(d.Depends) {
+                entry := i.registry.Entry(depend.String())
+                depends = append(depends, entry)
+        }
+        if p, ok := d.Program.(*ast.ProgramExpr); ok {
+                recipes = i.evalExprs(p.Values)
+        }
+        
+        var prog = runtime.NewProgram(depends, recipes...)
+        for _, target := range i.evalExprs(d.Targets) {
+                i.registry.Insert(target.String(), prog)
+        }
         return nil
 }
 

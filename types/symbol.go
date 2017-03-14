@@ -3,11 +3,11 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
+
 package types
 
 import (
         "github.com/duzy/smart/token"
-        //"fmt"
 )
 
 type Symbol interface {
@@ -16,6 +16,8 @@ type Symbol interface {
         Name() string
         Type() Type
         Value() Value
+
+        Callable() bool
         Call(args... Value) Value
 
         String() string
@@ -51,9 +53,10 @@ func (sym *symbol) Parent() *Scope        { return sym.parent }
 func (sym *symbol) Module() *Module       { return sym.module }
 func (sym *symbol) Name() string          { return sym.name }
 func (sym *symbol) Type() Type            { return sym.typ }
+func (sym *symbol) String() string        { panic("abstract") }
 func (sym *symbol) Value() Value          { panic("abstract") }
 func (sym *symbol) Call(a... Value) Value { panic("abstract") }
-func (sym *symbol) String() string        { panic("abstract") }
+func (sym *symbol) Callable() bool        { return false }
 func (sym *symbol) order() uint32         { return sym.ord }
 func (sym *symbol) scopePos() token.Pos   { return sym.scopePos_ }
 
@@ -83,14 +86,14 @@ type Def struct {
 }
 
 func (d *Def) String() string {
-        //return fmt.Sprintf("% = %s", d.name, d.value)
         return d.name + " = " + d.value.String()
 }
 
 func (d *Def) Value() Value { return d.value }
-func (d *Def) Call(a... Value) Value {
-        panic("implementation") 
-}
+//func (d *Def) Callable() bool { return true }
+//func (d *Def) Call(a... Value) Value {
+//        panic("implementation")
+//}
 
 func NewDef(pos token.Pos, mod *Module, name string, value Value) *Def {
         var typ = value.Type()
@@ -105,19 +108,5 @@ type Builtin struct {
 }
 
 func (p *Builtin) Value() Value { return p.Call() }
+func (p *Builtin) Callable() bool { return true }
 func (p *Builtin) Call(a... Value) Value { return p.f(a...) }
-
-// 
-type RuleBody struct {
-        // Programs
-}
-
-type Rule struct {
-}
-
-// A RuleEntry represents a declared rule.
-type RuleEntry struct {
-        symbol
-        Target *Rule
-        Bodies []*RuleBody
-}
