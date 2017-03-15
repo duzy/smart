@@ -85,19 +85,26 @@ type Def struct {
         value Value
 }
 
-func (d *Def) String() string {
-        return d.name + " = " + d.value.String()
-}
-
+func (d *Def) String() string { return d.name+" = "+d.value.String() }
 func (d *Def) Value() Value { return d.value }
-//func (d *Def) Callable() bool { return true }
-//func (d *Def) Call(a... Value) Value {
-//        panic("implementation")
-//}
 
 func NewDef(pos token.Pos, mod *Module, name string, value Value) *Def {
         var typ = value.Type()
 	return &Def{symbol{nil, mod, name, typ, 0, pos, token.NoPos}, value}
+}
+
+// A Auto represents a automatic definition.
+type Auto struct {
+        Def
+}
+
+func NewAuto(mod *Module, name string, value Value) *Auto {
+        var (
+                typ = value.Type()
+                pos = token.NoPos
+                end = token.NoPos
+        )
+	return &Auto{Def{symbol{nil, mod, name, typ, 0, pos, end}, value}}
 }
 
 // A Builtin represents a built-in function.

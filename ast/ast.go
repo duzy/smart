@@ -368,6 +368,7 @@ type (
 		Doc     *CommentGroup // associated documentation; or nil
 		Targets []Expr        // targets
                 Depends []Expr        // prerequisites
+                Properties []Expr     // properties
                 Program Expr          // program (e.g. recipes)
                 TokPos  token.Pos     // position of ':', ':!:', ':[', etc
 		Tok     token.Token

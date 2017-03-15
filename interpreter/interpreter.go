@@ -89,18 +89,35 @@ func (i *Interpreter) Call(name string, args... interface{}) types.Value {
         return i.call(i.lookupAt(name, token.NoPos), args...)
 }
 
+func (i *Interpreter) defineAuto(name string, value interface{}) (auto *types.Auto) {
+        auto = types.NewAuto(i.currentModule(), name, values.Make(value))
+        i.scope.Insert(auto)
+        return
+}
+
+func (i *Interpreter) runEntry(entry *runtime.RuleEntry) (err error) {
+        i.scope = types.NewScope(i.scope, token.NoPos, token.NoPos, entry.Name())
+        defer func() { i.scope = i.scope.Parent() } ()
+
+        i.defineAuto("@", entry.Name())
+        //fmt.Printf("%v\n", i.lookupAt("@", token.NoPos))
+        
+        err = entry.Execute()
+        return
+}
+
 func (i *Interpreter) Run(targets... string) (err error) {
         var updated = 0
         if len(targets) == 0 {
                 if entry := i.registry.GetDefaultEntry(); entry != nil {
-                        if err = entry.Execute(); err == nil {
+                        if err = i.runEntry(entry); err == nil {
                                 updated += 1
                         }
                 }
         } else {
                 for _, target := range targets {
                         entry := i.registry.Lookup(target)
-                        if err = entry.Execute(); err == nil {
+                        if err = i.runEntry(entry); err == nil {
                                 updated += 1
                         } else {
                                 break

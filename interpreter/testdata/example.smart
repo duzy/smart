@@ -2,6 +2,7 @@
 project example
 
 import "fs"
+import "./dialects/foo"
 
 TAG_BOOK = book
 TAG_TITLE = title
@@ -11,12 +12,20 @@ include "part.smart"
 BOOK_TITLE_1 = book one
 BOOK_TITLE_2 = book two
 
-numbers = -123 +100
+numbers = -123 +"100"
 
 eval print "this is a test\n"
 eval println 'this is a test'
 
-start:[xml (process-xml-doc)]: something
+## Starting rule of shell program
+start:!: \
+  process-cmd \
+  process-xml
+
+process-cmd:[shell]:
+	echo '$@'
+
+process-xml:[xml (process-xml-doc)]:
 	<books>
 	  <$(TAG_BOOK)>
 	    <$(TAG_TITLE)>$(BOOK_TITLE_1)</$(TAG_TITLE)>
@@ -26,10 +35,6 @@ start:[xml (process-xml-doc)]: something
 	  </$(TAG_BOOK)>
 	  <book> <title>  abc  </title> </book>
 	</books>
-
-## New rule for `something`
-something:[shell]:
-	echo '# filename' > filename.txt
 
 ## append rule to `something`
 #something::[shell]:

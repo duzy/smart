@@ -142,22 +142,6 @@ func (t *Composite) Info() CompositeInfo { return t.info }
 func (t *Composite) Underlying() Type    { return t }
 func (t *Composite) String() string      { return TypeString(t, nil) }
 
-/*
-func (t *Composite) Length() int { return t.length }
-
-func NewCompound(length int) (t *Composite) {
-        return &Composite{IsCompound, length}
-}
-
-func NewList(length int) (t *Composite) {
-        return &Composite{IsList, length}
-}
-
-func NewGroup(length int) (t *Composite) {
-        return &Composite{IsGroup, length}
-}
-*/
-
 type Named struct {
         underlying Type
 	name string

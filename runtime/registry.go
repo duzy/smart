@@ -9,18 +9,47 @@ package runtime
 import (
         "github.com/duzy/smart/types"
         "strings"
-        "fmt"
+        //"fmt"
 )
 
 // Program
 type Program struct {
         depends []*RuleEntry
         recipes []types.Value
+        interpreter interpreter // TODO: global (sharing states) or instance interpreter
 }
 
 func (prog *Program) execute(entry string, forced bool) (err error) {
+        for _, depend := range prog.depends {
+                if err = depend.Execute(); err != nil {
+                        return
+                }
+        }
+        
         // TODO: execute depends and check outdated
-        fmt.Printf("TODO: %v: %v\n", entry, prog.recipes)
+        for _, recipe := range prog.recipes {
+                if result := prog.interpreter.evaluate(recipe); result != nil {
+                        //fmt.Printf("executed: %v: %v: %v\n", prog.interpreter.dialect(), entry, result)
+                }
+        }
+        return
+}
+
+func (prog *Program) InitDialect(name string, props... types.Value) (err error) {
+        switch name {
+        case "plain": 
+                // nothing
+        case "shell":
+                prog.interpreter = &dialectShell{
+                        // ...
+                }
+        case "xml":
+                prog.interpreter = &dialectXml{
+                        // ...
+                }
+        default:
+                err = ErrorNoDialect
+        }
         return
 }
 
@@ -28,6 +57,7 @@ func NewProgram(depends []*RuleEntry, recipes... types.Value) *Program {
         return &Program{
                 depends: depends,
                 recipes: recipes,
+                interpreter: trivialDialect,
         }
 }
 
@@ -36,6 +66,9 @@ type RuleEntry struct {
         name    string
         program *Program
 }
+
+func (entry *RuleEntry) Name() string { return entry.name }
+func (entry *RuleEntry) Program() *Program { return entry.program }
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.

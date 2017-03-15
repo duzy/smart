@@ -870,7 +870,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         var (
                 doc = p.leadComment
                 pos = p.expect(tok)
-                opers []ast.Expr
+                properties []ast.Expr
                 depends []ast.Expr
                 stdRecipe = true
         )
@@ -889,9 +889,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
 
         case token.COLON_LBK:
                 for p.tok != token.COLON_RBK && p.tok != token.EOF {
-                        opers = append(opers, p.checkExpr(p.parseExpr(false)))
+                        properties = append(properties, p.checkExpr(p.parseExpr(false)))
                         if p.tok == token.COMMA {
-                                p.next() // TODO: grouping opers
+                                p.next() // TODO: grouping properties
                         }
                 }
                 p.expect(token.COLON_RBK)
@@ -925,6 +925,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Targets: targets,
                 Depends: depends,
                 Program: program,
+                Properties: properties,
         }
 }
 

@@ -62,13 +62,13 @@ func (i *Interpreter) evalUnary(x *ast.UnaryExpr) (v types.Value) {
         operand := i.evalExpr(x.X)
         if t, ok := operand.Type().(*types.Basic); ok && t.IsFloat() {
                 switch x.Op {
-                case token.PLUS:  v = values.NewFloat(+operand.Float())
-                case token.MINUS: v = values.NewFloat(-operand.Float())
+                case token.PLUS:  v = values.Float(+operand.Float())
+                case token.MINUS: v = values.Float(-operand.Float())
                 }
         } else {
                 switch x.Op {
-                case token.PLUS:  v = values.NewInt(+operand.Integer())
-                case token.MINUS: v = values.NewInt(-operand.Integer())
+                case token.PLUS:  v = values.Int(+operand.Integer())
+                case token.MINUS: v = values.Int(-operand.Integer())
                 }
         }
         return
@@ -94,22 +94,31 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case *ast.BadExpr:
                 unreachable();
         case *ast.Bareword:
-                v = values.NewBarewordLiteral(x.ValuePos, x.Value)
+                v = values.BarewordLit(x.ValuePos, x.Value)
         case *ast.BasicLit:
-                v = values.NewLiteralValue(x.ValuePos, x.Kind, x.Value)
+                v = values.Literal(x.ValuePos, x.Kind, x.Value)
         case *ast.CompoundLit:
-                v = values.NewCompound(x.BegPos, x.EndPos, i.evalExprs(x.Elems)...)
+                v = values.CompoundLit(x.BegPos, i.evalExprs(x.Elems)...)
         case *ast.GroupExpr:
-                v = values.NewGroup(x.Pos(), x.End(), i.evalExprs(x.Elems)...)
+                v = values.GroupLit(x.Pos(), i.evalExprs(x.Elems)...)
         case *ast.ListExpr:
-                v = values.NewList(x.Pos(), x.End(), i.evalExprs(x.Elems)...)
+                v = values.ListLit(x.Pos(), i.evalExprs(x.Elems)...)
         case *ast.CallExpr:
-                sym := i.lookupAt(i.evalExpr(x.Name).String(), x.Dollar)
-                v = i.call(sym, i.evalExprs(x.Args))
+                var name string
+                if x.Name == nil {
+                        assert(x.Tok != token.CALL)
+                        name = x.Tok.String()
+                        assert(name[0] == '$')
+                        name = name[1:]
+                } else {
+                        name = i.evalExpr(x.Name).String()
+                }
+                fmt.Printf("call: %v\n", i.lookupAt(name, token.NoPos))
+                v = i.call(i.lookupAt(name, x.Dollar), i.evalExprs(x.Args))
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
         case *ast.RecipeExpr:
-                v = values.NewCompound(x.TabPos, x.LendPos, i.evalExprs(x.Elems)...)
+                v = values.CompoundLit(x.TabPos, i.evalExprs(x.Elems)...)
         case *ast.ProgramExpr:
                 v = i.evalProgram(x)
         default:
@@ -162,11 +171,18 @@ func (i *Interpreter) rule(d *ast.RuleClause) error {
                 entry := i.registry.Entry(depend.String())
                 depends = append(depends, entry)
         }
-        if p, ok := d.Program.(*ast.ProgramExpr); ok {
-                recipes = i.evalExprs(p.Values)
+        if p, ok := d.Program.(*ast.ProgramExpr); ok && p != nil {
+                if p.Values != nil {
+                        recipes = i.evalExprs(p.Values)
+                }
         }
         
+        var prop = i.evalExprs(d.Properties)
         var prog = runtime.NewProgram(depends, recipes...)
+        if len(prop) > 0 {
+                prog.InitDialect(prop[0].String(), prop[1:]...)
+        }
+        
         for _, target := range i.evalExprs(d.Targets) {
                 i.registry.Insert(target.String(), prog)
         }
