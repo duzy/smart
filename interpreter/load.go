@@ -21,6 +21,27 @@ import (
 
 var parseMode = parser.DeclarationErrors |parser.Trace
 
+type lazy struct {
+        i *Interpreter
+        s string
+        a []types.Value
+}
+
+func (p *lazy) Type() types.Type  { return nil }
+func (p *lazy) String() string    { return p.call().String() }
+func (p *lazy) Integer() int64    { return p.call().Integer() }
+func (p *lazy) Float() float64    { return p.call().Float() }
+func (p *lazy) call() types.Value {
+        var (
+                sym = p.i.lookupAt(p.s, token.NoPos)
+                args []interface{}
+        )
+        for _, a := range p.a {
+                args = append(args, a)
+        }
+        return p.i.call(sym, args...)
+}
+
 func restoreLoadingInfo(i *Interpreter) {
         i.loading = i.loading[0:len(i.loading)-1]
 }
@@ -113,8 +134,8 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 } else {
                         name = i.evalExpr(x.Name).String()
                 }
-                fmt.Printf("call: %v\n", i.lookupAt(name, token.NoPos))
-                v = i.call(i.lookupAt(name, x.Dollar), i.evalExprs(x.Args))
+                //v = i.call(i.lookupAt(name, x.Dollar), i.evalExprs(x.Args))
+                v = &lazy{i, name, i.evalExprs(x.Args)}
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
         case *ast.RecipeExpr:
