@@ -25,7 +25,7 @@ start:!: \
 process.cmd:[shell]:
 	echo '$@'
 
-process.xml:[xml (process-xml-doc)]:
+process.xml:[xml (as x), (xml-write-file (xml-search $x, 'book one'), $@)]:
 	<books>
 	  <$(TAG_BOOK)>
 	    <$(TAG_TITLE)>$(BOOK_TITLE_1)</$(TAG_TITLE)>
