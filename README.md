@@ -9,36 +9,49 @@ language.
 ## Overview
 
 The language is inspired by [GNU make](https://www.gnu.org/software/make/).
-It's having almost the same syntax as makefile, similar but different features.
-It could do the same job as [GNU make](https://www.gnu.org/software/make/) but not
-limited to. **Smart** is supposed to be used more likely in a programming manner
-of a [semi-functional]() paradigm by comparing to 
-[functional progarmming](https://en.wikipedia.org/wiki/Functional_programming).
+It's having same similar syntax as `makefile`, but a `smart` program is highly
+modularized and multi-dialect (extensiable). In a `makefile`, there's only a global
+namespace, macros defined can later be referenced by any other macros or rules. 
+In `smart`, symbols are contained in a module, and the major modules are projects. 
+A project is designed to be executed in order to update outdated targets, a module
+is to do more specific tasks and supposed to be **used** by a project.
+
+A smart module is declared with the keyword `module` or `project`. A module can be
+imported or used by any other module using keywords `import` or `use`. Symbols and
+rules defined in a module can only be accessed within the module scope.
+
+## History
+
+The ideas of the `smart` language is originated from the old [smart-make](https://github.com/duzy/smart-make)
+project, which is written in `makefile` to ease building projects of complex hierachy.
+The rational of `smart-make` is very similar to [the build system of Android OS](https://android.googlesource.com/platform/build/+/master).
+
+The goal of `smart` is to be great successor of makefile doing jobs like `smart-make`
+and [the Android OS build system](https://android.googlesource.com/platform/build/+/master).
 
 ## Quick Example
 
 ```makefile
-# The starting rule, using `:!:` to mark it as phony.
-start:!: foo
+project example
 
-# Declare a module `foo`.
-module foo, gcc
+LINK = g++
+COMPILE = g++ -c
+LIBS =
 
-me.sources := foo.c
-me.export.includes := -I$(me.dir)
-me.export.libdirs := -L$(me.dir)
-me.export.libs := -lfoo
+## "pthread" is a predefiend module, using it will append values
+## of symbols like CFLAGS, LDFLAGS, LIBS, etc.
+use "pthread"
 
-$(me.dir)/libfoo.a: $(me.dir)/foo.o
-	@ar crs $@ $^
+# The default rule, using `shell` dialect to interpret the recipes.
+foo:[shell]: foo.o
+	$(LINK) -o $@ $^ $(LIBS)
 
-$(me.dir)/foo.o: $(me.dir)/foo.c
-	@gcc -c -o $@ $<
-
-commit
+# The second `shell` rule to compile the source.
+foo.o:[shell]: foo.cpp
+	$(COMPILE) -o $@ $<
 ```
 
 Why
 ===
 
-Get tasks of complex dependency done the easy way!
+Build projects complex hierachy the easy way!

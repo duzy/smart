@@ -19,13 +19,13 @@ eval println 'this is a test'
 
 ## Starting rule of shell program
 start:!: \
-  process-cmd \
-  process-xml
+  process.cmd \
+  process.xml
 
-process-cmd:[shell]:
+process.cmd:[shell]:
 	echo '$@'
 
-process-xml:[xml (process-xml-doc)]:
+process.xml:[xml (process-xml-doc)]:
 	<books>
 	  <$(TAG_BOOK)>
 	    <$(TAG_TITLE)>$(BOOK_TITLE_1)</$(TAG_TITLE)>
