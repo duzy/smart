@@ -6,8 +6,6 @@ language.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 
-Support: https://www.bountysource.com/teams/smart -- ([Salt It Now!](https://salt.bountysource.com/checkout/amount?team=smart))
-
 ## Overview
 
 The language is inspired by [GNU make](https://www.gnu.org/software/make/).
@@ -24,15 +22,6 @@ rules defined in a module can only be accessed within the module scope.
 
 The `smart` language has some basic data types, this is an other important difference
 comparing to macros in a makefile.
-
-## History
-
-The ideas of the `smart` language is originated from the old [smart-make](https://github.com/duzy/smart-make)
-project, which is written in `makefile` to ease building projects of complex hierachy.
-The rational of `smart-make` is very similar to [the build system of Android OS](https://android.googlesource.com/platform/build/+/master).
-
-The goal of `smart` is to be great successor of makefile doing jobs like `smart-make`
-and [the Android OS build system](https://android.googlesource.com/platform/build/+/master).
 
 ## Quick Example
 
@@ -68,7 +57,22 @@ foo.cpp:[plain (as text), (write-file $(text), $@)]
 	}
 ```
 
+History
+=======
+
+The ideas of the `smart` language is originated from the old [smart-make](https://github.com/duzy/smart-make)
+project, which is written in `makefile` to ease building projects of complex hierachy.
+The rational of `smart-make` is very similar to [the build system of Android OS](https://android.googlesource.com/platform/build/+/master).
+
+The goal of `smart` is to be great successor of makefile doing jobs like `smart-make`
+and [the Android OS build system](https://android.googlesource.com/platform/build/+/master).
+
 Why
 ===
 
 Build projects of complex hierachy the easy way!
+
+
+## Support
+
+https://www.bountysource.com/teams/smart -- ([Salt It Now!](https://salt.bountysource.com/checkout/amount?team=smart))
