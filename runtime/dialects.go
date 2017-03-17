@@ -14,35 +14,26 @@ import (
 
 type interpreter interface {
         dialect() string
-        evaluate(recipe types.Value) types.Value
+        evaluate(recipe types.Value) (types.Value, error)
 }
 
 type dialectTrivial struct {
 }
 
-func (t *dialectTrivial) evaluate(recipe types.Value) types.Value {
+func (t *dialectTrivial) evaluate(recipe types.Value) (types.Value, error) {
         fmt.Printf("trivial: %v\n", recipe)
-        return values.None
+        return values.None, nil
 }
 
 var trivialDialect = new(dialectTrivial)
 
-type dialectShell struct {
-}
-
-func (s *dialectShell) evaluate(recipe types.Value) (result types.Value) {
-        fmt.Printf("shell: %v\n", recipe)
-        return
-}
-
 type dialectXml struct {
 }
 
-func (t *dialectXml) evaluate(recipe types.Value) (result types.Value) {
+func (t *dialectXml) evaluate(recipe types.Value) (result types.Value, err error) {
         fmt.Printf("xml: %v\n", recipe)
         return
 }
 
 func (*dialectTrivial) dialect() string { return "trivial" }
-func (*dialectShell) dialect() string { return "shell" }
 func (*dialectXml) dialect() string { return "xml" }

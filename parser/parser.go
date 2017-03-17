@@ -424,8 +424,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
         if p.lineComment != nil {
                 return true
         }
-        if p.tok == token.RPAREN || p.tok == token.COLON_RBK {
-                // FIXME: check pared LPAREN or COLON_LBK?
+        if p.tok == token.RPAREN || p.tok == token.LBRACK /*|| p.tok == token.COLON_RBK*/ {
                 return true
         }
         if token.COLON <= p.tok && p.tok < token.CALL {
@@ -645,7 +644,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
         if x = p.parseExpr0(lhs); x.End()+1 == p.pos && p.lineComment == nil {
                 // Check implicit composing.
                 switch p.tok {
-                case token.COMPOSED, token.RPAREN, token.COMMA, token.COLON_RBK,
+                case token.COMPOSED, token.RPAREN, token.COMMA, token.RBRACK,
                      token.LINEND, token.ILLEGAL:
                         // don't compose expression
                 default:
@@ -862,6 +861,25 @@ func (p *parser) parseRecipeExpr(std bool) ast.Expr {
         }
 }
 
+func (p *parser) parseModifierExpr() *ast.ModifierExpr {
+        var (
+                lpos = p.expect(token.LBRACK)
+                elems []ast.Expr
+        )
+        for p.tok != token.RBRACK && p.tok != token.EOF {
+                elems = append(elems, p.checkExpr(p.parseExpr(false)))
+                if p.tok == token.COMMA {
+                        p.next() // TODO: grouping modifiers
+                }
+        }
+        rpos := p.expect(token.RBRACK)
+        return &ast.ModifierExpr{
+                Lbrack: lpos,
+                Elems: elems,
+                Rbrack: rpos,
+        }
+}
+
 func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause {
 	if p.trace {
 		defer un(trace(p, "Rule"))
@@ -870,34 +888,28 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         var (
                 doc = p.leadComment
                 pos = p.expect(tok)
-                properties []ast.Expr
+                modifier *ast.ModifierExpr
                 depends []ast.Expr
                 stdRecipe = true
         )
-        switch tok {
-        case token.COLON:
-                depends = p.parseRhsList()
 
-        case token.COLON2:
-                depends = p.parseRhsList()
-
-        case token.COLON_EXC:
-                depends = p.parseRhsList()
-
-        case token.COLON_QUE:
-                depends = p.parseRhsList()
-
-        case token.COLON_LBK:
-                for p.tok != token.COLON_RBK && p.tok != token.EOF {
-                        properties = append(properties, p.checkExpr(p.parseExpr(false)))
-                        if p.tok == token.COMMA {
-                                p.next() // TODO: grouping properties
-                        }
-                }
-                p.expect(token.COLON_RBK)
-                depends = p.parseRhsList()
+        switch p.tok {
+        case token.EXC:
+                p.next()
+                // TODO: '!' modifier
+        case token.QUE:
+                p.next()
+                // TODO: '?' modifier
+        case token.LBRACK:
+                modifier = p.parseModifierExpr()
                 stdRecipe = false
         }
+
+        if p.tok == token.COLON {
+                p.next()
+                depends = p.parseRhsList()
+        }
+        
         if p.tok != token.EOF {
                 p.expectLinend()
         }
@@ -925,7 +937,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Targets: targets,
                 Depends: depends,
                 Program: program,
-                Properties: properties,
+                Modifier: modifier,
         }
 }
 

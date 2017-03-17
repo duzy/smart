@@ -740,6 +740,10 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case '#':
                         tok, lit = token.COMMENT, s.scanComment()
                         s.next() // discard '\n'
+                case '!':
+                        tok = token.EXC
+                case '?':
+                        tok = token.QUE
                         /*
                 case '+':
                         tok = token.ADD
@@ -863,7 +867,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 case ':':
                                         tok = token.COLON2
                                         s.next() // consume the second ':'
-                                case '!', '?':
+                                /* case '!', '?':
                                         ch = s.ch
                                         switch s.next(); s.ch {
                                         case ':':
@@ -874,17 +878,17 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                                 }
                                         case '[':
                                                 s.next() // consume the second '['
-                                                /* switch ch {
-                                                case '!': tok = token.COLON_LBE
-                                                case '?': tok = token.COLON_LBQ
-                                                } */
+                                                //switch ch {
+                                                //case '!': tok = token.COLON_LBE
+                                                //case '?': tok = token.COLON_LBQ
+                                                //}
                                         default:
                                                 s.error(s.offset-3, fmt.Sprintf("unexpected character %#U", s.ch))
                                                 tok = token.ILLEGAL
                                         }
                                 case '[':
                                         tok = token.COLON_LBK
-                                        s.next() // consume '['
+                                        s.next() // consume '[' */
                                 default:
                                         tok = token.COLON
                                 }
@@ -894,12 +898,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case '[':
                         tok = token.LBRACK
                 case ']':
-                        if s.ch == ':' {
+                        /* if s.ch == ':' {
                                 tok = token.COLON_RBK
                                 s.next() // consume ':'
                         } else {
                                 tok = token.RBRACK
-                        }
+                        } */
+                        tok = token.RBRACK
                 case '{':
                         tok = token.LBRACE
                 case '}':

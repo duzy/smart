@@ -33,13 +33,13 @@ func (p *lazy) Integer() int64    { return p.call().Integer() }
 func (p *lazy) Float() float64    { return p.call().Float() }
 func (p *lazy) call() types.Value {
         var (
-                sym = p.i.lookupAt(p.s, token.NoPos)
+                sym = p.i.LookupAt(p.s, token.NoPos)
                 args []interface{}
         )
         for _, a := range p.a {
                 args = append(args, a)
         }
-        return p.i.call(sym, args...)
+        return p.i.CallSym(sym, args...)
 }
 
 func restoreLoadingInfo(i *Interpreter) {
@@ -164,7 +164,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
                 name := i.evalExpr(spec.Props[0])
                 //fmt.Printf("eval: %v\n", name)
-                if fun := i.lookupAt(name.String(), spec.EndPos); fun != nil {
+                if fun := i.LookupAt(name.String(), spec.EndPos); fun != nil {
                         args := i.evalExprs(spec.Props[1:])
                         res = fun.Call(args...)
                         //fmt.Printf("eval: %v\n", res)
@@ -177,19 +177,19 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
 }
 
 func (i *Interpreter) define(d *ast.DefineClause) error {
-        m := i.currentModule()
+        m := i.CurrentModule()
         n, v := i.evalExpr(d.Name), i.evalExpr(d.Value)
         m.Scope().Insert(types.NewDef(d.TokPos, m, n.String(), v))
         return nil
 }
 
-func (i *Interpreter) rule(d *ast.RuleClause) error {
+func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         var (
                 depends []*runtime.RuleEntry
                 recipes []types.Value
         )
         for _, depend := range i.evalExprs(d.Depends) {
-                entry := i.registry.Entry(depend.String())
+                entry := i.Registry().Entry(depend.String())
                 depends = append(depends, entry)
         }
         if p, ok := d.Program.(*ast.ProgramExpr); ok && p != nil {
@@ -198,16 +198,23 @@ func (i *Interpreter) rule(d *ast.RuleClause) error {
                 }
         }
         
-        var prop = i.evalExprs(d.Properties)
-        var prog = runtime.NewProgram(depends, recipes...)
-        if len(prop) > 0 {
-                prog.InitDialect(prop[0].String(), prop[1:]...)
+        var modifiers []types.Value
+        if d.Modifier != nil {
+                modifiers = i.evalExprs(d.Modifier.Elems)
+        }
+        
+        var prog = runtime.NewProgram(&i.Context, depends, recipes...)
+        if len(modifiers) > 0 {
+                dialect := modifiers[0].String()
+                if err = prog.InitDialect(dialect, modifiers[1:]...); err != nil {
+                        return
+                }
         }
         
         for _, target := range i.evalExprs(d.Targets) {
-                i.registry.Insert(target.String(), prog)
+                i.Registry().Insert(target.String(), prog)
         }
-        return nil
+        return
 }
 
 func (i *Interpreter) clause(clause ast.Clause) error {
@@ -279,8 +286,8 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
                 return err
         }
 
-        m := i.newModule(doc.Keypos, doc.Keyword, filename, doc.Name.Value)
-        defer i.upperScope()
+        m := i.NewModule(doc.Keypos, doc.Keyword, filename, doc.Name.Value)
+        defer i.ExitCurrentScope()
 
         if m == nil { }
 

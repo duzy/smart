@@ -9,11 +9,12 @@ package runtime
 import (
         "github.com/duzy/smart/types"
         "strings"
-        //"fmt"
+        "fmt"
 )
 
 // Program
 type Program struct {
+        context *Context
         depends []*RuleEntry
         recipes []types.Value
         interpreter interpreter // TODO: global (sharing states) or instance interpreter
@@ -21,21 +22,24 @@ type Program struct {
 
 func (prog *Program) execute(entry string, forced bool) (err error) {
         for _, depend := range prog.depends {
-                if err = depend.Execute(); err != nil {
+                if err = prog.context.RunEntry(depend); err != nil {
                         return
                 }
         }
         
         // TODO: execute depends and check outdated
+        var result types.Value
         for _, recipe := range prog.recipes {
-                if result := prog.interpreter.evaluate(recipe); result != nil {
-                        //fmt.Printf("executed: %v: %v: %v\n", prog.interpreter.dialect(), entry, result)
+                if result, err = prog.interpreter.evaluate(recipe); err != nil {
+                        return
+                } else if result != nil {
+                        fmt.Printf("%v", result)
                 }
         }
         return
 }
 
-func (prog *Program) InitDialect(name string, props... types.Value) (err error) {
+func (prog *Program) InitDialect(name string, modifiers... types.Value) (err error) {
         switch name {
         case "plain": 
                 // nothing
@@ -53,8 +57,9 @@ func (prog *Program) InitDialect(name string, props... types.Value) (err error) 
         return
 }
 
-func NewProgram(depends []*RuleEntry, recipes... types.Value) *Program {
+func NewProgram(context *Context, depends []*RuleEntry, recipes... types.Value) *Program {
         return &Program{
+                context: context,
                 depends: depends,
                 recipes: recipes,
                 interpreter: trivialDialect,

@@ -50,10 +50,8 @@ const (
 
 	COLON     // :
 	COLON2    // ::
-	COLON_EXC // :!:
-	COLON_QUE // :?:
-        COLON_LBK // :[
-        COLON_RBK // ]:
+	EXC // !
+	QUE // ?
         CALL      // $
         CALL_A    // $@
         CALL_L    // $<
@@ -133,10 +131,8 @@ var tokens = [...]string{
         
 	COLON:     ":",
         COLON2:    "::",
-        COLON_EXC: ":!:",
-        COLON_QUE: ":?:",
-        COLON_LBK: ":[",
-        COLON_RBK: "]:",
+        EXC: "!",
+        QUE: "?",
 	CALL:      "$",
         CALL_A:    "$@",
         CALL_L:    "$<",

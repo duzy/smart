@@ -7,19 +7,16 @@ package interpreter
 
 import (
         "github.com/duzy/smart/token"
-        "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        //"github.com/duzy/smart/types"
+        //"github.com/duzy/smart/values"
         "github.com/duzy/smart/runtime"
         //"errors"
         //"fmt"
 )
 
 type Interpreter struct {
+        runtime.Context
         fset     *token.FileSet
-        globe    *types.Globe
-        scope    *types.Scope
-        registry *runtime.Registry
-        modules  []*types.Module
         loading  []*loadingInfo
 }
 
@@ -29,95 +26,23 @@ type loadingInfo struct {
 
 // Create and initialize a new interpreter.
 func New() *Interpreter {
-        globe := types.NewGlobe("interpreter")
         return &Interpreter{
+                Context:  runtime.MakeContext("interpreter"),
                 fset:     token.NewFileSet(), 
-                globe:    globe,
-                scope:    globe.Scope(),
-                registry: runtime.NewRegistry(),
         }
-}
-
-func (i *Interpreter) newModule(pos token.Pos, kw token.Token, path, name string) *types.Module {
-        m := types.NewModule(kw, path, name)
-        modName := types.NewModuleName(pos, m, name, nil)
-        i.scope.Insert(modName)
-
-        i.scope = m.Scope()
-        i.modules = append(i.modules, m)
-        return m
-}
-
-func (i *Interpreter) currentModule() *types.Module {
-        if n := len(i.modules); n > 0 {
-                return i.modules[n-1]
-        }
-        return nil
-}
-
-func (i *Interpreter) upperScope() {
-        if scope := i.scope.Parent(); !types.IsUniverse(scope) {
-                i.scope = scope
-        }
-}
-
-func (i *Interpreter) lookupAt(name string, pos token.Pos) (sym types.Symbol) {
-        if sym = i.scope.Lookup(name); sym == nil {
-                _, sym = i.scope.LookupParent(name, pos)
-        }
-        return
-}
-
-func (i *Interpreter) call(sym types.Symbol, args... interface{}) types.Value {
-        if sym == nil {
-                return values.None
-        }
-
-        var av = values.MakeAll(args)
-        if sym.Callable() {
-                return sym.Call(av...)
-        }
-
-        if na := len(av); na > 0 {
-                // TODO: create calling scope (lexical $1, $2, etc)
-        }
-        
-        return sym.Value()
-}
-
-func (i *Interpreter) Call(name string, args... interface{}) types.Value {
-        return i.call(i.lookupAt(name, token.NoPos), args...)
-}
-
-func (i *Interpreter) defineAuto(name string, value interface{}) (auto *types.Auto) {
-        auto = types.NewAuto(i.currentModule(), name, values.Make(value))
-        i.scope.Insert(auto)
-        return
-}
-
-func (i *Interpreter) runEntry(entry *runtime.RuleEntry) (err error) {
-        i.scope = types.NewScope(i.scope, token.NoPos, token.NoPos, entry.Name())
-        defer func() { i.scope = i.scope.Parent() } ()
-
-        i.defineAuto("@", entry.Name())
-        //fmt.Printf("%v\n", i.lookupAt("@", token.NoPos))
-        
-        err = entry.Execute()
-        return
 }
 
 func (i *Interpreter) Run(targets... string) (err error) {
         var updated = 0
         if len(targets) == 0 {
-                if entry := i.registry.GetDefaultEntry(); entry != nil {
-                        if err = i.runEntry(entry); err == nil {
+                if entry := i.GetDefaultEntry(); entry != nil {
+                        if err = i.RunEntry(entry); err == nil {
                                 updated += 1
                         }
                 }
         } else {
                 for _, target := range targets {
-                        entry := i.registry.Lookup(target)
-                        if err = i.runEntry(entry); err == nil {
+                        if err = i.RunEntryByName(target); err == nil {
                                 updated += 1
                         } else {
                                 break

@@ -18,14 +18,17 @@ eval print "this is a test\n"
 eval println 'this is a test'
 
 ## Starting rule of shell program
-start:!: \
+start : ! : \
   process.cmd \
   process.xml
 
-process.cmd:[shell]:
-	echo '$@'
+process.cmd : [ shell ] :
+	echo '$@' && \
+	echo 'process.cmd'
 
-process.xml:[xml (as x), (xml-write-file (xml-search $x, 'book one'), $@)]:
+process.xml : [ xml (as x), \
+  (xml-write-file (xml-search $x, 'book one'), $@) \
+  ] :
 	<books>
 	  <$(TAG_BOOK)>
 	    <$(TAG_TITLE)>$(BOOK_TITLE_1)</$(TAG_TITLE)>
