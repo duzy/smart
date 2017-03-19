@@ -33,9 +33,14 @@ func (*monoInterpreter) mode() interpretMode { return interpretSingle }
 func (*polyInterpreter) mode() interpretMode { return interpretMulti }
 
 func joinRecipesString(recipes... types.Value) string {
-        var s string
-        for _, recipe := range recipes {
-                s += recipe.String() + "\n"
+        var (
+                s string
+                x = len(recipes)-1
+        )
+        for n, recipe := range recipes {
+                if s += recipe.String(); n < x {
+                        s += "\n"
+                }
         }
         return s
 }
