@@ -58,6 +58,18 @@ func (prog *Program) InitDialect(name string, modifiers... types.Value) (err err
                 }
         case "shell":
                 prog.interpreter = &dialectShell{
+                        interpreter: defaultShellInterpreter, // "sh"
+                        xopt: "-c",
+                }
+        case "python":
+                prog.interpreter = &dialectShell{
+                        interpreter: "python",
+                        xopt: "-c",
+                }
+        case "perl":
+                prog.interpreter = &dialectShell{
+                        interpreter: "perl",
+                        xopt: "-e",
                 }
         case "xml":
                 prog.interpreter = &dialectXml{

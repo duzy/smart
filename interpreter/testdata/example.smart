@@ -20,6 +20,8 @@ eval println 'this is a test'
 ## Starting rule of shell program
 start : ! : \
   process.cmd \
+  process.python \
+  process.perl \
   process.trivial \
   process.plain \
   process.xml.1 \
@@ -32,6 +34,12 @@ start : ! : \
 process.cmd : [ shell ] :
 	echo '$@' && \
 	echo 'process.cmd'
+
+process.python : [ python ] :
+	print "python: $@"
+
+process.perl : [ perl ] :
+	printf "perl: $@";
 
 process.trivial:
 	anything goes here are ignored

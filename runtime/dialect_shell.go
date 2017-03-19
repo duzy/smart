@@ -16,10 +16,12 @@ import (
         "fmt"
 )
 
-var shellName = "sh"
+var defaultShellInterpreter = "sh"
 
 type dialectShell struct {
         monoInterpreter
+        interpreter string // shell interpreter
+        xopt string // execute option: -c (sh, python), -e (perl)
         source string
 }
 
@@ -32,7 +34,7 @@ func (s *dialectShell) evaluate(recipes... types.Value) (result types.Value, err
 
         var stdout, stderr bytes.Buffer
         
-        sh := exec.Command(shellName, "-c", s.source)
+        sh := exec.Command(s.interpreter, s.xopt, s.source)
         sh.Stdout, sh.Stderr = &stdout, &stderr
         err = sh.Run(); s.source = ""
         if err == nil {
