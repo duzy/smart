@@ -38,6 +38,7 @@ var (
                 ListKind:     {ListKind, IsList, "list"},
                 GroupKind:    {GroupKind, IsGroup, "group"},
                 MapKind:      {MapKind, IsMap, "map"},
+                PairKind:     {PairKind, IsPair, "pair"},
         }
 
         // Shortcuts of basic types.
@@ -57,6 +58,7 @@ var (
         List     = CompositeTypes[ListKind]
         Group    = CompositeTypes[GroupKind]
         Map      = CompositeTypes[MapKind]
+        Pair     = CompositeTypes[PairKind]
 )
 
 func defUniverseBuiltins() {

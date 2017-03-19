@@ -71,6 +71,13 @@ type (
         MapValue struct {
                 value
                 elems map[string]types.Value
+                mv map[types.Value]types.Value
+        }
+
+        PairValue struct { // key=value
+                value
+                k types.Value
+                v types.Value
         }
 
         IntLiteral struct {
@@ -128,6 +135,11 @@ type (
 
         MapLiteral struct {
                 MapValue
+                pos token.Pos
+        }
+
+        PairLiteral struct {
+                PairValue
                 pos token.Pos
         }
 )
@@ -230,6 +242,23 @@ func Group(elems... types.Value) (v *GroupValue) {
         return &GroupValue{ListValue{value{types.List}, elems}}
 }
 
+func PairLit(pos token.Pos, k, v types.Value) (p *PairLiteral) {
+        if k.Type().Info()&types.IsKeyName != 0 {
+                p = &PairLiteral{PairValue{value{types.Pair}, nil, nil}, pos}
+                p.SetKey(k)
+                p.SetValue(v)
+        }
+        return
+}
+func Pair(k, v types.Value) (p *PairValue) {
+        if k.Type().Info()&types.IsKeyName != 0 {
+                p = &PairValue{value{types.Pair}, nil, nil}
+                p.SetKey(k)
+                p.SetValue(v)
+        }
+        return
+}
+
 func EscapeChar(s string) string {
         switch s {
         case "a":  s = "\a"
@@ -284,11 +313,7 @@ func MakeAll(in... interface{}) (out []types.Value) {
         return
 }
 
-func (p *value) Type() types.Type    { return p.typ }
-//func (p *Compound) Type() types.Type { return types.Compound }
-//func (p *List) Type() types.Type     { return types.List }
-//func (p *Group) Type() types.Type    { return types.Group }
-//func (p *Map) Type() types.Type      { return types.Map }
+func (p *value) Type() types.Type       { return p.typ }
 
 func (p *value) String() string         { return "" }
 func (p *IntValue) String() string      { return strconv.FormatInt(int64(p.v),10) } // Itoa
@@ -320,6 +345,9 @@ func (p *GroupValue) String() string {
 /* func (p *Map) String() string {
         return "(" + p.List.String() + ")"
 } */
+func (p *PairValue) String() string {
+        return p.k.String() + "=" + p.v.String()
+}
 
 func (p *value) Integer() int64         { return 0 }
 func (p *IntValue) Integer() int64      { return p.v }
@@ -333,6 +361,7 @@ func (p *BarewordValue) Integer() int64 { return 0 }
 func (p *CompoundValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *ListValue) Integer() int64     { return int64(len(p.elems)) }
 func (p *GroupValue) Integer() int64    { return int64(len(p.ListValue.elems)) }
+func (p *PairValue) Integer() int64     { return p.v.Integer() }
 
 func (p *value) Float() float64         { return 0.0 }
 func (p *IntValue) Float() float64      { return float64(p.v) }
@@ -346,8 +375,32 @@ func (p *BarewordValue) Float() float64 { return float64(p.Integer()) }
 func (p *CompoundValue) Float() float64 { return float64(p.Integer()) }
 func (p *ListValue) Float() float64     { return float64(p.Integer()) }
 func (p *GroupValue) Float() float64    { return float64(p.Integer()) }
+func (p *PairValue) Float() float64     { return p.v.Float() }
 
+func (p *ListValue) Len() int                   { return len(p.elems) }
+func (p *ListValue) Append(v types.Value)       { p.elems = append(p.elems, v) }
+func (p *ListValue) Get(n int) (v types.Value)  { if n>=0 && n<len(p.elems) { v = p.elems[n] }; return }
 func (p *ListValue) ToCompound() *CompoundValue { return &CompoundValue{value{types.Compound}, p.elems} }
+func (p *GroupValue) ToList() *ListValue        { return &p.ListValue }
+func (p *CompoundValue) ToList() *ListValue     { return &ListValue{value{types.List}, p.elems} }
+func (p *CompoundValue) Append(v types.Value)   { p.elems = append(p.elems, v) }
 
-func (p *CompoundValue) ToList() *ListValue { return &ListValue{value{types.List}, p.elems} }
-func (p *GroupValue) ToList() *ListValue    { return &p.ListValue }
+func (p *PairValue) SetKey(k types.Value) {
+        switch o := k.(type) {
+        case *PairValue:   k = o.k
+        case *PairLiteral: k = o.k
+        }
+        if k.Type().Info()&types.IsKeyName != 0 {
+                p.k = k
+        } else {
+                p.k = nil
+        }
+}
+
+func (p *PairValue) SetValue(v types.Value) {
+        /* switch o := v.(type) {
+        case *PairValue:   v = o.v
+        case *PairLiteral: v = o.v
+        } */
+        p.v = v
+}

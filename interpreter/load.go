@@ -19,7 +19,7 @@ import (
         "os"
 )
 
-var parseMode = parser.DeclarationErrors |parser.Trace
+var parseMode = parser.DeclarationErrors //|parser.Trace
 
 type lazy struct {
         i *Interpreter

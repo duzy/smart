@@ -28,12 +28,24 @@ func (prog *Program) execute(entry string, forced bool) (err error) {
         }
         
         // TODO: execute depends and check outdated
-        var result types.Value
-        for _, recipe := range prog.recipes {
-                if result, err = prog.interpreter.evaluate(recipe); err != nil {
+
+        var (
+                mode = prog.interpreter.mode()
+                result types.Value
+        )
+        if mode&interpretMulti != 0 {
+                if result, err = prog.interpreter.evaluate(prog.recipes...); err != nil {
                         return
                 } else if result != nil {
-                        fmt.Printf("%v", result)
+                        fmt.Printf("%v\n", result)
+                }
+        } else if mode&interpretSingle != 0 {
+                for _, recipe := range prog.recipes {
+                        if result, err = prog.interpreter.evaluate(recipe); err != nil {
+                                return
+                        } else if result != nil {
+                                fmt.Printf("%v", result)
+                        }
                 }
         }
         return
@@ -42,14 +54,17 @@ func (prog *Program) execute(entry string, forced bool) (err error) {
 func (prog *Program) InitDialect(name string, modifiers... types.Value) (err error) {
         switch name {
         case "plain": 
-                // nothing
+                prog.interpreter = &dialectPlain{
+                }
         case "shell":
                 prog.interpreter = &dialectShell{
-                        // ...
                 }
         case "xml":
                 prog.interpreter = &dialectXml{
-                        // ...
+                        whitespace: false,
+                }
+        case "json":
+                prog.interpreter = &dialectJson{
                 }
         default:
                 err = ErrorNoDialect

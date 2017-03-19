@@ -186,12 +186,12 @@ type (
 		Y     Expr        // right operand
 	}
 
-	// A KeyValueExpr node represents (key : value) pairs
+	// A KeyValueExpr node represents 'key=value' pairs
 	// in composite literals.
 	//
 	KeyValueExpr struct {
 		Key   Expr
-		Colon token.Pos // position of ":"
+		Equal token.Pos // position of "="
 		Value Expr
 	}
 
@@ -225,7 +225,7 @@ func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
 func (d *UnaryExpr) Pos() token.Pos       { return d.OpPos }
 func (d *BinaryExpr) Pos() token.Pos      { return d.OpPos }
-func (d *KeyValueExpr) Pos() token.Pos    { return d.Colon }
+func (d *KeyValueExpr) Pos() token.Pos    { return d.Key.Pos() }
 func (d *ModifierExpr) Pos() token.Pos    { return d.Lbrack }
 func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
 func (d *ProgramExpr) Pos() token.Pos     { return d.Values[0].Pos() }
@@ -239,7 +239,7 @@ func (d *CallExpr) End() token.Pos        { return d.Rparen }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen }
 func (d *UnaryExpr) End() token.Pos       { return d.OpPos }
 func (d *BinaryExpr) End() token.Pos      { return d.OpPos }
-func (d *KeyValueExpr) End() token.Pos    { return d.Colon }
+func (d *KeyValueExpr) End() token.Pos    { return d.Value.End() }
 func (d *ModifierExpr) End() token.Pos    { return d.Rbrack }
 func (d *RecipeExpr) End() token.Pos      { return d.LendPos }
 func (d *ProgramExpr) End() token.Pos     { return d.Values[len(d.Values)-1].End() }

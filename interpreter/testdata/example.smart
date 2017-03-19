@@ -20,24 +20,68 @@ eval println 'this is a test'
 ## Starting rule of shell program
 start : ! : \
   process.cmd \
-  process.xml
+  process.trivial \
+  process.plain \
+  process.xml.1 \
+  process.xml.2 \
+  process.json.1 \
+  process.json.2 \
+  process.json.3 \
+  process.json.4
 
 process.cmd : [ shell ] :
 	echo '$@' && \
 	echo 'process.cmd'
 
-process.xml : [ xml (as x), \
-  (xml-write-file (xml-search $x, 'book one'), $@) \
-  ] :
-	<books>
-	  <$(TAG_BOOK)>
+process.trivial:
+	anything goes here are ignored
+
+process.plain: [ plain ] :
+	this is a plain text ($(TAG_BOOK))
+
+# [ xml (as x), (xml-write-file (xml-search $x, 'book one'), $@) ]
+process.xml.1 : [ xml ] :
+	<books number="3">
+	  <$(TAG_BOOK) id="1">
 	    <$(TAG_TITLE)>$(BOOK_TITLE_1)</$(TAG_TITLE)>
 	  </$(TAG_BOOK)>
-	  <$(TAG_BOOK)>
+	  <$(TAG_BOOK) id="2">
 	    <$(TAG_TITLE)>$(BOOK_TITLE_2)</$(TAG_TITLE)>
 	  </$(TAG_BOOK)>
-	  <book> <title>  abc  </title> </book>
+	  <book id="3"> <title>  abc  </title> </book>
 	</books>
+process.xml.2 : [ xml ] :
+	<book><title>book one</title></book>
+	<book><title>book two</title></book>
+	<book><title>book three</title></book>
+
+process.json.1 : [ json ] :
+	{
+	  "Name": "Platypus",
+	  "Order": "Monotremata",
+	  "More": {
+	    "Message": "Hello",
+	    "Array": [1, 2, 3],
+	    "Null": null,
+	    "Number": 1.234
+	  }
+	}
+process.json.2 : [ json ] :
+	[ "a", "b", "c", 1, 2, 3, null ]
+process.json.3 : [ json ] :
+	[
+	  {"Name": "Ed", "Text": "Knock knock."},
+	  {"Name": "Sam", "Text": "Who's there?"},
+	  {"Name": "Ed", "Text": "Go fmt."},
+	  {"Name": "Sam", "Text": "Go fmt who?"},
+	  {"Name": "Ed", "Text": "Go fmt yourself!"}
+	]
+process.json.4 : [ json ] : # json stream
+	{"Name": "Ed", "Text": "Knock knock."}
+	{"Name": "Sam", "Text": "Who's there?"}
+	{"Name": "Ed", "Text": "Go fmt."}
+	{"Name": "Sam", "Text": "Go fmt who?"}
+	{"Name": "Ed", "Text": "Go fmt yourself!"}
 
 ## append rule to `something`
 #something::[shell]:

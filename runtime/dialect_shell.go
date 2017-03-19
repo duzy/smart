@@ -19,13 +19,13 @@ import (
 var shellName = "sh"
 
 type dialectShell struct {
+        monoInterpreter
         source string
 }
 
-func (*dialectShell) dialect() string { return "shell" }
-
-func (s *dialectShell) evaluate(recipe types.Value) (result types.Value, err error) {
-        s.source += strings.TrimRightFunc(recipe.String(), unicode.IsSpace)
+func (s *dialectShell) dialect() string { return "shell" }
+func (s *dialectShell) evaluate(recipes... types.Value) (result types.Value, err error) {
+        s.source += strings.TrimRightFunc(recipes[0].String(), unicode.IsSpace)
         if strings.HasSuffix(s.source, "/") {
                 return
         }

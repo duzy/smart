@@ -18,6 +18,9 @@ type Type interface {
 
         // Kind of the type
         Kind() Kind
+
+        // Type classification info
+        Info() TypeInfo
 }
 
 type Kind int
@@ -40,6 +43,7 @@ const (
         ListKind
         GroupKind
         MapKind
+        PairKind
 
         // named types
         NamedKind
@@ -63,6 +67,7 @@ var (
                 ListKind:     "List",
                 GroupKind:    "Group",
                 MapKind:      "Map",
+                PairKind:     "Pair",
                 NamedKind:    "Named",
                 NoneKind:     "None",
         }
@@ -78,12 +83,11 @@ func (t Kind) String() (s string) {
 	return
 }
 
-// BasicInfo is a set of flags describing properties of a basic type.
-type BasicInfo int
-type CompositeInfo int
+// TypeInfo is a set of flags describing properties of a basic type.
+type TypeInfo int
 const (
         // Properties of basic types.
-	IsBoolean BasicInfo = 1 << iota
+	IsBoolean TypeInfo = 1 << iota
 	IsInteger
 	IsUnsigned
 	IsFloat
@@ -94,29 +98,36 @@ const (
         IsBareword
 	IsNone
 
-        IsDateTime  = IsDate | IsTime
-	IsOrdered   = IsInteger | IsFloat | IsString
-	IsNumeric   = IsInteger | IsFloat
-	IsConstType = IsBoolean | IsNumeric | IsString | IsBareword
-
         // Properties of composite types.
-        IsCompound CompositeInfo = 1 << iota
+        IsCompound
         IsList
         IsGroup
         IsMap
+        IsPair // key-value pair
+
+        // Custom type
+        IsNamed
+
+        IsDateTime  = IsDate | IsTime
+	IsNumeric   = IsInteger | IsFloat
+        IsKeyName   = IsInteger | IsString | IsBareword
+	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword
+	IsBasic     = IsBoolean | IsOrdered | IsNone
+        IsComposite = IsCompound | IsList | IsGroup | IsMap | IsPair
+        IsConstType = IsBasic
 )
 
 // A Basic represents a basic type.
 type Basic struct {
 	kind Kind
-	info BasicInfo
+	info TypeInfo
 	name string
 }
 
-func (t *Basic) Underlying() Type { return t }
 func (t *Basic) String() string   { return TypeString(t, nil) }
+func (t *Basic) Underlying() Type { return t }
 func (t *Basic) Kind() Kind       { return t.kind }
-func (t *Basic) Info() BasicInfo  { return t.info }
+func (t *Basic) Info() TypeInfo   { return t.info }
 func (t *Basic) IsBoolean() bool  { return t.info&IsBoolean != 0 }
 func (t *Basic) IsInteger() bool  { return t.info&IsInteger != 0 }
 func (t *Basic) IsUnsigned() bool { return t.info&IsUnsigned != 0 }
@@ -131,22 +142,28 @@ func (t *Basic) IsBareword() bool { return t.info&IsBareword != 0 }
 func (t *Basic) IsNone() bool     { return t.info&IsNone != 0 }
 
 type Composite struct {
-        kind Kind
-        info CompositeInfo
+	kind Kind
+	info TypeInfo
 	name string
-        //length int
 }
 
-func (t *Composite) Kind() Kind          { return t.kind }
-func (t *Composite) Info() CompositeInfo { return t.info }
-func (t *Composite) Underlying() Type    { return t }
-func (t *Composite) String() string      { return TypeString(t, nil) }
+func (t *Composite) String() string   { return TypeString(t, nil) }
+func (t *Composite) Underlying() Type { return t }
+func (t *Composite) Kind() Kind       { return t.kind }
+func (t *Composite) Info() TypeInfo   { return t.info }
+func (t *Composite) IsCompound() bool { return t.info&IsCompound != 0 }
+func (t *Composite) IsList() bool     { return t.info&IsList != 0 }
+func (t *Composite) IsGroup() bool    { return t.info&IsGroup != 0 }
+func (t *Composite) IsMap() bool      { return t.info&IsMap != 0 }
+func (t *Composite) IsPair() bool     { return t.info&IsPair != 0 }
 
 type Named struct {
         underlying Type
 	name string
 }
 
-func (t *Named) Kind() Kind       { return NamedKind }
-func (t *Named) Underlying() Type { return t.underlying }
 func (t *Named) String() string   { return TypeString(t, nil) }
+func (t *Named) Name() string     { return t.name }
+func (t *Named) Underlying() Type { return t.underlying }
+func (t *Named) Kind() Kind       { return NamedKind }
+func (t *Named) Info() TypeInfo   { return IsNamed }

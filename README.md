@@ -46,7 +46,7 @@ foo:[shell]: foo.o
 foo.o:[shell]: foo.cpp
 	$(COMPILE) -o $@ $<
 
-# The `plain` dialect simply expended the recipes into plain text,
+# The `plain` dialect simply expend the recipes into plain text,
 # and the `(as text)` tells that the symbol `text` is being used to
 # store the plain text. The `,` starts post-execution of the recipes.
 foo.cpp:[plain (as text), (write-file $(text), $@)]:

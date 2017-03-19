@@ -8,32 +8,45 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
-        "fmt"
+)
+
+type interpretMode int
+
+const (
+        interpretSingle interpretMode = 1<<iota
+        interpretMulti
 )
 
 type interpreter interface {
         dialect() string
-        evaluate(recipe types.Value) (types.Value, error)
+        mode() interpretMode
+        evaluate(recipes... types.Value) (types.Value, error)
+}
+
+type monoInterpreter struct {
+}
+
+type polyInterpreter struct {
+}
+
+func (*monoInterpreter) mode() interpretMode { return interpretSingle }
+func (*polyInterpreter) mode() interpretMode { return interpretMulti }
+
+func joinRecipesString(recipes... types.Value) string {
+        var s string
+        for _, recipe := range recipes {
+                s += recipe.String() + "\n"
+        }
+        return s
 }
 
 type dialectTrivial struct {
+        polyInterpreter
 }
 
-func (t *dialectTrivial) evaluate(recipe types.Value) (types.Value, error) {
-        fmt.Printf("trivial: %v\n", recipe)
-        return values.None, nil
+func (t *dialectTrivial) dialect() string { return "trivial" }
+func (t *dialectTrivial) evaluate(recipes... types.Value) (types.Value, error) {
+        return nil, nil
 }
 
 var trivialDialect = new(dialectTrivial)
-
-type dialectXml struct {
-}
-
-func (t *dialectXml) evaluate(recipe types.Value) (result types.Value, err error) {
-        fmt.Printf("xml: %v\n", recipe)
-        return
-}
-
-func (*dialectTrivial) dialect() string { return "trivial" }
-func (*dialectXml) dialect() string { return "xml" }
