@@ -32,14 +32,14 @@ start : ! : \
   process.json.4
 
 process.cmd : [ shell ] :
-	echo '$@' && \
+	echo '$@' && \\
 	echo 'process.cmd'
 
 process.python : [ python ] :
 	print "python: $@"
 
 process.perl : [ perl ] :
-	printf "perl: $@";
+	printf "perl: $@\n";
 
 process.trivial:
 	anything goes here are ignored

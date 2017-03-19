@@ -269,7 +269,7 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
 	offs := s.offset
         switch s.ch {
         case '\\':
-                switch s.next(); s.ch {
+                /* switch s.next(); s.ch {
                 case '\n', '"':
                         tok, lit = token.ESCAPE, string(s.ch)
                         s.next() // escape
@@ -279,7 +279,11 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                         s.error(s.offset-1, fmt.Sprintf("illegal line escape %#U", s.ch))
                         s.next() // discard
                         return
-                }
+                } */
+                s.next()
+                tok, lit = token.ESCAPE, string(s.ch)
+                s.next() // skip escaped character
+                return
         case '\n':
                 tok = token.LINEND
                 s.context &= ^isCompoundLine

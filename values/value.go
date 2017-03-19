@@ -270,6 +270,7 @@ func EscapeChar(s string) string {
         case "v":  s = "\v"
         case "\\": s = "\\"
         case "$":  s = "$"
+        default:   s = "\\" + s // give back the '\' character
         }
         return s
 }

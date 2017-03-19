@@ -3,7 +3,7 @@
 **Smart** is a [Semi-Functional Scripting Language]() designed to perform
 recursive tasks easily. It's written in [Go](http://golang.org) programming
 language. It's still in drafting state, not finished for real use yet. Sponsors
-are welcome to accelerate the development process.
+are welcome to accelerate the development.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 
