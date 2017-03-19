@@ -34,8 +34,8 @@ func (*polyInterpreter) mode() interpretMode { return interpretMulti }
 
 func joinRecipesString(recipes... types.Value) string {
         var (
-                s string
                 x = len(recipes)-1
+                s string
         )
         for n, recipe := range recipes {
                 if s += recipe.String(); n < x {
