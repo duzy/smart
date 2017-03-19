@@ -4,15 +4,17 @@
 package main
 
 import (
-        "github.com/duzy/smart/build"
-        _ "github.com/duzy/smart/tools/shell"
-        _ "github.com/duzy/smart/tools/cc"
-        _ "github.com/duzy/smart/tools/gradle"
-        _ "github.com/duzy/smart/tools/android/auto"
-        _ "github.com/duzy/smart/tools/android/cc"
-        _ "github.com/duzy/smart/tools/android/toolchain"
+        "github.com/duzy/smart/interpreter"
+        "fmt"
 )
 
 func main() {
-        smart.CommandLine()
+        i := interpreter.New()
+        if err := i.Load("build.smart", nil); err != nil {
+                fmt.Printf("%v\n", err)
+                return
+        } else if err = i.Run(); err != nil {
+                fmt.Printf("%v\n", err)
+                return
+        }
 }
