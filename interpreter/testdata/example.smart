@@ -17,6 +17,9 @@ numbers = -123 +"100"
 eval print "this is a test\n"
 eval println 'this is a test'
 
+test = $(fs.OSNAME)
+test = foo bar
+
 ## Starting rule of shell program
 start : ! : \
   process.cmd \

@@ -6,6 +6,14 @@
 
 package interpreter
 
+import (
+        "errors"
+)
+
+var (
+        ErrorIllImport   = errors.New("illegal import spec")
+)
+
 func assert(p bool) {
 	if !p {
 		panic("assertion failed")

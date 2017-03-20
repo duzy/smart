@@ -57,6 +57,7 @@ const (
         CALL_L    // $<
         CALL_U    // $^
         CALL_S    // $*
+        CALL_M    // $-
         CALL_1    // $1
         CALL_2    // $2
         CALL_3    // $3
@@ -138,6 +139,7 @@ var tokens = [...]string{
         CALL_L:    "$<",
         CALL_U:    "$^",
         CALL_S:    "$*",
+        CALL_M:    "$-",
         CALL_1:    "$1",
         CALL_2:    "$2",
         CALL_3:    "$3",

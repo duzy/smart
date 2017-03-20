@@ -49,7 +49,7 @@ type parser struct {
 	// Ordinary identifier scopes
 	pkgScope   *ast.Scope        // pkgScope.Outer == nil
 	topScope   *ast.Scope        // top-most scope; may be pkgScope
-	unresolved []*ast.Bareword      // unresolved identifiers (reference to project symbols)
+	unresolved []*ast.Bareword   // unresolved identifiers (reference to project symbols)
 	imports    []*ast.ImportSpec // list of imports
 }
 
@@ -384,6 +384,7 @@ func (p *parser) safePos(pos token.Pos) (res token.Pos) {
 func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	switch /*unparen(x)*/x.(type) {
 	case *ast.BadExpr:
+        case *ast.Barecomp:
 	case *ast.Bareword:
 	case *ast.BasicLit:
 	case *ast.CompoundLit:
@@ -412,7 +413,10 @@ func (p *parser) parseBareword() *ast.Bareword {
 	} else {
 		p.expect(token.BAREWORD) // use expect() error handling
 	}
-	return &ast.Bareword{ValuePos: pos, Value: value}
+	return &ast.Bareword{
+                ValuePos: pos, 
+                Value: value,
+        }
 }
 
 // ----------------------------------------------------------------------------
@@ -523,7 +527,15 @@ func (p *parser) parseGroupExpr() ast.Expr {
 
 func (p *parser) parseExpr0(lhs bool) ast.Expr {
         switch p.tok {
-        case token.BAREWORD, token.INT, token.FLOAT, token.DATETIME, 
+        case token.BAREWORD:
+                pos, lit := p.pos, p.lit
+                p.next()
+                return &ast.Bareword{
+                        ValuePos: pos,
+                        Value: lit,
+                }
+                
+        case token.INT, token.FLOAT, token.DATETIME, 
              token.DATE, token.TIME, token.URI, token.STRING,
              token.ESCAPE:
                 pos, tok, lit := p.pos, p.tok, p.lit
@@ -546,32 +558,33 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 }
                 rpos = p.expect(token.COMPOSED)
                 return &ast.CompoundLit{
-                        BegPos: lpos,
+                        Lquote: lpos,
                         Elems:  elems,
-                        EndPos: rpos,
-                        Quote:  true,
+                        Rquote: rpos,
                 }
                 
-         case token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S,
+         case token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S, token.CALL_M,
               token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
               token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
               token.CALL_9:
-                var tok = p.tok
+                pos, tok := p.pos, p.tok
                 p.next()
                 return &ast.CallExpr{
-                        Dollar: p.pos,
+                        Dollar: pos,
+                        Lparen: token.NoPos,
                         Tok: tok,
+                        Rparen: token.NoPos,
                 }
 
         case token.CALL:
                 var (
                         lpos = token.NoPos
                         rpos = token.NoPos
-                        pos = p.pos
-                        tok = p.tok
-                        name ast.Expr
-                        rest []ast.Expr //*ast.ListExpr
-                        tokLp token.Token
+                        pos  = p.pos
+                        tok  = p.tok
+                        name   ast.Expr
+                        rest   []ast.Expr //*ast.ListExpr
+                        tokLp  token.Token
                 )
                 switch p.next(); p.tok {
                 case token.LPAREN:
@@ -615,15 +628,22 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         X: x,
                 }
 
+        case token.PERIOD:
+                pos := p.pos
+                p.next()
+                return &ast.Bareword{
+                        ValuePos: pos,
+                        Value: ".",
+                }
+
         case token.PROJECT, token.MODULE, token.USE, token.EXPORT, 
              token.INCLUDE, token.IMPORT, token.INSTANCE:
                 if p.inRhs {
                         pos, lit := p.pos, p.lit
                         p.next()
-                        // convert keyword into BAREWORD
-                        return &ast.BasicLit{
+                        // convert keyword into Bareword
+                        return &ast.Bareword{
                                 ValuePos: pos,
-                                Kind: token.BAREWORD,
                                 Value: lit,
                         }
                 }
@@ -631,7 +651,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
         default:
                 pos := p.pos-1
-                p.errorExpected(pos, "expression") //(pos, "'"+p.tok.String()+"'")
+                //p.errorExpected(pos, "literal")
+                p.errorExpected(pos, "'"+p.tok.String()+"'")
                 p.next() // go to next token
                 return &ast.BadExpr{ From:pos, To:p.pos }
         }
@@ -641,32 +662,27 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 	if p.trace {
 		defer un(trace(p, "Expression"))
 	}
-        if x = p.parseExpr0(lhs); x.End()+1 == p.pos && p.lineComment == nil {
-                // Check implicit composing.
-                switch p.tok {
-                case token.COMPOSED, token.RPAREN, token.COMMA, token.RBRACK,
-                     token.LINEND, token.ILLEGAL:
-                        // don't compose expression
-                default:
-                        var (
-                                lpos = x.Pos()
-                                elems = []ast.Expr{ x }
-                                y = p.checkExpr(p.parseExpr(lhs))
-                                rpos = y.End()
-                        )
-                        if c, ok := y.(*ast.CompoundLit); ok {
-                                elems = append(elems, c.Elems...)
-                        } else {
-                                elems = append(elems, y)
-                        }
-                        x = &ast.CompoundLit{
-                                BegPos: lpos,
-                                Elems:  elems,
-                                EndPos: rpos,
-                                Quote:  false,
-                        }
-                        //fmt.Printf("composed: %v elems, %v (%v,%v)\n", elems, p.tok, x.Pos(), x.End())
+        x = p.parseExpr0(lhs)
+        //fmt.Printf("expr:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
+        if x.End() == p.pos && p.lineComment == nil &&
+                p.tok != token.COMPOSED &&
+                p.tok != token.RPAREN &&
+                p.tok != token.RBRACK &&
+                p.tok != token.COMMA &&
+                p.tok != token.COLON &&
+                p.tok != token.LINEND &&
+                p.tok != token.ILLEGAL {
+                //fmt.Printf("compose: %T %v %v %v\t%v %v\n", x, x, x.Pos(), x.End(), p.pos, p.tok)
+                var (
+                        elems = []ast.Expr{ x }
+                        y = p.checkExpr(p.parseExpr(lhs))
+                )
+                if c, ok := y.(*ast.Barecomp); ok {
+                        elems = append(elems, c.Elems...)
+                } else {
+                        elems = append(elems, y)
                 }
+                x = &ast.Barecomp{ elems }
         }
         return
 }

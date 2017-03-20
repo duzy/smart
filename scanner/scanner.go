@@ -198,7 +198,7 @@ func isDigit(ch rune) bool {
 // punctuation used as non-terminator
 func isUntermPunct(ch rune) bool {
         // Most chars accepted in URI (RFC3986)
-        return ch == '-' || ch == '+' || ch == '/'|| ch == '@' || ch == '.';
+        return ch == '-' || ch == '+' || ch == '/'|| ch == '@' /*|| ch == '.'*/;
 }
 
 func isDatetimeTerminator(ch rune) bool {
@@ -795,6 +795,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         case ch == '<': tok = token.CALL_L
                         case ch == '^': tok = token.CALL_U
                         case ch == '*': tok = token.CALL_S
+                        case ch == '-': tok = token.CALL_M
                         case ch == '1': tok = token.CALL_1
                         case ch == '2': tok = token.CALL_2
                         case ch == '3': tok = token.CALL_3
@@ -864,6 +865,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                 case ',':
                         tok = token.COMMA
+                        s.skipPostLineFeeds = true
+                case '.':
+                        tok = token.PERIOD
                         s.skipPostLineFeeds = true
                 case ':':
                         if s.parenDepth == 0 {

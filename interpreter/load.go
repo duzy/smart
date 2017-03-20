@@ -23,7 +23,7 @@ var parseMode = parser.DeclarationErrors //|parser.Trace
 
 type lazy struct {
         i *Interpreter
-        s string
+        s []string
         a []types.Value
 }
 
@@ -33,7 +33,7 @@ func (p *lazy) Integer() int64    { return p.call().Integer() }
 func (p *lazy) Float() float64    { return p.call().Float() }
 func (p *lazy) call() types.Value {
         var (
-                sym = p.i.LookupAt(p.s, token.NoPos)
+                sym = p.i.LookupAt(p.s[0], token.NoPos)
                 args []interface{}
         )
         for _, a := range p.a {
@@ -119,22 +119,25 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case *ast.BasicLit:
                 v = values.Literal(x.ValuePos, x.Kind, x.Value)
         case *ast.CompoundLit:
-                v = values.CompoundLit(x.BegPos, i.evalExprs(x.Elems)...)
+                v = values.CompoundLit(x.Pos(), i.evalExprs(x.Elems)...)
+        case *ast.Barecomp:
+                v = values.CompoundLit(x.Pos(), i.evalExprs(x.Elems)...)
         case *ast.GroupExpr:
                 v = values.GroupLit(x.Pos(), i.evalExprs(x.Elems)...)
         case *ast.ListExpr:
                 v = values.ListLit(x.Pos(), i.evalExprs(x.Elems)...)
         case *ast.CallExpr:
-                var name string
+                var name []string
                 if x.Name == nil {
                         assert(x.Tok != token.CALL)
-                        name = x.Tok.String()
-                        assert(name[0] == '$')
-                        name = name[1:]
+                        s := x.Tok.String()
+                        assert(s[0] == '$')
+                        name = append(name, s[1:])
                 } else {
-                        name = i.evalExpr(x.Name).String()
+                        s := i.evalExpr(x.Name)
+                        //fmt.Printf("call: %v %v\n", s.Type(), s)
+                        name = append(name, s.String())
                 }
-                //v = i.call(i.lookupAt(name, x.Dollar), i.evalExprs(x.Args))
                 v = &lazy{i, name, i.evalExprs(x.Args)}
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)

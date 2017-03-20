@@ -18,6 +18,7 @@ type Interpreter struct {
         runtime.Context
         fset     *token.FileSet
         loading  []*loadingInfo
+        paths    []string
 }
 
 type loadingInfo struct {
@@ -30,6 +31,10 @@ func New() *Interpreter {
                 Context:  runtime.MakeContext("interpreter"),
                 fset:     token.NewFileSet(), 
         }
+}
+
+func (i *Interpreter) AddSearchPaths(paths... string) {
+        i.paths = append(i.paths, paths...)
 }
 
 func (i *Interpreter) Run(targets... string) (err error) {

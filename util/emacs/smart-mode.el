@@ -80,10 +80,14 @@
 (define-derived-mode smart-mode makefile-gmake-mode "smart"
   "Major mode for editing .smart files."
   (setq font-lock-defaults
-	`(smart-font-lock-keywords ,@(cdr font-lock-defaults))))
+	`(smart-font-lock-keywords ,@(cdr font-lock-defaults)))
+
+  ;; Real TABs are important
+  (setq indent-tabs-mode t))
 
 
 (progn (add-to-list 'auto-mode-alist '("\\.smart" . smart-mode))
+       (add-to-list 'auto-mode-alist '("\\.sm" . smart-mode))
        (message "smart-mode"))
 
 (provide 'smart-mode)
