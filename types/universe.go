@@ -35,6 +35,7 @@ var (
         
         CompositeTypes = []*Composite {
                 CompoundKind: {CompoundKind, IsCompound, "compound"},
+                BarecompKind: {BarecompKind, IsBarecomp, "barecomp"},
                 ListKind:     {ListKind, IsList, "list"},
                 GroupKind:    {GroupKind, IsGroup, "group"},
                 MapKind:      {MapKind, IsMap, "map"},
@@ -55,6 +56,7 @@ var (
 
         // Shortcuts for composite types.
         Compound = CompositeTypes[CompoundKind]
+        Barecomp = CompositeTypes[BarecompKind]
         List     = CompositeTypes[ListKind]
         Group    = CompositeTypes[GroupKind]
         Map      = CompositeTypes[MapKind]
@@ -102,10 +104,17 @@ func (g *Globe) Scope() *Scope { return g.scope }
 func (g *Globe) Main() *Module { return g.main }
 
 // SetMain changes the main module.
-func (g *Globe) SetMain(m *Module) { g.main = m }
+func (g *Globe) SetMain(m *Module) {
+        g.main = m 
+}
 
-/* func (g *Globe) NewType(m *Module) *Named {
-        g.main = m...
+/* func (g *Globe) DeclareModule(mn *ModuleName) {
+        m := mn.Imported()
+        m.Scope().setParent(g.scope)
+        g.scope.Insert(mn) // visible from the globe scope
+        if g.main == nil {
+                g.main = m
+        }
 } */
 
 // NewGlobe creates a new Globe context.

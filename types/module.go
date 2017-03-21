@@ -38,3 +38,7 @@ func (m *Module) Scope() *Scope { return m.scope }
 func (m *Module) Imports() []*Module { return m.imports }
 func (m *Module) Uses() []*Use { return m.uses }
 func (m *Module) Complete() bool { return m.complete }
+
+/* func (m *Module) AddImport(om *Module) {
+        // ...
+} */

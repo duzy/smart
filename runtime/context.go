@@ -10,6 +10,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
+        //"fmt"
 )
 
 type Context struct {
@@ -17,6 +18,10 @@ type Context struct {
         scope    *types.Scope
         registry *Registry
         modules  []*types.Module
+}
+
+func (ctx *Context) Registry() *Registry {
+        return ctx.registry
 }
 
 func (ctx *Context) Globe() *types.Globe {
@@ -27,15 +32,30 @@ func (ctx *Context) Scope() *types.Scope {
         return ctx.scope
 }
 
-func (ctx *Context) Registry() *Registry {
-        return ctx.registry
+func (ctx *Context) SetScope(scope *types.Scope) (prev *types.Scope) {
+        prev = ctx.scope
+        ctx.scope = scope
+        return
 }
 
-func (ctx *Context) LookupAt(name string, pos token.Pos) (sym types.Symbol) {
-        if sym = ctx.scope.Lookup(name); sym == nil {
-                _, sym = ctx.scope.LookupParent(name, pos)
+func (ctx *Context) EnterModule(pos token.Pos, m *types.Module) *types.Scope {
+        n := types.NewModuleName(pos, ctx.CurrentModule(), m.Name(), m)
+        ctx.Scope().Insert(n) //; assert(n.Scope() == ctx.Scope())
+        
+        ctx.modules = append(ctx.modules, m)
+        return ctx.SetScope(m.Scope())
+}
+
+func (ctx *Context) ExitModule(prev *types.Scope) {
+        ctx.modules = ctx.modules[0:len(ctx.modules)-1]
+        ctx.SetScope(prev)
+}
+
+func (ctx *Context) CurrentModule() *types.Module {
+        if n := len(ctx.modules); n > 0 {
+                return ctx.modules[n-1]
         }
-        return
+        return nil
 }
 
 func (ctx *Context) CallSym(sym types.Symbol, args... interface{}) types.Value {
@@ -56,35 +76,8 @@ func (ctx *Context) CallSym(sym types.Symbol, args... interface{}) types.Value {
 }
 
 func (ctx *Context) Call(name string, args... interface{}) types.Value {
-        return ctx.CallSym(ctx.LookupAt(name, token.NoPos), args...)
-}
-
-func (ctx *Context) CurrentModule() *types.Module {
-        if n := len(ctx.modules); n > 0 {
-                return ctx.modules[n-1]
-        }
-        return nil
-}
-
-func (ctx *Context) NewModule(pos token.Pos, keyword token.Token, path, name string) *types.Module {
-        m := types.NewModule(keyword, path, name)
-        // modName := types.NewModuleName(pos, m, name, nil)
-        // ctx.scope.Insert(modName)
-        ctx.scope = m.Scope()
-        ctx.modules = append(ctx.modules, m)
-        return m
-}
-
-func (ctx *Context) ExitCurrentScope() {
-        if scope := ctx.scope.Parent(); !types.IsUniverse(scope) {
-                ctx.scope = scope
-        }
-}
-
-func (ctx *Context) defineAuto(name string, value interface{}) (auto *types.Auto) {
-        auto = types.NewAuto(ctx.CurrentModule(), name, values.Make(value))
-        ctx.scope.Insert(auto)
-        return
+        _, sym := ctx.scope.LookupAt(name, token.NoPos)
+        return ctx.CallSym(sym, args...)
 }
 
 func (ctx *Context) GetDefaultEntry() (entry *RuleEntry) {
@@ -95,23 +88,64 @@ func (ctx *Context) GetEntry(name string) (entry *RuleEntry) {
         return ctx.registry.Lookup(name)
 }
 
-func (ctx *Context) RunEntry(entry *RuleEntry) (err error) {
-        ctx.scope = types.NewScope(ctx.scope, token.NoPos, token.NoPos, entry.Name())
-        defer func() { ctx.scope = ctx.scope.Parent() } ()
-
-        ctx.defineAuto("@", entry.Name())
-        //fmt.Printf("%v\n", i.lookupAt("@", token.NoPos))
-        
-        return entry.Execute()
+type delegate struct {
+        x *Context
+        i []string
+        a []types.Value
+        p token.Pos
 }
 
-func (ctx *Context) RunEntryByName(name string) (err error) {
-        if entry := ctx.GetEntry(name); entry == nil {
-                err = ErrorNoEntry
-        } else {
-                err = ctx.RunEntry(entry)
+func (p *delegate) Type() types.Type  { return nil }
+//func (p *delegate) Lit() float64      { return p.call().Lit() }
+func (p *delegate) String() string    { return p.call().String() }
+func (p *delegate) Integer() int64    { return p.call().Integer() }
+func (p *delegate) Float() float64    { return p.call().Float() }
+func (p *delegate) call() types.Value {
+        var (
+                sym types.Symbol
+                xname = len(p.i)
+                name  = p.i[xname-1]
+                scope = p.x.Scope()
+        )
+        if xname == 2 {
+                for _, s := range p.i[0:xname-1] {
+                        _, sym = scope.LookupAt(s, p.p)
+                        //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
+                        if t, ok := sym.(*types.ModuleName); ok && t != nil {
+                                if m := t.Imported(); m != nil {
+                                        scope = m.Scope()
+                                        //fmt.Printf("scope: %p: %v: %v\n", scope, m.Name(), scope.Names())
+                                } else {
+                                        return values.None
+                                }
+                        } else {
+                                //err = ErrorModuleNotFound
+                                return values.None
+                        }
+                }
+        } else if xname > 2 {
+                //err = ErrorIllName
+                return values.None
         }
-        return
+        _, sym = scope.LookupAt(name, p.p)
+        //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
+        if sym != nil {
+                if sym.Callable() {
+                        return sym.Call(p.a...)
+                } else {
+                        return sym.Value()
+                }
+        }
+        return values.None
+}
+
+func (ctx *Context) Fold(pos token.Pos, ident []string, args... types.Value) types.Value {
+        return &delegate{
+                x: ctx,
+                i: ident,
+                a: args,
+                p: pos,
+        }
 }
 
 func MakeContext(name string) Context {

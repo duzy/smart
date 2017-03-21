@@ -70,6 +70,11 @@ type ModuleName struct {
         used bool // set if the module was used
 }
 
+// Imported returns the module that was imported.
+// It is distinct from Module(), which is the module
+// containing the import statement.
+func (n *ModuleName) Imported() *Module { return n.imported }
+
 func NewModuleName(pos token.Pos, mod *Module, name string, imported *Module) *ModuleName {
 	return &ModuleName{symbol{nil, mod, name, Invalid, 0, pos, token.NoPos}, imported, false}
 }

@@ -1,9 +1,9 @@
 # this is an example project
 project example
 
-import "fs"
 import "./dialects/foo"
 
+FOOBAR = example.foobar
 TAG_BOOK = book
 TAG_TITLE = title
 
@@ -14,8 +14,8 @@ BOOK_TITLE_2 = book two
 
 numbers = -123 +"100"
 
-eval print "this is a test\n"
-eval println 'this is a test'
+eval print "this is a test ($(foo.FOOBAR) $(FOOBAR))\n"
+eval println 'this is a test (foo bar example.foobar)'
 
 test = $(fs.OSNAME)
 test = foo bar
@@ -39,16 +39,19 @@ process.cmd : [ shell ] :
 	echo 'process.cmd'
 
 process.python : [ python ] :
-	print "python: $@"
+	print "$@"
+	print "process.python"
 
 process.perl : [ perl ] :
-	printf "perl: $@\n";
+	printf "$@\n";
+	printf "process.perl\n";
 
 process.trivial:
-	anything goes here are ignored
+	anything goes here are ignored and nothing will happen
 
 process.plain: [ plain ] :
 	this is a plain text ($(TAG_BOOK))
+	this is a plain text (book)
 
 # [ xml (as x), (xml-write-file (xml-search $x, 'book one'), $@) ]
 process.xml.1 : [ xml ] :

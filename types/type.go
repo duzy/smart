@@ -40,6 +40,7 @@ const (
         
         // composite types
         CompoundKind
+        BarecompKind
         ListKind
         GroupKind
         MapKind
@@ -100,6 +101,7 @@ const (
 
         // Properties of composite types.
         IsCompound
+        IsBarecomp
         IsList
         IsGroup
         IsMap
@@ -113,7 +115,7 @@ const (
         IsKeyName   = IsInteger | IsString | IsBareword
 	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword
 	IsBasic     = IsBoolean | IsOrdered | IsNone
-        IsComposite = IsCompound | IsList | IsGroup | IsMap | IsPair
+        IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair
         IsConstType = IsBasic
 )
 

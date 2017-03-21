@@ -440,8 +440,8 @@ type File struct {
 type Module struct {
 	Keypos  token.Pos          // position of "module" or "project" keyword
         Keyword token.Token        // e.g. "module", "project"
-	Name    string             // project name
-	Scope   *Scope             // project scope across all files
+	Name    string             // project/module name
+	Scope   *Scope             // project/module scope across all files
 	Imports map[string]*Symbol // map of project id -> project symbol
 	Files   map[string]*File   // source files by filename
 }

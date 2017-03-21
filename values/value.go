@@ -54,6 +54,11 @@ type (
                 v string
         }
 
+        BarecompValue struct {
+                value
+                elems []types.Value
+        }
+
         CompoundValue struct {
                 value
                 elems []types.Value
@@ -115,6 +120,11 @@ type (
 
         BarewordLiteral struct {
                 BarewordValue
+                pos token.Pos
+        }
+
+        BarecompLiteral struct {
+                BarecompValue
                 pos token.Pos
         }
 
@@ -221,6 +231,12 @@ func Bareword(s string) (v *BarewordValue) {
         return &BarewordValue{value{types.Bareword}, s}
 }
 
+func BarecompLit(pos token.Pos, elems... types.Value) (v *BarecompLiteral) {
+        return &BarecompLiteral{BarecompValue{value{types.Barecomp}, elems}, pos}
+}
+func Barecomp(pos token.Pos, elems... types.Value) (v *BarecompValue) {
+        return &BarecompValue{value{types.Barecomp}, elems}
+}
 func CompoundLit(pos token.Pos, elems... types.Value) (v *CompoundLiteral) {
         return &CompoundLiteral{CompoundValue{value{types.Compound}, elems}, pos}
 }
@@ -325,10 +341,18 @@ func (p *TimeValue) String() string     { return time.Time(p.v).Format("15:04:05
 func (p *UriValue) String() string      { return p.v.String() }
 func (p *StringValue) String() string   { return p.v }
 func (p *BarewordValue) String() string { return p.v }
-func (p *CompoundValue) String() (s string) {
+func (p *BarecompValue) String() (s string) {
         for _, e := range p.elems {
                 s += e.String()
         }
+        return
+}
+func (p *CompoundValue) String() (s string) {
+        //s = "\""
+        for _, e := range p.elems {
+                s += e.String()
+        }
+        //s += "\""
         return
 }
 func (p *ListValue) String() (s string) {
@@ -359,6 +383,7 @@ func (p *TimeValue) Integer() int64     { return p.v.Unix() }
 func (p *UriValue) Integer() int64      { return int64(len(p.v.String())) }
 func (p *StringValue) Integer() int64   { i, _ := strconv.ParseInt(p.v, 10, 64); return i }
 func (p *BarewordValue) Integer() int64 { return 0 }
+func (p *BarecompValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *CompoundValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *ListValue) Integer() int64     { return int64(len(p.elems)) }
 func (p *GroupValue) Integer() int64    { return int64(len(p.ListValue.elems)) }
@@ -373,6 +398,7 @@ func (p *TimeValue) Float() float64     { return float64(p.Integer()) }
 func (p *UriValue) Float() float64      { return float64(p.Integer()) }
 func (p *StringValue) Float() float64   { return float64(p.Integer()) }
 func (p *BarewordValue) Float() float64 { return float64(p.Integer()) }
+func (p *BarecompValue) Float() float64 { return float64(p.Integer()) }
 func (p *CompoundValue) Float() float64 { return float64(p.Integer()) }
 func (p *ListValue) Float() float64     { return float64(p.Integer()) }
 func (p *GroupValue) Float() float64    { return float64(p.Integer()) }
@@ -381,6 +407,7 @@ func (p *PairValue) Float() float64     { return p.v.Float() }
 func (p *ListValue) Len() int                   { return len(p.elems) }
 func (p *ListValue) Append(v types.Value)       { p.elems = append(p.elems, v) }
 func (p *ListValue) Get(n int) (v types.Value)  { if n>=0 && n<len(p.elems) { v = p.elems[n] }; return }
+func (p *ListValue) ToBarecomp() *BarecompValue { return &BarecompValue{value{types.Barecomp}, p.elems} }
 func (p *ListValue) ToCompound() *CompoundValue { return &CompoundValue{value{types.Compound}, p.elems} }
 func (p *GroupValue) ToList() *ListValue        { return &p.ListValue }
 func (p *CompoundValue) ToList() *ListValue     { return &ListValue{value{types.List}, p.elems} }

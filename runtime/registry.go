@@ -8,6 +8,7 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
+        "github.com/duzy/smart/values"
         "strings"
         "fmt"
 )
@@ -15,14 +16,28 @@ import (
 // Program
 type Program struct {
         context *Context
+        module  *types.Module
+        scope   *types.Scope
         depends []*RuleEntry
         recipes []types.Value
         interpreter interpreter // TODO: global (sharing states) or instance interpreter
 }
 
+func (prog *Program) Scope() *types.Scope { return prog.scope }
+
+func (prog *Program) defineAuto(name string, value interface{}) (auto *types.Auto) {
+        auto = types.NewAuto(prog.module, name, values.Make(value))
+        prog.scope.Insert(auto)
+        return
+}
+
 func (prog *Program) execute(entry string, forced bool) (err error) {
+        defer prog.context.SetScope(prog.context.SetScope(prog.scope))
+
+        prog.defineAuto("@", entry)
+        
         for _, depend := range prog.depends {
-                if err = prog.context.RunEntry(depend); err != nil {
+                if err = depend.Execute(); err != nil {
                         return
                 }
         }
@@ -84,11 +99,13 @@ func (prog *Program) InitDialect(name string, modifiers... types.Value) (err err
         return
 }
 
-func NewProgram(context *Context, depends []*RuleEntry, recipes... types.Value) *Program {
+func NewProgram(context *Context, scope *types.Scope, depends []*RuleEntry, recipes... types.Value) *Program {
         return &Program{
-                context: context,
-                depends: depends,
-                recipes: recipes,
+                context:     context,
+                module:      context.CurrentModule(),
+                scope:       scope,
+                depends:     depends,
+                recipes:     recipes,
                 interpreter: trivialDialect,
         }
 }
@@ -108,9 +125,6 @@ func (entry *RuleEntry) Execute() (err error) {
         if entry.program == nil {
                 return ErrorNilExec
         }
-
-        // TODO: checking prerequisites befor executing the program
-        
         return entry.program.execute(entry.name, false)
 }
 
@@ -132,10 +146,10 @@ type Registry struct {
         m map[string]*RuleEntry
 }
 
-func (reg *Registry) Entry(s string) (entry *RuleEntry) {
-        if entry, _ = reg.m[s]; entry == nil {
-                entry = &RuleEntry{ name: s }
-                reg.m[s] = entry
+func (reg *Registry) Entry(name string) (entry *RuleEntry) {
+        if entry, _ = reg.m[name]; entry == nil {
+                entry = &RuleEntry{ name: name }
+                reg.m[name] = entry
         }
         return
 }

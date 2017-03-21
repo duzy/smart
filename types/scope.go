@@ -32,7 +32,7 @@ func NewScope(parent *Scope, pos, end token.Pos, comment string) *Scope {
 	if parent != nil && parent != universe {
 		parent.children = append(parent.children, scope)
 	}
-       return scope
+        return scope
 }
 
 // Parent returns the scope's containing (parent) scope.
@@ -82,6 +82,14 @@ func (s *Scope) LookupParent(name string, pos token.Pos) (*Scope, Symbol) {
 		}
 	}
 	return nil, nil
+}
+
+func (s *Scope) LookupAt(name string, pos token.Pos) (*Scope, Symbol) {
+        if sym := s.Lookup(name); sym == nil {
+                return s.LookupParent(name, pos)
+        } else {
+                return s, sym
+        }
 }
 
 // Insert attempts to insert an symbol sym into scope s.

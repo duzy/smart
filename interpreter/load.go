@@ -14,6 +14,7 @@ import (
         "github.com/duzy/smart/values"
         "github.com/duzy/smart/runtime"
         "path/filepath"
+        "strings"
         "errors"
         "fmt"
         "os"
@@ -21,40 +22,22 @@ import (
 
 var parseMode = parser.DeclarationErrors //|parser.Trace
 
-type lazy struct {
-        i *Interpreter
-        s []string
-        a []types.Value
-}
-
-func (p *lazy) Type() types.Type  { return nil }
-func (p *lazy) String() string    { return p.call().String() }
-func (p *lazy) Integer() int64    { return p.call().Integer() }
-func (p *lazy) Float() float64    { return p.call().Float() }
-func (p *lazy) call() types.Value {
-        var (
-                sym = p.i.LookupAt(p.s[0], token.NoPos)
-                args []interface{}
-        )
-        for _, a := range p.a {
-                args = append(args, a)
-        }
-        return p.i.CallSym(sym, args...)
-}
-
 func restoreLoadingInfo(i *Interpreter) {
-        i.loading = i.loading[0:len(i.loading)-1]
+        i.loads = i.loads[0:len(i.loads)-1]
 }
 
 func saveLoadingInfo(i *Interpreter, dir, file string) *Interpreter {
-        i.loading = append(i.loading, &loadingInfo{
+        i.loads = append(i.loads, &loadInfo{
                 dir: dir, file: file,
         })
         return i
 }
 
-func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) error {
-        var path string
+func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) (err error) {
+        var (
+                linfo = i.loads[len(i.loads)-1]
+                path string
+        )
         if 0 < len(spec.Props) {
                 switch lit := spec.Props[0].(type) {
                 case *ast.BasicLit:
@@ -71,11 +54,60 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) error 
                         }
                 }
         }
+
         if path == "" {
-                // TODO: report proper errors
-                fmt.Printf("%v: import %v\n", doc.Name, spec.Props)
+                //fmt.Printf("%v: import %v\n", doc.Name, spec.Props)
+                return ErrorIllImport
         }
-        fmt.Printf("%v: import %v\n", doc.Name, path)
+
+        var (
+                modulePath string
+                isDir bool
+        )
+        if abs := filepath.IsAbs(path); abs || strings.HasPrefix(path, "./") {
+                var s = path
+                if !abs {
+                        s = filepath.Join(linfo.dir, s)
+                        if a, e := filepath.Abs(s); e == nil {
+                                s = a
+                        } else {
+                                return e
+                        }
+                }
+                if fi, err := os.Stat(s); err != nil {
+                        var sx = s + ".smart"
+                        if fi, err = os.Stat(sx); fi != nil {
+                                isDir, modulePath = fi.IsDir(), sx
+                                goto importModule
+                        }
+                        sx = s + ".sm"
+                        if fi, err = os.Stat(sx); fi != nil {
+                                isDir, modulePath = fi.IsDir(), sx
+                                goto importModule
+                        }
+                }
+        } else {
+                for _, base := range i.paths {
+                        s := filepath.Join(base, path)
+                        if fi, err := os.Stat(s); err == nil && fi != nil {
+                                isDir, modulePath = fi.IsDir(), s
+                                goto importModule
+                        }
+                }
+        }
+        if modulePath == "" {
+                return ErrorNoModule
+        }
+
+importModule:
+        if isDir {
+                fmt.Printf("todo: import %v (dir)\n", modulePath)
+                err = i.LoadDir(modulePath, nil)
+        } else {
+                //fmt.Printf("todo: import %v\n", i.CurrentModule())
+                err = i.Load(modulePath, nil)
+                //fmt.Printf("todo: import %v\n", i.CurrentModule())
+        }
         return nil
 }
 
@@ -110,17 +142,43 @@ func (i *Interpreter) evalProgram(p *ast.ProgramExpr) (v types.Value) {
         return
 }
 
+func (i *Interpreter) evalName(expr ast.Expr) (name []string) {
+        switch x := expr.(type) {
+        case *ast.BasicLit:
+                name = append(name, x.Value)
+        case *ast.Bareword:
+                name = append(name, x.Value)
+        case *ast.Barecomp:
+                var part string
+                for _, elem := range x.Elems {
+                        s := i.evalExpr(elem).String()
+                        if s == "." {
+                                name = append(name, part)
+                                part = ""
+                        } else {
+                                part += s
+                        }
+                }
+                if part != "" {
+                        name = append(name, part)
+                }
+        default:
+                name = append(name, "?")
+        }
+        return
+}
+
 func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         switch x := expr.(type) {
         case *ast.BadExpr:
                 unreachable();
-        case *ast.Bareword:
-                v = values.BarewordLit(x.ValuePos, x.Value)
         case *ast.BasicLit:
-                v = values.Literal(x.ValuePos, x.Kind, x.Value)
-        case *ast.CompoundLit:
-                v = values.CompoundLit(x.Pos(), i.evalExprs(x.Elems)...)
+                v = values.Literal(x.Pos(), x.Kind, x.Value)
+        case *ast.Bareword:
+                v = values.BarewordLit(x.Pos(), x.Value)
         case *ast.Barecomp:
+                v = values.BarecompLit(x.Pos(), i.evalExprs(x.Elems)...)
+        case *ast.CompoundLit:
                 v = values.CompoundLit(x.Pos(), i.evalExprs(x.Elems)...)
         case *ast.GroupExpr:
                 v = values.GroupLit(x.Pos(), i.evalExprs(x.Elems)...)
@@ -134,15 +192,13 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         assert(s[0] == '$')
                         name = append(name, s[1:])
                 } else {
-                        s := i.evalExpr(x.Name)
-                        //fmt.Printf("call: %v %v\n", s.Type(), s)
-                        name = append(name, s.String())
+                        name = i.evalName(x.Name)
                 }
-                v = &lazy{i, name, i.evalExprs(x.Args)}
+                v = i.Fold(x.Pos(), name, i.evalExprs(x.Args)...)
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
         case *ast.RecipeExpr:
-                v = values.CompoundLit(x.TabPos, i.evalExprs(x.Elems)...)
+                v = values.CompoundLit(x.Pos(), i.evalExprs(x.Elems)...)
         case *ast.ProgramExpr:
                 v = i.evalProgram(x)
         default:
@@ -167,7 +223,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
                 name := i.evalExpr(spec.Props[0])
                 //fmt.Printf("eval: %v\n", name)
-                if fun := i.LookupAt(name.String(), spec.EndPos); fun != nil {
+                if _, fun := i.Scope().LookupAt(name.String(), spec.EndPos); fun != nil {
                         args := i.evalExprs(spec.Props[1:])
                         res = fun.Call(args...)
                         //fmt.Printf("eval: %v\n", res)
@@ -179,11 +235,14 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         return
 }
 
-func (i *Interpreter) define(d *ast.DefineClause) error {
-        m := i.CurrentModule()
-        n, v := i.evalExpr(d.Name), i.evalExpr(d.Value)
-        m.Scope().Insert(types.NewDef(d.TokPos, m, n.String(), v))
-        return nil
+func (i *Interpreter) define(d *ast.DefineClause) (err error) {
+        if m := i.CurrentModule(); m != nil {
+                n, v := i.evalExpr(d.Name), i.evalExpr(d.Value)
+                m.Scope().Insert(types.NewDef(d.TokPos, m, n.String(), v))
+        } else {
+                err = ErrorNotModuleScope
+        }
+        return
 }
 
 func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
@@ -206,7 +265,10 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 modifiers = i.evalExprs(d.Modifier.Elems)
         }
         
-        var prog = runtime.NewProgram(&i.Context, depends, recipes...)
+        var (
+                scope = types.NewScope(i.Scope(), d.TokPos, token.NoPos, "rule")
+                prog = runtime.NewProgram(&i.Context, scope, depends, recipes...)
+        )
         if len(modifiers) > 0 {
                 dialect := modifiers[0].String()
                 if err = prog.InitDialect(dialect, modifiers[1:]...); err != nil {
@@ -247,7 +309,7 @@ func (i *Interpreter) clause(clause ast.Clause) error {
 
 func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         var (
-                linfo = i.loading[len(i.loading)-1]
+                linfo = i.loads[len(i.loads)-1]
                 filename = i.evalExpr(spec.Props[0])
                 params []types.Value
         )
@@ -279,20 +341,9 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         return nil
 }
 
-// Interpreter.Load loads script from a file or source code (string, []byte).
-func (i *Interpreter) Load(filename string, source interface{}) error {
-        dir, file := filepath.Split(filename)
-        defer restoreLoadingInfo(saveLoadingInfo(i, dir, file))
-        
-        doc, err := parser.ParseFile(i.fset, filename, source, parseMode)
-        if err != nil {
-                return err
-        }
-
-        m := i.NewModule(doc.Keypos, doc.Keyword, filename, doc.Name.Value)
-        defer i.ExitCurrentScope()
-
-        if m == nil { }
+func (i *Interpreter) file(doc *ast.File) (err error) {
+        scope := types.NewScope(i.Scope(), doc.Keypos, token.NoPos, "file")
+        defer i.SetScope(i.SetScope(scope))
 
         for _, spec := range doc.Imports {
                 if err = i.loadImportSpec(doc, spec); err != nil {
@@ -305,10 +356,31 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
                         return err
                 }
         }
-        return nil
+        //fmt.Printf("end file: %v\n", scope.Names())
+        return
 }
 
-func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) error {
+func (i *Interpreter) module(mod *ast.Module) (err error) {
+        fmt.Printf("todo: module: %v\n", mod)
+        return
+}
+
+// Interpreter.Load loads script from a file or source code (string, []byte).
+func (i *Interpreter) Load(filename string, source interface{}) error {
+        dir, file := filepath.Split(filename)
+        defer restoreLoadingInfo(saveLoadingInfo(i, dir, file))
+
+        doc, err := parser.ParseFile(i.fset, filename, source, parseMode)
+        if err != nil {
+                return err
+        }
+
+        m := types.NewModule(doc.Keyword, filename, doc.Name.Value)
+        defer i.ExitModule(i.EnterModule(doc.Keypos, m))
+        return i.file(doc)
+}
+
+func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
         defer restoreLoadingInfo(saveLoadingInfo(i, path, ""))
 
         mods, err := parser.ParseDir(i.fset, path, filter, parseMode)
@@ -320,11 +392,14 @@ func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) error 
         //defer i.upperScope()
         
         var keyword token.Token
-        for name, mod := range mods {
+        for _, mod := range mods {
                 if keyword == token.ILLEGAL {
                         keyword = mod.Keyword
                 }
-                fmt.Printf("module: %v: %v\n", keyword, name)
+                if err = i.module(mod); err != nil {
+                        return
+                }
         }
-        return nil
+        
+        return
 }

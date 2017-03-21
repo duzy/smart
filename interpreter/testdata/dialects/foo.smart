@@ -1,3 +1,5 @@
-dialect xml
+module foo
 
-# TODO: dialect implementation in smart
+FOOBAR = foo bar
+
+#eval println $(FOOBAR)

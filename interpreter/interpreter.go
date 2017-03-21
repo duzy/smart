@@ -10,18 +10,20 @@ import (
         //"github.com/duzy/smart/types"
         //"github.com/duzy/smart/values"
         "github.com/duzy/smart/runtime"
+        "path/filepath"
         //"errors"
         //"fmt"
+        "os"
 )
 
 type Interpreter struct {
         runtime.Context
         fset     *token.FileSet
-        loading  []*loadingInfo
+        loads    []*loadInfo
         paths    []string
 }
 
-type loadingInfo struct {
+type loadInfo struct {
         dir, file string
 }
 
@@ -33,24 +35,36 @@ func New() *Interpreter {
         }
 }
 
-func (i *Interpreter) AddSearchPaths(paths... string) {
-        i.paths = append(i.paths, paths...)
+func (i *Interpreter) AddSearchPaths(paths... string) (err error) {
+        for _, s := range paths {
+                if s, err = filepath.Abs(s); err != nil {
+                        break
+                }
+                if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+                        i.paths = append(i.paths, s)
+                } else {
+                        return ErrorSearchPath 
+                }
+        }
+        return nil
 }
 
 func (i *Interpreter) Run(targets... string) (err error) {
         var updated = 0
         if len(targets) == 0 {
                 if entry := i.GetDefaultEntry(); entry != nil {
-                        if err = i.RunEntry(entry); err == nil {
+                        if err = entry.Execute(); err == nil {
                                 updated += 1
                         }
                 }
         } else {
                 for _, target := range targets {
-                        if err = i.RunEntryByName(target); err == nil {
-                                updated += 1
-                        } else {
-                                break
+                        if entry := i.GetEntry(target); entry != nil {
+                                if err = entry.Execute(); err == nil {
+                                        updated += 1
+                                } else {
+                                        break
+                                }
                         }
                 }
         }
