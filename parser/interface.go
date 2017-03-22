@@ -145,7 +145,8 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
 
 	mods = make(map[string]*ast.Module)
 	for _, d := range list {
-		if strings.HasSuffix(d.Name(), ".smart") && (filter == nil || filter(d)) {
+                sm := strings.HasSuffix(d.Name(), ".smart") || strings.HasSuffix(d.Name(), ".sm")
+		if sm && (filter == nil || filter(d)) {
 			filename := filepath.Join(path, d.Name())
 			if src, err := ParseFile(fset, filename, nil, mode); err == nil {
 				name := src.Name.Value

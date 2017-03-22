@@ -14,6 +14,7 @@ import (
         "unicode"
         "bytes"
         "fmt"
+        "os"
 )
 
 var defaultShellInterpreter = "sh"
@@ -43,6 +44,9 @@ func (s *dialectShell) evaluate(recipes... types.Value) (result types.Value, err
                 if es != "" {
                         fmt.Printf("%v", es)
                 }
+        } else {
+                fmt.Fprintf(os.Stderr, "%v", s.source)
+                fmt.Fprintf(os.Stderr, "%s", stderr.String())
         }
         return
 }

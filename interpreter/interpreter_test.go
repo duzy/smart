@@ -19,7 +19,7 @@ func TestLoad(t *testing.T) {
         }
 }
 
-func _TestBuildExample(t *testing.T) {
+func TestBuildExample(t *testing.T) {
         i := New()
         i.AddSearchPaths(`../modules`)
         if err := i.Load(`testdata/example-build.smart`, nil); err != nil {

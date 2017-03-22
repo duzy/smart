@@ -101,12 +101,9 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) (err e
 
 importModule:
         if isDir {
-                fmt.Printf("todo: import %v (dir)\n", modulePath)
                 err = i.LoadDir(modulePath, nil)
         } else {
-                //fmt.Printf("todo: import %v\n", i.CurrentModule())
                 err = i.Load(modulePath, nil)
-                //fmt.Printf("todo: import %v\n", i.CurrentModule())
         }
         return nil
 }
@@ -361,7 +358,13 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
 }
 
 func (i *Interpreter) module(mod *ast.Module) (err error) {
-        fmt.Printf("todo: module: %v\n", mod)
+        m := types.NewModule(mod.Keyword, mod.Name, mod.Name)
+        defer i.ExitModule(i.EnterModule(mod.Keypos, m))
+        for _, f := range mod.Files {
+                if err = i.file(f); err != nil {
+                        break
+                }
+        }
         return
 }
 
@@ -384,22 +387,12 @@ func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err e
         defer restoreLoadingInfo(saveLoadingInfo(i, path, ""))
 
         mods, err := parser.ParseDir(i.fset, path, filter, parseMode)
-        if err != nil {
-                return err
-        }
-
-        //m := i.newModule(doc.Keyword, filename, doc.Name.value)
-        //defer i.upperScope()
-        
-        var keyword token.Token
-        for _, mod := range mods {
-                if keyword == token.ILLEGAL {
-                        keyword = mod.Keyword
-                }
-                if err = i.module(mod); err != nil {
-                        return
+        if err == nil {
+                for _, mod := range mods {
+                        if err = i.module(mod); err != nil {
+                                break
+                        }
                 }
         }
-        
         return
 }
