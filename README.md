@@ -67,7 +67,7 @@ The ideas of the `smart` language is originated from the old [smart-make](https:
 project, which is written in `makefile` to ease building projects of complex hierachy.
 The rational of `smart-make` is very similar to [the build system of Android OS](https://android.googlesource.com/platform/build/+/master).
 
-The goal of `smart` is to be great successor of makefile doing jobs like `smart-make`
+The goal of `smart` is to supersed makefile doing jobs like `smart-make`
 and [the Android OS build system](https://android.googlesource.com/platform/build/+/master).
 
 Why
