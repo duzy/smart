@@ -104,18 +104,26 @@ func (g *Globe) Scope() *Scope { return g.scope }
 func (g *Globe) Main() *Module { return g.main }
 
 // SetMain changes the main module.
-func (g *Globe) SetMain(m *Module) {
+/* func (g *Globe) SetMain(m *Module) {
         g.main = m 
-}
+} */
 
-/* func (g *Globe) DeclareModule(mn *ModuleName) {
-        m := mn.Imported()
-        m.Scope().setParent(g.scope)
-        g.scope.Insert(mn) // visible from the globe scope
+// NewModule returns a new Module for the given module path and name;
+// the name must not be the blank identifier.
+// The module is not complete and contains no explicit imports.
+func (g *Globe) NewModule(kw token.Token, path, name string) (m *Module) {
+	scope := NewScope(g.scope, token.NoPos, token.NoPos, fmt.Sprintf("module %q", path))
+	m = &Module{
+                keyword: kw, 
+                path: path, 
+                name: name, 
+                scope: scope,
+        }
         if g.main == nil {
                 g.main = m
         }
-} */
+        return
+}
 
 // NewGlobe creates a new Globe context.
 func NewGlobe(name string) *Globe {

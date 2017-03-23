@@ -10,7 +10,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        //"fmt"
+        "fmt"
 )
 
 type Context struct {
@@ -38,10 +38,21 @@ func (ctx *Context) SetScope(scope *types.Scope) (prev *types.Scope) {
         return
 }
 
-func (ctx *Context) EnterModule(pos token.Pos, m *types.Module) *types.Scope {
+func (ctx *Context) CurrentModule() *types.Module {
+        if n := len(ctx.modules); n > 0 {
+                return ctx.modules[n-1]
+        }
+        return nil
+}
+
+func (ctx *Context) DeclareModule(pos token.Pos, kw token.Token, path, name string) *types.Module {
+        m := ctx.globe.NewModule(kw, path, name)
         n := types.NewModuleName(pos, ctx.CurrentModule(), m.Name(), m)
         ctx.Scope().Insert(n) //; assert(n.Scope() == ctx.Scope())
-        
+        return m
+}
+
+func (ctx *Context) EnterModule(m *types.Module) *types.Scope {
         ctx.modules = append(ctx.modules, m)
         return ctx.SetScope(m.Scope())
 }
@@ -51,13 +62,6 @@ func (ctx *Context) ExitModule(prev *types.Scope) {
         ctx.SetScope(prev)
 }
 
-func (ctx *Context) CurrentModule() *types.Module {
-        if n := len(ctx.modules); n > 0 {
-                return ctx.modules[n-1]
-        }
-        return nil
-}
-
 func (ctx *Context) CallSym(sym types.Symbol, args... interface{}) types.Value {
         if sym == nil {
                 return values.None
@@ -65,7 +69,7 @@ func (ctx *Context) CallSym(sym types.Symbol, args... interface{}) types.Value {
 
         var av = values.MakeAll(args)
         if sym.Callable() {
-                return sym.Call(ctx, av...)
+                return sym.Call(/*ctx,*/ av...)
         }
 
         if na := len(av); na > 0 {
@@ -130,7 +134,7 @@ func (p *delegate) call() types.Value {
         _, sym = scope.LookupAt(name, p.p)
         if sym != nil {
                 if sym.Callable() {
-                        return sym.Call(p.x, p.a...)
+                        return sym.Call(/*p.x,*/ p.a...)
                 } else {
                         return sym.Value()
                 }
@@ -148,8 +152,8 @@ func (ctx *Context) Fold(pos token.Pos, ident []string, args... types.Value) typ
 }
 
 func (ctx *Context) defineBuiltin(name string, f builtin) {
-        ctx.globe.Scope().Parent().Insert(types.NewBuiltin(name, func(x types.Context, args... types.Value) types.Value {
-                return f(x.(*Context), args...)
+        ctx.globe.Scope()/*.Parent()*/.Insert(types.NewBuiltin(name, func(/*x types.Context,*/ args... types.Value) types.Value {
+                return f(/*x.(*Context)*/ctx, args...)
         }))
 }
 
@@ -168,6 +172,9 @@ func NewContext(name string) *Context {
                         registry: NewRegistry(),
                 }
         )
+        if false {
+                fmt.Printf("context: %p\n", context)
+        }
         context.defineBuiltins()
         return context
 }

@@ -18,7 +18,7 @@ type Symbol interface {
         Value() Value
 
         Callable() bool
-        Call(ctx Context, args... Value) Value
+        Call(/*ctx Context,*/ args... Value) Value
 
         String() string
 
@@ -55,8 +55,8 @@ func (sym *symbol) Name() string          { return sym.name }
 func (sym *symbol) Type() Type            { return sym.typ }
 func (sym *symbol) String() string        { panic("abstract") }
 func (sym *symbol) Value() Value          { panic("abstract") }
-func (sym *symbol) Call(c Context, a... Value) Value { panic("abstract") }
 func (sym *symbol) Callable() bool        { return false }
+func (sym *symbol) Call(/*c Context,*/ a... Value) Value { panic("abstract") }
 func (sym *symbol) order() uint32         { return sym.ord }
 func (sym *symbol) scopePos() token.Pos   { return sym.scopePos_ }
 
@@ -121,7 +121,7 @@ type Builtin struct {
 
 //func (p *Builtin) Value() Value { return p.Call() }
 func (p *Builtin) Callable() bool { return true }
-func (p *Builtin) Call(ctx Context, a... Value) Value { return p.f(ctx, a...) }
+func (p *Builtin) Call(/*ctx Context,*/ a... Value) Value { return p.f(/*ctx,*/ a...) }
 
 func NewBuiltin(name string, f BuiltinFunc) *Builtin {
         return &Builtin{symbol{

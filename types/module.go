@@ -7,7 +7,7 @@ package types
 
 import (
         "github.com/duzy/smart/token"
-        "fmt"
+        //"fmt"
 )
 
 type Module struct {
@@ -18,17 +18,6 @@ type Module struct {
         imports  []*Module
         uses     []*Use
 	complete bool
-}
-
-// NewModule returns a new Module for the given module path and name;
-// the name must not be the blank identifier.
-// The module is not complete and contains no explicit imports.
-func NewModule(kw token.Token, path, name string) *Module {
-	if name == "_" {
-		panic("invalid module name _")
-	}
-	scope := NewScope(universe, token.NoPos, token.NoPos, fmt.Sprintf("module %q", path))
-	return &Module{keyword: kw, path: path, name: name, scope: scope}
 }
 
 func (m *Module) Keyword() token.Token { return m.keyword }

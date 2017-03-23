@@ -215,7 +215,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                 name := i.evalExpr(spec.Props[0])
                 if _, fun := i.Scope().LookupAt(name.String(), spec.EndPos); fun != nil {
                         args := i.evalExprs(spec.Props[1:])
-                        res = fun.Call(i.Context, args...)
+                        res = fun.Call(/*i.Context,*/ args...)
                 } else {
                         err = errors.New(fmt.Sprintf("undefined '%s'", name))
                         //fmt.Printf("error: `%v' is invalid\n", name)
@@ -350,8 +350,8 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
 }
 
 func (i *Interpreter) module(mod *ast.Module) (err error) {
-        m := types.NewModule(mod.Keyword, mod.Name, mod.Name)
-        defer i.ExitModule(i.EnterModule(mod.Keypos, m))
+        m := i.DeclareModule(mod.Keypos, mod.Keyword, mod.Name, mod.Name)
+        defer i.ExitModule(i.EnterModule(m))
         for _, f := range mod.Files {
                 if err = i.file(f); err != nil {
                         break
@@ -370,8 +370,8 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
                 return err
         }
 
-        m := types.NewModule(doc.Keyword, filename, doc.Name.Value)
-        defer i.ExitModule(i.EnterModule(doc.Keypos, m))
+        m := i.DeclareModule(doc.Keypos, doc.Keyword, filename, doc.Name.Value)
+        defer i.ExitModule(i.EnterModule(m))
         return i.file(doc)
 }
 
