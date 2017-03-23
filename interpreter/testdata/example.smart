@@ -49,7 +49,7 @@ process.perl : [ perl ] :
 process.trivial:
 	anything goes here are ignored and nothing will happen
 
-process.plain: [ plain ] :
+process.plain : [ plain ] :
 	this is a plain text ($(TAG_BOOK))
 	this is a plain text (book)
 

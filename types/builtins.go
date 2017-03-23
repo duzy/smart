@@ -11,21 +11,26 @@ import (
         "fmt"
 )
 
-type builtin func(args... Value) Value
+type Context interface {
+        Globe() *Globe
+        Scope() *Scope
+}
 
-var builtins = map[string]builtin {
+type BuiltinFunc func(ctx Context, args... Value) Value
+
+var builtins = map[string]BuiltinFunc {
         `print`:   builtinPrint,
         `println`: builtinPrintln,
 }
 
-func builtinPrint(args... Value) Value {
+func builtinPrint(ctx Context, args... Value) Value {
         for _, a := range args {
                 fmt.Printf("%s", a)
         }
         return nil
 }
 
-func builtinPrintln(args... Value) Value {
+func builtinPrintln(ctx Context, args... Value) Value {
         for _, a := range args {
                 fmt.Printf("%s", a)
         }

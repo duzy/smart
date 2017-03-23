@@ -65,7 +65,7 @@ func (ctx *Context) CallSym(sym types.Symbol, args... interface{}) types.Value {
 
         var av = values.MakeAll(args)
         if sym.Callable() {
-                return sym.Call(av...)
+                return sym.Call(ctx, av...)
         }
 
         if na := len(av); na > 0 {
@@ -128,10 +128,9 @@ func (p *delegate) call() types.Value {
                 return values.None
         }
         _, sym = scope.LookupAt(name, p.p)
-        //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
         if sym != nil {
                 if sym.Callable() {
-                        return sym.Call(p.a...)
+                        return sym.Call(p.x, p.a...)
                 } else {
                         return sym.Value()
                 }
@@ -148,11 +147,27 @@ func (ctx *Context) Fold(pos token.Pos, ident []string, args... types.Value) typ
         }
 }
 
-func MakeContext(name string) Context {
-        globe := types.NewGlobe(name)
-        return Context{
-                globe:    globe,
-                scope:    globe.Scope(),
-                registry: NewRegistry(),
+func (ctx *Context) defineBuiltin(name string, f builtin) {
+        ctx.globe.Scope().Parent().Insert(types.NewBuiltin(name, func(x types.Context, args... types.Value) types.Value {
+                return f(x.(*Context), args...)
+        }))
+}
+
+func (ctx *Context) defineBuiltins() {
+        for name, f := range builtins {
+                ctx.defineBuiltin(name, f)
         }
+}
+
+func NewContext(name string) *Context {
+        var (
+                globe = types.NewGlobe(name)
+                context = &Context{
+                        globe:    globe,
+                        scope:    globe.Scope(),
+                        registry: NewRegistry(),
+                }
+        )
+        context.defineBuiltins()
+        return context
 }

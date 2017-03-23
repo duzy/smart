@@ -135,10 +135,6 @@ func (i *Interpreter) evalBinary(x *ast.BinaryExpr) (v types.Value) {
         return
 }
 
-func (i *Interpreter) evalProgram(p *ast.ProgramExpr) (v types.Value) {
-        return
-}
-
 func (i *Interpreter) evalName(expr ast.Expr) (name []string) {
         switch x := expr.(type) {
         case *ast.BasicLit:
@@ -196,8 +192,6 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 v = i.evalUnary(x)
         case *ast.RecipeExpr:
                 v = values.CompoundLit(x.Pos(), i.evalExprs(x.Elems)...)
-        case *ast.ProgramExpr:
-                v = i.evalProgram(x)
         default:
                 unreachable()
         }
@@ -219,11 +213,9 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
                 name := i.evalExpr(spec.Props[0])
-                //fmt.Printf("eval: %v\n", name)
                 if _, fun := i.Scope().LookupAt(name.String(), spec.EndPos); fun != nil {
                         args := i.evalExprs(spec.Props[1:])
-                        res = fun.Call(args...)
-                        //fmt.Printf("eval: %v\n", res)
+                        res = fun.Call(i.Context, args...)
                 } else {
                         err = errors.New(fmt.Sprintf("undefined '%s'", name))
                         //fmt.Printf("error: `%v' is invalid\n", name)
@@ -264,7 +256,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         
         var (
                 scope = types.NewScope(i.Scope(), d.TokPos, token.NoPos, "rule")
-                prog = runtime.NewProgram(&i.Context, scope, depends, recipes...)
+                prog = runtime.NewProgram(i.Context, scope, depends, recipes...)
         )
         if len(modifiers) > 0 {
                 dialect := modifiers[0].String()

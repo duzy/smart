@@ -17,7 +17,7 @@ import (
 )
 
 type Interpreter struct {
-        runtime.Context
+        *runtime.Context
         fset     *token.FileSet
         loads    []*loadInfo
         paths    []string
@@ -30,7 +30,7 @@ type loadInfo struct {
 // Create and initialize a new interpreter.
 func New() *Interpreter {
         return &Interpreter{
-                Context:  runtime.MakeContext("interpreter"),
+                Context:  runtime.NewContext("interpreter"),
                 fset:     token.NewFileSet(), 
         }
 }
@@ -53,14 +53,14 @@ func (i *Interpreter) Run(targets... string) (err error) {
         var updated = 0
         if len(targets) == 0 {
                 if entry := i.GetDefaultEntry(); entry != nil {
-                        if err = entry.Execute(); err == nil {
+                        if _, err = entry.Execute(); err == nil {
                                 updated += 1
                         }
                 }
         } else {
                 for _, target := range targets {
                         if entry := i.GetEntry(target); entry != nil {
-                                if err = entry.Execute(); err == nil {
+                                if _, err = entry.Execute(); err == nil {
                                         updated += 1
                                 } else {
                                         break

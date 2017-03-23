@@ -35,6 +35,8 @@ func NewScope(parent *Scope, pos, end token.Pos, comment string) *Scope {
         return scope
 }
 
+func (s *Scope) Comment() string { return s.comment }
+
 // Parent returns the scope's containing (parent) scope.
 func (s *Scope) Parent() *Scope { return s.parent }
 

@@ -7,6 +7,7 @@
 package runtime
 
 import (
+        "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "strings"
@@ -21,6 +22,7 @@ type Program struct {
         depends []*RuleEntry
         recipes []types.Value
         interpreter interpreter // TODO: global (sharing states) or instance interpreter
+        pipline []types.Value
 }
 
 func (prog *Program) Scope() *types.Scope { return prog.scope }
@@ -31,36 +33,84 @@ func (prog *Program) defineAuto(name string, value interface{}) (auto *types.Aut
         return
 }
 
-func (prog *Program) execute(entry string, forced bool) (err error) {
+func (prog *Program) modify(g *values.GroupValue) (result types.Value) {
+        name := []string{ g.Get(0).String() } // TODO: Interpreter.evalName
+        value := prog.context.Fold(token.NoPos, name, g.Slice(1)...)
+        result = values.String(value.String())
+        return
+}
+
+func (prog *Program) pipe(value types.Value) (result types.Value, err error) {
+        for i, v := range prog.pipline {
+                switch op := v.(type) {
+                case *values.GroupLiteral:
+                        result = prog.modify(&op.GroupValue)
+                case *values.GroupValue:
+                        result = prog.modify(op)
+                default:
+                        fmt.Printf("todo: %d: %T %v\n", i, op, op)
+                }
+        }
+        return
+}
+
+func (prog *Program) execute(entry string, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
 
         prog.defineAuto("@", entry)
-        
+
+        var (
+                res types.Value
+                depends = values.List()
+        )
         for _, depend := range prog.depends {
-                if err = depend.Execute(); err != nil {
+                if res, err = depend.Execute(); err == nil {
+                        if res == nil {
+                                depends.Append(values.String(depend.Name()))
+                        } else {
+                                depends.Append(res)
+                        }
+                } else {
                         return
                 }
+        }
+
+        if depends.Len() > 0 {
+                prog.defineAuto("<", depends.Get(0))
+                prog.defineAuto("^", depends)
         }
         
         // TODO: execute depends and check outdated
 
         var (
                 mode = prog.interpreter.mode()
-                result types.Value
+                pipe = len(prog.pipline) > 0
         )
         if mode&interpretMulti != 0 {
                 if result, err = prog.interpreter.evaluate(prog.recipes...); err != nil {
                         return
                 } else if result != nil {
-                        fmt.Printf("%v\n", result)
+                        if pipe {
+                                result, err = prog.pipe(result)
+                        } else {
+                                fmt.Printf("%v\n", result)
+                        }
                 }
         } else if mode&interpretSingle != 0 {
+                var results = values.List()
                 for _, recipe := range prog.recipes {
                         if result, err = prog.interpreter.evaluate(recipe); err != nil {
                                 return
                         } else if result != nil {
-                                fmt.Printf("%v", result)
+                                if len(prog.pipline) > 0 {
+                                        results.Append(result)
+                                } else {
+                                        fmt.Printf("%v", result)
+                                }
                         }
+                }
+                if pipe {
+                        result, err = prog.pipe(results)
                 }
         }
         return
@@ -96,6 +146,7 @@ func (prog *Program) InitDialect(name string, modifiers... types.Value) (err err
         default:
                 err = ErrorNoDialect
         }
+        prog.pipline = modifiers
         return
 }
 
@@ -121,9 +172,9 @@ func (entry *RuleEntry) Program() *Program { return entry.program }
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
-func (entry *RuleEntry) Execute() (err error) {
+func (entry *RuleEntry) Execute() (result types.Value, err error) {
         if entry.program == nil {
-                return ErrorNilExec
+                return nil, ErrorNilExec
         }
         return entry.program.execute(entry.name, false)
 }

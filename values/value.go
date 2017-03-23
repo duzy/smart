@@ -407,6 +407,12 @@ func (p *PairValue) Float() float64     { return p.v.Float() }
 func (p *ListValue) Len() int                   { return len(p.elems) }
 func (p *ListValue) Append(v types.Value)       { p.elems = append(p.elems, v) }
 func (p *ListValue) Get(n int) (v types.Value)  { if n>=0 && n<len(p.elems) { v = p.elems[n] }; return }
+func (p *ListValue) Slice(n int) (a []types.Value)  {
+        if n>=0 && n<len(p.elems) {
+                a = p.elems[n:]
+        }
+        return 
+}
 func (p *ListValue) ToBarecomp() *BarecompValue { return &BarecompValue{value{types.Barecomp}, p.elems} }
 func (p *ListValue) ToCompound() *CompoundValue { return &CompoundValue{value{types.Compound}, p.elems} }
 func (p *GroupValue) ToList() *ListValue        { return &p.ListValue }
