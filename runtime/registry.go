@@ -11,6 +11,7 @@ import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "strings"
+        "errors"
         "fmt"
 )
 
@@ -27,9 +28,16 @@ type Program struct {
 
 func (prog *Program) Scope() *types.Scope { return prog.scope }
 
-func (prog *Program) defineAuto(name string, value interface{}) (auto *types.Auto) {
-        auto = types.NewAuto(prog.module, name, values.Make(value))
-        prog.scope.Insert(auto)
+func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
+        if sym := prog.scope.Lookup(name); sym == nil {
+                auto = types.NewAuto(prog.module, name, values.Make(value))
+                prog.scope.Insert(auto)
+        } else {
+                var found = false
+                if auto, found = sym.(*types.Def); found {
+                        auto.Reset(values.Make(value))
+                }
+        }
         return
 }
 
@@ -41,33 +49,39 @@ func (prog *Program) modify(g *values.GroupValue) (result types.Value) {
 }
 
 func (prog *Program) pipe(value types.Value) (result types.Value, err error) {
+        var out = prog.auto("-", value)
         for i, v := range prog.pipline {
                 switch op := v.(type) {
                 case *values.GroupLiteral:
-                        result = prog.modify(&op.GroupValue)
+                        //out.Reset(prog.modify(&op.GroupValue))
+                        prog.modify(&op.GroupValue)
                 case *values.GroupValue:
-                        result = prog.modify(op)
+                        //out.Reset(prog.modify(op))
+                        prog.modify(op)
                 default:
                         fmt.Printf("todo: %d: %T %v\n", i, op, op)
                 }
         }
+        result = out.Value()
         return
 }
 
 func (prog *Program) execute(entry string, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
 
-        prog.defineAuto("@", entry)
+        prog.auto("@", entry)
 
         var (
                 res types.Value
                 depends = values.List()
+                updatedDepends = 0
         )
         for _, depend := range prog.depends {
                 if res, err = depend.Execute(); err == nil {
                         if res == nil {
                                 depends.Append(values.String(depend.Name()))
                         } else {
+                                //fmt.Printf("%s: %v\n", depend.Name(), res.Lit())
                                 depends.Append(res)
                         }
                 } else {
@@ -75,43 +89,74 @@ func (prog *Program) execute(entry string, forced bool) (result types.Value, err
                 }
         }
 
+        // Calculate depends and files.
         if depends.Len() > 0 {
-                prog.defineAuto("<", depends.Get(0))
-                prog.defineAuto("^", depends)
-        }
-        
-        // TODO: execute depends and check outdated
-
-        var (
-                mode = prog.interpreter.mode()
-                pipe = len(prog.pipline) > 0
-        )
-        if mode&interpretMulti != 0 {
-                if result, err = prog.interpreter.evaluate(prog.recipes...); err != nil {
-                        return
-                } else if result != nil {
-                        if pipe {
-                                result, err = prog.pipe(result)
-                        } else {
-                                fmt.Printf("%v\n", result)
-                        }
-                }
-        } else if mode&interpretSingle != 0 {
-                var results = values.List()
-                for _, recipe := range prog.recipes {
-                        if result, err = prog.interpreter.evaluate(recipe); err != nil {
-                                return
-                        } else if result != nil {
-                                if len(prog.pipline) > 0 {
-                                        results.Append(result)
-                                } else {
-                                        fmt.Printf("%v", result)
+                var (
+                        files = values.List()
+                        missing = values.List()
+                )
+                for _, depend := range depends.Slice(0) {
+                        //fmt.Printf("depend: %T %v (from %s)\n", depend, depend, entry)
+                retryDepend:
+                        switch d := depend.(type) {
+                        case *values.GroupValue:
+                                //fmt.Printf("group: %v\n", depend)
+                                switch k, _ := d.Get(0).(*values.BarewordValue); { 
+                                case k == targetRegularKind, k == targetDirectoryKind:
+                                        if files.Append(d.Get(1)); files.Len() == 1 {
+                                                prog.auto("<", files.Get(0))
+                                        }
+                                case k == targetMissingKind:
+                                        missing.Append(d.Get(1))
+                                }
+                        case *values.ListValue:
+                                if depend = d.Take(0); depend != nil {
+                                        goto retryDepend
                                 }
                         }
                 }
-                if pipe {
-                        result, err = prog.pipe(results)
+                fmt.Printf("%s: %v; %v\n", entry, files, missing)
+                if x := missing.Len(); x > 0 {
+                        var msg string
+                        if x == 1 {
+                                msg = fmt.Sprintf("missing file %v", missing)
+                        } else {
+                                msg = fmt.Sprintf("missing files %v", missing)
+                        }
+                        msg += fmt.Sprintf(", required by %s", entry)
+                        err = errors.New(msg)
+                        return
                 }
+                if files.Len() > 0 {
+                        prog.auto("^", files)
+                }
+        }
+        
+        if updatedDepends == 0 {
+                // TODO: check depends for outdated
+        }
+
+        //fmt.Printf("target: %v\n", entry)
+        
+        var mode = prog.interpreter.mode()
+        if mode&interpretMulti != 0 {
+                if res, err = prog.interpreter.evaluate(prog.recipes...); err != nil {
+                        return
+                } else if res != nil {
+                        result, err = prog.pipe(res)
+                }
+        } else if mode&interpretSingle != 0 {
+                var list = values.List()
+                for _, recipe := range prog.recipes {
+                        if res, err = prog.interpreter.evaluate(recipe); err != nil {
+                                return
+                        } else if res != nil {
+                                if res, err = prog.pipe(res); err == nil {
+                                        list.Append(res)
+                                }
+                        }
+                }
+                result = list
         }
         return
 }

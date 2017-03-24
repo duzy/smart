@@ -8,6 +8,7 @@ package types
 
 import (
         //"github.com/duzy/smart/token"
+        "strings"
         "fmt"
 )
 
@@ -21,20 +22,38 @@ type BuiltinFunc func(args... Value) Value
 
 var builtins = map[string]BuiltinFunc {
         `print`:   builtinPrint,
+        `printl`:  builtinPrintl,
         `println`: builtinPrintln,
 }
 
-func builtinPrint(/*ctx Context,*/ args... Value) Value {
-        for _, a := range args {
+func builtinPrint(args... Value) Value {
+        var x = len(args) - 1
+        for i, a := range args {
                 fmt.Printf("%s", a)
+                if 0 < i && i < x {
+                        fmt.Printf(" ")
+                }
         }
         return nil
 }
 
-func builtinPrintln(/*ctx Context,*/ args... Value) Value {
-        for _, a := range args {
-                fmt.Printf("%s", a)
+func builtinPrintl(args... Value) Value {
+        var x = len(args) - 1
+        for i, a := range args {
+                s := a.String()
+                fmt.Printf("%s", s)
+                if 0 < i && i < x {
+                        fmt.Printf(" ")
+                }
+                if i == x && !strings.HasSuffix(s, "\n") {
+                        fmt.Printf("\n")
+                }
         }
+        return nil
+}
+
+func builtinPrintln(args... Value) Value {
+        builtinPrint(args...)
         fmt.Printf("\n")
         return nil
 }

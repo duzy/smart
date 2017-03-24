@@ -84,6 +84,23 @@ func (ctx *Context) Call(name string, args... interface{}) types.Value {
         return ctx.CallSym(sym, args...)
 }
 
+/*
+func (ctx *Context) Reset(name string, value types.Value) (def *types.Def) {
+        if def, _ = ctx.scope.Lookup(name).(*types.Def); def != nil {
+                def.Reset(value)
+        }
+        return
+}
+
+func (ctx *Context) Set(name string, value types.Value) (def *types.Def) {
+        if def, _ = ctx.scope.Lookup(name).(*types.Def); def == nil {
+                def = types.
+        } else {
+                def.Reset(value)
+        }
+        return
+} */
+
 func (ctx *Context) GetDefaultEntry() (entry *RuleEntry) {
         return ctx.registry.GetDefaultEntry()
 }
@@ -100,7 +117,7 @@ type delegate struct {
 }
 
 func (p *delegate) Type() types.Type  { return nil }
-//func (p *delegate) Lit() float64      { return p.call().Lit() }
+func (p *delegate) Lit() string       { return p.call().Lit() }
 func (p *delegate) String() string    { return p.call().String() }
 func (p *delegate) Integer() int64    { return p.call().Integer() }
 func (p *delegate) Float() float64    { return p.call().Float() }
@@ -134,7 +151,9 @@ func (p *delegate) call() types.Value {
         _, sym = scope.LookupAt(name, p.p)
         if sym != nil {
                 if sym.Callable() {
-                        return sym.Call(/*p.x,*/ p.a...)
+                        if v := sym.Call(/*p.x,*/ p.a...); v != nil {
+                                return v
+                        }
                 } else {
                         return sym.Value()
                 }

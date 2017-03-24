@@ -7,8 +7,18 @@ package types
 
 // Value represents a value of a type.
 type Value interface {
+        // Type returns the underlying type of the value.
         Type() Type
+
+        // Lit returns the literal representations of the value.
+        Lit() string
+
+        // String returns the string form of the value.
         String() string
+
+        // Integer returns the integer form of the value.
         Integer() int64
+
+        // Float returns the float form of the value.
         Float() float64
 }

@@ -3,13 +3,16 @@ project example
 
 import "tools/gcc/c++"
 
-example : [ shell, (check-file) ] : example.o
-	echo $(c++.LINK) -o $@ $<
+build: ! : example
 
-example.o : [ shell, (check-file) ] : example.cpp
+example : [ shell (check-file) ] : example.o
+	echo $(c++.LINK) -o $@ $<
+	touch $@
+
+example.o : [ shell (check-file) ] : example.cpp
 	echo $(c++.COMPILE) -o $@ $^
 
-example.cpp : [ plain, (write-file) ]:
+example.cpp : [ plain (write-file) ]
 	#include <iostream>
 	int main() {
 	  std::cout << "$@" << std::endl;

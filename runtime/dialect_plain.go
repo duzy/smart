@@ -19,5 +19,7 @@ type dialectPlain struct {
 
 func (t *dialectPlain) dialect() string { return "plain" }
 func (t *dialectPlain) evaluate(recipes... types.Value) (result types.Value, err error) {
-        return values.String(joinRecipesString(recipes...)), nil
+        result = values.Group(targetPlainKind, 
+                values.String(joinRecipesString(recipes...)))
+        return
 }

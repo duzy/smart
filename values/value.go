@@ -10,6 +10,7 @@ import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/token"
         "net/url"
+        "strings"
         "strconv"
         "time"
 )
@@ -75,8 +76,8 @@ type (
 
         MapValue struct {
                 value
+                //elems map[types.Value]types.Value
                 elems map[string]types.Value
-                mv map[types.Value]types.Value
         }
 
         PairValue struct { // key=value
@@ -332,6 +333,54 @@ func MakeAll(in... interface{}) (out []types.Value) {
 
 func (p *value) Type() types.Type       { return p.typ }
 
+func (p *value) Lit() string            { return "" }
+func (p *IntValue) Lit() string         { return p.String() }
+func (p *FloatValue) Lit() string       { return p.String() }
+func (p *DateTimeValue) Lit() string    { return p.String() }
+func (p *DateValue) Lit() string        { return p.String() }
+func (p *TimeValue) Lit() string        { return p.String() }
+func (p *UriValue) Lit() string         { return p.String() }
+func (p *StringValue) Lit() string {
+        if strings.ContainsRune(p.v, '\n') {
+                return "\"" + strings.Replace(p.v, "\n", "\\n", -1) + "\"" 
+        } else {
+                return "'" + p.v + "'" 
+        }
+}
+func (p *BarewordValue) Lit() string     { return p.String() }
+func (p *BarecompValue) Lit() (s string) {
+        for _, e := range p.elems {
+                s += e.Lit()
+        }
+        return
+}
+func (p *CompoundValue) Lit() (s string) {
+        s = "\""
+        for _, e := range p.elems {
+                s += e.Lit()
+        }
+        s += "\""
+        return
+}
+func (p *ListValue) Lit() (s string) {
+        for i, e := range p.elems {
+                if 0 < i {
+                        s += " "
+                }
+                s += e.Lit()
+        }
+        return
+}
+func (p *GroupValue) Lit() string {
+        return "(" + p.ListValue.Lit() + ")"
+}
+/* func (p *MapValue) Lit() string {
+        return "(" + p.ListValue.Lit() + ")"
+} */
+func (p *PairValue) Lit() string {
+        return p.k.Lit() + "=" + p.v.Lit()
+}
+
 func (p *value) String() string         { return "" }
 func (p *IntValue) String() string      { return strconv.FormatInt(int64(p.v),10) } // Itoa
 func (p *FloatValue) String() string    { return strconv.FormatFloat(float64(p.v),'g', -1, 64) }
@@ -404,12 +453,19 @@ func (p *ListValue) Float() float64     { return float64(p.Integer()) }
 func (p *GroupValue) Float() float64    { return float64(p.Integer()) }
 func (p *PairValue) Float() float64     { return p.v.Float() }
 
-func (p *ListValue) Len() int                   { return len(p.elems) }
-func (p *ListValue) Append(v types.Value)       { p.elems = append(p.elems, v) }
-func (p *ListValue) Get(n int) (v types.Value)  { if n>=0 && n<len(p.elems) { v = p.elems[n] }; return }
-func (p *ListValue) Slice(n int) (a []types.Value)  {
+func (p *ListValue) Len() int                      { return len(p.elems) }
+func (p *ListValue) Append(v... types.Value)       { p.elems = append(p.elems, v...) }
+func (p *ListValue) Get(n int) (v types.Value)     { if n>=0 && n<len(p.elems) { v = p.elems[n] }; return }
+func (p *ListValue) Slice(n int) (a []types.Value) {
         if n>=0 && n<len(p.elems) {
                 a = p.elems[n:]
+        }
+        return 
+}
+func (p *ListValue) Take(n int) (v types.Value) {
+        if x := len(p.elems); n>=0 && n<x {
+                v = p.elems[n]
+                p.elems = append(p.elems[0:n], p.elems[n+1:]...)
         }
         return 
 }
@@ -417,7 +473,7 @@ func (p *ListValue) ToBarecomp() *BarecompValue { return &BarecompValue{value{ty
 func (p *ListValue) ToCompound() *CompoundValue { return &CompoundValue{value{types.Compound}, p.elems} }
 func (p *GroupValue) ToList() *ListValue        { return &p.ListValue }
 func (p *CompoundValue) ToList() *ListValue     { return &ListValue{value{types.List}, p.elems} }
-func (p *CompoundValue) Append(v types.Value)   { p.elems = append(p.elems, v) }
+func (p *CompoundValue) Append(v... types.Value)   { p.elems = append(p.elems, v...) }
 
 func (p *PairValue) SetKey(k types.Value) {
         switch o := k.(type) {
