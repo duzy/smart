@@ -7,7 +7,7 @@
 package runtime
 
 import (
-        "github.com/duzy/smart/token"
+        //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "strings"
@@ -22,7 +22,6 @@ type Program struct {
         scope   *types.Scope
         depends []*RuleEntry
         recipes []types.Value
-        interpreter interpreter // TODO: global (sharing states) or instance interpreter
         pipline []types.Value
 }
 
@@ -41,37 +40,68 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) modify(g *values.GroupValue) (result types.Value) {
-        name := []string{ g.Get(0).String() } // TODO: Interpreter.evalName
-        value := prog.context.Fold(token.NoPos, name, g.Slice(1)...)
-        result = values.String(value.String())
+func (prog *Program) interpret(name string, out *types.Def) (err error) {
+        // TODO: global (sharing states) or instance interpreter
+        var i interpreter
+        switch name {
+        case "plain": 
+                i = &dialectPlain{
+                }
+        case "shell":
+                i = &dialectShell{
+                        interpreter: defaultShellInterpreter, // "sh"
+                        xopt: "-c",
+                }
+        case "python":
+                i = &dialectShell{
+                        interpreter: "python",
+                        xopt: "-c",
+                }
+        case "perl":
+                i = &dialectShell{
+                        interpreter: "perl",
+                        xopt: "-e",
+                }
+        case "xml":
+                i = &dialectXml{
+                        whitespace: false,
+                }
+        case "json":
+                i = &dialectJson{
+                }
+        case "trivial":
+                i = trivialDialect
+        default:
+                err = errors.New(fmt.Sprintf("unknown dialect %s", name))
+        }
+        if err == nil {
+                var result types.Value
+                result, err = i.evaluate(prog.recipes...)
+                if err == nil && result != nil {
+                        out.Reset(result)
+                }
+        }
         return
 }
 
-func (prog *Program) pipe(value types.Value) (result types.Value, err error) {
-        var out = prog.auto("-", value)
-        for i, v := range prog.pipline {
-                switch op := v.(type) {
-                case *values.GroupLiteral:
-                        //out.Reset(prog.modify(&op.GroupValue))
-                        prog.modify(&op.GroupValue)
-                case *values.GroupValue:
-                        //out.Reset(prog.modify(op))
-                        prog.modify(op)
-                default:
-                        fmt.Printf("todo: %d: %T %v\n", i, op, op)
-                }
+func (prog *Program) modify(g *values.GroupValue) (result types.Value) {
+        /*
+        name := []string{ g.Get(0).String() } // TODO: Interpreter.evalName
+        value := prog.context.Fold(token.NoPos, name, g.Slice(1)...)
+        result = values.String(value.String()) */
+        if f, ok := modifiers[g.Get(0).String()]; ok {
+                result = f(prog.context, g.Slice(1)...)
         }
-        result = out.Value()
         return
 }
 
 func (prog *Program) execute(entry string, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
 
-        prog.auto("@", entry)
-
         var (
+                _   = prog.auto("@", entry)
+                out = prog.auto("-", values.None)
+                
                 res types.Value
                 depends = values.List()
                 updatedDepends = 0
@@ -96,8 +126,8 @@ func (prog *Program) execute(entry string, forced bool) (result types.Value, err
                         missing = values.List()
                 )
                 for _, depend := range depends.Slice(0) {
-                        //fmt.Printf("depend: %T %v (from %s)\n", depend, depend, entry)
                 retryDepend:
+                        //fmt.Printf("depend: %T %v (from %s)\n", depend, depend, entry)
                         switch d := depend.(type) {
                         case *values.GroupValue:
                                 //fmt.Printf("group: %v\n", depend)
@@ -137,60 +167,26 @@ func (prog *Program) execute(entry string, forced bool) (result types.Value, err
         }
 
         //fmt.Printf("target: %v\n", entry)
-        
-        var mode = prog.interpreter.mode()
-        if mode&interpretMulti != 0 {
-                if res, err = prog.interpreter.evaluate(prog.recipes...); err != nil {
-                        return
-                } else if res != nil {
-                        result, err = prog.pipe(res)
-                }
-        } else if mode&interpretSingle != 0 {
-                var list = values.List()
-                for _, recipe := range prog.recipes {
-                        if res, err = prog.interpreter.evaluate(recipe); err != nil {
-                                return
-                        } else if res != nil {
-                                if res, err = prog.pipe(res); err == nil {
-                                        list.Append(res)
-                                }
+
+pipelineLoop:
+        for _, v := range prog.pipline {
+                switch op := v.(type) {
+                case *values.GroupLiteral:
+                        prog.modify(&op.GroupValue)
+                case *values.BarewordLiteral:
+                        if err = prog.interpret(op.String(), out); err != nil {
+                                break pipelineLoop
                         }
+                default:
+                        err = errors.New(fmt.Sprintf("unsupported modifier: %s", v))
+                        break pipelineLoop
                 }
-                result = list
         }
+        result = out.Value()
         return
 }
 
-func (prog *Program) InitDialect(name string, modifiers... types.Value) (err error) {
-        switch name {
-        case "plain": 
-                prog.interpreter = &dialectPlain{
-                }
-        case "shell":
-                prog.interpreter = &dialectShell{
-                        interpreter: defaultShellInterpreter, // "sh"
-                        xopt: "-c",
-                }
-        case "python":
-                prog.interpreter = &dialectShell{
-                        interpreter: "python",
-                        xopt: "-c",
-                }
-        case "perl":
-                prog.interpreter = &dialectShell{
-                        interpreter: "perl",
-                        xopt: "-e",
-                }
-        case "xml":
-                prog.interpreter = &dialectXml{
-                        whitespace: false,
-                }
-        case "json":
-                prog.interpreter = &dialectJson{
-                }
-        default:
-                err = ErrorNoDialect
-        }
+func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
         prog.pipline = modifiers
         return
 }
@@ -202,7 +198,6 @@ func NewProgram(context *Context, scope *types.Scope, depends []*RuleEntry, reci
                 scope:       scope,
                 depends:     depends,
                 recipes:     recipes,
-                interpreter: trivialDialect,
         }
 }
 

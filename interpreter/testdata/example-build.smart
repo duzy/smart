@@ -11,6 +11,7 @@ example : [ shell (check-file) ] : example.o
 
 example.o : [ shell (check-file) ] : example.cpp
 	echo $(c++.COMPILE) -o $@ $^
+	touch $@
 
 example.cpp : [ plain (write-file) ]
 	#include <iostream>

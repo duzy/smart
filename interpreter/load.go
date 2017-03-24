@@ -259,8 +259,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 prog = runtime.NewProgram(i.Context, scope, depends, recipes...)
         )
         if len(modifiers) > 0 {
-                dialect := modifiers[0].String()
-                if err = prog.InitDialect(dialect, modifiers[1:]...); err != nil {
+                if err = prog.SetModifiers(modifiers...); err != nil {
                         return
                 }
         }
