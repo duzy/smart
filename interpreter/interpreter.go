@@ -7,11 +7,10 @@ package interpreter
 
 import (
         "github.com/duzy/smart/token"
-        //"github.com/duzy/smart/types"
+        "github.com/duzy/smart/types"
         //"github.com/duzy/smart/values"
         "github.com/duzy/smart/runtime"
         "path/filepath"
-        //"errors"
         //"fmt"
         "os"
 )
@@ -50,17 +49,20 @@ func (i *Interpreter) AddSearchPaths(paths... string) (err error) {
 }
 
 func (i *Interpreter) Run(targets... string) (err error) {
-        var updated = 0
+        var (
+                value types.Value
+                updated int
+        )
         if len(targets) == 0 {
                 if entry := i.GetDefaultEntry(); entry != nil {
-                        if _, err = entry.Execute(); err == nil {
+                        if value, err = entry.Execute(); err == nil {
                                 updated += 1
                         }
                 }
         } else {
                 for _, target := range targets {
                         if entry := i.GetEntry(target); entry != nil {
-                                if _, err = entry.Execute(); err == nil {
+                                if value, err = entry.Execute(); err == nil {
                                         updated += 1
                                 } else {
                                         break
@@ -68,7 +70,6 @@ func (i *Interpreter) Run(targets... string) (err error) {
                         }
                 }
         }
-        //fmt.Printf("updated %v targets\n", updated)
-        //return errors.New("TODO: run entry rules of projects")
+        if value == nil {}
         return
 }

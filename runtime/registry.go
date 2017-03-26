@@ -40,57 +40,50 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) interpret(name string, out *types.Def) (err error) {
-        // TODO: global (sharing states) or instance interpreter
-        var i interpreter
-        switch name {
-        case "plain": 
-                i = &dialectPlain{
-                }
-        case "shell":
-                i = &dialectShell{
-                        interpreter: defaultShellInterpreter, // "sh"
-                        xopt: "-c",
-                }
-        case "python":
-                i = &dialectShell{
-                        interpreter: "python",
-                        xopt: "-c",
-                }
-        case "perl":
-                i = &dialectShell{
-                        interpreter: "perl",
-                        xopt: "-e",
-                }
-        case "xml":
-                i = &dialectXml{
-                        whitespace: false,
-                }
-        case "json":
-                i = &dialectJson{
-                }
-        case "trivial":
-                i = trivialDialect
-        default:
-                err = errors.New(fmt.Sprintf("unknown dialect %s", name))
+func (prog *Program) interpret(i interpreter, out *types.Def) (err error) {
+        var value types.Value
+        value, err = i.evaluate(prog.recipes...)
+        if err == nil && value != nil {
+                out.Reset(value)
         }
-        if err == nil {
-                var result types.Value
-                result, err = i.evaluate(prog.recipes...)
-                if err == nil && result != nil {
-                        out.Reset(result)
+        return
+}
+
+func (prog *Program) modify(g *values.GroupValue, out *types.Def) (err error) {
+        // TODO: using rules in a different module to implement modifiers, e.g.
+        //       [ foo.check-preprequisites ]
+        //       [ foo.baaaar ]
+        if f, ok := modifiers[g.Get(0).String()]; ok {
+                var value types.Value
+                if value, err = f(prog, out.Value(), g.Slice(1)...); err == nil && value !=  nil {
+                        out.Reset(value)
                 }
         }
         return
 }
 
-func (prog *Program) modify(g *values.GroupValue) (result types.Value) {
-        /*
-        name := []string{ g.Get(0).String() } // TODO: Interpreter.evalName
-        value := prog.context.Fold(token.NoPos, name, g.Slice(1)...)
-        result = values.String(value.String()) */
-        if f, ok := modifiers[g.Get(0).String()]; ok {
-                result = f(prog.context, g.Slice(1)...)
+func (prog *Program) prepare(entry string) (err error) {
+        var (
+                res types.Value
+                depends = values.List()
+        )
+
+        prog.auto("...", depends)
+
+        // TODO: using rules in a different module as prerequisites, e.g.
+        //       [ c++.compiled-objects ]
+        //       [ docker.instance-launched ]
+        for _, depend := range prog.depends {
+                if res, err = depend.Execute(); err == nil {
+                        if res == nil {
+                                depends.Append(values.String(depend.Name()))
+                        } else if res != nil && res != values.None {
+                                //fmt.Printf("%s: %v\n", depend.Name(), res.Lit())
+                                depends.Append(res)
+                        }
+                } else {
+                        break
+                }
         }
         return
 }
@@ -98,83 +91,34 @@ func (prog *Program) modify(g *values.GroupValue) (result types.Value) {
 func (prog *Program) execute(entry string, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
 
+        // Calculate depends and files.
+        if err = prog.prepare(entry); err != nil {
+                return
+        }
+
         var (
                 _   = prog.auto("@", entry)
                 out = prog.auto("-", values.None)
-                
-                res types.Value
-                depends = values.List()
-                updatedDepends = 0
         )
-        for _, depend := range prog.depends {
-                if res, err = depend.Execute(); err == nil {
-                        if res == nil {
-                                depends.Append(values.String(depend.Name()))
-                        } else {
-                                //fmt.Printf("%s: %v\n", depend.Name(), res.Lit())
-                                depends.Append(res)
-                        }
-                } else {
-                        return
-                }
-        }
-
-        // Calculate depends and files.
-        if depends.Len() > 0 {
-                var (
-                        files = values.List()
-                        missing = values.List()
-                )
-                for _, depend := range depends.Slice(0) {
-                retryDepend:
-                        //fmt.Printf("depend: %T %v (from %s)\n", depend, depend, entry)
-                        switch d := depend.(type) {
-                        case *values.GroupValue:
-                                //fmt.Printf("group: %v\n", depend)
-                                switch k, _ := d.Get(0).(*values.BarewordValue); { 
-                                case k == targetRegularKind, k == targetDirectoryKind:
-                                        if files.Append(d.Get(1)); files.Len() == 1 {
-                                                prog.auto("<", files.Get(0))
-                                        }
-                                case k == targetMissingKind:
-                                        missing.Append(d.Get(1))
-                                }
-                        case *values.ListValue:
-                                if depend = d.Take(0); depend != nil {
-                                        goto retryDepend
-                                }
-                        }
-                }
-                fmt.Printf("%s: %v; %v\n", entry, files, missing)
-                if x := missing.Len(); x > 0 {
-                        var msg string
-                        if x == 1 {
-                                msg = fmt.Sprintf("missing file %v", missing)
-                        } else {
-                                msg = fmt.Sprintf("missing files %v", missing)
-                        }
-                        msg += fmt.Sprintf(", required by %s", entry)
-                        err = errors.New(msg)
-                        return
-                }
-                if files.Len() > 0 {
-                        prog.auto("^", files)
-                }
-        }
-        
-        if updatedDepends == 0 {
-                // TODO: check depends for outdated
-        }
-
-        //fmt.Printf("target: %v\n", entry)
 
 pipelineLoop:
         for _, v := range prog.pipline {
                 switch op := v.(type) {
                 case *values.GroupLiteral:
-                        prog.modify(&op.GroupValue)
+                        if err = prog.modify(&op.GroupValue, out); err != nil {
+                                if p, ok := err.(*breaker); ok {
+                                        if false {
+                                                fmt.Printf("%s\n", p.message)
+                                        }
+                                        err = nil
+                                }
+                                break pipelineLoop
+                        }
                 case *values.BarewordLiteral:
-                        if err = prog.interpret(op.String(), out); err != nil {
+                        if i, _ := interpreters[op.String()]; i == nil {
+                                err = ErrorNoDialect
+                                return
+                        } else if err = prog.interpret(i, out); err != nil {
                                 break pipelineLoop
                         }
                 default:

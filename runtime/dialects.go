@@ -53,5 +53,3 @@ func (t *dialectTrivial) dialect() string { return "trivial" }
 func (t *dialectTrivial) evaluate(recipes... types.Value) (types.Value, error) {
         return nil, nil
 }
-
-var trivialDialect = new(dialectTrivial)

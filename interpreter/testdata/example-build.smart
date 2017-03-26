@@ -5,16 +5,17 @@ import "tools/gcc/c++"
 
 build: ! : example
 
-example : [ shell (check-file) ] : example.o
-	echo $(c++.LINK) -o $@ $<
-	touch $@
+example : [ (when-outdated) shell (check-file) ] : example.o check-something
+	echo $(c++.LINK) -o $@ $< > $@
 
-example.o : [ shell (check-file) ] : example.cpp
-	echo $(c++.COMPILE) -o $@ $^
-	touch $@
+example.o : [ (when-outdated) shell (check-file) ] : example.txt
+	echo $(c++.COMPILE) -o $@ $^ > $@
 
-example.cpp : [ plain (write-file) ]
+example.txt : [ (when-outdated) plain (update-file) ]
 	#include <iostream>
 	int main() {
 	  std::cout << "$@" << std::endl;
 	}
+
+check-something: [ shell ]
+	false
