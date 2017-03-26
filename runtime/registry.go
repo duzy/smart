@@ -42,7 +42,7 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
 
 func (prog *Program) interpret(i interpreter, out *types.Def) (err error) {
         var value types.Value
-        value, err = i.evaluate(prog.recipes...)
+        value, err = i.evaluate(prog, prog.recipes...)
         if err == nil && value != nil {
                 out.Reset(value)
         }
@@ -100,6 +100,23 @@ func (prog *Program) execute(entry string, forced bool) (result types.Value, err
                 _   = prog.auto("@", entry)
                 out = prog.auto("-", values.None)
         )
+        
+        // TODO: define modifiers in a module, e.g.
+        // 
+        //      some-modifier : - :
+        //              smart statments going here...
+        //              
+        
+        if len(prog.pipline) == 0 {
+                // Using the default statements interpreter.
+                if i, _ := interpreters[``]; i == nil {
+                        err = ErrorNoDialect
+                        return
+                } else if err = prog.interpret(i, out); err != nil {
+                        // ...
+                }
+                return
+        }
 
 pipelineLoop:
         for _, v := range prog.pipline {

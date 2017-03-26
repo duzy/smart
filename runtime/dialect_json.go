@@ -175,7 +175,7 @@ type dialectJson struct {
 }
 
 func (t *dialectJson) dialect() string { return "json" }
-func (t *dialectJson) evaluate(recipes... types.Value) (result types.Value, err error) {
+func (t *dialectJson) evaluate(prog *Program, recipes... types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeJSON(source); err == nil {
                 result = values.Group(targetJsonKind, result, values.None)

@@ -62,24 +62,23 @@ func (ctx *Context) ExitModule(prev *types.Scope) {
         ctx.SetScope(prev)
 }
 
-func (ctx *Context) CallSym(sym types.Symbol, args... interface{}) types.Value {
+func (ctx *Context) CallSym(sym types.Symbol, args... types.Value) types.Value {
         if sym == nil {
                 return values.None
         }
 
-        var av = values.MakeAll(args)
         if sym.Callable() {
-                return sym.Call(/*ctx,*/ av...)
+                return sym.Call(/*ctx,*/ args...)
         }
 
-        if na := len(av); na > 0 {
+        if na := len(args); na > 0 {
                 // TODO: create calling scope (lexical $1, $2, etc)
         }
         
         return sym.Value()
 }
 
-func (ctx *Context) Call(name string, args... interface{}) types.Value {
+func (ctx *Context) Call(name string, args... types.Value) types.Value {
         _, sym := ctx.scope.LookupAt(name, token.NoPos)
         return ctx.CallSym(sym, args...)
 }

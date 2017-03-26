@@ -8,6 +8,7 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
+        "github.com/duzy/smart/values"
 )
 
 type interpretMode int
@@ -20,7 +21,7 @@ const (
 type interpreter interface {
         dialect() string
         mode() interpretMode
-        evaluate(recipes... types.Value) (types.Value, error)
+        evaluate(prog *Program, recipes... types.Value) (types.Value, error)
 }
 
 type monoInterpreter struct {
@@ -45,11 +46,34 @@ func joinRecipesString(recipes... types.Value) string {
         return s
 }
 
-type dialectTrivial struct {
+// dialectDefault evaluates smart statements
+type dialectDefault struct {
         polyInterpreter
 }
 
-func (t *dialectTrivial) dialect() string { return "trivial" }
-func (t *dialectTrivial) evaluate(recipes... types.Value) (types.Value, error) {
-        return nil, nil
+func (t *dialectDefault) dialect() string { return "default" }
+func (t *dialectDefault) evaluate(prog *Program, recipes... types.Value) (types.Value, error) {
+        var list = values.List()
+        for _, recipe := range recipes {
+                switch stmt := recipe.(type) {
+                case *values.ListLiteral:
+                        if stmt.Len() == 0 {
+                                continue
+                        }
+                        var v = stmt.Get(0)
+                        if bw, _ := v.(*values.BarewordLiteral); bw != nil {
+                                var rest = stmt.Slice(1)
+                                list.Append(prog.context.Call(bw.String(), rest...))
+                        } else if bc, _ := v.(*values.BarecompLiteral); bc != nil {
+                                panic("todo: BarecompLiteral")
+                        } else if stmt.Len() == 1 {
+                                list.Append(v)
+                        } else {
+                                list.Append(recipe)
+                        }
+                default:
+                        panic("unreachable")
+                }
+        }
+        return list, nil
 }

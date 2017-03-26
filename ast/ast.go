@@ -208,6 +208,7 @@ type (
         }
 
         RecipeExpr struct {
+                Dialect string
 		Doc     *CommentGroup // associated documentation; or nil
                 TabPos  token.Pos
                 Elems   []Expr

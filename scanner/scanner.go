@@ -146,6 +146,10 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 	}
 }
 
+func (s *Scanner) LeaveCompoundLineContext() {
+        s.context &= ^isCompoundLine
+}
+
 func (s *Scanner) error(offs int, msg string) {
 	if s.err != nil {
 		s.err(s.file.Position(s.file.Pos(offs)), msg)
@@ -584,8 +588,11 @@ func (s *Scanner) scanRawString(ml bool) string {
 			s.error(offs, "raw string literal not terminated")
 			break
 		}
+                if ch == '\\' { // escapes anything
+                        s.next()
+                }
 		s.next()
-		if ch == '\'' {
+		if ch == '\'' { 
                         if !ml {
                                 break
                         }

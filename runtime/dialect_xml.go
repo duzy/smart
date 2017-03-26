@@ -114,7 +114,7 @@ type dialectXml struct {
 }
 
 func (t *dialectXml) dialect() string { return "xml" }
-func (t *dialectXml) evaluate(recipes... types.Value) (result types.Value, err error) {
+func (t *dialectXml) evaluate(prog *Program, recipes... types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeXML(source, t.whitespace); err == nil {
                 result = values.Group(targetXmlKind, result, values.None)

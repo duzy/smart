@@ -5,16 +5,8 @@ package main
 
 import (
         "github.com/duzy/smart/interpreter"
-        "fmt"
 )
 
 func main() {
-        i := interpreter.New()
-        if err := i.Load("build.smart", nil); err != nil {
-                fmt.Printf("%v\n", err)
-                return
-        } else if err = i.Run(); err != nil {
-                fmt.Printf("%v\n", err)
-                return
-        }
+        interpreter.CommandLine()
 }

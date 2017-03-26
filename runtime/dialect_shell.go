@@ -26,7 +26,7 @@ type dialectShell struct {
 }
 
 func (s *dialectShell) dialect() string { return "shell" }
-func (s *dialectShell) evaluate(recipes... types.Value) (result types.Value, err error) {
+func (s *dialectShell) evaluate(prog *Program, recipes... types.Value) (result types.Value, err error) {
         var (
                 stdout bytes.Buffer
                 stderr bytes.Buffer

@@ -191,7 +191,11 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
         case *ast.RecipeExpr:
-                v = values.CompoundLit(x.Pos(), i.evalExprs(x.Elems)...)
+                if elems := i.evalExprs(x.Elems); x.Dialect == "" {
+                        v = values.ListLit(x.Pos(), elems...)
+                } else {
+                        v = values.CompoundLit(x.Pos(), elems...)
+                }
         default:
                 unreachable()
         }

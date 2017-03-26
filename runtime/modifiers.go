@@ -55,7 +55,7 @@ var (
                 `json`: &dialectJson{
                 },
 
-                `trivial`: &dialectTrivial{
+                ``: &dialectDefault{
                 },
         }
 

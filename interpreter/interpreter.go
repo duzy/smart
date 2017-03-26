@@ -11,7 +11,7 @@ import (
         //"github.com/duzy/smart/values"
         "github.com/duzy/smart/runtime"
         "path/filepath"
-        //"fmt"
+        "fmt"
         "os"
 )
 
@@ -72,4 +72,15 @@ func (i *Interpreter) Run(targets... string) (err error) {
         }
         if value == nil {}
         return
+}
+
+func CommandLine() {
+        i := New()
+        if err := i.Load("build.smart", nil); err != nil {
+                fmt.Printf("%v\n", err)
+                return
+        } else if err = i.Run(); err != nil {
+                fmt.Printf("%v\n", err)
+                return
+        }
 }

@@ -1,0 +1,7 @@
+project example
+
+start: something
+	println 'I\'m just an example!'
+	(print 'foobar')
+
+something: # a bare entry doing nothing

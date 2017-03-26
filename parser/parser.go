@@ -838,7 +838,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         }
 }
 
-func (p *parser) parseRecipeExpr(std bool) ast.Expr {
+func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
 	if p.trace {
 		defer un(trace(p, "Recipe"))
 	}
@@ -849,8 +849,10 @@ func (p *parser) parseRecipeExpr(std bool) ast.Expr {
                 doc = p.leadComment
                 pos = p.pos
         )
-        if std {
-                p.next() // skip RECIPE and parse next token
+        
+        if dialect == "" {
+                p.scanner.LeaveCompoundLineContext()
+                p.next() // skip RECIPE and parse in list mode
                 for p.tok != token.LINEND && p.tok != token.EOF {
                         elems = append(elems, p.parseExpr(false))
                         if p.lineComment != nil {
@@ -859,7 +861,7 @@ func (p *parser) parseRecipeExpr(std bool) ast.Expr {
                         }
                 }
         } else {
-                p.next() // skip RECIPE and parse next in line-string mode
+                p.next() // skip RECIPE and parse in line-string mode
                 for p.tok != token.LINEND && p.tok != token.EOF {
                         elems = append(elems, p.parseExpr(false))
                         //fmt.Printf("recipe: %v %v %v\n", x, p.tok, p.lit)
@@ -869,6 +871,7 @@ func (p *parser) parseRecipeExpr(std bool) ast.Expr {
                 p.expectLinend()
         }
         return &ast.RecipeExpr{
+                Dialect: dialect,
                 Doc:     doc,
                 TabPos:  pos,
                 Elems:   elems,
@@ -877,19 +880,26 @@ func (p *parser) parseRecipeExpr(std bool) ast.Expr {
         }
 }
 
-func (p *parser) parseModifierExpr() *ast.ModifierExpr {
+func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
         var (
                 lpos = p.expect(token.LBRACK)
-                elems []ast.Expr
+                elems   []ast.Expr
+                dialect string
         )
         for p.tok != token.RBRACK && p.tok != token.EOF {
-                elems = append(elems, p.checkExpr(p.parseExpr(false)))
+                x := p.checkExpr(p.parseExpr(false))
+                if dialect == "" {
+                        if bw, _ := x.(*ast.Bareword); bw != nil {
+                                dialect = bw.Value
+                        }
+                }
+                elems = append(elems, x)
                 if p.tok == token.COMMA {
                         p.next() // TODO: grouping modifiers
                 }
         }
         rpos := p.expect(token.RBRACK)
-        return &ast.ModifierExpr{
+        return dialect, &ast.ModifierExpr{
                 Lbrack: lpos,
                 Elems: elems,
                 Rbrack: rpos,
@@ -905,11 +915,16 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 doc = p.leadComment
                 pos = p.expect(tok)
                 modifier *ast.ModifierExpr
+                program *ast.ProgramExpr
                 depends []ast.Expr
-                stdRecipe = true
+                recipes []ast.Expr
+                dialect string
         )
 
         switch p.tok {
+        case token.MINUS: // a '-' modifier is defining a rule as modifier
+                p.next()
+                // TODO: '-' modifier
         case token.EXC:
                 p.next()
                 // TODO: '!' modifier
@@ -917,12 +932,14 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 p.next()
                 // TODO: '?' modifier
         case token.LBRACK:
-                modifier = p.parseModifierExpr()
-                stdRecipe = false
+                dialect, modifier = p.parseModifierExpr()
         }
 
         if p.tok == token.COLON {
                 p.next()
+        }
+
+        if p.tok != token.LINEND {
                 depends = p.parseRhsList()
         }
         
@@ -930,13 +947,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 p.expectLinend()
         }
         
-        var (
-                program *ast.ProgramExpr
-                recipes []ast.Expr
-        )
-
         for p.tok == token.RECIPE {
-                recipes = append(recipes, p.parseRecipeExpr(stdRecipe))
+                recipes = append(recipes, p.parseRecipeExpr(dialect))
         }
 
         if len(recipes) > 0 {
