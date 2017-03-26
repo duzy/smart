@@ -15,7 +15,7 @@ import (
         "fmt"
 )
 
-// Program
+// Program (TODO: moving program into `types` package)
 type Program struct {
         context *Context
         module  *types.Module

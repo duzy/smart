@@ -1,7 +1,16 @@
 project example
 
-start: something
+foobar = $(println 'foobar')
+test = 'this is a test'
+
+start: run-rule
 	println 'I\'m just an example!'
-	(print 'foobar')
+
+run-rule: # a bare entry doing nothing
+	println 'Run another rule..'
+	run something 'a' 'b' 'c'
 
 something: # a bare entry doing nothing
+	println 'I\'m just an example! (called)'
+	foobar
+	test
