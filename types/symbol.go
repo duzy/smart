@@ -148,6 +148,9 @@ func (entry *RuleEntry) Program() Program { return entry.program }
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
+//
+// TODO: merge Execute and Call, make RuleEntry behaves like a Def
+// 
 func (entry *RuleEntry) Execute() (result Value, err error) {
        if entry.program != nil {
                 result, err = entry.program.Execute(entry.name, false)

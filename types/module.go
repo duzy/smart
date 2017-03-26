@@ -8,6 +8,7 @@ package types
 import (
         "github.com/duzy/smart/token"
         "strings"
+        "fmt"
 )
 
 // Pattern
@@ -32,7 +33,6 @@ type Module struct {
         // Rule Registry
         patterns []*Pattern
         dedicated []*RuleEntry
-        entries map[string]*RuleEntry
 
 	complete bool
 }
@@ -45,20 +45,20 @@ func (m *Module) Imports() []*Module { return m.imports }
 func (m *Module) Uses() []*Use { return m.uses }
 func (m *Module) Complete() bool { return m.complete }
 
-/* func (m *Module) AddImport(om *Module) {
-        // ...
-} */
-
 func (m *Module) Entry(name string) (entry *RuleEntry) {
-        if entry, _ = m.entries[name]; entry == nil {
+        if sym := m.scope.Lookup(name); sym == nil {
                 entry = &RuleEntry{symbol{nil, m, name, Invalid, 0, token.NoPos, token.NoPos}, nil}
-                m.entries[name] = entry
+                m.scope.Insert(entry)
+        } else if entry, _ = sym.(*RuleEntry); entry == nil {
+                panic(fmt.Sprintf("name '%v' already taken\n", sym.Name()))
         }
         return
 }
 
 func (m *Module) Lookup(s string) (entry *RuleEntry) {
-        entry, _ = m.entries[s]
+        if sym := m.scope.Lookup(s); sym != nil {
+                entry, _ = sym.(*RuleEntry)
+        }
         return
 }
 
