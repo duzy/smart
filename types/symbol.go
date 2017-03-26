@@ -143,7 +143,7 @@ type RuleEntry struct {
         program Program
 }
 
-//func (entry *RuleEntry) Program() *Program { return entry.program }
+// RuleEntry.Program returns the rule program.
 func (entry *RuleEntry) Program() Program { return entry.program }
 
 // RuleEntry.Execute executes the rule program only if the target
