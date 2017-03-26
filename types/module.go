@@ -7,8 +7,19 @@ package types
 
 import (
         "github.com/duzy/smart/token"
-        //"fmt"
+        "strings"
 )
+
+// Pattern
+type Pattern interface {
+}
+
+func isPattern(s string) bool {
+        if strings.Contains(s, "%") {
+                return true
+        }
+        return false
+}
 
 type Module struct {
         keyword  token.Token
@@ -17,6 +28,12 @@ type Module struct {
         scope    *Scope
         imports  []*Module
         uses     []*Use
+
+        // Rule Registry
+        patterns []*Pattern
+        dedicated []*RuleEntry
+        entries map[string]*RuleEntry
+
 	complete bool
 }
 
@@ -31,3 +48,34 @@ func (m *Module) Complete() bool { return m.complete }
 /* func (m *Module) AddImport(om *Module) {
         // ...
 } */
+
+func (m *Module) Entry(name string) (entry *RuleEntry) {
+        if entry, _ = m.entries[name]; entry == nil {
+                entry = &RuleEntry{symbol{nil, m, name, Invalid, 0, token.NoPos, token.NoPos}, nil}
+                m.entries[name] = entry
+        }
+        return
+}
+
+func (m *Module) Lookup(s string) (entry *RuleEntry) {
+        entry, _ = m.entries[s]
+        return
+}
+
+func (m *Module) Insert(entryName string, prog Program) {
+        if isPattern(entryName) {
+                m.patterns = append(m.patterns, nil)
+        } else {
+                entry := m.Entry(entryName)
+                entry.program = prog
+                m.dedicated = append(m.dedicated, entry)
+        }
+        return
+}
+
+func (m *Module) GetDefaultEntry() (entry *RuleEntry) {
+        if len(m.dedicated) > 0 {
+                entry = m.dedicated[0]
+        }
+        return
+}

@@ -16,12 +16,7 @@ import (
 type Context struct {
         globe    *types.Globe
         scope    *types.Scope
-        registry *Registry
         modules  []*types.Module
-}
-
-func (ctx *Context) Registry() *Registry {
-        return ctx.registry
 }
 
 func (ctx *Context) Globe() *types.Globe {
@@ -100,13 +95,20 @@ func (ctx *Context) Set(name string, value types.Value) (def *types.Def) {
         return
 } */
 
-func (ctx *Context) GetDefaultEntry() (entry *RuleEntry) {
-        return ctx.registry.GetDefaultEntry()
+/*
+func (ctx *Context) GetDefaultEntry() (entry *types.RuleEntry) {
+        if m := ctx.CurrentModule(); m != nil {
+                entry = m.GetDefaultEntry()
+        }
+        return
 }
 
-func (ctx *Context) GetEntry(name string) (entry *RuleEntry) {
-        return ctx.registry.Lookup(name)
-}
+func (ctx *Context) GetEntry(name string) (entry *types.RuleEntry) {
+        if m := ctx.CurrentModule(); m != nil {
+                entry = m.Lookup(name)
+        }
+        return
+} */
 
 type delegate struct {
         x *Context
@@ -187,7 +189,6 @@ func NewContext(name string) *Context {
                 context = &Context{
                         globe:    globe,
                         scope:    globe.Scope(),
-                        registry: NewRegistry(),
                 }
         )
         if false {

@@ -36,7 +36,8 @@ func builtinRun(ctx *Context, args... types.Value) (result types.Value) {
                         err error
                         name = args[0]
                         //rest = args[1:]
-                        entry = ctx.registry.Entry(name.String())
+                        m = ctx.CurrentModule()
+                        entry = m.Lookup(name.String())
                 )
                 if entry != nil {
                         if result, err = entry.Execute(); err != nil {

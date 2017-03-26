@@ -118,6 +118,7 @@ func (g *Globe) NewModule(kw token.Token, path, name string) (m *Module) {
                 path: path, 
                 name: name, 
                 scope: scope,
+                entries: make(map[string]*RuleEntry),
         }
         if g.main == nil {
                 g.main = m

@@ -10,7 +10,7 @@ import (
         //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        "strings"
+        //"strings"
         "errors"
         "fmt"
 )
@@ -20,7 +20,7 @@ type Program struct {
         context *Context
         module  *types.Module
         scope   *types.Scope
-        depends []*RuleEntry
+        depends []*types.RuleEntry
         recipes []types.Value
         pipline []types.Value
 }
@@ -88,9 +88,9 @@ func (prog *Program) prepare(entry string) (err error) {
         return
 }
 
-func (prog *Program) execute(entry string, forced bool) (result types.Value, err error) {
+func (prog *Program) Execute(entry string, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
-
+        
         // Calculate depends and files.
         if err = prog.prepare(entry); err != nil {
                 return
@@ -152,85 +152,12 @@ func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
         return
 }
 
-func NewProgram(context *Context, scope *types.Scope, depends []*RuleEntry, recipes... types.Value) *Program {
+func NewProgram(context *Context, scope *types.Scope, depends []*types.RuleEntry, recipes... types.Value) *Program {
         return &Program{
                 context:     context,
                 module:      context.CurrentModule(),
                 scope:       scope,
                 depends:     depends,
                 recipes:     recipes,
-        }
-}
-
-// RuleEntry represents a declared rule.
-type RuleEntry struct {
-        name    string
-        program *Program
-}
-
-func (entry *RuleEntry) Name() string { return entry.name }
-func (entry *RuleEntry) Program() *Program { return entry.program }
-
-// RuleEntry.Execute executes the rule program only if the target
-// is outdated.
-func (entry *RuleEntry) Execute() (result types.Value, err error) {
-        if entry.program == nil {
-                return nil, ErrorNilExec
-        }
-        return entry.program.execute(entry.name, false)
-}
-
-// Pattern
-type Pattern interface {
-}
-
-func isPattern(s string) bool {
-        if strings.Contains(s, "%") {
-                return true
-        }
-        return false
-}
-
-// Registry 
-type Registry struct {
-        patterns []*Pattern
-        dedicated []*RuleEntry
-        m map[string]*RuleEntry
-}
-
-func (reg *Registry) Entry(name string) (entry *RuleEntry) {
-        if entry, _ = reg.m[name]; entry == nil {
-                entry = &RuleEntry{ name: name }
-                reg.m[name] = entry
-        }
-        return
-}
-
-func (reg *Registry) Lookup(s string) (entry *RuleEntry) {
-        entry, _ = reg.m[s]
-        return
-}
-
-func (reg *Registry) Insert(entryName string, prog *Program) {
-        if isPattern(entryName) {
-                reg.patterns = append(reg.patterns, nil)
-        } else {
-                entry := reg.Entry(entryName)
-                entry.program = prog
-                reg.dedicated = append(reg.dedicated, entry)
-        }
-        return
-}
-
-func (reg *Registry) GetDefaultEntry() (entry *RuleEntry) {
-        if len(reg.dedicated) > 0 {
-                entry = reg.dedicated[0]
-        }
-        return
-}
-
-func NewRegistry() *Registry {
-        return &Registry{
-                m: make(map[string]*RuleEntry),
         }
 }

@@ -52,16 +52,20 @@ func (i *Interpreter) Run(targets... string) (err error) {
         var (
                 value types.Value
                 updated int
+                m = i.Globe().Main()
         )
+        
+        defer i.ExitModule(i.EnterModule(m))
+        
         if len(targets) == 0 {
-                if entry := i.GetDefaultEntry(); entry != nil {
+                if entry := m.GetDefaultEntry(); entry != nil {
                         if value, err = entry.Execute(); err == nil {
                                 updated += 1
                         }
                 }
         } else {
                 for _, target := range targets {
-                        if entry := i.GetEntry(target); entry != nil {
+                        if entry := m.Lookup(target); entry != nil {
                                 if value, err = entry.Execute(); err == nil {
                                         updated += 1
                                 } else {

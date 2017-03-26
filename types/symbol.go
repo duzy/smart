@@ -8,6 +8,7 @@ package types
 
 import (
         "github.com/duzy/smart/token"
+        //"fmt"
 )
 
 type Symbol interface {
@@ -129,4 +130,27 @@ func NewBuiltin(name string, f BuiltinFunc) *Builtin {
                 pos: token.NoPos,
                 scopePos_: token.NoPos,
         }, f}
+}
+
+type Program interface {
+        Scope() *Scope
+        Execute(entry string, forced bool) (result Value, err error)
+}
+
+// RuleEntry represents a declared rule entry.
+type RuleEntry struct {
+        symbol
+        program Program
+}
+
+//func (entry *RuleEntry) Program() *Program { return entry.program }
+func (entry *RuleEntry) Program() Program { return entry.program }
+
+// RuleEntry.Execute executes the rule program only if the target
+// is outdated.
+func (entry *RuleEntry) Execute() (result Value, err error) {
+       if entry.program != nil {
+                result, err = entry.program.Execute(entry.name, false)
+        }
+        return
 }

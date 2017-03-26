@@ -240,11 +240,12 @@ func (i *Interpreter) define(d *ast.DefineClause) (err error) {
 
 func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         var (
-                depends []*runtime.RuleEntry
+                depends []*types.RuleEntry
                 recipes []types.Value
+                m = i.CurrentModule()
         )
         for _, depend := range i.evalExprs(d.Depends) {
-                entry := i.Registry().Entry(depend.String())
+                entry := m.Entry(depend.String())
                 depends = append(depends, entry)
         }
         if p, ok := d.Program.(*ast.ProgramExpr); ok && p != nil {
@@ -269,7 +270,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         }
         
         for _, target := range i.evalExprs(d.Targets) {
-                i.Registry().Insert(target.String(), prog)
+                m.Insert(target.String(), prog)
         }
         return
 }
