@@ -6,9 +6,9 @@ test = 'this is a test'
 start: run-rule
 	println 'I\'m just an example!'
 
-run-rule: # a bare entry doing nothing
+run-rule: # a rule called another rule
 	println 'Run another rule..'
-	run something 'a' 'b' 'c'
+	something 'a' 'b' 'c'
 
 something: # a bare entry doing nothing
 	println 'I\'m just an example! (called)'

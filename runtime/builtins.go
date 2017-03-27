@@ -18,7 +18,7 @@ type builtin func(ctx *Context, args... types.Value) (types.Value, error)
 var (
         builtins = map[string]builtin {
                 `lit`:          builtinLit,
-                `run`:          builtinRun,
+                //`run`:          builtinRun,
         }
 )
 
@@ -30,6 +30,7 @@ func builtinLit(ctx *Context, args... types.Value) (result types.Value, err erro
         return values.String(s), nil
 }
 
+/*
 func builtinRun(ctx *Context, args... types.Value) (result types.Value, err error) {
         if len(args) > 0 {
                 var (
@@ -46,4 +47,4 @@ func builtinRun(ctx *Context, args... types.Value) (result types.Value, err erro
                 }
         }
         return
-}
+} */
