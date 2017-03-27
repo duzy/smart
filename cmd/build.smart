@@ -1,21 +1,32 @@
 project example
 
-foobar = $(println 'foobar')
-test = 'this is a test'
+import './test'
+
+foobar = 'This is from example.foobar;' $(test.foo)
+test = 'This is from example.test;' $(test.foo)
 
 start: run-rule
 	println 'I\'m just an example!'
 
 run-rule: # a rule called another rule
 	println 'Run another rule..'
+	println '------------------'
 	something 'a' 'b' 'c'
 
 something: # a bare entry doing nothing
 	println 'I\'m just an example! (called)'
-	println $(foobar) $(test)
-	foobar
-	test
+	println '-' $(test.foobar) '-'
+	println '-' $(test.foo) '-'
+	println '-' $(test) '-'
+	println '-' $(foobar) '-'
+	println '---'
+	test.foobar
+	println '---'
+	test.foo
+	println '--------'
+#	foobar
 
 eval something
-eval foobar
-eval test
+eval println $foobar
+eval println $test
+eval println '=========='

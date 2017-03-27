@@ -57,6 +57,55 @@ func (ctx *Context) ExitModule(prev *types.Scope) {
         ctx.SetScope(prev)
 }
 
+func (ctx *Context) lookupAt(pos token.Pos, ident []string, findModule bool) (*types.Scope, types.Symbol) {
+        var (
+                sym types.Symbol
+                xname = len(ident)
+                name  = ident[xname-1]
+                scope = ctx.Scope()
+        )
+        if xname == 2 {
+                for _, s := range ident[0:xname-1] {
+                        _, sym = scope.LookupAt(s, pos)
+                        //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
+                        if t, ok := sym.(*types.ModuleName); ok && t != nil {
+                                if m := t.Imported(); m != nil {
+                                        scope = m.Scope()
+                                } else {
+                                        return nil, nil
+                                }
+                        } else {
+                                return nil, nil
+                        }
+                }
+        } else if xname > 2 {
+                // FIXME: supports multi-scopes lookup (e.g. foo.bar.name)?
+                return nil, nil
+        }
+
+lookupName:
+        _, sym = scope.LookupAt(name, pos)
+        if !findModule && sym != nil {
+                // Skip any ModuleName symbols, and lookup upword.
+                if _, ok := sym.(*types.ModuleName); ok {
+                        scope = scope.Parent()
+                        goto lookupName
+                }
+        }
+        
+//lookupDone:
+        return scope, sym
+}
+
+func (ctx *Context) callAt(pos token.Pos, ident []string, args... types.Value) types.Value {
+        if _, sym := ctx.lookupAt(pos, ident, false); sym != nil {
+                if v, _ := sym.Call(args...); v != nil {
+                        return v
+                }
+        }
+        return values.None
+}
+
 type delegate struct {
         x *Context
         i []string
@@ -64,45 +113,13 @@ type delegate struct {
         p token.Pos
 }
 
-func (p *delegate) Type() types.Type  { return nil }
+func (p *delegate) call() types.Value { return p.x.callAt(p.p, p.i, p.a...) }
 func (p *delegate) Lit() string       { return p.call().Lit() }
 func (p *delegate) String() string    { return p.call().String() }
 func (p *delegate) Integer() int64    { return p.call().Integer() }
 func (p *delegate) Float() float64    { return p.call().Float() }
-func (p *delegate) call() types.Value {
-        var (
-                sym types.Symbol
-                xname = len(p.i)
-                name  = p.i[xname-1]
-                scope = p.x.Scope()
-        )
-        if xname == 2 {
-                for _, s := range p.i[0:xname-1] {
-                        _, sym = scope.LookupAt(s, p.p)
-                        //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
-                        if t, ok := sym.(*types.ModuleName); ok && t != nil {
-                                if m := t.Imported(); m != nil {
-                                        scope = m.Scope()
-                                        //fmt.Printf("scope: %p: %v: %v\n", scope, m.Name(), scope.Names())
-                                } else {
-                                        return values.None
-                                }
-                        } else {
-                                //err = ErrorModuleNotFound
-                                return values.None
-                        }
-                }
-        } else if xname > 2 {
-                //err = ErrorIllName
-                return values.None
-        }
-        if _, sym = scope.LookupAt(name, p.p); sym != nil {
-                if v, _ := sym.Call(p.a...); v != nil {
-                        return v
-                }
-        }
-        return values.None
-}
+func (p *delegate) Pos() token.Pos    { return p.p }
+func (p *delegate) Type() types.Type  { return nil }
 
 func (ctx *Context) Fold(pos token.Pos, ident []string, args... types.Value) types.Value {
         return &delegate{
@@ -123,6 +140,36 @@ func (ctx *Context) defineBuiltins() {
         for name, f := range builtins {
                 ctx.defineBuiltin(name, f)
         }
+}
+
+func (ctx *Context) Run(targets... string) (err error) {
+        var (
+                value types.Value
+                updated int
+                m = ctx.Globe().Main()
+        )
+        
+        defer ctx.ExitModule(ctx.EnterModule(m))
+        
+        if len(targets) == 0 {
+                if entry := m.GetDefaultEntry(); entry != nil {
+                        if value, err = entry.Call(); err == nil {
+                                updated += 1
+                        }
+                }
+        } else {
+                for _, target := range targets {
+                        if entry := m.Lookup(target); entry != nil {
+                                if value, err = entry.Call(); err == nil {
+                                        updated += 1
+                                } else {
+                                        break
+                                }
+                        }
+                }
+        }
+        if value == nil {}
+        return
 }
 
 func NewContext(name string) *Context {

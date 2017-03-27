@@ -12,10 +12,8 @@ import (
 
 var (
         ErrorIllImport  = errors.New("illegal import spec")
-        ErrorNoModule   = errors.New("missing import module")
         ErrorSearchPath = errors.New("bad search path")
         ErrorIllName    = errors.New("illegal name")
-        ErrorNotModuleScope = errors.New("not in a module scope")
 )
 
 func assert(p bool) {

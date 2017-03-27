@@ -64,7 +64,7 @@ func (t *dialectDefault) evaluate(prog *Program, recipes... types.Value) (types.
                                 continue
                         }
                         var v = stmt.Get(0)
-                        if bw, _ := v.(*values.BarewordLiteral); bw != nil {
+                        /* if bw, _ := v.(*values.BarewordLiteral); bw != nil {
                                 var _, sym = prog.scope.LookupAt(bw.String(), token.NoPos)
                                 if sym == nil {
                                         s := fmt.Sprintf("undefined statement %s", bw)
@@ -74,7 +74,17 @@ func (t *dialectDefault) evaluate(prog *Program, recipes... types.Value) (types.
                                         list.Append(v)
                                 }
                         } else if bc, _ := v.(*values.BarecompLiteral); bc != nil {
-                                panic("todo: BarecompLiteral")
+                                v1 := bc.Get(1)
+                                panic(fmt.Sprintf("todo: lookup %T %v", v1, v1))
+                        } else */ if ident, _ := v.(*values.IdentValue); ident != nil {
+                                var _, sym = prog.context.lookupAt(token.NoPos, ident.Names, false)
+                                if sym == nil {
+                                        s := fmt.Sprintf("undefined statement %s", ident)
+                                        return nil, errors.New(s)
+                                } else {
+                                        v, _ = sym.Call(stmt.Slice(1)...)
+                                        list.Append(v)
+                                }
                         } else if stmt.Len() == 1 {
                                 list.Append(v)
                         } else {

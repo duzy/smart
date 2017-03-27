@@ -95,11 +95,14 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) (err e
                         }
                 }
         }
+        
         if modulePath == "" {
-                return ErrorNoModule
+                return errors.New(fmt.Sprintf("module '%s' missing", path))
         }
 
 importModule:
+        //fmt.Printf("import: %v\n", path)
+        
         if isDir {
                 err = i.LoadDir(modulePath, nil)
         } else {
@@ -135,6 +138,23 @@ func (i *Interpreter) evalBinary(x *ast.BinaryExpr) (v types.Value) {
         return
 }
 
+func (i *Interpreter) splitName(x *ast.Barecomp) (name []string) {
+        var part string
+        for _, elem := range x.Elems {
+                s := i.evalExpr(elem).String()
+                if s == "." {
+                        name = append(name, part)
+                        part = ""
+                } else {
+                        part += s
+                }
+        }
+        if part != "" {
+                name = append(name, part)
+        }
+        return
+}
+
 func (i *Interpreter) evalName(expr ast.Expr) (name []string) {
         switch x := expr.(type) {
         case *ast.BasicLit:
@@ -142,19 +162,7 @@ func (i *Interpreter) evalName(expr ast.Expr) (name []string) {
         case *ast.Bareword:
                 name = append(name, x.Value)
         case *ast.Barecomp:
-                var part string
-                for _, elem := range x.Elems {
-                        s := i.evalExpr(elem).String()
-                        if s == "." {
-                                name = append(name, part)
-                                part = ""
-                        } else {
-                                part += s
-                        }
-                }
-                if part != "" {
-                        name = append(name, part)
-                }
+                name = append(name, i.splitName(x)...)
         default:
                 name = append(name, "?")
         }
@@ -191,9 +199,23 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
         case *ast.RecipeExpr:
-                if elems := i.evalExprs(x.Elems); x.Dialect == "" {
+                if x.Dialect == "" {
+                        var (
+                                elems []types.Value
+                                n = 1
+                        )
+                        switch t := x.Elems[0].(type) {
+                        case *ast.Bareword:
+                                elems = append(elems, values.Ident(t.Value))
+                        case *ast.Barecomp:
+                                elems = append(elems, values.Ident(i.splitName(t)...))
+                        default: 
+                                n = 1
+                        }
+                        elems = append(elems, i.evalExprs(x.Elems[n:])...)
                         v = values.ListLit(x.Pos(), elems...)
                 } else {
+                        elems := i.evalExprs(x.Elems)
                         v = values.CompoundLit(x.Pos(), elems...)
                 }
         default:
@@ -230,10 +252,21 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
 
 func (i *Interpreter) define(d *ast.DefineClause) (err error) {
         if m := i.CurrentModule(); m != nil {
-                n, v := i.evalExpr(d.Name), i.evalExpr(d.Value)
-                m.Scope().Insert(types.NewDef(d.TokPos, m, n.String(), v))
+                var (
+                        scope = m.Scope()
+                        name = i.evalExpr(d.Name).String()
+                        v = i.evalExpr(d.Value)
+                )
+
+                //sym := scope.Lookup(name)
+                //_, sym := scope.LookupAt(name, d.TokPos)
+                //fmt.Printf("defined: %p %v.%v %v\n", scope, m.Name(), name, sym)
+                
+                if scope.Insert(types.NewDef(d.TokPos, m, name, v)) != nil {
+                        err = errors.New(fmt.Sprintf("%v already taken", d.Name))
+                }
         } else {
-                err = ErrorNotModuleScope
+                err = errors.New(fmt.Sprintf("define %v not in a module scope", d.Name))
         }
         return
 }

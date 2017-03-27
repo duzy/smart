@@ -26,25 +26,34 @@ var builtins = map[string]BuiltinFunc {
         `println`: builtinPrintln,
 }
 
+func EscapedString(v Value) (s string) {
+        if v.Type() == String {
+                s = strings.Replace(v.String(), "\\'", "'", -1)
+        } else {
+                s = v.String()
+        }
+        return
+}
+
 func builtinPrint(args... Value) (Value, error) {
-        var x = len(args) - 1
+        var x = len(args)
         for i, a := range args {
-                fmt.Printf("%s", a)
                 if 0 < i && i < x {
                         fmt.Printf(" ")
                 }
+                fmt.Printf("%s", EscapedString(a))
         }
         return nil, nil
 }
 
 func builtinPrintl(args... Value) (Value, error) {
-        var x = len(args) - 1
+        var x = len(args)
         for i, a := range args {
-                s := a.String()
-                fmt.Printf("%s", s)
                 if 0 < i && i < x {
                         fmt.Printf(" ")
                 }
+                s := EscapedString(a)
+                fmt.Printf("%s", s)
                 if i == x && !strings.HasSuffix(s, "\n") {
                         fmt.Printf("\n")
                 }

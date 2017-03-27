@@ -7,7 +7,6 @@ package interpreter
 
 import (
         "github.com/duzy/smart/token"
-        "github.com/duzy/smart/types"
         //"github.com/duzy/smart/values"
         "github.com/duzy/smart/runtime"
         "path/filepath"
@@ -46,36 +45,6 @@ func (i *Interpreter) AddSearchPaths(paths... string) (err error) {
                 }
         }
         return nil
-}
-
-func (i *Interpreter) Run(targets... string) (err error) {
-        var (
-                value types.Value
-                updated int
-                m = i.Globe().Main()
-        )
-        
-        defer i.ExitModule(i.EnterModule(m))
-        
-        if len(targets) == 0 {
-                if entry := m.GetDefaultEntry(); entry != nil {
-                        if value, err = entry.Call(); err == nil {
-                                updated += 1
-                        }
-                }
-        } else {
-                for _, target := range targets {
-                        if entry := m.Lookup(target); entry != nil {
-                                if value, err = entry.Call(); err == nil {
-                                        updated += 1
-                                } else {
-                                        break
-                                }
-                        }
-                }
-        }
-        if value == nil {}
-        return
 }
 
 func CommandLine() {

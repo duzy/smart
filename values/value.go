@@ -21,7 +21,7 @@ type (
         value struct {
                 typ types.Type
         }
-        
+
         IntValue struct {
                 value
                 v int64
@@ -55,19 +55,28 @@ type (
                 v string
         }
 
+        IdentValue struct {
+                value
+                Names []string
+        }
+        
+        elements struct {
+                elems []types.Value
+        }
+
         BarecompValue struct {
                 value
-                elems []types.Value
+                elements
         }
 
         CompoundValue struct {
                 value
-                elems []types.Value
+                elements
         }
 
         ListValue struct {
                 value
-                elems []types.Value
+                elements
         }
 
         GroupValue struct {
@@ -232,31 +241,35 @@ func Bareword(s string) (v *BarewordValue) {
         return &BarewordValue{value{types.Bareword}, s}
 }
 
+func Ident(names... string) (v *IdentValue) {
+        return &IdentValue{value{}, names}
+}
+
 func BarecompLit(pos token.Pos, elems... types.Value) (v *BarecompLiteral) {
-        return &BarecompLiteral{BarecompValue{value{types.Barecomp}, elems}, pos}
+        return &BarecompLiteral{BarecompValue{value{types.Barecomp}, elements{elems}}, pos}
 }
 func Barecomp(pos token.Pos, elems... types.Value) (v *BarecompValue) {
-        return &BarecompValue{value{types.Barecomp}, elems}
+        return &BarecompValue{value{types.Barecomp}, elements{elems}}
 }
 func CompoundLit(pos token.Pos, elems... types.Value) (v *CompoundLiteral) {
-        return &CompoundLiteral{CompoundValue{value{types.Compound}, elems}, pos}
+        return &CompoundLiteral{CompoundValue{value{types.Compound}, elements{elems}}, pos}
 }
 func Compound(elems... types.Value) (v *CompoundValue) {
-        return &CompoundValue{value{types.Compound}, elems}
+        return &CompoundValue{value{types.Compound}, elements{elems}}
 }
 
 func ListLit(pos token.Pos, elems... types.Value) (v *ListLiteral) {
-        return &ListLiteral{ListValue{value{types.List}, elems}, pos}
+        return &ListLiteral{ListValue{value{types.List}, elements{elems}}, pos}
 }
 func List(elems... types.Value) (v *ListValue) {
-        return &ListValue{value{types.List}, elems}
+        return &ListValue{value{types.List}, elements{elems}}
 }
 
 func GroupLit(pos token.Pos, elems... types.Value) (v *GroupLiteral) {
-        return &GroupLiteral{GroupValue{ListValue{value{types.List}, elems}}, pos}
+        return &GroupLiteral{GroupValue{ListValue{value{types.List}, elements{elems}}}, pos}
 }
 func Group(elems... types.Value) (v *GroupValue) {
-        return &GroupValue{ListValue{value{types.List}, elems}}
+        return &GroupValue{ListValue{value{types.List}, elements{elems}}}
 }
 
 func PairLit(pos token.Pos, k, v types.Value) (p *PairLiteral) {
@@ -331,6 +344,7 @@ func MakeAll(in... interface{}) (out []types.Value) {
         return
 }
 
+func (p *value) Pos() token.Pos         { return token.NoPos }
 func (p *value) Type() types.Type       { return p.typ }
 
 func (p *value) Lit() string            { return "" }
@@ -453,28 +467,27 @@ func (p *ListValue) Float() float64     { return float64(p.Integer()) }
 func (p *GroupValue) Float() float64    { return float64(p.Integer()) }
 func (p *PairValue) Float() float64     { return p.v.Float() }
 
-func (p *ListValue) Len() int                      { return len(p.elems) }
-func (p *ListValue) Append(v... types.Value)       { p.elems = append(p.elems, v...) }
-func (p *ListValue) Get(n int) (v types.Value)     { if n>=0 && n<len(p.elems) { v = p.elems[n] }; return }
-func (p *ListValue) Slice(n int) (a []types.Value) {
+func (p *elements) Len() int                      { return len(p.elems) }
+func (p *elements) Append(v... types.Value)       { p.elems = append(p.elems, v...) }
+func (p *elements) Get(n int) (v types.Value)     { if n>=0 && n<len(p.elems) { v = p.elems[n] }; return }
+func (p *elements) Slice(n int) (a []types.Value) {
         if n>=0 && n<len(p.elems) {
                 a = p.elems[n:]
         }
         return 
 }
-func (p *ListValue) Take(n int) (v types.Value) {
+func (p *elements) Take(n int) (v types.Value) {
         if x := len(p.elems); n>=0 && n<x {
                 v = p.elems[n]
                 p.elems = append(p.elems[0:n], p.elems[n+1:]...)
         }
         return 
 }
-func (p *ListValue) ToBarecomp() *BarecompValue { return &BarecompValue{value{types.Barecomp}, p.elems} }
-func (p *ListValue) ToCompound() *CompoundValue { return &CompoundValue{value{types.Compound}, p.elems} }
-func (p *GroupValue) ToList() *ListValue        { return &p.ListValue }
-func (p *CompoundValue) ToList() *ListValue     { return &ListValue{value{types.List}, p.elems} }
-func (p *CompoundValue) Append(v... types.Value)   { p.elems = append(p.elems, v...) }
+func (p *elements) ToBarecomp() *BarecompValue { return &BarecompValue{value{types.Barecomp}, *p} }
+func (p *elements) ToCompound() *CompoundValue { return &CompoundValue{value{types.Compound}, *p} }
+func (p *elements) ToList() *ListValue         { return &ListValue{value{types.List}, *p} }
 
+func (p *PairValue) SetValue(v types.Value) { p.v = v }
 func (p *PairValue) SetKey(k types.Value) {
         switch o := k.(type) {
         case *PairValue:   k = o.k
@@ -487,10 +500,17 @@ func (p *PairValue) SetKey(k types.Value) {
         }
 }
 
-func (p *PairValue) SetValue(v types.Value) {
-        /* switch o := v.(type) {
-        case *PairValue:   v = o.v
-        case *PairLiteral: v = o.v
-        } */
-        p.v = v
-}
+func (p *IntLiteral) Pos() token.Pos      { return p.pos }
+func (p *FloatLiteral) Pos() token.Pos    { return p.pos }
+func (p *DateTimeLiteral) Pos() token.Pos { return p.pos }
+func (p *DateLiteral) Pos() token.Pos     { return p.pos }
+func (p *TimeLiteral) Pos() token.Pos     { return p.pos }
+func (p *UriLiteral) Pos() token.Pos      { return p.pos }
+func (p *StringLiteral) Pos() token.Pos   { return p.pos }
+func (p *BarewordLiteral) Pos() token.Pos { return p.pos }
+func (p *BarecompLiteral) Pos() token.Pos { return p.pos }
+func (p *CompoundLiteral) Pos() token.Pos { return p.pos }
+func (p *ListLiteral) Pos() token.Pos     { return p.pos }
+func (p *GroupLiteral) Pos() token.Pos    { return p.pos }
+func (p *MapLiteral) Pos() token.Pos      { return p.pos }
+func (p *PairLiteral) Pos() token.Pos     { return p.pos }
