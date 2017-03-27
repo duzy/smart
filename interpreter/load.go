@@ -196,8 +196,6 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         name = i.evalName(x.Name)
                 }
                 v = i.Fold(x.Pos(), name, i.evalExprs(x.Args)...)
-        case *ast.UnaryExpr:
-                v = i.evalUnary(x)
         case *ast.RecipeExpr:
                 if x.Dialect == "" {
                         var (
@@ -210,7 +208,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         case *ast.Barecomp:
                                 elems = append(elems, values.Ident(i.splitName(t)...))
                         default: 
-                                n = 1
+                                n = 0
                         }
                         elems = append(elems, i.evalExprs(x.Elems[n:])...)
                         v = values.ListLit(x.Pos(), elems...)
@@ -218,6 +216,8 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         elems := i.evalExprs(x.Elems)
                         v = values.CompoundLit(x.Pos(), elems...)
                 }
+        case *ast.UnaryExpr:
+                v = i.evalUnary(x)
         default:
                 unreachable()
         }

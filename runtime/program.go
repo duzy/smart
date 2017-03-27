@@ -88,7 +88,7 @@ func (prog *Program) prepare(entry string) (err error) {
         return
 }
 
-func (prog *Program) Execute(entry string, forced bool) (result types.Value, err error) {
+func (prog *Program) Execute(entry string, args []types.Value, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
         
         // Calculate depends and files.
@@ -100,6 +100,7 @@ func (prog *Program) Execute(entry string, forced bool) (result types.Value, err
                 _   = prog.auto("@", entry)
                 out = prog.auto("-", values.None)
         )
+        defer func() { result = out.Value() }()
         
         // TODO: define modifiers in a module, e.g.
         // 
@@ -143,7 +144,6 @@ pipelineLoop:
                         break pipelineLoop
                 }
         }
-        result = out.Value()
         return
 }
 

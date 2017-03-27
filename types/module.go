@@ -24,7 +24,7 @@ func isPattern(s string) bool {
 
 type Program interface {
         Scope() *Scope
-        Execute(entry string, forced bool) (result Value, err error)
+        Execute(entry string, args []Value, forced bool) (result Value, err error)
 }
 
 type Module struct {

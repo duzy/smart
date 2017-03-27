@@ -70,8 +70,11 @@ func (t *dialectDefault) evaluate(prog *Program, recipes... types.Value) (types.
                                         s := fmt.Sprintf("undefined statement %s", ident)
                                         return nil, errors.New(s)
                                 } else {
-                                        v, _ = sym.Call(stmt.Slice(1)...)
-                                        list.Append(v)
+                                        //fmt.Printf("statement: %v %T\n", ident.Names, sym)
+                                        if v, _ = sym.Call(stmt.Slice(1)...); v != nil {
+                                                list.Append(v)
+                                        }
+                                        //fmt.Printf("statement: %v %v\n", ident.Names, v)
                                 }
                         } else if stmt.Len() == 1 {
                                 list.Append(v)
@@ -82,5 +85,6 @@ func (t *dialectDefault) evaluate(prog *Program, recipes... types.Value) (types.
                         panic("unreachable")
                 }
         }
+        //fmt.Printf("statement: %v\n", list)
         return list, nil
 }

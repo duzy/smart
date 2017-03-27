@@ -8,7 +8,6 @@ package types
 
 import (
         "github.com/duzy/smart/token"
-        //"fmt"
 )
 
 // Symbol is a value defined in a scope.
@@ -96,7 +95,9 @@ type Def struct {
 func (d *Def) String() string  { return d.name+" = "+d.value.String() }
 func (d *Def) Set(v Value)     { d.value = v }
 func (d *Def) Value() Value    { return d.value }
-func (d *Def) Call(a... Value) (Value, error) { return d.Value(), nil }
+func (d *Def) Call(a... Value) (Value, error) {
+        return d.value, nil 
+}
 
 func NewDef(pos token.Pos, mod *Module, name string, value Value) *Def {
 	return &Def{symbol{nil, mod, name, DefineType, 0, pos, token.NoPos}, value}
@@ -143,7 +144,7 @@ func (entry *RuleEntry) Program() Program { return entry.program }
 // 
 func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
         if entry.program != nil {
-                result, err = entry.program.Execute(entry.name, false)
+                result, err = entry.program.Execute(entry.name, a, false)
         }
         return
 }

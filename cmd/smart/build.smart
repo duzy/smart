@@ -21,12 +21,20 @@ something: # a bare entry doing nothing
 	println '-' $(foobar) '-'
 	println '---'
 	test.foobar
-	println '---'
+	println
 	test.foo
+	println '---'
+	println $test.foo
 	println '--------'
 #	foobar
+
+list:
+	test.foo
+	'; test value'
 
 eval something
 eval println $foobar
 eval println $test
+eval println '---------- value:'
+eval println $list
 eval println '=========='
