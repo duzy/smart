@@ -49,28 +49,38 @@ const (
         // named types
         NamedKind
 
+        // symbolic types
+        DefineKind
+        BuiltinKind
+        RuleEntryKind
+        ModuleNameKind
+
         // type for expressions compute to nothing/empty
         NoneKind
 )
 
 var (
         typeNames = [...]string{
-                InvalidKind:  "Invalid",
-                IntKind:      "Int",
-                FloatKind:    "Float",
-                DateTimeKind: "DateTime",
-                DateKind:     "Date",
-                TimeKind:     "Time",
-                UriKind:      "Uri",
-                StringKind:   "String",
-                BarewordKind: "Bareword",
-                CompoundKind: "Compound",
-                ListKind:     "List",
-                GroupKind:    "Group",
-                MapKind:      "Map",
-                PairKind:     "Pair",
-                NamedKind:    "Named",
-                NoneKind:     "None",
+                InvalidKind:    "Invalid",
+                IntKind:        "Int",
+                FloatKind:      "Float",
+                DateTimeKind:   "DateTime",
+                DateKind:       "Date",
+                TimeKind:       "Time",
+                UriKind:        "Uri",
+                StringKind:     "String",
+                BarewordKind:   "Bareword",
+                CompoundKind:   "Compound",
+                ListKind:       "List",
+                GroupKind:      "Group",
+                MapKind:        "Map",
+                PairKind:       "Pair",
+                NamedKind:      "Named",
+                DefineKind:     "Define",
+                BuiltinKind:    "Builtin",
+                RuleEntryKind:  "RuleEntry",
+                ModuleNameKind: "ModuleName",
+                NoneKind:       "None",
         }
 )
 
@@ -110,6 +120,15 @@ const (
         // Custom type
         IsNamed
 
+        // Symbolic types
+        IsDefine
+        IsBuiltin
+        IsRuleEntry
+        IsModuleName
+
+        IsCore      = IsDefine | IsBuiltin | IsRuleEntry | IsModuleName
+        IsSymbolic  = IsCore
+        
         IsDateTime  = IsDate | IsTime
 	IsNumeric   = IsInteger | IsFloat
         IsKeyName   = IsInteger | IsString | IsBareword
@@ -118,6 +137,17 @@ const (
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair
         IsConstType = IsBasic
 )
+
+type Core struct {
+	kind Kind
+	info TypeInfo
+	name string
+}
+
+func (t *Core) String() string   { return TypeString(t, nil) }
+func (t *Core) Underlying() Type { return t }
+func (t *Core) Kind() Kind       { return t.kind }
+func (t *Core) Info() TypeInfo   { return t.info }
 
 // A Basic represents a basic type.
 type Basic struct {

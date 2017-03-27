@@ -59,14 +59,14 @@ func (i *Interpreter) Run(targets... string) (err error) {
         
         if len(targets) == 0 {
                 if entry := m.GetDefaultEntry(); entry != nil {
-                        if value, err = entry.Execute(); err == nil {
+                        if value, err = entry.Call(); err == nil {
                                 updated += 1
                         }
                 }
         } else {
                 for _, target := range targets {
                         if entry := m.Lookup(target); entry != nil {
-                                if value, err = entry.Execute(); err == nil {
+                                if value, err = entry.Call(); err == nil {
                                         updated += 1
                                 } else {
                                         break

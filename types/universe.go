@@ -20,6 +20,13 @@ var (
 
 // Predeclared types.
 var (
+        CoreTypes = []*Core {
+                DefineKind:     {DefineKind, IsDefine, "Define"},
+                ModuleNameKind: {ModuleNameKind, IsBuiltin, "ModuleName"},
+                BuiltinKind:    {BuiltinKind, IsRuleEntry, "Builtin"},
+                RuleEntryKind:  {RuleEntryKind, IsModuleName, "RuleEntry"},
+        }
+        
         BasicTypes = []*Basic {
                 InvalidKind:  {InvalidKind, 0, "invalid"},
                 IntKind:      {IntKind, IsInteger, "int"},
@@ -41,6 +48,12 @@ var (
                 MapKind:      {MapKind, IsMap, "map"},
                 PairKind:     {PairKind, IsPair, "pair"},
         }
+
+        // Shortcuts of core types
+        DefineType     = CoreTypes[DefineKind]
+        BuiltinType    = CoreTypes[BuiltinKind]
+        RuleEntryType  = CoreTypes[RuleEntryKind]
+        ModuleNameType = CoreTypes[ModuleNameKind]
 
         // Shortcuts of basic types.
         Invalid  = BasicTypes[InvalidKind]
@@ -65,15 +78,7 @@ var (
 
 func defUniverseBuiltins() {
         for name, f := range builtins {
-                universe.Insert(&Builtin{symbol{
-                        parent: nil, 
-                        module: nil, 
-                        name: name, 
-                        typ: None,
-                        ord: 0,
-                        pos: token.NoPos,
-                        scopePos_: token.NoPos,
-                }, f })
+                universe.Insert(NewBuiltin(name, f))
         }
 }
 

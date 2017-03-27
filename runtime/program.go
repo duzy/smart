@@ -34,7 +34,7 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         } else {
                 var found = false
                 if auto, found = sym.(*types.Def); found {
-                        auto.Reset(values.Make(value))
+                        auto.Set(values.Make(value))
                 }
         }
         return
@@ -44,7 +44,7 @@ func (prog *Program) interpret(i interpreter, out *types.Def) (err error) {
         var value types.Value
         value, err = i.evaluate(prog, prog.recipes...)
         if err == nil && value != nil {
-                out.Reset(value)
+                out.Set(value)
         }
         return
 }
@@ -56,7 +56,7 @@ func (prog *Program) modify(g *values.GroupValue, out *types.Def) (err error) {
         if f, ok := modifiers[g.Get(0).String()]; ok {
                 var value types.Value
                 if value, err = f(prog, out.Value(), g.Slice(1)...); err == nil && value !=  nil {
-                        out.Reset(value)
+                        out.Set(value)
                 }
         }
         return
@@ -74,7 +74,7 @@ func (prog *Program) prepare(entry string) (err error) {
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
         for _, depend := range prog.depends {
-                if res, err = depend.Execute(); err == nil {
+                if res, err = depend.Call(); err == nil {
                         if res == nil {
                                 depends.Append(values.String(depend.Name()))
                         } else if res != nil && res != values.None {

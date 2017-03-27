@@ -70,6 +70,9 @@ func writeType(buf *bytes.Buffer, typ Type, qf Qualifier, visited []Type) {
 	case nil:
 		buf.WriteString("<nil>")
 
+	case *Core:
+		buf.WriteString(t.name)
+
 	case *Basic:
 		buf.WriteString(t.name)
 

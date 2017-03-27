@@ -57,25 +57,11 @@ func (ctx *Context) ExitModule(prev *types.Scope) {
         ctx.SetScope(prev)
 }
 
-func (ctx *Context) CallSym(sym types.Symbol, args... types.Value) types.Value {
-        if sym == nil {
-                return values.None
+func (ctx *Context) Call(name string, args... types.Value) (types.Value, error) {
+        if _, sym := ctx.scope.LookupAt(name, token.NoPos); sym != nil {
+                return sym.Call(args...)
         }
-
-        if sym.Callable() {
-                return sym.Call(/*ctx,*/ args...)
-        }
-
-        if na := len(args); na > 0 {
-                // TODO: create calling scope (lexical $1, $2, etc)
-        }
-        
-        return sym.Value()
-}
-
-func (ctx *Context) Call(name string, args... types.Value) types.Value {
-        _, sym := ctx.scope.LookupAt(name, token.NoPos)
-        return ctx.CallSym(sym, args...)
+        return values.None, nil
 }
 
 /*
@@ -91,21 +77,6 @@ func (ctx *Context) Set(name string, value types.Value) (def *types.Def) {
                 def = types.
         } else {
                 def.Reset(value)
-        }
-        return
-} */
-
-/*
-func (ctx *Context) GetDefaultEntry() (entry *types.RuleEntry) {
-        if m := ctx.CurrentModule(); m != nil {
-                entry = m.GetDefaultEntry()
-        }
-        return
-}
-
-func (ctx *Context) GetEntry(name string) (entry *types.RuleEntry) {
-        if m := ctx.CurrentModule(); m != nil {
-                entry = m.Lookup(name)
         }
         return
 } */
@@ -149,14 +120,9 @@ func (p *delegate) call() types.Value {
                 //err = ErrorIllName
                 return values.None
         }
-        _, sym = scope.LookupAt(name, p.p)
-        if sym != nil {
-                if sym.Callable() {
-                        if v := sym.Call(/*p.x,*/ p.a...); v != nil {
-                                return v
-                        }
-                } else {
-                        return sym.Value()
+        if _, sym = scope.LookupAt(name, p.p); sym != nil {
+                if v, _ := sym.Call(p.a...); v != nil {
+                        return v
                 }
         }
         return values.None
@@ -172,8 +138,8 @@ func (ctx *Context) Fold(pos token.Pos, ident []string, args... types.Value) typ
 }
 
 func (ctx *Context) defineBuiltin(name string, f builtin) {
-        ctx.globe.Scope()/*.Parent()*/.Insert(types.NewBuiltin(name, func(/*x types.Context,*/ args... types.Value) types.Value {
-                return f(/*x.(*Context)*/ctx, args...)
+        ctx.globe.Scope().Insert(types.NewBuiltin(name, func(args... types.Value) (types.Value, error) {
+                return f(ctx, args...)
         }))
 }
 

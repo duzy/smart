@@ -9,7 +9,7 @@ import (
         "testing"
 )
 
-func _TestLoad(t *testing.T) {
+func TestLoad(t *testing.T) {
         i := New()
         if err := i.Load(`testdata/example.smart`, nil); err != nil {
                 t.Fatalf("Load: %v", err)

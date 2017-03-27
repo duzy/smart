@@ -219,7 +219,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                 name := i.evalExpr(spec.Props[0])
                 if _, fun := i.Scope().LookupAt(name.String(), spec.EndPos); fun != nil {
                         args := i.evalExprs(spec.Props[1:])
-                        res = fun.Call(/*i.Context,*/ args...)
+                        res, _ = fun.Call(args...)
                 } else {
                         err = errors.New(fmt.Sprintf("undefined '%s'", name))
                         //fmt.Printf("error: `%v' is invalid\n", name)

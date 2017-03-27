@@ -13,7 +13,7 @@ import (
         //"fmt"
 )
 
-type builtin func(ctx *Context, args... types.Value) types.Value
+type builtin func(ctx *Context, args... types.Value) (types.Value, error)
 
 var (
         builtins = map[string]builtin {
@@ -22,15 +22,15 @@ var (
         }
 )
 
-func builtinLit(ctx *Context, args... types.Value) types.Value {
+func builtinLit(ctx *Context, args... types.Value) (result types.Value, err error) {
         var s string
         for _, a := range args {
                 s += a.Lit()
         }
-        return values.String(s)
+        return values.String(s), nil
 }
 
-func builtinRun(ctx *Context, args... types.Value) (result types.Value) {
+func builtinRun(ctx *Context, args... types.Value) (result types.Value, err error) {
         if len(args) > 0 {
                 var (
                         err error
@@ -40,7 +40,7 @@ func builtinRun(ctx *Context, args... types.Value) (result types.Value) {
                         entry = m.Lookup(name.String())
                 )
                 if entry != nil {
-                        if result, err = entry.Execute(); err != nil {
+                        if result, err = entry.Call(args...); err != nil {
                                 //...
                         }
                 }

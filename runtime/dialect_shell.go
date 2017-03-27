@@ -40,7 +40,7 @@ func (s *dialectShell) evaluate(prog *Program, recipes... types.Value) (result t
                 }
 
                 if /* TODO: using `--verbose-shell` to control this */true {
-                        fmt.Printf("%v\n", source)
+                        fmt.Printf("%v\n", strings.Replace(source, "\n", "\\n", -1))
                 }
                 
                 sh := exec.Command(s.interpreter, s.xopt, source)

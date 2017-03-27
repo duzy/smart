@@ -22,6 +22,11 @@ func isPattern(s string) bool {
         return false
 }
 
+type Program interface {
+        Scope() *Scope
+        Execute(entry string, forced bool) (result Value, err error)
+}
+
 type Module struct {
         keyword  token.Token
 	path     string
@@ -31,10 +36,8 @@ type Module struct {
         uses     []*Use
 
         // Rule Registry
-        patterns []*Pattern
         dedicated []*RuleEntry
-
-	complete bool
+        patterns []*Pattern
 }
 
 func (m *Module) Keyword() token.Token { return m.keyword }
@@ -43,11 +46,10 @@ func (m *Module) Name() string { return m.name }
 func (m *Module) Scope() *Scope { return m.scope }
 func (m *Module) Imports() []*Module { return m.imports }
 func (m *Module) Uses() []*Use { return m.uses }
-func (m *Module) Complete() bool { return m.complete }
 
 func (m *Module) Entry(name string) (entry *RuleEntry) {
         if sym := m.scope.Lookup(name); sym == nil {
-                entry = &RuleEntry{symbol{nil, m, name, Invalid, 0, token.NoPos, token.NoPos}, nil}
+                entry = &RuleEntry{symbol{m.scope, m, name, RuleEntryType, 0, token.NoPos, token.NoPos}, nil}
                 m.scope.Insert(entry)
         } else if entry, _ = sym.(*RuleEntry); entry == nil {
                 panic(fmt.Sprintf("name '%v' already taken\n", sym.Name()))

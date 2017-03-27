@@ -11,15 +11,18 @@ import (
         //"fmt"
 )
 
+// Symbol is a value defined in a scope.
+//
+// TODO: defines SymInfo to classify symbols.
+// 
 type Symbol interface {
         Parent() *Scope
         Module() *Module
         Name() string
-        Type() Type
+        Type() Type // the type of the symbol, differs from the value type
         Value() Value
 
-        Callable() bool
-        Call(/*ctx Context,*/ args... Value) Value
+        Call(args... Value) (Value, error)
 
         String() string
 
@@ -36,7 +39,7 @@ type Symbol interface {
 	scopePos() token.Pos
 
 	// setScopePos sets the start position of the scope for this Symbol.
-	setScopePos(pos token.Pos)
+	setScopePos(pos token.Pos) // FIXME: it's not applied
 }
 
 // An symbol implements the common parts of an Symbol.
@@ -47,23 +50,22 @@ type symbol struct {
         typ Type
         ord uint32
         pos token.Pos
-        scopePos_ token.Pos
+        scopos token.Pos
 }
 
 func (sym *symbol) Parent() *Scope        { return sym.parent }
 func (sym *symbol) Module() *Module       { return sym.module }
 func (sym *symbol) Name() string          { return sym.name }
 func (sym *symbol) Type() Type            { return sym.typ }
-func (sym *symbol) String() string        { panic("abstract") }
-func (sym *symbol) Value() Value          { panic("abstract") }
-func (sym *symbol) Callable() bool        { return false }
-func (sym *symbol) Call(/*c Context,*/ a... Value) Value { panic("abstract") }
+func (sym *symbol) String() string        { return "" }
+func (sym *symbol) Value() Value          { return nil }
+func (sym *symbol) Call(a... Value) (Value, error) { return sym.Value(), nil }
 func (sym *symbol) order() uint32         { return sym.ord }
-func (sym *symbol) scopePos() token.Pos   { return sym.scopePos_ }
+func (sym *symbol) scopePos() token.Pos   { return sym.scopos }
 
 func (sym *symbol) setParent(parent *Scope)   { sym.parent = parent }
-func (sym *symbol) setOrder(order uint32)     { /*assert(order > 0);*/ sym.ord= order }
-func (sym *symbol) setScopePos(pos token.Pos) { sym.scopePos_ = pos }
+func (sym *symbol) setOrder(order uint32)     { /*assert(order > 0);*/ sym.ord = order }
+func (sym *symbol) setScopePos(pos token.Pos) { sym.scopos = pos }
 
 type ModuleName struct {
         symbol
@@ -77,13 +79,13 @@ type ModuleName struct {
 func (n *ModuleName) Imported() *Module { return n.imported }
 
 func NewModuleName(pos token.Pos, mod *Module, name string, imported *Module) *ModuleName {
-	return &ModuleName{symbol{nil, mod, name, Invalid, 0, pos, token.NoPos}, imported, false}
+	return &ModuleName{symbol{nil, mod, name, ModuleNameType, 0, pos, token.NoPos}, imported, false}
 }
 
 // A Const represents a declared constant.
-type Const struct {
+/* type Const struct {
         symbol
-}
+} */
 
 // A Def represents a definition.
 type Def struct {
@@ -93,20 +95,14 @@ type Def struct {
 
 func (d *Def) String() string { return d.name+" = "+d.value.String() }
 func (d *Def) Value() Value { return d.value }
-func (d *Def) Reset(v Value) { d.value = v }
+func (d *Def) Set(v Value)  { d.value = v }
 
 func NewDef(pos token.Pos, mod *Module, name string, value Value) *Def {
-        var typ = value.Type()
-	return &Def{symbol{nil, mod, name, typ, 0, pos, token.NoPos}, value}
+	return &Def{symbol{nil, mod, name, DefineType, 0, pos, token.NoPos}, value}
 }
 
 func NewAuto(mod *Module, name string, value Value) *Def {
-        var (
-                typ = value.Type()
-                pos = token.NoPos
-                end = token.NoPos
-        )
-	return &Def{symbol{nil, mod, name, typ, 0, pos, end}, value}
+        return NewDef(token.NoPos, mod, name, value)
 }
 
 // A Builtin represents a built-in function.
@@ -116,25 +112,18 @@ type Builtin struct {
         f BuiltinFunc
 }
 
-//func (p *Builtin) Value() Value { return p.Call() }
-func (p *Builtin) Callable() bool { return true }
-func (p *Builtin) Call(/*ctx Context,*/ a... Value) Value { return p.f(/*ctx,*/ a...) }
+func (p *Builtin) Call(a... Value) (Value, error) { return p.f(a...) }
 
 func NewBuiltin(name string, f BuiltinFunc) *Builtin {
         return &Builtin{symbol{
                 parent: nil, 
                 module: nil, 
                 name: name, 
-                typ: None,
+                typ: BuiltinType,
                 ord: 0,
                 pos: token.NoPos,
-                scopePos_: token.NoPos,
+                scopos: token.NoPos,
         }, f}
-}
-
-type Program interface {
-        Scope() *Scope
-        Execute(entry string, forced bool) (result Value, err error)
 }
 
 // RuleEntry represents a declared rule entry.
@@ -151,8 +140,8 @@ func (entry *RuleEntry) Program() Program { return entry.program }
 //
 // TODO: merge Execute and Call, make RuleEntry behaves like a Def
 // 
-func (entry *RuleEntry) Execute() (result Value, err error) {
-       if entry.program != nil {
+func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
+        if entry.program != nil {
                 result, err = entry.program.Execute(entry.name, false)
         }
         return

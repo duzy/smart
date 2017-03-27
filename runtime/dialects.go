@@ -63,7 +63,8 @@ func (t *dialectDefault) evaluate(prog *Program, recipes... types.Value) (types.
                         var v = stmt.Get(0)
                         if bw, _ := v.(*values.BarewordLiteral); bw != nil {
                                 var rest = stmt.Slice(1)
-                                list.Append(prog.context.Call(bw.String(), rest...))
+                                v, _ = prog.context.Call(bw.String(), rest...)
+                                list.Append(v)
                         } else if bc, _ := v.(*values.BarecompLiteral); bc != nil {
                                 panic("todo: BarecompLiteral")
                         } else if stmt.Len() == 1 {

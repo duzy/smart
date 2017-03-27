@@ -18,7 +18,7 @@ import (
 }
 
 type BuiltinFunc func(ctx Context, args... Value) Value */
-type BuiltinFunc func(args... Value) Value
+type BuiltinFunc func(args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
         `print`:   builtinPrint,
@@ -26,7 +26,7 @@ var builtins = map[string]BuiltinFunc {
         `println`: builtinPrintln,
 }
 
-func builtinPrint(args... Value) Value {
+func builtinPrint(args... Value) (Value, error) {
         var x = len(args) - 1
         for i, a := range args {
                 fmt.Printf("%s", a)
@@ -34,10 +34,10 @@ func builtinPrint(args... Value) Value {
                         fmt.Printf(" ")
                 }
         }
-        return nil
+        return nil, nil
 }
 
-func builtinPrintl(args... Value) Value {
+func builtinPrintl(args... Value) (Value, error) {
         var x = len(args) - 1
         for i, a := range args {
                 s := a.String()
@@ -49,11 +49,11 @@ func builtinPrintl(args... Value) Value {
                         fmt.Printf("\n")
                 }
         }
-        return nil
+        return nil, nil
 }
 
-func builtinPrintln(args... Value) Value {
+func builtinPrintln(args... Value) (Value, error) {
         builtinPrint(args...)
         fmt.Printf("\n")
-        return nil
+        return nil, nil
 }
