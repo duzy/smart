@@ -12,5 +12,10 @@ run-rule: # a rule called another rule
 
 something: # a bare entry doing nothing
 	println 'I\'m just an example! (called)'
+	println $(foobar) $(test)
 	foobar
 	test
+
+eval something
+eval foobar
+eval test

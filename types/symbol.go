@@ -93,9 +93,9 @@ type Def struct {
         value Value
 }
 
-func (d *Def) String() string { return d.name+" = "+d.value.String() }
-func (d *Def) Value() Value { return d.value }
-func (d *Def) Set(v Value)  { d.value = v }
+func (d *Def) String() string  { return d.name+" = "+d.value.String() }
+func (d *Def) Set(v Value)     { d.value = v }
+func (d *Def) Value() Value    { return d.value }
 func (d *Def) Call(a... Value) (Value, error) { return d.Value(), nil }
 
 func NewDef(pos token.Pos, mod *Module, name string, value Value) *Def {

@@ -7,8 +7,11 @@
 package runtime
 
 import (
+        "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
+        "errors"
+        "fmt"
 )
 
 type interpretMode int
@@ -62,9 +65,14 @@ func (t *dialectDefault) evaluate(prog *Program, recipes... types.Value) (types.
                         }
                         var v = stmt.Get(0)
                         if bw, _ := v.(*values.BarewordLiteral); bw != nil {
-                                var rest = stmt.Slice(1)
-                                v, _ = prog.context.Call(bw.String(), rest...)
-                                list.Append(v)
+                                var _, sym = prog.scope.LookupAt(bw.String(), token.NoPos)
+                                if sym == nil {
+                                        s := fmt.Sprintf("undefined statement %s", bw)
+                                        return nil, errors.New(s)
+                                } else {
+                                        v, _ = sym.Call(stmt.Slice(1)...)
+                                        list.Append(v)
+                                }
                         } else if bc, _ := v.(*values.BarecompLiteral); bc != nil {
                                 panic("todo: BarecompLiteral")
                         } else if stmt.Len() == 1 {

@@ -57,30 +57,6 @@ func (ctx *Context) ExitModule(prev *types.Scope) {
         ctx.SetScope(prev)
 }
 
-func (ctx *Context) Call(name string, args... types.Value) (types.Value, error) {
-        if _, sym := ctx.scope.LookupAt(name, token.NoPos); sym != nil {
-                return sym.Call(args...)
-        }
-        return values.None, nil
-}
-
-/*
-func (ctx *Context) Reset(name string, value types.Value) (def *types.Def) {
-        if def, _ = ctx.scope.Lookup(name).(*types.Def); def != nil {
-                def.Reset(value)
-        }
-        return
-}
-
-func (ctx *Context) Set(name string, value types.Value) (def *types.Def) {
-        if def, _ = ctx.scope.Lookup(name).(*types.Def); def == nil {
-                def = types.
-        } else {
-                def.Reset(value)
-        }
-        return
-} */
-
 type delegate struct {
         x *Context
         i []string

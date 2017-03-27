@@ -197,7 +197,7 @@ DoneWhen:
 }
 
 func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        var target, _ = prog.context.Call("@")
+        var target, _ = prog.scope.Lookup("@").Call()
         if fi, _ := os.Stat(target.String()); fi != nil && fi.Mode().IsDir() {
                 result = values.Group(targetDirectoryKind, target)
         } else {
@@ -208,8 +208,7 @@ func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (re
 
 func modifierCheckFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
-                scope  = prog.context.Scope()
-                targetDef, _ = scope.Lookup("@").(*types.Def)
+                targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 target = targetDef.Value()
                 filename = target.String()
         )
@@ -223,8 +222,7 @@ func modifierCheckFile(prog *Program, value types.Value, args... types.Value) (r
 
 func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
-                scope  = prog.context.Scope()
-                targetDef, _ = scope.Lookup("@").(*types.Def)
+                targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 target = targetDef.Value()
                 filename = target.String()
         )
@@ -262,8 +260,7 @@ func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (r
 
 func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
-                scope  = prog.context.Scope()
-                targetDef, _ = scope.Lookup("@").(*types.Def)
+                targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 target = targetDef.Value()
                 filename = target.String()
                 content string
