@@ -19,6 +19,14 @@ import (
 
 var defaultShellInterpreter = "sh"
 
+func trimLeftSpaces(s string) string {
+        return strings.TrimLeftFunc(s, unicode.IsSpace)
+}
+
+func trimRightSpaces(s string) string {
+        return strings.TrimRightFunc(s, unicode.IsSpace)
+}
+
 type dialectShell struct {
         monoInterpreter
         interpreter string // shell interpreter
@@ -34,13 +42,17 @@ func (s *dialectShell) evaluate(prog *Program, recipes... types.Value) (result t
                 source string
         )
         for _, recipe := range recipes {
-                source += strings.TrimRightFunc(recipe.String(), unicode.IsSpace)
+                source += recipe.String() // trimRightSpaces(recipe.String())
                 if strings.HasSuffix(source, "\\") {
+                        source += "\n" // give back the line feed
                         continue
                 }
 
                 if /* TODO: using `--verbose-shell` to control this */true {
-                        fmt.Printf("%v\n", strings.Replace(source, "\n", "\\n", -1))
+                        var s = source
+                        s = strings.Replace(s, "\n", "\\n", -1)
+                        s = strings.Replace(s, "\\\\n", "\\\n", -1)
+                        fmt.Printf("%v\n", s)
                 }
                 
                 sh := exec.Command(s.interpreter, s.xopt, source)

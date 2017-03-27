@@ -262,8 +262,12 @@ func (i *Interpreter) define(d *ast.DefineClause) (err error) {
                 //_, sym := scope.LookupAt(name, d.TokPos)
                 //fmt.Printf("defined: %p %v.%v %v\n", scope, m.Name(), name, sym)
                 
-                if scope.Insert(types.NewDef(d.TokPos, m, name, v)) != nil {
-                        err = errors.New(fmt.Sprintf("%v already taken", d.Name))
+                if sym := scope.Insert(types.NewDef(d.TokPos, m, name, v)); sym != nil {
+                        if def, ok := sym.(*types.Def); ok {
+                                def.Set(v)
+                        } else {
+                                err = errors.New(fmt.Sprintf("name '%s' already taken", name))
+                        }
                 }
         } else {
                 err = errors.New(fmt.Sprintf("define %v not in a module scope", d.Name))

@@ -25,7 +25,7 @@ start : ! : \
   process.cmd \
   process.python \
   process.perl \
-  process.trivial \
+  process.default \
   process.plain \
   process.xml.1 \
   process.xml.2 \
@@ -46,8 +46,8 @@ process.perl : [ perl ] :
 	printf "$@\n";
 	printf "process.perl\n";
 
-process.trivial:
-	anything goes here are ignored and nothing will happen
+process.default:
+	println 'interpretes statements by default'
 
 process.plain : [ plain ] :
 	this is a plain text ($(TAG_BOOK))
