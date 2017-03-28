@@ -777,34 +777,8 @@ func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) 
         return &ast.InstanceSpec{ p.parseDirectiveSpec() }
 }
 
-/* func (p *parser) parseBarecompExtension(ext *ast.Barecomp) (res string) {
-        if n := len(ext.Elems); n == 1 {
-                bw, _ := ext.Elems[0].(*ast.Bareword)
-                if bw == nil || bw.Value == "." {
-                        p.error(ext.Pos(), "bad extension")
-                        return
-                }
-                res = bw.Value
-        } else if n == 2 {
-                bw0, _ := ext.Elems[0].(*ast.Bareword)
-                bw1, _ := ext.Elems[1].(*ast.Bareword)
-                if bw0 == nil || bw1 == nil || bw0.Value != "." {
-                        p.error(ext.Pos(), "bad extension")
-                        return
-                }
-                res = bw1.Value
-        } else {
-                p.error(ext.Pos(), "bad extension")
-        }
-        return
-} */
-
 func (p *parser) parseExtensions(value ast.Expr) (exts []string) {
         switch t := value.(type) {
-        /* case *ast.Barecomp:
-                if s := p.parseBarecompExtension(t); s != "" {
-                        exts = append(exts, s)
-                } */
         case *ast.Bareword: 
                 exts = append(exts, t.Value)
         case *ast.BasicLit:
@@ -829,13 +803,6 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
         for _, prop := range spec.Props {
                 // fmt.Printf("extension: %T %v\n", prop, prop)
                 switch ext := prop.(type) {
-                /* case *ast.Barecomp:
-                        if s := p.parseBarecompExtension(ext); s != "" {
-                                p.extensions[s] = append(p.extensions[s], "")
-                        }
-                case *ast.Bareword: 
-                        s := ext.Value
-                        p.extensions[s] = append(p.extensions[s], "") */
                 case *ast.KeyValueExpr:
                         var key string
                         switch t := ext.Key.(type) {
