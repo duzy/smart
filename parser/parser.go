@@ -832,10 +832,10 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
                 /* case *ast.Barecomp:
                         if s := p.parseBarecompExtension(ext); s != "" {
                                 p.extensions[s] = append(p.extensions[s], "")
-                        } */
+                        }
                 case *ast.Bareword: 
                         s := ext.Value
-                        p.extensions[s] = append(p.extensions[s], "")
+                        p.extensions[s] = append(p.extensions[s], "") */
                 case *ast.KeyValueExpr:
                         var key string
                         switch t := ext.Key.(type) {
@@ -861,7 +861,14 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
                                 }
                         }
                 default:
-                        p.error(ext.Pos(), "bad extension")
+                        if exts := p.parseExtensions(ext); len(exts) == 0 {
+                                p.error(ext.Pos(), "bad extension")
+                                continue
+                        } else {
+                                for _, v := range exts {
+                                        p.extensions[v] = append(p.extensions[v], "")
+                                }
+                        }
                         continue
                 }
         }

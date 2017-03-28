@@ -1,6 +1,6 @@
 module c++
 
-# extensions cpp cc CC C hh h o
+#extensions cpp cc CC C hh h o
 extensions (
   unit=( cpp cc CC C )
   header=( hh h )
