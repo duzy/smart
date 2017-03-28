@@ -120,15 +120,16 @@ type (
 		From, To token.Pos // position range of bad expression
 	}
 
-        /* Ident struct {
-                Bareword
-		Sym *Symbol   // denoted symbol; or nil
-        } */
+        Ident struct {
+		NamePos token.Pos // identifier position
+		Name    string    // identifier name
+		Sym     *Symbol   // denoted symbol; or nil
+        }
 
 	// A Bareword represents a word without decorations or an identifier.
 	Bareword struct {
-		ValuePos token.Pos // identifier position
-		Value    string    // identifier name
+		ValuePos token.Pos // bareword position
+		Value    string    // bareword value
 	}
 
 	// A BasicLit node represents a literal of basic type.
@@ -161,6 +162,12 @@ type (
                 Elems []Expr
                 Rparen token.Pos
         }
+
+        // A SelectorExpr node represents an expression followed by a selector.
+	SelectorExpr struct {
+		X   Expr   // expression
+		Sel *Ident // field selector
+	}
 
         // Call expression
         CallExpr struct {
@@ -219,13 +226,16 @@ type (
         ProgramExpr struct {
                 Lang    int // TODO: language definition (default is recipes)
                 Values  []Expr
+                Scope   *Scope // scope specific to the program
         }
 )
 
 func (d *BadExpr) Pos() token.Pos         { return d.From }
+func (d *Ident) Pos() token.Pos           { return d.NamePos }
 func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
+func (d *SelectorExpr) Pos() token.Pos    { return d.X.Pos() }
 func (d *CallExpr) Pos() token.Pos        { return d.Dollar }
 func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
@@ -238,11 +248,13 @@ func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
 func (d *ProgramExpr) Pos() token.Pos     { return d.Values[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
+func (d *Ident) End() token.Pos           { return token.Pos(int(d.NamePos) + len(d.Name)) }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *BasicLit) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
+func (d *SelectorExpr) End() token.Pos    { return d.Sel.End() }
 func (d *CallExpr) End() token.Pos        { return d.Rparen + 1 }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *UnaryExpr) End() token.Pos       { return d.OpPos + 1 }
@@ -253,11 +265,13 @@ func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
 func (d *ProgramExpr) End() token.Pos     { return d.Values[len(d.Values)-1].End() }
 
 func (*BadExpr) exprNode()         {}
+func (*Ident) exprNode()           {}
 func (*Bareword) exprNode()        {}
 func (*BasicLit) exprNode()        {}
 func (*CompoundLit) exprNode()     {}
 func (*Barecomp) exprNode()        {}
 func (*ListExpr) exprNode()        {}
+func (*SelectorExpr) exprNode()    {}
 func (*CallExpr) exprNode()        {}
 func (*GroupExpr) exprNode()       {}
 func (*UnaryExpr) exprNode()       {}
@@ -319,6 +333,11 @@ type (
                 DirectiveSpec
         }
 
+        // A ExtensionsSpec node represents a set of known extensions.
+        ExtensionsSpec struct {
+                DirectiveSpec
+        }
+
         // A EvalSpec node represents evaluation statements.
         // 
 	EvalSpec struct {
@@ -355,11 +374,12 @@ type (
 	//
 	// Relationship between Tok value and Specs element type:
 	//
-	//	token.IMPORT   *ImportSpec
-	//	token.INCLUDE  *IncludeSpec
-	//	token.INSTANCE *InstanceSpec
-	//	token.EVAL     *EvalSpec
-	//	token.USE      *UseSpec
+	//	token.IMPORT     *ImportSpec
+	//	token.INCLUDE    *IncludeSpec
+	//	token.INSTANCE   *InstanceSpec
+	//	token.EXTENSIONS *ExtensionsSpec
+	//	token.EVAL       *EvalSpec
+	//	token.USE        *UseSpec
 	//
 	GenericClause struct {
 		Doc    *CommentGroup // associated documentation; or nil
@@ -428,11 +448,13 @@ type File struct {
 	Doc        *CommentGroup   // associated documentation; or nil
 	Keypos     token.Pos       // position of "module" or "project" keyword
         Keyword    token.Token     // e.g. "module", "project"
-	Name       *Bareword       // project/module name
-	Clauses    []Clause        // top-level declarations; or nil
+	Name       *Ident          // project/module name
 	Scope      *Scope          // module scope (this file only)
+	Clauses    []Clause        // top-level declarations; or nil
 	Imports    []*ImportSpec   // imports in this file
+	Unresolved []*Ident        // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
+        Extensions map[string][]string
 }
 
 // A Module node represents a set of source files

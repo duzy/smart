@@ -26,7 +26,7 @@ func NewScope(outer *Scope) *Scope {
 	return &Scope{outer, make(map[string]*Symbol, n)}
 }
 
-// Lookup returns the object with the given name if it is
+// Lookup returns the symbol with the given name if it is
 // found in scope s, otherwise it returns nil. Outer scopes
 // are ignored.
 //
@@ -34,14 +34,14 @@ func (s *Scope) Lookup(name string) *Symbol {
 	return s.Symbols[name]
 }
 
-// Insert attempts to insert a named object obj into the scope s.
-// If the scope already contains an object alt with the same name,
+// Insert attempts to insert a named symbol sym into the scope s.
+// If the scope already contains an symbol alt with the same name,
 // Insert leaves the scope unchanged and returns alt. Otherwise
-// it inserts obj and returns nil.
+// it inserts sym and returns nil.
 //
-func (s *Scope) Insert(obj *Symbol) (alt *Symbol) {
-	if alt = s.Symbols[obj.Name]; alt == nil {
-		s.Symbols[obj.Name] = obj
+func (s *Scope) Insert(sym *Symbol) (alt *Symbol) {
+	if alt = s.Symbols[sym.Name]; alt == nil {
+		s.Symbols[sym.Name] = sym
 	}
 	return
 }
@@ -52,8 +52,8 @@ func (s *Scope) String() string {
 	fmt.Fprintf(&buf, "scope %p {", s)
 	if s != nil && len(s.Symbols) > 0 {
 		fmt.Fprintln(&buf)
-		for _, obj := range s.Symbols {
-			fmt.Fprintf(&buf, "\t%s %s\n", obj.Kind, obj.Name)
+		for _, sym := range s.Symbols {
+			fmt.Fprintf(&buf, "\t%s %s\n", sym.Kind, sym.Name)
 		}
 	}
 	fmt.Fprintf(&buf, "}\n")
@@ -66,77 +66,44 @@ func (s *Scope) String() string {
 // An Symbol describes a named language entity such as a package,
 // constant, definition, or label.
 //
-// The Data fields contains object-specific data:
+// The Data fields contains symbol-specific data:
 //
 //	Kind    Data type         Data value
 //	Pro	*types.Project    project scope
 //	Mod	*types.Module     module scope
-//	Rul	*types.Rule       rule scope
-//	Def	*types.Define     rule scope
+//	Rul	*types.RuleEntry  rule scope
+//	Def	*types.Define     definition value
 //	Con     != nil            constant value
 //
 type Symbol struct {
 	Kind SymKind
 	Name string      // declared name
 	Decl interface{} // corresponding declaration; or nil
-	Data interface{} // object-specific data; or nil
+	Data interface{} // symbol-specific data; or nil
 	Type interface{} // placeholder for type information; may be nil
 }
 
-// NewSym creates a new object of a given kind and name.
+// NewSym creates a new symbol of a given kind and name.
 func NewSym(kind SymKind, name string) *Symbol {
 	return &Symbol{Kind: kind, Name: name}
 }
 
-// Pos computes the source position of the declaration of an object name.
+// Pos computes the source position of the declaration of an symbol name.
 // The result may be an invalid position if it cannot be computed
-// (obj.Decl may be nil or not correct).
-func (obj *Symbol) Pos() token.Pos {
-        /*
-	name := obj.Name
-	switch d := obj.Decl.(type) {
-	case *Field:
-		for _, n := range d.Names {
-			if n.Name == name {
-				return n.Pos()
-			}
-		}
-	case *ImportSpec:
-		if d.Name != nil && d.Name.Name == name {
-			return d.Name.Pos()
-		}
-		return d.Path.Pos()
-	case *ValueSpec:
-		for _, n := range d.Names {
-			if n.Name == name {
-				return n.Pos()
-			}
-		}
-	case *TypeSpec:
-		if d.Name.Name == name {
-			return d.Name.Pos()
-		}
-	case *FuncDecl:
-		if d.Name.Name == name {
-			return d.Name.Pos()
-		}
-	case *LabeledStmt:
-		if d.Label.Name == name {
-			return d.Label.Pos()
-		}
-	case *AssignStmt:
-		for _, x := range d.Lhs {
-			if ident, isIdent := x.(*Ident); isIdent && ident.Name == name {
-				return ident.Pos()
-			}
-		}
+// (sym.Decl may be nil or not correct).
+func (sym *Symbol) Pos() token.Pos {
+	//name := sym.Name
+	switch d := sym.Decl.(type) {
+	case *DefineClause:
+                return d.TokPos
+
 	case *Scope:
-		// predeclared object - nothing to do for now
-	} */
+		// predeclared symbol - nothing to do for now
+	}
 	return token.NoPos
 }
 
-// SymKind describes what an object represents.
+// SymKind describes what an symbol represents.
 type SymKind int
 
 // The list of possible Symbol kinds.

@@ -10,9 +10,12 @@ import (
         //"github.com/duzy/smart/values"
         "github.com/duzy/smart/runtime"
         "path/filepath"
+        "errors"
         "fmt"
         "os"
 )
+
+var globalPaths []string
 
 type Interpreter struct {
         *runtime.Context
@@ -28,8 +31,9 @@ type loadInfo struct {
 // Create and initialize a new interpreter.
 func New() *Interpreter {
         return &Interpreter{
-                Context:  runtime.NewContext("interpreter"),
-                fset:     token.NewFileSet(), 
+                Context: runtime.NewContext("interpreter"),
+                fset:    token.NewFileSet(), 
+                paths:   globalPaths,
         }
 }
 
@@ -41,7 +45,21 @@ func (i *Interpreter) AddSearchPaths(paths... string) (err error) {
                 if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
                         i.paths = append(i.paths, s)
                 } else {
-                        return ErrorSearchPath 
+                        return errors.New(fmt.Sprintf("path '%s' is not dir", s))
+                }
+        }
+        return nil
+}
+
+func AddSearchPaths(paths... string) (err error) {
+        for _, s := range paths {
+                if s, err = filepath.Abs(s); err != nil {
+                        break
+                }
+                if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+                        globalPaths = append(globalPaths, s)
+                } else {
+                        return errors.New(fmt.Sprintf("path '%s' is not dir", s))
                 }
         }
         return nil

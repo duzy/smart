@@ -12,7 +12,6 @@ import (
 
 var (
         ErrorIllImport  = errors.New("illegal import spec")
-        ErrorSearchPath = errors.New("bad search path")
         ErrorIllName    = errors.New("illegal name")
 )
 

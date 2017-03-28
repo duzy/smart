@@ -103,7 +103,7 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 			// ParseFile API and return a valid (but) empty
 			// *ast.File
 			f = &ast.File{
-				Name:  new(ast.Bareword),
+				Name:  new(ast.Ident),
 				Scope: ast.NewScope(nil),
 			}
 		}
@@ -149,7 +149,7 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
 		if sm && (filter == nil || filter(d)) {
 			filename := filepath.Join(path, d.Name())
 			if src, err := ParseFile(fset, filename, nil, mode); err == nil {
-				name := src.Name.Value
+				name := src.Name.Name
 				mod, found := mods[name]
 				if !found {
 					mod = &ast.Module{

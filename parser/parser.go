@@ -49,8 +49,11 @@ type parser struct {
 	// Ordinary identifier scopes
 	pkgScope   *ast.Scope        // pkgScope.Outer == nil
 	topScope   *ast.Scope        // top-most scope; may be pkgScope
-	unresolved []*ast.Bareword   // unresolved identifiers (reference to project symbols)
+	unresolved []*ast.Ident      // unresolved identifiers (reference to project symbols)
 	imports    []*ast.ImportSpec // list of imports
+
+        // Per file known extensions being used for parsing entry names.
+        extensions map[string][]string // extension -> classes
 }
 
 func (p *parser) init(fset *token.FileSet, filename string, src []byte, mode Mode) {
@@ -280,11 +283,11 @@ func (p *parser) expectLinend() {
 var unresolved = new(ast.Symbol)
 
 // If x is an identifier, tryResolve attempts to resolve x by looking up
-// the object it denotes. If no object is found and collectUnresolved is
+// the symbol it denotes. If no object is found and collectUnresolved is
 // set, x is marked as unresolved and collected in the list of unresolved
 // identifiers.
 //
-/* func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
+func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 	// nothing to do if x is not an identifier or the blank identifier
 	ident, _ := x.(*ast.Ident)
 	if ident == nil {
@@ -313,7 +316,7 @@ var unresolved = new(ast.Symbol)
 
 func (p *parser) resolve(x ast.Expr) {
 	p.tryResolve(x, true)
-} */
+}
 
 // ----------------------------------------------------------------------------
 // Scoping
@@ -341,7 +344,7 @@ func assert(cond bool, msg string) {
 func syncClause(p *parser) {
 	for {
 		switch p.tok {
-		case token.IMPORT, token.INCLUDE, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
+		case token.IMPORT, token.INCLUDE, token.EXTENSIONS, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
 			if p.pos == p.syncPos && p.syncCnt < 10 {
 				p.syncCnt++
 				return
@@ -394,6 +397,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.UnaryExpr:
 	case *ast.BinaryExpr:
         case *ast.KeyValueExpr:
+        case *ast.SelectorExpr:
 	default:
 		// all other nodes are not proper expressions
 		p.errorExpected(x.Pos(), "expression")
@@ -417,6 +421,45 @@ func (p *parser) parseBareword() *ast.Bareword {
                 ValuePos: pos, 
                 Value: value,
         }
+}
+
+func (p *parser) parseIdent() *ast.Ident {
+        bw := p.parseBareword()
+        return &ast.Ident{ bw.ValuePos, bw.Value, nil }
+}
+
+func (p *parser) parseSelector(lhs bool, x ast.Expr) ast.Expr {
+	if p.trace {
+		defer un(trace(p, "Selector"))
+	}
+
+        bw := p.parseBareword()
+        if _, ok := p.extensions[bw.Value]; ok {
+                dot := &ast.Bareword{ x.End(), "." }
+                switch t := x.(type) {
+                case *ast.Barecomp:
+                        t.Elems = append(t.Elems, dot, bw)
+                        return t
+                }
+                res := &ast.Barecomp{ []ast.Expr{ x, dot, bw } }
+                //fmt.Printf("parseSelector: %T %v %T %v, %v\n", x, x, bw, bw, p.tok)
+                return res
+        }
+
+        // Convert x into an Ident
+        switch t := x.(type) {
+        case *ast.Bareword:
+                x = &ast.Ident{ t.ValuePos, t.Value, nil }
+                if lhs {
+                        p.resolve(x)
+                }
+        default:
+                p.error(t.Pos(), "bad select operand")
+        }
+        
+        sel := &ast.Ident{ bw.ValuePos, bw.Value, nil }
+        //fmt.Printf("parseSelector: %T %v %v\n", x, x, sel.Name)
+	return &ast.SelectorExpr{X: x, Sel: sel}
 }
 
 // ----------------------------------------------------------------------------
@@ -628,16 +671,16 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         X: x,
                 }
 
-        case token.PERIOD:
+        /* case token.PERIOD:
                 pos := p.pos
                 p.next()
                 return &ast.Bareword{
                         ValuePos: pos,
                         Value: ".",
-                }
+                } */
 
-        case token.PROJECT, token.MODULE, token.USE, token.EXPORT, 
-             token.INCLUDE, token.IMPORT, token.INSTANCE:
+        case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, 
+             token.IMPORT, token.INSTANCE, token.EXTENSIONS:
                 if p.inRhs {
                         pos, lit := p.pos, p.lit
                         p.next()
@@ -665,11 +708,13 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
         x = p.parseExpr0(lhs)
         //fmt.Printf("expr:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
         if x.End() == p.pos && p.lineComment == nil &&
+                p.tok != token.ASSIGN &&
                 p.tok != token.COMPOSED &&
                 p.tok != token.RPAREN &&
                 p.tok != token.RBRACK &&
                 p.tok != token.COMMA &&
                 p.tok != token.COLON &&
+                p.tok != token.PERIOD &&
                 p.tok != token.LINEND &&
                 p.tok != token.ILLEGAL {
                 //fmt.Printf("compose: %T %v %v %v\t%v %v\n", x, x, x.Pos(), x.End(), p.pos, p.tok)
@@ -683,6 +728,17 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                         elems = append(elems, y)
                 }
                 x = &ast.Barecomp{ elems }
+        } else if !lhs && p.tok == token.ASSIGN {
+                pos := p.pos
+                p.next()
+                x = &ast.KeyValueExpr{
+                        Key:   x,
+                        Equal: pos,
+                        Value: p.parseExpr0(false),
+                }
+        } else if p.tok == token.PERIOD {
+                p.next()
+                x = p.parseSelector(lhs, p.checkExpr(x))
         }
         return
 }
@@ -719,6 +775,97 @@ func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.S
 
 func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         return &ast.InstanceSpec{ p.parseDirectiveSpec() }
+}
+
+/* func (p *parser) parseBarecompExtension(ext *ast.Barecomp) (res string) {
+        if n := len(ext.Elems); n == 1 {
+                bw, _ := ext.Elems[0].(*ast.Bareword)
+                if bw == nil || bw.Value == "." {
+                        p.error(ext.Pos(), "bad extension")
+                        return
+                }
+                res = bw.Value
+        } else if n == 2 {
+                bw0, _ := ext.Elems[0].(*ast.Bareword)
+                bw1, _ := ext.Elems[1].(*ast.Bareword)
+                if bw0 == nil || bw1 == nil || bw0.Value != "." {
+                        p.error(ext.Pos(), "bad extension")
+                        return
+                }
+                res = bw1.Value
+        } else {
+                p.error(ext.Pos(), "bad extension")
+        }
+        return
+} */
+
+func (p *parser) parseExtensions(value ast.Expr) (exts []string) {
+        switch t := value.(type) {
+        /* case *ast.Barecomp:
+                if s := p.parseBarecompExtension(t); s != "" {
+                        exts = append(exts, s)
+                } */
+        case *ast.Bareword: 
+                exts = append(exts, t.Value)
+        case *ast.BasicLit:
+                if t.Kind == token.STRING && t.Value != "" {
+                        exts = append(exts, t.Value)
+                } else {
+                        p.error(t.Pos(), "bad extension")
+                }
+        case *ast.GroupExpr:
+                for _, v := range t.Elems {
+                        exts = append(exts, p.parseExtensions(v)...)
+                }
+        default:
+                //fmt.Printf("parseExtensions: %T %v", t, t)
+                p.error(value.Pos(), "bad extension")
+        }
+        return
+}
+
+func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        spec := &ast.ExtensionsSpec{ p.parseDirectiveSpec() }
+        for _, prop := range spec.Props {
+                // fmt.Printf("extension: %T %v\n", prop, prop)
+                switch ext := prop.(type) {
+                /* case *ast.Barecomp:
+                        if s := p.parseBarecompExtension(ext); s != "" {
+                                p.extensions[s] = append(p.extensions[s], "")
+                        } */
+                case *ast.Bareword: 
+                        s := ext.Value
+                        p.extensions[s] = append(p.extensions[s], "")
+                case *ast.KeyValueExpr:
+                        var key string
+                        switch t := ext.Key.(type) {
+                        case *ast.Bareword: key = t.Value
+                        case *ast.BasicLit:
+                                if t.Kind == token.STRING {
+                                        key = t.Value
+                                } else {
+                                        p.error(ext.Key.Pos(), "bad key for extension")
+                                        continue
+                                }
+                        default:
+                                p.error(ext.Key.Pos(), "bad key for extension")
+                                continue
+                        }
+
+                        if exts := p.parseExtensions(ext.Value); len(exts) == 0 {
+                                p.error(ext.Value.Pos(), "bad extension")
+                                continue
+                        } else {
+                                for _, v := range exts {
+                                        p.extensions[v] = append(p.extensions[v], key)
+                                }
+                        }
+                default:
+                        p.error(ext.Pos(), "bad extension")
+                        continue
+                }
+        }
+        return spec
 }
 
 func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
@@ -802,7 +949,6 @@ func (p *parser) parseGenericClause(f parseSpecFunc) *ast.GenericClause {
 		Lparen: lparen,
 		Specs:  specs,
 		Rparen: rparen,
-                //EndPos: endpos,
 	}
 }
 
@@ -828,7 +974,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 value = &ast.ListExpr{ elems }
         }
         
-        return &ast.DefineClause{ 
+        clause := &ast.DefineClause{ 
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
@@ -836,6 +982,27 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 Value: value,
                 Comment: comment,
         }
+
+        var name string
+        switch n := clause.Name.(type) {
+        case *ast.Bareword: name = n.Value
+        default:
+                fmt.Printf("parseDefineClause: %T %v\n", n, n)
+                p.error(pos, "unsupported name")
+        }
+
+        if name != "" {
+                //fmt.Printf("%p: define: %T %s\n", p.topScope, clause.Name, name)
+                sym := ast.NewSym(ast.Def, name)
+                sym.Decl = clause
+                if alt := p.topScope.Insert(sym); alt != nil {
+                        p.error(ident.Pos(), fmt.Sprintf("name '%s' already taken", name))
+                        //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
+                }
+        } else {
+                p.error(pos, "empty name")
+        }
+        return clause
 }
 
 func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
@@ -876,7 +1043,6 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
                 TabPos:  pos,
                 Elems:   elems,
                 Comment: comment,
-                //LendPos: ...,
         }
 }
 
@@ -906,6 +1072,27 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
         }
 }
 
+func (p *parser) computeCompositeEntryName(t *ast.Barecomp) (s string) {
+        if n := len(t.Elems); n > 2 {
+                if bw, _ := t.Elems[n-2].(*ast.Bareword); bw != nil && bw.Value == "." {
+                        if bw, _ = t.Elems[n-1].(*ast.Bareword); bw != nil {
+                                if _, ok := p.extensions[bw.Value]; !ok {
+                                        p.error(bw.Pos(), "unknown extension")
+                                }
+                        }
+                }
+        }
+        for _, elem := range t.Elems {
+                switch bw := elem.(type) {
+                case *ast.Bareword: s += bw.Value
+                default:
+                        fmt.Printf("computeCompositeEntryName: %T %v\n", bw, bw)
+                        p.error(bw.Pos(), "unsupported name")
+                }
+        }
+        return
+}
+
 func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause {
 	if p.trace {
 		defer un(trace(p, "Rule"))
@@ -916,10 +1103,39 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 pos = p.expect(tok)
                 modifier *ast.ModifierExpr
                 program *ast.ProgramExpr
+                symbols []*ast.Symbol
                 depends []ast.Expr
                 recipes []ast.Expr
                 dialect string
         )
+
+        for _, target := range targets {
+                var name string
+                switch t := target.(type) {
+                case *ast.Barecomp:
+                        name = p.computeCompositeEntryName(t)
+                case *ast.Bareword:
+                        name = t.Value
+                default:
+                        fmt.Printf("parseRuleClause: %T %v\n", t, t)
+                        p.error(target.Pos(), "unsupported name")
+                }
+                if name == "" {
+                        p.error(target.Pos(), "empty entry name")
+                        continue
+                }
+                
+                //fmt.Printf("%p: rentry: %T %v\n", p.topScope, target, name)
+                sym := ast.NewSym(ast.Rul, name)
+                if alt := p.topScope.Insert(sym); alt != nil {
+                        p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
+                        //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
+                } else {
+                        symbols = append(symbols, sym)
+                }
+        }
+        
+	p.openScope(); defer p.closeScope()
 
         switch p.tok {
         case token.MINUS: // a '-' modifier is defining a rule as modifier
@@ -938,27 +1154,26 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         if p.tok == token.COLON {
                 p.next()
         }
-
+        
         if p.tok != token.LINEND {
                 depends = p.parseRhsList()
         }
-        
+
         if p.tok != token.EOF {
                 p.expectLinend()
         }
-        
+
         for p.tok == token.RECIPE {
                 recipes = append(recipes, p.parseRecipeExpr(dialect))
         }
 
-        if len(recipes) > 0 {
-                program = &ast.ProgramExpr{
-                        Lang: 0, // FIXME: language definition
-                        Values: recipes,
-                }
+        program = &ast.ProgramExpr{
+                Lang: 0, // FIXME: language definition
+                Values: recipes,
+                Scope: p.topScope,
         }
         
-        return &ast.RuleClause{
+        clause := &ast.RuleClause{
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
@@ -967,14 +1182,21 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Program: program,
                 Modifier: modifier,
         }
+        for _, sym := range symbols {
+                sym.Decl = clause
+        }
+
+        return clause
 }
 
 func (p *parser) parseClause(sync func(*parser)) ast.Clause {
-	switch p.tok {
+ 	switch p.tok {
 	case token.INCLUDE:
                 return p.parseGenericClause(p.parseIncludeSpec)
 	case token.INSTANCE:
                 return p.parseGenericClause(p.parseInstanceSpec)
+        case token.EXTENSIONS:
+                return p.parseGenericClause(p.parseExtensionsSpec)
         case token.EVAL:
                 return p.parseGenericClause(p.parseEvalSpec)
 	case token.USE:
@@ -1022,7 +1244,7 @@ func (p *parser) parseFile() *ast.File {
 
         var (
                 keyword token.Token
-                ident *ast.Bareword
+                ident *ast.Ident
         )
         if p.mode&Flat == 0 {
                 if keyword = p.tok; keyword == token.PROJECT || keyword == token.MODULE {
@@ -1034,8 +1256,8 @@ func (p *parser) parseFile() *ast.File {
                 // Smart-lang spec:
                 //   * the project clause is not a declaration;
                 //   * the project name does not appear in any scope.
-                ident = p.parseBareword()
-                if ident.Value == "_" && p.mode&DeclarationErrors != 0 {
+                ident = p.parseIdent()
+                if ident.Name == "_" && p.mode&DeclarationErrors != 0 {
                         p.error(p.pos, "invalid package name _")
                 }
                 p.expectLinend()
@@ -1049,6 +1271,7 @@ func (p *parser) parseFile() *ast.File {
 
 	p.openScope()
 	p.pkgScope = p.topScope
+        p.extensions = make(map[string][]string, 2 /* initial capacity */)
 	var clauses []ast.Clause
 	if p.mode&ModuleClauseOnly == 0 {
                 if p.mode&Flat == 0 {
@@ -1072,17 +1295,30 @@ func (p *parser) parseFile() *ast.File {
 		}
 	}
 	p.closeScope()
-
 	assert(p.topScope == nil, "unbalanced scopes")
+
+	// resolve global identifiers within the same file
+	i := 0
+	for _, ident := range p.unresolved {
+		// i <= index for current ident
+		assert(ident.Sym == unresolved, "symbol already resolved")
+		ident.Sym = p.pkgScope.Lookup(ident.Name) // also removes unresolved sentinel
+		if ident.Sym == nil {
+			p.unresolved[i] = ident
+			i++
+		}
+	}
 
 	return &ast.File{
 		Doc:        doc,
 		Keypos:     pos,
                 Keyword:    keyword,
 		Name:       ident,
-		Clauses:    clauses,
 		Scope:      p.pkgScope,
+		Clauses:    clauses,
 		Imports:    p.imports,
+                Unresolved: p.unresolved[0:i],
 		Comments:   p.comments,
+                Extensions: p.extensions,
 	}
 }

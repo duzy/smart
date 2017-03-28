@@ -155,7 +155,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                         }
                                 }
                         default:
-                                fmt.Printf("todo: %T %v (from %s)\n", depend, depend, target)
+                                fmt.Printf("modifierWhenOutdated: todo: %T %v (from %s)\n", depend, depend, target)
                         }
                 }
 

@@ -98,6 +98,7 @@ const (
         INCLUDE    // include a.smart
         IMPORT     // import a.smart
         INSTANCE   // instance
+        EXTENSIONS // extensions
 	keyword_end
 )
 
@@ -157,14 +158,15 @@ var tokens = [...]string{
         MINUS: "-",
 	PCON:  "/",
         
-        PROJECT:  "project",
-        MODULE:   "module",
-        USE:      "use",
-        EVAL:     "eval",
-        EXPORT:   "export",
-        INCLUDE:  "include",
-        IMPORT:   "import",
-        INSTANCE: "instance",
+        PROJECT:    "project",
+        MODULE:     "module",
+        USE:        "use",
+        EVAL:       "eval",
+        EXPORT:     "export",
+        INCLUDE:    "include",
+        IMPORT:     "import",
+        INSTANCE:   "instance",
+        EXTENSIONS: "extensions",
 }
 
 func (tok Token) String() (s string) {

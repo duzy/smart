@@ -108,7 +108,7 @@ importModule:
         } else {
                 err = i.Load(modulePath, nil)
         }
-        return nil
+        return
 }
 
 func (i *Interpreter) evalUnary(x *ast.UnaryExpr) (v types.Value) {
@@ -218,6 +218,8 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 }
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
+        case nil:
+                v = values.None
         default:
                 unreachable()
         }
@@ -331,8 +333,22 @@ func (i *Interpreter) clause(clause ast.Clause) error {
         case *ast.RuleClause:
                 return i.rule(d)
         default:
-                //fmt.Printf("clause: %v\n", clause)
                 unreachable()
+        }
+        return nil
+}
+
+func (i *Interpreter) lexing(lexScope *ast.Scope) error {
+        fmt.Printf("%p: outer = %p\n", lexScope, lexScope.Outer)
+        for name, sym := range lexScope.Symbols {
+                switch clause := sym.Decl.(type) {
+                case *ast.DefineClause:
+                        fmt.Printf("%p: %s, %v\n", lexScope, name, clause.Name)
+                case *ast.RuleClause:
+                        fmt.Printf("%p: %s, %v\n", lexScope, name, *clause)
+                default:
+                        fmt.Printf("%p: todo: %s, %v\n", lexScope, name, *sym)
+                }
         }
         return nil
 }
@@ -363,12 +379,12 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
                 // TODO: parsing parameters
         }
 
-        for _, d := range doc.Clauses {
+        /* for _, d := range doc.Clauses {
                 if err = i.clause(d); err != nil {
                         return err
                 }
-        }
-        return nil
+        } */
+        return i.lexing(doc.Scope)
 }
 
 func (i *Interpreter) file(doc *ast.File) (err error) {
@@ -381,13 +397,12 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
                 }
         }
 
-        for _, d := range doc.Clauses {
+        /* for _, d := range doc.Clauses {
                 if err = i.clause(d); err != nil {
                         return err
                 }
-        }
-        //fmt.Printf("end file: %v\n", scope.Names())
-        return
+        } */
+        return i.lexing(doc.Scope)
 }
 
 func (i *Interpreter) module(mod *ast.Module) (err error) {
@@ -411,7 +426,7 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
                 return err
         }
 
-        m := i.DeclareModule(doc.Keypos, doc.Keyword, filename, doc.Name.Value)
+        m := i.DeclareModule(doc.Keypos, doc.Keyword, filename, doc.Name.Name)
         defer i.ExitModule(i.EnterModule(m))
         return i.file(doc)
 }

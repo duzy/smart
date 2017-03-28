@@ -1,5 +1,19 @@
 module c++
 
-LINK = g++
-COMPILE = g++
+# extensions cpp cc CC C hh h o
+extensions (
+  unit=( cpp cc CC C )
+  header=( hh h )
+  object=( o obj )
+)
 
+linker = g++
+link = $(linker)
+
+compiler = g++
+compile = $(compiler)
+
+sources =
+
+compile-sources:
+	println 'TODO: compile $(sources)'
