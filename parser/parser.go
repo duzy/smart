@@ -398,6 +398,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.BinaryExpr:
         case *ast.KeyValueExpr:
         case *ast.SelectorExpr:
+        case *ast.Ident:
 	default:
 		// all other nodes are not proper expressions
 		p.errorExpected(x.Pos(), "expression")
@@ -610,13 +611,19 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
               token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
               token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
               token.CALL_9:
-                pos, tok := p.pos, p.tok
+                pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
                 p.next()
+
+                var ident = &ast.Ident{ p.pos, s, nil }
+                if p.resolve(ident); ident.Sym == nil {
+                        p.error(pos, fmt.Sprintf("undefined '%s'", ident.Name))
+                }
                 return &ast.CallExpr{
                         Dollar: pos,
                         Lparen: token.NoPos,
-                        Tok: tok,
+                        Name: ident,
                         Rparen: token.NoPos,
+                        Tok: tok,
                 }
 
         case token.CALL:
@@ -644,6 +651,20 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         rpos = p.expect(token.RPAREN)
                 default:
                         name = p.checkExpr(p.parseExpr(false))
+                }
+
+                //fmt.Printf("call: %T\n", name)
+                switch t := name.(type) {
+                case *ast.Bareword: 
+                        ident := &ast.Ident{ t.ValuePos, t.Value, nil }
+                        if p.resolve(ident); ident.Sym == nil {
+                                p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
+                        }
+                        name = ident
+                case *ast.SelectorExpr:
+                        break
+                default: 
+                        p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T)", t))
                 }
                 return &ast.CallExpr{
                         Dollar: pos,
@@ -964,7 +985,6 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 fmt.Printf("parseDefineClause: %T %v\n", n, n)
                 p.error(pos, "unsupported name")
         }
-
         if name != "" {
                 //fmt.Printf("%p: define: %T %s\n", p.topScope, clause.Name, name)
                 sym := ast.NewSym(ast.Def, name)
@@ -973,8 +993,6 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         p.error(ident.Pos(), fmt.Sprintf("name '%s' already taken", name))
                         //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
                 }
-        } else {
-                p.error(pos, "empty name")
         }
         return clause
 }
@@ -1093,6 +1111,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 default:
                         fmt.Printf("parseRuleClause: %T %v\n", t, t)
                         p.error(target.Pos(), "unsupported name")
+                        continue
                 }
                 if name == "" {
                         p.error(target.Pos(), "empty entry name")
@@ -1110,6 +1129,14 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         }
         
 	p.openScope(); defer p.closeScope()
+        for _, s := range []string{
+                "@", "<", "^",
+        } {
+                sym := ast.NewSym(ast.Def, s)
+                if alt := p.topScope.Insert(sym); alt != nil {
+                        p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
+                }
+        }
 
         switch p.tok {
         case token.MINUS: // a '-' modifier is defining a rule as modifier

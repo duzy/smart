@@ -10,6 +10,7 @@ import (
         //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
+        "path/filepath"
         "hash/crc64"
         //"strings"
         //"errors"
@@ -154,8 +155,19 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                                 shellFalses += int(n)
                                         }
                                 }
+                        case *values.StringValue:
+                                if ext := filepath.Ext(d.String()); ext != "" {
+                                        if _, ok := prog.context.CheckExt(ext); ok {
+                                                files.Append(d)
+                                        } else {
+                                                FailAt(depend.Pos(), "unsupported file %v", d)
+                                        }
+                                } else {
+                                        fmt.Printf("depend: %v\n", d)
+                                }
                         default:
-                                fmt.Printf("modifierWhenOutdated: todo: %T %v (from %s)\n", depend, depend, target)
+                                //fmt.Printf("modifierWhenOutdated: todo: %T %v (from %s)\n", depend, depend, target)
+                                FailAt(depend.Pos(), "unsupported depend %v (%T)", depend, depend)
                         }
                 }
 

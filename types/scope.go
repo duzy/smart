@@ -86,7 +86,7 @@ func (s *Scope) LookupParent(name string, pos token.Pos) (*Scope, Symbol) {
 	return nil, nil
 }
 
-func (s *Scope) LookupAt(name string, pos token.Pos) (*Scope, Symbol) {
+func (s *Scope) LookupAt(pos token.Pos, name string) (*Scope, Symbol) {
         if sym := s.Lookup(name); sym == nil {
                 return s.LookupParent(name, pos)
         } else {

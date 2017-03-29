@@ -23,7 +23,12 @@ type Symbol interface {
 
         Call(args... Value) (Value, error)
 
+        Pos() token.Pos
+
+        Lit() string
         String() string
+        Integer() int64
+        Float() float64
 
 	// order reflects a package-level symbol's source order: if symbol
 	// a is before symbol b in the source, then a.order() < b.order().
@@ -56,7 +61,11 @@ func (sym *symbol) Parent() *Scope        { return sym.parent }
 func (sym *symbol) Module() *Module       { return sym.module }
 func (sym *symbol) Name() string          { return sym.name }
 func (sym *symbol) Type() Type            { return sym.typ }
+func (sym *symbol) Pos() token.Pos        { return sym.pos }
+func (sym *symbol) Lit() string           { return "" }
 func (sym *symbol) String() string        { return "" }
+func (sym *symbol) Integer() int64        { return 0 }
+func (sym *symbol) Float() float64        { return 0 }
 func (sym *symbol) Value() Value          { return nil }
 func (sym *symbol) Call(a... Value) (Value, error) { return sym.Value(), nil }
 func (sym *symbol) order() uint32         { return sym.ord }

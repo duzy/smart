@@ -7,7 +7,9 @@
 package runtime
 
 import (
+        "github.com/duzy/smart/token"
         "errors"
+        "fmt"
 )
 
 var (
@@ -18,3 +20,25 @@ var (
         ErrorIllXml    = errors.New("illegal xml format")
         ErrorIllJson   = errors.New("illegal json format")
 )
+
+type Failure struct {
+        pos token.Pos
+        msg string
+}
+
+func (f *Failure) Pos() token.Pos { return f.pos }
+func (f *Failure) Error() string { return f.msg }
+
+func Fail(s string, a... interface{}) {
+        if len(a) > 0 {
+                s = fmt.Sprintf(s, a...)
+        }
+        panic(&Failure{token.NoPos, s})
+}
+
+func FailAt(pos token.Pos, s string, a... interface{}) {
+        if len(a) > 0 {
+                s = fmt.Sprintf(s, a...)
+        }
+        panic(&Failure{pos, s})
+}

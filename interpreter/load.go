@@ -138,7 +138,7 @@ func (i *Interpreter) evalBinary(x *ast.BinaryExpr) (v types.Value) {
         return
 }
 
-func (i *Interpreter) splitName(x *ast.Barecomp) (name []string) {
+/* func (i *Interpreter) splitName(x *ast.Barecomp) (name []string) {
         var part string
         for _, elem := range x.Elems {
                 s := i.evalExpr(elem).String()
@@ -167,12 +167,18 @@ func (i *Interpreter) evalName(expr ast.Expr) (name []string) {
                 name = append(name, "?")
         }
         return
-}
+} */
 
 func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         switch x := expr.(type) {
         case *ast.BadExpr:
                 unreachable();
+        case *ast.Ident:
+                //fmt.Printf("ident: %v %T\n", x, x)
+                if _, v = i.Scope().LookupAt(x.Pos(), x.Name); v == nil {
+                        runtime.Fail("symbol %s undefined", x.Name)
+                }
+                //fmt.Printf("symbol: %v %T\n", x.Name, v)
         case *ast.BasicLit:
                 v = values.Literal(x.Pos(), x.Kind, x.Value)
         case *ast.Bareword:
@@ -185,17 +191,29 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 v = values.GroupLit(x.Pos(), i.evalExprs(x.Elems)...)
         case *ast.ListExpr:
                 v = values.ListLit(x.Pos(), i.evalExprs(x.Elems)...)
-        case *ast.CallExpr:
-                var name []string
-                if x.Name == nil {
-                        assert(x.Tok != token.CALL)
-                        s := x.Tok.String()
-                        assert(s[0] == '$')
-                        name = append(name, s[1:])
+        case *ast.SelectorExpr:
+                if mn, _ := i.evalExpr(x.X).(*types.ModuleName); mn != nil {
+                        if m := mn.Imported(); m == nil {
+                                runtime.Fail("module %s undefined", mn.Name())
+                        } else if _, sym := m.Scope().LookupAt(x.Pos(), x.Sel.Name); sym != nil {
+                                v = sym
+                        } else {
+                                runtime.Fail("symbol %s undefined in %s", x.Sel.Name, mn.Name())
+                        }
                 } else {
-                        name = i.evalName(x.Name)
+                        unreachable()
                 }
-                v = i.Fold(x.Pos(), name, i.evalExprs(x.Args)...)
+                
+        case *ast.CallExpr:
+                var name = i.evalExpr(x.Name)
+                if sym, _ := name.(types.Symbol); sym != nil {
+                        //fmt.Printf("call: %T %v\n", x.Name, sym)
+                        v = i.Fold(x.Pos(), sym, i.evalExprs(x.Args)...)
+                } else if name != nil {
+                        runtime.Fail("unsupported name '%s' (%T, %T)", name, x.Name, name)
+                } else {
+                        runtime.Fail("symbol %v undefined", x.Name)
+                }
         case *ast.RecipeExpr:
                 if x.Dialect == "" {
                         var (
@@ -206,7 +224,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         case *ast.Bareword:
                                 elems = append(elems, values.Ident(t.Value))
                         case *ast.Barecomp:
-                                elems = append(elems, values.Ident(i.splitName(t)...))
+                                //elems = append(elems, values.Ident(i.splitName(t)...))
                         default: 
                                 n = 0
                         }
@@ -241,7 +259,7 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
                 name := i.evalExpr(spec.Props[0])
-                if _, fun := i.Scope().LookupAt(name.String(), spec.EndPos); fun != nil {
+                if _, fun := i.Scope().LookupAt(spec.EndPos, name.String()); fun != nil {
                         args := i.evalExprs(spec.Props[1:])
                         res, _ = fun.Call(args...)
                 } else {
@@ -260,10 +278,6 @@ func (i *Interpreter) define(d *ast.DefineClause) (err error) {
                         v = i.evalExpr(d.Value)
                 )
 
-                //sym := scope.Lookup(name)
-                //_, sym := scope.LookupAt(name, d.TokPos)
-                //fmt.Printf("defined: %p %v.%v %v\n", scope, m.Name(), name, sym)
-                
                 if sym := scope.Insert(types.NewDef(d.TokPos, m, name, v)); sym != nil {
                         if def, ok := sym.(*types.Def); ok {
                                 def.Set(v)
@@ -287,10 +301,26 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 entry := m.Entry(depend.String())
                 depends = append(depends, entry)
         }
+
+        scope := types.NewScope(i.Scope(), d.TokPos, token.NoPos, "rule")
+        defer i.SetScope(i.SetScope(scope))
+        
         if p, ok := d.Program.(*ast.ProgramExpr); ok && p != nil {
+                // mapping lexical symbols
+                for name, sym := range p.Scope.Symbols {
+                        //fmt.Printf("sym: %v %T\n", name, sym)
+                        auto := types.NewAuto(m, name, values.None)
+                        if alt := scope.Insert(auto); alt != nil {
+                                runtime.Fail("%s already defined", name)
+                        }
+                        sym.Data = auto
+                }
+                
                 if p.Values != nil {
                         recipes = i.evalExprs(p.Values)
                 }
+        } else {
+                return errors.New(fmt.Sprintf("unsupported program type"))
         }
         
         var modifiers []types.Value
@@ -298,10 +328,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 modifiers = i.evalExprs(d.Modifier.Elems)
         }
         
-        var (
-                scope = types.NewScope(i.Scope(), d.TokPos, token.NoPos, "rule")
-                prog = runtime.NewProgram(i.Context, scope, depends, recipes...)
-        )
+        var prog = runtime.NewProgram(i.Context, scope, depends, recipes...)
         if len(modifiers) > 0 {
                 if err = prog.SetModifiers(modifiers...); err != nil {
                         return
@@ -338,19 +365,26 @@ func (i *Interpreter) clause(clause ast.Clause) error {
         return nil
 }
 
-func (i *Interpreter) lexing(lexScope *ast.Scope) error {
-        fmt.Printf("%p: outer = %p\n", lexScope, lexScope.Outer)
+func (i *Interpreter) lexing(lexScope *ast.Scope) (err error) {
+        //fmt.Printf("%p: outer = %p\n", lexScope, lexScope.Outer)
         for name, sym := range lexScope.Symbols {
-                switch clause := sym.Decl.(type) {
+                /* switch clause := sym.Decl.(type) {
                 case *ast.DefineClause:
-                        fmt.Printf("%p: %s, %v\n", lexScope, name, clause.Name)
+                        fmt.Printf("%p: %s, %T\n", lexScope, name, clause.Name)
                 case *ast.RuleClause:
-                        fmt.Printf("%p: %s, %v\n", lexScope, name, *clause)
+                        fmt.Printf("%p: %s, %T\n", lexScope, name, clause)
                 default:
-                        fmt.Printf("%p: todo: %s, %v\n", lexScope, name, *sym)
+                        fmt.Printf("%p: todo: %s, %T\n", lexScope, name, sym)
+                } */
+                _, s := i.Scope().LookupAt(sym.Pos(), name)
+                //fmt.Printf("lexing: %T %v (%v)\n", s, s, sym.Data)
+                if sym.Data == nil {
+                        sym.Data = s
+                } else if sym.Data != s {
+                        // FIXME: complain errors
                 }
         }
-        return nil
+        return
 }
 
 func (i *Interpreter) include(spec *ast.IncludeSpec) error {
@@ -379,11 +413,13 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
                 // TODO: parsing parameters
         }
 
-        /* for _, d := range doc.Clauses {
+        i.SetExts(doc.Extensions)
+
+        for _, d := range doc.Clauses {
                 if err = i.clause(d); err != nil {
                         return err
                 }
-        } */
+        }
         return i.lexing(doc.Scope)
 }
 
@@ -397,17 +433,26 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
                 }
         }
 
-        /* for _, d := range doc.Clauses {
+        i.SetExts(doc.Extensions)
+
+        for _, i := range doc.Unresolved {
+                fmt.Printf("%p: unresolved: %T %v\n", doc.Scope, i.Sym, i.Name)
+        }
+        
+        for _, d := range doc.Clauses {
                 if err = i.clause(d); err != nil {
                         return err
                 }
-        } */
+        }
         return i.lexing(doc.Scope)
 }
 
 func (i *Interpreter) module(mod *ast.Module) (err error) {
         m := i.DeclareModule(mod.Keypos, mod.Keyword, mod.Name, mod.Name)
         defer i.ExitModule(i.EnterModule(m))
+
+        //fmt.Printf("module: %s\n", mod.Name)
+        
         for _, f := range mod.Files {
                 if err = i.file(f); err != nil {
                         break
@@ -426,6 +471,8 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
                 return err
         }
 
+        //fmt.Printf("load: %v %v\n", filename, doc.Name.Name)
+        
         m := i.DeclareModule(doc.Keypos, doc.Keyword, filename, doc.Name.Name)
         defer i.ExitModule(i.EnterModule(m))
         return i.file(doc)

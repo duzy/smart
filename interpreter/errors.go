@@ -7,6 +7,7 @@
 package interpreter
 
 import (
+        //"github.com/duzy/smart/runtime"
         "errors"
 )
 
@@ -24,3 +25,7 @@ func assert(p bool) {
 func unreachable() {
 	panic("unreachable")
 }
+
+//func fail(s string, a... interface{}) {
+//        runtime.Fail(s, a...)
+//}

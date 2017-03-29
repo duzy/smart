@@ -17,6 +17,21 @@ type Context struct {
         globe    *types.Globe
         scope    *types.Scope
         modules  []*types.Module
+        exts     map[string][]string
+}
+
+func (ctx *Context) SetExts(m map[string][]string) {
+        ctx.exts = m
+}
+
+func (ctx *Context) CheckExt(s string) (a []string, v bool) {
+        if len(s) > 0 {
+                if s[0] == '.' {
+                        s = s[1:]
+                }
+                a, v = ctx.exts[s]
+        }
+        return
 }
 
 func (ctx *Context) Globe() *types.Globe {
@@ -66,7 +81,7 @@ func (ctx *Context) lookupAt(pos token.Pos, ident []string, findModule bool) (*t
         )
         if xname == 2 {
                 for _, s := range ident[0:xname-1] {
-                        _, sym = scope.LookupAt(s, pos)
+                        _, sym = scope.LookupAt(pos, s)
                         //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
                         if t, ok := sym.(*types.ModuleName); ok && t != nil {
                                 if m := t.Imported(); m != nil {
@@ -84,7 +99,7 @@ func (ctx *Context) lookupAt(pos token.Pos, ident []string, findModule bool) (*t
         }
 
 lookupName:
-        _, sym = scope.LookupAt(name, pos)
+        _, sym = scope.LookupAt(pos, name)
         if !findModule && sym != nil {
                 // Skip any ModuleName symbols, and lookup upword.
                 if _, ok := sym.(*types.ModuleName); ok {
@@ -108,12 +123,12 @@ func (ctx *Context) callAt(pos token.Pos, ident []string, args... types.Value) t
 
 type delegate struct {
         x *Context
-        i []string
+        s types.Symbol
         a []types.Value
         p token.Pos
 }
 
-func (p *delegate) call() types.Value { return p.x.callAt(p.p, p.i, p.a...) }
+func (p *delegate) call() types.Value { v, _ := p.s.Call(p.a...); return v }
 func (p *delegate) Lit() string       { return p.call().Lit() }
 func (p *delegate) String() string    { return p.call().String() }
 func (p *delegate) Integer() int64    { return p.call().Integer() }
@@ -121,10 +136,10 @@ func (p *delegate) Float() float64    { return p.call().Float() }
 func (p *delegate) Pos() token.Pos    { return p.p }
 func (p *delegate) Type() types.Type  { return nil }
 
-func (ctx *Context) Fold(pos token.Pos, ident []string, args... types.Value) types.Value {
+func (ctx *Context) Fold(pos token.Pos, sym types.Symbol, args... types.Value) types.Value {
         return &delegate{
                 x: ctx,
-                i: ident,
+                s: sym,
                 a: args,
                 p: pos,
         }
