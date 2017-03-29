@@ -128,13 +128,15 @@ func modifierSelect(prog *Program, value types.Value, args... types.Value) (resu
 
 func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
-                scope        = prog.context.Scope()
-                targetDef, _ = scope.Lookup("@").(*types.Def)
-                dependDef, _ = scope.Lookup("...").(*types.Def)
-                depends, _   = dependDef.Value().(*values.ListValue)
-                target       = targetDef.Value().String()
-                missing      = values.List()
-                files        = values.List()
+                scope         = prog.context.Scope()
+                targetDef, _  = scope.Lookup("@").(*types.Def)
+                dependDef, _  = scope.Lookup("...").(*types.Def)
+                depends, _    = dependDef.Value().(*values.ListValue)
+                target        = targetDef.Value().String()
+                missing       = values.List()
+                files         = values.List()
+                nonfiles      = values.List()
+                //prerequisites = values.List()
                 shellFalses  int
         )
         if depends != nil || depends.Len() > 0 {
@@ -163,7 +165,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                                 FailAt(depend.Pos(), "unsupported file %v", d)
                                         }
                                 } else {
-                                        fmt.Printf("depend: %v\n", d)
+                                        nonfiles.Append(d)
                                 }
                         default:
                                 //fmt.Printf("modifierWhenOutdated: todo: %T %v (from %s)\n", depend, depend, target)
@@ -178,8 +180,8 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                 }
                 
                 if files.Len() > 0 {
-                        prog.auto("^", files)
                         prog.auto("<", files.Get(0))
+                        prog.auto("^", files)
                         goto CheckTargetOutdated
                 }
         }
@@ -202,6 +204,8 @@ CheckTargetOutdated:
                         }
                 }
                 err = &breaker{ fmt.Sprintf("%s already up to date", target) }
+        } else {
+                goto DoneWhen // target shall be updated
         }
 
 DoneWhen:

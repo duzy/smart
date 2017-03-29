@@ -662,7 +662,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         }
                         name = ident
                 case *ast.SelectorExpr:
-                        break
+                case *ast.Barecomp: 
+                        p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T %v...)", t, t.Elems[0]))
                 default: 
                         p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T)", t))
                 }
@@ -1130,7 +1131,12 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         
 	p.openScope(); defer p.closeScope()
         for _, s := range []string{
-                "@", "<", "^",
+                // https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
+                "@",  "%",  "<",  "?",  "^",  "+",  "|",  "*",  //
+                "@D", "%D", "<D", "?D", "^D", "+D", "|D", "*D", //
+                "@F", "%F", "<F", "?F", "^F", "+F", "|F", "*F", //
+                "@'", "%'", "<'", "?'", "^'", "+'", "|'", "*'", //
+                "-",
         } {
                 sym := ast.NewSym(ast.Def, s)
                 if alt := p.topScope.Insert(sym); alt != nil {
