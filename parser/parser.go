@@ -1111,7 +1111,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         name = t.Value
                 default:
                         fmt.Printf("parseRuleClause: %T %v\n", t, t)
-                        p.error(target.Pos(), "unsupported name")
+                        p.error(target.Pos(), "unsupported entry name")
                         continue
                 }
                 if name == "" {

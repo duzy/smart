@@ -300,9 +300,16 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
 loop:   
         for s.ch != '\n' {
                 switch s.ch {
-                case '\\', '$':
+                case '\\':
                         // just break it out, further scanning will decide
                         break loop
+                case '$':
+                        if s.offset < len(s.src) && s.src[s.offset] != '$' {
+                                // just break it out, further scanning will decide
+                                break loop
+                        } else {
+                                s.next()
+                        }
                 default:
                         s.next()
                 }

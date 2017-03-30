@@ -62,7 +62,7 @@ func (prog *Program) modify(g *values.GroupValue, out *types.Def) (err error) {
         return
 }
 
-func (prog *Program) prepare(entry string) (err error) {
+func (prog *Program) prepare(/*entry*/ *types.RuleEntry) (err error) {
         var (
                 res types.Value
                 depends = values.List()
@@ -74,9 +74,11 @@ func (prog *Program) prepare(entry string) (err error) {
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
         for _, depend := range prog.depends {
+                //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, depend.Pos())
                 if res, err = depend.Call(); err == nil {
                         if res == nil {
-                                depends.Append(values.String(depend.Name()))
+                                //depends.Append(values.String(depend.Name()))
+                                depends.Append(depend)
                         } else if res != nil && res != values.None {
                                 //fmt.Printf("%s: %v\n", depend.Name(), res.Lit())
                                 depends.Append(res)
@@ -88,7 +90,7 @@ func (prog *Program) prepare(entry string) (err error) {
         return
 }
 
-func (prog *Program) Execute(entry string, args []types.Value, forced bool) (result types.Value, err error) {
+func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
         
         // Calculate depends and files.
@@ -111,7 +113,7 @@ func (prog *Program) Execute(entry string, args []types.Value, forced bool) (res
         if len(prog.pipline) == 0 {
                 // Using the default statements interpreter.
                 if i, _ := interpreters[``]; i == nil {
-                        err = ErrorNoDialect
+                        err = errors.New("no default dialect")
                         return
                 } else if err = prog.interpret(i, out); err != nil {
                         // ...
@@ -125,8 +127,8 @@ pipelineLoop:
                 case *values.GroupLiteral:
                         if err = prog.modify(&op.GroupValue, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
-                                        if false {
-                                                fmt.Printf("%s\n", p.message)
+                                        if true {
+                                                fmt.Printf("%s, required by '%s'\n", p.message, entry.Name())
                                         }
                                         err = nil
                                 }
@@ -134,7 +136,7 @@ pipelineLoop:
                         }
                 case *values.BarewordLiteral:
                         if i, _ := interpreters[op.String()]; i == nil {
-                                err = ErrorNoDialect
+                                err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
                         } else if err = prog.interpret(i, out); err != nil {
                                 break pipelineLoop

@@ -15,7 +15,6 @@ import (
 var (
         ErrorUpdated   = errors.New("target updated")
         ErrorNilExec   = errors.New("execute nil program")
-        ErrorNoDialect = errors.New("unknown dialect")
         ErrorNoEntry   = errors.New("no matched rule")
         ErrorIllXml    = errors.New("illegal xml format")
         ErrorIllJson   = errors.New("illegal json format")

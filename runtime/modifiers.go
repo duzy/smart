@@ -49,6 +49,11 @@ var (
                         xopt: "-e",
                 },
 
+                `docker-exec`: &dialectShell{
+                        interpreter: "docker",
+                        xopt: "exec",
+                },
+
                 `xml`: &dialectXml{
                         whitespace: false,
                 },
@@ -70,9 +75,14 @@ var (
                 `select`:       modifierSelect,
 
                 `when-outdated`: modifierWhenOutdated,
+                `compare`:       modifierWhenOutdated,
+                `prereq`:        modifierWhenOutdated,
                 
                 `check-dir`:    modifierCheckDir,
                 `check-file`:   modifierCheckFile,
+                `dir-p`:        modifierCheckDir,
+                `file-p`:       modifierCheckFile,
+                
                 `write-file`:   modifierWriteFile,
                 `update-file`:  modifierUpdateFile,
         }
@@ -142,7 +152,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
         if depends != nil || depends.Len() > 0 {
                 for _, depend := range depends.Slice(0) {
                 retryDepend:
-                        //fmt.Printf("depend: %T %v (from %s)\n", depend, depend, target)
+                        //fmt.Printf("modifierWhenOutdated: %T %v (from %s)\n", depend, depend, target)
                         switch d := depend.(type) {
                         case *values.ListValue:
                                 if depend = d.Take(0); depend != nil {
@@ -156,6 +166,16 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                         if n := d.Get(1).Integer(); n != 0 {
                                                 shellFalses += int(n)
                                         }
+                                }
+                        case *types.RuleEntry:
+                                if ext := filepath.Ext(d.String()); ext != "" {
+                                        if _, ok := prog.context.CheckExt(ext); ok {
+                                                files.Append(d)
+                                        } else {
+                                                FailAt(depend.Pos(), "unsupported file %v", d)
+                                        }
+                                } else {
+                                        nonfiles.Append(d)
                                 }
                         case *values.StringValue:
                                 if ext := filepath.Ext(d.String()); ext != "" {
@@ -182,7 +202,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                 if files.Len() > 0 {
                         prog.auto("<", files.Get(0))
                         prog.auto("^", files)
-                        goto CheckTargetOutdated
+                        //goto CheckFiles
                 }
         }
 
@@ -190,12 +210,14 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                 goto DoneWhen // target shall be updated
         }
 
-CheckTargetOutdated:
+//CheckFiles:
         if fi, _ := os.Stat(target); fi != nil {
                 for _, depend := range files.Slice(0) {
                         fi2, e := os.Stat(depend.String())
-                        if fi2 == nil {
-                                err = e
+                        if fi2 == nil || e != nil { // no such file or directory
+                                //err = &breaker{ fmt.Sprintf("no file or directory '%v', required by %s", 
+                                //        depend, target) }
+                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend) }
                                 goto DoneWhen
                         }
                         
@@ -205,6 +227,15 @@ CheckTargetOutdated:
                 }
                 err = &breaker{ fmt.Sprintf("%s already up to date", target) }
         } else {
+                for _, depend := range files.Slice(0) {
+                        fi, e := os.Stat(depend.String())
+                        if fi == nil || e != nil { // no such file or directory
+                                //err = &breaker{ fmt.Sprintf("no file or directory '%v', required by %s", 
+                                //        depend, target) }
+                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend) }
+                                goto DoneWhen
+                        }
+                }
                 goto DoneWhen // target shall be updated
         }
 

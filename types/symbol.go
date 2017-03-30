@@ -143,6 +143,8 @@ type RuleEntry struct {
         program Program
 }
 
+func (entry *RuleEntry) String() string { return entry.name }
+
 // RuleEntry.Program returns the rule program.
 func (entry *RuleEntry) Program() Program { return entry.program }
 
@@ -153,7 +155,7 @@ func (entry *RuleEntry) Program() Program { return entry.program }
 // 
 func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
         if entry.program != nil {
-                result, err = entry.program.Execute(entry.name, a, false)
+                result, err = entry.program.Execute(entry, a, false)
         }
         return
 }

@@ -298,7 +298,9 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 m = i.CurrentModule()
         )
         for _, depend := range i.evalExprs(d.Depends) {
-                entry := m.Entry(depend.String())
+                //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.Pos())
+
+                entry := m.Entry(depend.Pos(), depend.String())
                 depends = append(depends, entry)
         }
 
@@ -336,7 +338,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         }
         
         for _, target := range i.evalExprs(d.Targets) {
-                m.Insert(target.String(), prog)
+                m.Insert(target.Pos(), target.String(), prog)
         }
         return
 }

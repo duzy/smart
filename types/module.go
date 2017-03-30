@@ -24,7 +24,7 @@ func isPattern(s string) bool {
 
 type Program interface {
         Scope() *Scope
-        Execute(entry string, args []Value, forced bool) (result Value, err error)
+        Execute(entry *RuleEntry, args []Value, forced bool) (result Value, err error)
 }
 
 type Module struct {
@@ -47,9 +47,9 @@ func (m *Module) Scope() *Scope { return m.scope }
 func (m *Module) Imports() []*Module { return m.imports }
 func (m *Module) Uses() []*Use { return m.uses }
 
-func (m *Module) Entry(name string) (entry *RuleEntry) {
+func (m *Module) Entry(pos token.Pos, name string) (entry *RuleEntry) {
         if sym := m.scope.Lookup(name); sym == nil {
-                entry = &RuleEntry{symbol{m.scope, m, name, RuleEntryType, 0, token.NoPos, token.NoPos}, nil}
+                entry = &RuleEntry{symbol{m.scope, m, name, RuleEntryType, 0, pos, token.NoPos}, nil}
                 m.scope.Insert(entry)
         } else if entry, _ = sym.(*RuleEntry); entry == nil {
                 panic(fmt.Sprintf("name '%v' already taken\n", sym.Name()))
@@ -64,12 +64,13 @@ func (m *Module) Lookup(s string) (entry *RuleEntry) {
         return
 }
 
-func (m *Module) Insert(entryName string, prog Program) {
+func (m *Module) Insert(pos token.Pos, entryName string, prog Program) {
         if isPattern(entryName) {
                 m.patterns = append(m.patterns, nil)
         } else {
-                entry := m.Entry(entryName)
+                entry := m.Entry(pos, entryName)
                 entry.program = prog
+                entry.pos = pos // overwrite position
                 m.dedicated = append(m.dedicated, entry)
         }
         return
