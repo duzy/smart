@@ -34,7 +34,7 @@ type dialectShell struct {
 }
 
 func (s *dialectShell) dialect() string { return "shell" }
-func (s *dialectShell) evaluate(prog *Program, recipes... types.Value) (result types.Value, err error) {
+func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
                 stdout bytes.Buffer
                 stderr bytes.Buffer
@@ -48,14 +48,30 @@ func (s *dialectShell) evaluate(prog *Program, recipes... types.Value) (result t
                         continue
                 }
 
-                if /* TODO: using `--verbose-shell` to control this */true {
+                // Escape '$$' sequences.
+                source = strings.Replace(source, "$$", "$", -1)
+
+                if strings.HasPrefix(source, "@") {
+                        source = source[1:]
+                } else {
+                        // TODO: using `--verbose-shell` to control this
                         var s = source
                         s = strings.Replace(s, "\n", "\\n", -1)
                         s = strings.Replace(s, "\\\\n", "\\\n", -1)
                         fmt.Printf("%v\n", s)
                 }
-                
-                sh := exec.Command(s.interpreter, s.xopt, source)
+
+                var sh *exec.Cmd
+                if len(args) == 0 {
+                        sh = exec.Command(s.interpreter, s.xopt, source)
+                } else {
+                        var a []string
+                        for _, v := range args {
+                                a = append(a, v.String())
+                        }
+                        a = append(a, s.xopt, source)
+                        sh = exec.Command(s.interpreter, a...)
+                }
                 sh.Stdout, sh.Stderr = &stdout, &stderr
                 err = sh.Run(); source = ""
                 if err == nil {

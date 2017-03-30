@@ -15,6 +15,19 @@ import (
         "fmt"
 )
 
+var (
+        dialects = make(map[string]interface{})
+        modifiers = make(map[string]interface{})
+)
+
+func AddDialect(s string, i interface{}) {
+        dialects[s] = i
+}
+
+func AddModifier(s string, i interface{}) {
+        modifiers[s] = i
+}
+
 type parser struct {
         file    *token.File
         errors  scanner.Errors
@@ -1047,11 +1060,31 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
         )
         for p.tok != token.RBRACK && p.tok != token.EOF {
                 x := p.checkExpr(p.parseExpr(false))
-                if dialect == "" {
-                        if bw, _ := x.(*ast.Bareword); bw != nil {
-                                dialect = bw.Value
+                switch t := x.(type) {
+                case *ast.Bareword:
+                        if _, ok := dialects[t.Value]; ok {
+                                if dialect == "" {
+                                        dialect = t.Value
+                                }
+                        } else {
+                                p.error(t.Pos(), fmt.Sprintf("no dialect '%s'", t.Value))
+                        }
+                case *ast.GroupExpr:
+                        if bw, _ := t.Elems[0].(*ast.Bareword); bw != nil {
+                                if _, ok := dialects[bw.Value]; ok {
+                                        if dialect == "" {
+                                                dialect = bw.Value
+                                        }
+                                } else if _, ok := modifiers[bw.Value]; ok {
+                                        // ...
+                                } else {
+                                        p.error(t.Pos(), fmt.Sprintf("no dialect or modifier '%s'", bw.Value))
+                                }
+                        } else {
+                                p.error(t.Pos(), "unsupported dialect or modifier")
                         }
                 }
+                
                 elems = append(elems, x)
                 if p.tok == token.COMMA {
                         p.next() // TODO: grouping modifiers
@@ -1136,7 +1169,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 "@D", "%D", "<D", "?D", "^D", "+D", "|D", "*D", //
                 "@F", "%F", "<F", "?F", "^F", "+F", "|F", "*F", //
                 "@'", "%'", "<'", "?'", "^'", "+'", "|'", "*'", //
-                "-",
+                "...", "-",
         } {
                 sym := ast.NewSym(ast.Def, s)
                 if alt := p.topScope.Insert(sym); alt != nil {

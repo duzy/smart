@@ -294,8 +294,13 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                 s.next() // take the line-end
                 return
         case '$':
-                tok = token.CALL // escape to do token.CALL
-                return
+                if n := s.offset + 1; n < len(s.src) && s.src[n] != '$' {
+                        tok = token.CALL // escape to do token.CALL
+                        return
+                } else {
+                        s.next() // '$'
+                        s.next() // '$'
+                }
         }
 loop:   
         for s.ch != '\n' {
@@ -304,11 +309,12 @@ loop:
                         // just break it out, further scanning will decide
                         break loop
                 case '$':
-                        if s.offset < len(s.src) && s.src[s.offset] != '$' {
+                        if n := s.offset + 1; n < len(s.src) && s.src[n] != '$' {
                                 // just break it out, further scanning will decide
                                 break loop
                         } else {
-                                s.next()
+                                s.next() // '$'
+                                s.next() // '$'
                         }
                 default:
                         s.next()

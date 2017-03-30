@@ -24,7 +24,7 @@ const (
 type interpreter interface {
         dialect() string
         mode() interpretMode
-        evaluate(prog *Program, recipes... types.Value) (types.Value, error)
+        evaluate(prog *Program, args []types.Value, recipes []types.Value) (types.Value, error)
 }
 
 type monoInterpreter struct {
@@ -55,7 +55,7 @@ type dialectDefault struct {
 }
 
 func (t *dialectDefault) dialect() string { return "default" }
-func (t *dialectDefault) evaluate(prog *Program, recipes... types.Value) (types.Value, error) {
+func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []types.Value) (types.Value, error) {
         var list = values.List()
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {

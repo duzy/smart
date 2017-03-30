@@ -40,9 +40,9 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) interpret(i interpreter, out *types.Def) (err error) {
+func (prog *Program) interpret(i interpreter, out *types.Def, args... types.Value) (err error) {
         var value types.Value
-        value, err = i.evaluate(prog, prog.recipes...)
+        value, err = i.evaluate(prog, args, prog.recipes)
         if err == nil && value != nil {
                 out.Set(value)
         }
@@ -53,11 +53,16 @@ func (prog *Program) modify(g *values.GroupValue, out *types.Def) (err error) {
         // TODO: using rules in a different module to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
-        if f, ok := modifiers[g.Get(0).String()]; ok {
+        var name = g.Get(0).String()
+        if f, ok := modifiers[name]; ok {
                 var value types.Value
                 if value, err = f(prog, out.Value(), g.Slice(1)...); err == nil && value !=  nil {
                         out.Set(value)
                 }
+        } else if i, _ := interpreters[name]; i != nil {
+                err = prog.interpret(i, out, g.Slice(1)...)
+        } else {
+                err = errors.New(fmt.Sprintf("no modifier or dialect '%s'", name))
         }
         return
 }
@@ -76,6 +81,7 @@ func (prog *Program) prepare(/*entry*/ *types.RuleEntry) (err error) {
         for _, depend := range prog.depends {
                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, depend.Pos())
                 if res, err = depend.Call(); err == nil {
+                        //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
                         if res == nil {
                                 //depends.Append(values.String(depend.Name()))
                                 depends.Append(depend)
@@ -84,6 +90,7 @@ func (prog *Program) prepare(/*entry*/ *types.RuleEntry) (err error) {
                                 depends.Append(res)
                         }
                 } else {
+                        //fmt.Printf("Program.prepare: %T %v\n", depend, depend)
                         break
                 }
         }
@@ -127,10 +134,10 @@ pipelineLoop:
                 case *values.GroupLiteral:
                         if err = prog.modify(&op.GroupValue, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
-                                        if true {
-                                                fmt.Printf("%s, required by '%s'\n", p.message, entry.Name())
+                                        fmt.Printf("%s, required by '%s'\n", p.message, entry.Name())
+                                        if p.okay {
+                                                err = nil
                                         }
-                                        err = nil
                                 }
                                 break pipelineLoop
                         }
@@ -142,7 +149,7 @@ pipelineLoop:
                                 break pipelineLoop
                         }
                 default:
-                        err = errors.New(fmt.Sprintf("unsupported modifier: %s", v))
+                        err = errors.New(fmt.Sprintf("unsupported modifier '%s'", v))
                         break pipelineLoop
                 }
         }

@@ -20,6 +20,15 @@ import (
         "os"
 )
 
+func init() {
+        for _, s := range runtime.GetDialectNames() {
+                parser.AddDialect(s, nil)
+        }
+        for _, s := range runtime.GetModifierNames() {
+                parser.AddModifier(s, nil)
+        }
+}
+
 var parseMode = parser.DeclarationErrors //|parser.Trace
 
 func restoreLoadingInfo(i *Interpreter) {

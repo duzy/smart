@@ -12,7 +12,7 @@ import (
         "github.com/duzy/smart/values"
         "path/filepath"
         "hash/crc64"
-        //"strings"
+        "strings"
         //"errors"
         "fmt"
         "os"
@@ -21,6 +21,7 @@ import (
 
 type breaker struct {
         message string
+        okay bool
 }
 
 func (p *breaker) Error() string {
@@ -67,12 +68,14 @@ var (
 
         modifiers = map[string]modifier{
                 //`pre-check`:    modifierPreCheck,
-                
+
                 `shell-status`: modifierShellStatus,
                 `shell-stdout`: modifierShellStdout,
                 `shell-stderr`: modifierShellStderr,
 
                 `select`:       modifierSelect,
+
+                `args`:         modifierSetArgs,
 
                 `when-outdated`: modifierWhenOutdated,
                 `compare`:       modifierWhenOutdated,
@@ -103,6 +106,20 @@ var (
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
 
+func GetDialectNames() (a []string) {
+        for s, _ := range interpreters {
+                a = append(a, s)
+        }
+        return
+}
+
+func GetModifierNames() (a []string) {
+        for s, _ := range modifiers {
+                a = append(a, s)
+        }
+        return
+}
+
 func getGroupElem(output types.Value, n int, v types.Value) types.Value {
         if g, ok := output.(*values.GroupValue); ok {
                 if elem := g.Get(n); elem != nil {
@@ -112,18 +129,32 @@ func getGroupElem(output types.Value, n int, v types.Value) types.Value {
         return v
 }
 
+func promptShellResult(output types.Value, n int) {
+        if g, ok := output.(*values.GroupValue); ok {
+                if elem := g.Get(0); elem != nil && elem.String() == "shell" {
+                        if elem = g.Get(n); elem != nil {
+                                if s := elem.String(); strings.HasSuffix(s, "\n") {
+                                        fmt.Printf("%s", s)
+                                } else if s != "" {
+                                        fmt.Printf("%s\n", s)
+                                }
+                        }
+                }
+        }
+}
+
 func modifierShellStatus(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        result = getGroupElem(value, 0, values.None)
+        promptShellResult(value, 1)
         return
 }
 
 func modifierShellStdout(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        result = getGroupElem(value, 1, values.None)
+        promptShellResult(value, 2)
         return
 }
 
 func modifierShellStderr(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        result = getGroupElem(value, 2, values.None)
+        promptShellResult(value, 3)
         return
 }
 
@@ -133,6 +164,11 @@ func modifierSelect(prog *Program, value types.Value, args... types.Value) (resu
         } else {
                 result = values.None
         }
+        return
+}
+
+func modifierSetArgs(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        // TODO: preserve args for interpreter
         return
 }
 
@@ -195,7 +231,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
 
                 if x := missing.Len(); x > 0 {
                         err = &breaker{ fmt.Sprintf("missing %v, required by %s", 
-                                missing, target) }
+                                missing, target), false }
                         goto DoneWhen
                 }
                 
@@ -207,6 +243,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
         }
 
         if shellFalses > 0 {
+                err = &breaker{ fmt.Sprintf("failed '%v'", shellFalses), false }
                 goto DoneWhen // target shall be updated
         }
 
@@ -215,9 +252,8 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                 for _, depend := range files.Slice(0) {
                         fi2, e := os.Stat(depend.String())
                         if fi2 == nil || e != nil { // no such file or directory
-                                //err = &breaker{ fmt.Sprintf("no file or directory '%v', required by %s", 
-                                //        depend, target) }
-                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend) }
+                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend),
+                                        false }
                                 goto DoneWhen
                         }
                         
@@ -225,14 +261,13 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                 goto DoneWhen // target is outdated
                         }
                 }
-                err = &breaker{ fmt.Sprintf("%s already up to date", target) }
+                err = &breaker{ fmt.Sprintf("%s already up to date", target), true }
         } else {
                 for _, depend := range files.Slice(0) {
                         fi, e := os.Stat(depend.String())
                         if fi == nil || e != nil { // no such file or directory
-                                //err = &breaker{ fmt.Sprintf("no file or directory '%v', required by %s", 
-                                //        depend, target) }
-                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend) }
+                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend), 
+                                        false }
                                 goto DoneWhen
                         }
                 }
@@ -248,7 +283,8 @@ func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (re
         if fi, _ := os.Stat(target.String()); fi != nil && fi.Mode().IsDir() {
                 result = values.Group(targetDirectoryKind, target)
         } else {
-                err = &breaker{ fmt.Sprintf("directory %s not exists", target) }
+                err = &breaker{ fmt.Sprintf("directory %s not exists", target),
+                        false }
         }
         return
 }
@@ -262,7 +298,8 @@ func modifierCheckFile(prog *Program, value types.Value, args... types.Value) (r
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
                 result = values.Group(targetRegularKind, target)
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not exists", target) }
+                err = &breaker{ fmt.Sprintf("file %s not exists", target), 
+                        false }
         }
         return
 }
@@ -300,7 +337,8 @@ func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (r
                         os.Remove(filename)
                 }
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not generated", target) }
+                err = &breaker{ fmt.Sprintf("file %s not generated", target), 
+                        false }
         }
         return
 }
@@ -363,7 +401,8 @@ func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (
                         os.Remove(filename)
                 }
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not updated", target) }
+                err = &breaker{ fmt.Sprintf("file %s not updated", target), 
+                        false }
         }
         return
 }
