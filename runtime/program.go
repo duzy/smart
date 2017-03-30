@@ -134,9 +134,10 @@ pipelineLoop:
                 case *values.GroupLiteral:
                         if err = prog.modify(&op.GroupValue, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
-                                        fmt.Printf("%s, required by '%s'\n", p.message, entry.Name())
                                         if p.okay {
                                                 err = nil
+                                        } else {
+                                                fmt.Printf("%s, required by '%s'\n", p.message, entry.Name())
                                         }
                                 }
                                 break pipelineLoop

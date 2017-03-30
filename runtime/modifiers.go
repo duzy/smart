@@ -200,7 +200,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                         files.Append(d.Get(1))
                                 case k == targetShellKind:
                                         if n := d.Get(1).Integer(); n != 0 {
-                                                shellFalses += int(n)
+                                                shellFalses += 1
                                         }
                                 }
                         case *types.RuleEntry:
@@ -271,6 +271,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                 goto DoneWhen
                         }
                 }
+                
                 goto DoneWhen // target shall be updated
         }
 
