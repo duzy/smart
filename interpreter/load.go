@@ -75,7 +75,7 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) (err e
         )
         if abs := filepath.IsAbs(path); abs || strings.HasPrefix(path, "./") {
                 var s = path
-                if !abs {
+                if !abs && linfo.dir != "" {
                         s = filepath.Join(linfo.dir, s)
                         if a, e := filepath.Abs(s); e == nil {
                                 s = a
@@ -94,6 +94,8 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) (err e
                                 isDir, modulePath = fi.IsDir(), sx
                                 goto importModule
                         }
+                } else {
+                        isDir, modulePath = fi.IsDir(), s
                 }
         } else {
                 for _, base := range i.paths {
@@ -204,7 +206,8 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 if mn, _ := i.evalExpr(x.X).(*types.ModuleName); mn != nil {
                         if m := mn.Imported(); m == nil {
                                 runtime.Fail("module %s undefined", mn.Name())
-                        } else if _, sym := m.Scope().LookupAt(x.Pos(), x.Sel.Name); sym != nil {
+                        //} else if _, sym := m.Scope().LookupAt(x.Pos(), x.Sel.Name); sym != nil {
+                        } else if sym := m.Scope().Lookup(x.Sel.Name); sym != nil {
                                 v = sym
                         } else {
                                 runtime.Fail("symbol %s undefined in %s", x.Sel.Name, mn.Name())
@@ -307,10 +310,12 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 m = i.CurrentModule()
         )
         for _, depend := range i.evalExprs(d.Depends) {
-                //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.Pos())
-
-                entry := m.Entry(depend.Pos(), depend.String())
-                depends = append(depends, entry)
+                //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.String())
+                if entry, _ := depend.(*types.RuleEntry); entry != nil {
+                        depends = append(depends, entry)
+                } else {
+                        runtime.Fail("entry %s undefined", depend)
+                }
         }
 
         scope := types.NewScope(i.Scope(), d.TokPos, token.NoPos, "rule")
@@ -495,6 +500,7 @@ func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err e
         mods, err := parser.ParseDir(i.fset, path, filter, parseMode)
         if err == nil {
                 for _, mod := range mods {
+                        //fmt.Printf("LoadDir: %v (%v)\n", path, mod)
                         if err = i.module(mod); err != nil {
                                 break
                         }

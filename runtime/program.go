@@ -32,6 +32,7 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
                 auto = types.NewAuto(prog.module, name, values.Make(value))
                 prog.scope.Insert(auto)
         } else {
+                //fmt.Printf("auto: %p %T %v\n", prog, sym, sym.Name())
                 var found = false
                 if auto, found = sym.(*types.Def); found {
                         auto.Set(values.Make(value))
@@ -79,7 +80,7 @@ func (prog *Program) prepare(/*entry*/ *types.RuleEntry) (err error) {
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
         for _, depend := range prog.depends {
-                //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, depend.Pos())
+                //fmt.Printf("Program.prepare: %T %v (%p)\n", depend, depend, depend)
                 if res, err = depend.Call(); err == nil {
                         //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
                         if res == nil {
@@ -99,6 +100,8 @@ func (prog *Program) prepare(/*entry*/ *types.RuleEntry) (err error) {
 
 func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
+
+        //fmt.Printf("Program.Execute: %p %v\n", prog, prog.depends)
         
         // Calculate depends and files.
         if err = prog.prepare(entry); err != nil {

@@ -326,7 +326,6 @@ func Make(in interface{}) (out types.Value) {
         case int:         out = Int(int64(v))
         case int32:       out = Int(int64(v))
         case int64:       out = Int(v)
-        //case float:     out = Float(float64(v))
         case float32:     out = Float(float64(v))
         case float64:     out = Float(v)
         case string:      out = String(v)
