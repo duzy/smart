@@ -57,6 +57,7 @@ type dialectDefault struct {
 func (t *dialectDefault) dialect() string { return "default" }
 func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []types.Value) (types.Value, error) {
         var list = values.List()
+evaluationLoop:
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {
                 case *values.ListLiteral:
@@ -66,12 +67,22 @@ func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []t
                         var v = stmt.Get(0)
                         switch ident := v.(type) {
                         case *types.Builtin:
-                                if v, _ = ident.Call(stmt.Slice(1)...); v != nil {
+                                if v, e := ident.Call(stmt.Slice(1)...); e == nil && v != nil {
                                         list.Append(v)
+                                } else if p, _ := e.(*returner); p != nil {
+                                        if p.value != nil {
+                                                list.Append(p.value)
+                                        }
+                                        break evaluationLoop
                                 }
                         case *types.RuleEntry:
-                                if v, _ = ident.Call(stmt.Slice(1)...); v != nil {
+                                if v, e := ident.Call(stmt.Slice(1)...); e == nil && v != nil {
                                         list.Append(v)
+                                } else if p, _ := e.(*returner); p != nil {
+                                        if p.value != nil {
+                                                list.Append(p.value)
+                                        }
+                                        break evaluationLoop
                                 }
                                 /*
                         case *values.IdentValue:

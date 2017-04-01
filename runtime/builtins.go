@@ -30,8 +30,22 @@ func GetBuiltinNames() (a []string) {
         return
 }
 
+type returner struct {
+        value types.Value
+}
+
+func (p *returner) Error() string {
+        return "evaluation return"
+}
+
 func builtinReturn(ctx *Context, args... types.Value) (result types.Value, err error) {
-        return
+        var value types.Value
+        if x := len(args); x == 0 {
+                value = args[x]
+        } else {
+                value = values.List(args...)
+        }
+        return nil, &returner{ value }
 }
 
 func builtinLit(ctx *Context, args... types.Value) (result types.Value, err error) {
