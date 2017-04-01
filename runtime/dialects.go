@@ -7,11 +7,11 @@
 package runtime
 
 import (
-        "github.com/duzy/smart/token"
+        //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        "errors"
-        "fmt"
+        //"errors"
+        //"fmt"
 )
 
 type interpretMode int
@@ -64,7 +64,17 @@ func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []t
                                 continue
                         }
                         var v = stmt.Get(0)
-                        if ident, _ := v.(*values.IdentValue); ident != nil {
+                        switch ident := v.(type) {
+                        case *types.Builtin:
+                                if v, _ = ident.Call(stmt.Slice(1)...); v != nil {
+                                        list.Append(v)
+                                }
+                        case *types.RuleEntry:
+                                if v, _ = ident.Call(stmt.Slice(1)...); v != nil {
+                                        list.Append(v)
+                                }
+                                /*
+                        case *values.IdentValue:
                                 var _, sym = prog.context.lookupAt(token.NoPos, ident.Names, false)
                                 if sym == nil {
                                         s := fmt.Sprintf("undefined statement %s", ident)
@@ -75,11 +85,13 @@ func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []t
                                                 list.Append(v)
                                         }
                                         //fmt.Printf("statement: %v %v\n", ident.Names, v)
+                                } */
+                        default:
+                                if stmt.Len() == 1 {
+                                        list.Append(v)
+                                } else {
+                                        list.Append(recipe)
                                 }
-                        } else if stmt.Len() == 1 {
-                                list.Append(v)
-                        } else {
-                                list.Append(recipe)
                         }
                 default:
                         panic("unreachable")

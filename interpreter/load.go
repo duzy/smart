@@ -20,15 +20,6 @@ import (
         "os"
 )
 
-func init() {
-        for _, s := range runtime.GetDialectNames() {
-                parser.AddDialect(s, nil)
-        }
-        for _, s := range runtime.GetModifierNames() {
-                parser.AddModifier(s, nil)
-        }
-}
-
 var parseMode = parser.DeclarationErrors //|parser.Trace
 
 func restoreLoadingInfo(i *Interpreter) {
@@ -228,19 +219,13 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 }
         case *ast.RecipeExpr:
                 if x.Dialect == "" {
-                        var (
-                                elems []types.Value
-                                n = 1
-                        )
+                        var elems []types.Value
                         switch t := x.Elems[0].(type) {
-                        case *ast.Bareword:
-                                elems = append(elems, values.Ident(t.Value))
-                        case *ast.Barecomp:
-                                //elems = append(elems, values.Ident(i.splitName(t)...))
-                        default: 
-                                n = 0
+                        default: runtime.Fail("unsupported recipe %T", t)
+                        case *ast.SelectorExpr, *ast.Ident:
                         }
-                        elems = append(elems, i.evalExprs(x.Elems[n:])...)
+                        elems = append(elems, i.evalExprs(x.Elems)...)
+                        //fmt.Printf("recipe: %T %T\n", x.Elems[0], elems[0])
                         v = values.ListLit(x.Pos(), elems...)
                 } else {
                         elems := i.evalExprs(x.Elems)
@@ -424,7 +409,7 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         )
         defer restoreLoadingInfo(saveLoadingInfo(i, dir, file))
         
-        doc, err := parser.ParseFile(i.fset, s, nil, parseMode|parser.Flat)
+        doc, err := i.pc.ParseFile(i.fset, s, nil, parseMode|parser.Flat)
         if err != nil {
                 return err
         }
@@ -486,7 +471,7 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
         dir, file := filepath.Split(filename)
         defer restoreLoadingInfo(saveLoadingInfo(i, dir, file))
 
-        doc, err := parser.ParseFile(i.fset, filename, source, parseMode)
+        doc, err := i.pc.ParseFile(i.fset, filename, source, parseMode)
         if err != nil {
                 return err
         }
@@ -501,7 +486,7 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
 func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
         defer restoreLoadingInfo(saveLoadingInfo(i, path, ""))
 
-        mods, err := parser.ParseDir(i.fset, path, filter, parseMode)
+        mods, err := i.pc.ParseDir(i.fset, path, filter, parseMode)
         if err == nil {
                 for _, mod := range mods {
                         //fmt.Printf("LoadDir: %v (%v)\n", path, mod)

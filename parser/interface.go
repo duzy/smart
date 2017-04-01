@@ -13,9 +13,40 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+        //"fmt"
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/ast"
 )
+
+type Context struct {
+	builtins *ast.Scope // builtin scope
+        dialects map[string]interface{}
+        modifiers map[string]interface{}
+}
+
+func NewContext() *Context {
+        return &Context{
+                builtins: ast.NewScope(nil),
+                dialects: make(map[string]interface{}),
+                modifiers: make(map[string]interface{}),
+        }
+}
+
+func (c *Context) Builtin(s string, i interface{}) {
+        //fmt.Printf("builtin: %v\n", s)
+        sym := ast.NewSym(ast.Bui, s)
+        if alt := c.builtins.Insert(sym); alt != nil {
+                // FIXME: unreachable
+        }
+}
+
+func (c *Context) Dialect(s string, i interface{}) {
+        c.dialects[s] = i
+}
+
+func (c *Context) Modifier(s string, i interface{}) {
+        c.modifiers[s] = i
+}
 
 // If src != nil, readSource converts src to a []byte if possible;
 // otherwise it returns an error. If src == nil, readSource returns
@@ -81,7 +112,7 @@ const (
 // representing the fragments of erroneous source code). Multiple errors
 // are returned via a scanner.ErrorList which is sorted by file position.
 //
-func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode) (f *ast.File, err error) {
+func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode) (f *ast.File, err error) {
 	// get source
 	text, err := readSource(filename, src)
 	if err != nil {
@@ -113,7 +144,7 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 	}()
 
 	// parse source
-	p.init(fset, filename, text, mode)
+	p.init(c, fset, filename, text, mode)
 	f = p.parseFile()
 
 	return
@@ -131,7 +162,7 @@ func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode)
 // returned. If a parse error occurred, a non-nil but incomplete map and the
 // first error encountered are returned.
 //
-func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Module, first error) {
+func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Module, first error) {
 	fd, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -148,7 +179,7 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
                 sm := strings.HasSuffix(d.Name(), ".smart") || strings.HasSuffix(d.Name(), ".sm")
 		if sm && (filter == nil || filter(d)) {
 			filename := filepath.Join(path, d.Name())
-			if src, err := ParseFile(fset, filename, nil, mode); err == nil {
+			if src, err := c.ParseFile(fset, filename, nil, mode); err == nil {
 				name := src.Name.Name
 				mod, found := mods[name]
 				if !found {

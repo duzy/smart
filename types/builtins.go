@@ -26,6 +26,10 @@ var builtins = map[string]BuiltinFunc {
         `println`: builtinPrintln,
 }
 
+func GetBuiltins() map[string]BuiltinFunc {
+        return builtins
+}
+
 func EscapedString(v Value) (s string) {
         if v.Type() == String {
                 s = strings.Replace(v.String(), "\\'", "'", -1)

@@ -15,28 +15,9 @@ import (
         "fmt"
 )
 
-/*
-type SementicProcessor interface {
-        GetDialects() map[string]interface{}
-        GetModifiers() map[string]interface{}
-        ProcessDefine(clause *ast.DefineClause)
-        ProcessRule(clause *ast.RuleClause)
-} */
-
-var (
-        dialects = make(map[string]interface{})
-        modifiers = make(map[string]interface{})
-)
-
-func AddDialect(s string, i interface{}) {
-        dialects[s] = i
-}
-
-func AddModifier(s string, i interface{}) {
-        modifiers[s] = i
-}
-
 type parser struct {
+        *Context
+        
         file    *token.File
         errors  scanner.Errors
         scanner scanner.Scanner
@@ -77,8 +58,8 @@ type parser struct {
         extensions map[string][]string // extension -> classes
 }
 
-func (p *parser) init(fset *token.FileSet, filename string, src []byte, mode Mode) {
-	p.file = fset.AddFile(filename, -1, len(src))
+func (p *parser) init(ctx *Context, fset *token.FileSet, filename string, src []byte, mode Mode) {
+	p.Context, p.file = ctx, fset.AddFile(filename, -1, len(src))
 	var m scanner.Mode
 	if mode&ParseComments != 0 {
 		m = scanner.ScanComments
@@ -325,6 +306,11 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 			return
 		}
 	}
+        // check builtin names
+        if sym := p.builtins.Lookup(ident.Name); sym != nil {
+                ident.Sym = sym
+                return
+        }
 	// all local scopes are known, so any unresolved identifier
 	// must be found either in the file scope, package scope
 	// (perhaps in another file), or universe scope --- collect
@@ -337,6 +323,23 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 
 func (p *parser) resolve(x ast.Expr) {
 	p.tryResolve(x, true)
+}
+
+func (p *parser) identify(x ast.Expr) ast.Expr {
+        switch t := x.(type) {
+        case *ast.Bareword: 
+                ident := &ast.Ident{ t.ValuePos, t.Value, nil }
+                if p.resolve(ident); ident.Sym == nil {
+                        p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
+                }
+                x = ident
+        case *ast.SelectorExpr:
+        case *ast.Barecomp: 
+                p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T %v...)", t, t.Elems[0]))
+        default: 
+                p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T)", t))
+        }
+        return x
 }
 
 // ----------------------------------------------------------------------------
@@ -674,24 +677,10 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         name = p.checkExpr(p.parseExpr(false))
                 }
 
-                //fmt.Printf("call: %T\n", name)
-                switch t := name.(type) {
-                case *ast.Bareword: 
-                        ident := &ast.Ident{ t.ValuePos, t.Value, nil }
-                        if p.resolve(ident); ident.Sym == nil {
-                                p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
-                        }
-                        name = ident
-                case *ast.SelectorExpr:
-                case *ast.Barecomp: 
-                        p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T %v...)", t, t.Elems[0]))
-                default: 
-                        p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T)", t))
-                }
                 return &ast.CallExpr{
                         Dollar: pos,
                         Lparen: lpos,
-                        Name: name,
+                        Name: p.identify(name),
                         Args: rest,
                         Rparen: rpos,
                         TokLp: tokLp,
@@ -886,7 +875,9 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
 }
 
 func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        return &ast.EvalSpec{ p.parseDirectiveSpec() }
+        spec := &ast.EvalSpec{ p.parseDirectiveSpec() }
+        spec.Props[0] = p.identify(spec.Props[0])
+        return spec
 }
 
 func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
@@ -1035,7 +1026,11 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE and parse in list mode
                 for p.tok != token.LINEND && p.tok != token.EOF {
-                        elems = append(elems, p.parseExpr(false))
+                        x := p.parseExpr(false)
+                        if len(elems) == 0 {
+                                x = p.identify(x)
+                        }
+                        elems = append(elems, x)
                         if p.lineComment != nil {
                                 comment = p.lineComment
                                 break
@@ -1070,7 +1065,7 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
                 x := p.checkExpr(p.parseExpr(false))
                 switch t := x.(type) {
                 case *ast.Bareword:
-                        if _, ok := dialects[t.Value]; ok {
+                        if _, ok := p.dialects[t.Value]; ok {
                                 if dialect == "" {
                                         dialect = t.Value
                                 }
@@ -1079,11 +1074,11 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
                         }
                 case *ast.GroupExpr:
                         if bw, _ := t.Elems[0].(*ast.Bareword); bw != nil {
-                                if _, ok := dialects[bw.Value]; ok {
+                                if _, ok := p.dialects[bw.Value]; ok {
                                         if dialect == "" {
                                                 dialect = bw.Value
                                         }
-                                } else if _, ok := modifiers[bw.Value]; ok {
+                                } else if _, ok := p.modifiers[bw.Value]; ok {
                                         // ...
                                 } else {
                                         p.error(t.Pos(), fmt.Sprintf("no dialect or modifier '%s'", bw.Value))

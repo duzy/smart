@@ -112,6 +112,7 @@ const (
 	Pro                // project
 	Mod                // module
 	Def                // definition
+	Bui                // builtin
 	Rul                // rule
 	Con                // constant
 )
@@ -121,6 +122,7 @@ var symKindStrings = [...]string{
 	Pro: "project",
 	Mod: "module",
 	Def: "define",
+        Bui: "builtin",
 	Rul: "rule",
 	Con: "const",
 }

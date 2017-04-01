@@ -17,10 +17,22 @@ type builtin func(ctx *Context, args... types.Value) (types.Value, error)
 
 var (
         builtins = map[string]builtin {
+                `return`:       builtinReturn,
                 `lit`:          builtinLit,
                 //`run`:          builtinRun,
         }
 )
+
+func GetBuiltinNames() (a []string) {
+        for s, _ := range builtins {
+                a = append(a, s)
+        }
+        return
+}
+
+func builtinReturn(ctx *Context, args... types.Value) (result types.Value, err error) {
+        return
+}
 
 func builtinLit(ctx *Context, args... types.Value) (result types.Value, err error) {
         var s string

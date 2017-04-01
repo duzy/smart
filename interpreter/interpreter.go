@@ -7,7 +7,8 @@ package interpreter
 
 import (
         "github.com/duzy/smart/token"
-        //"github.com/duzy/smart/values"
+        "github.com/duzy/smart/types"
+        "github.com/duzy/smart/parser"
         "github.com/duzy/smart/runtime"
         "path/filepath"
         "errors"
@@ -19,9 +20,11 @@ var globalPaths []string
 
 type Interpreter struct {
         *runtime.Context
+        pc       *parser.Context
         fset     *token.FileSet
         loads    []*loadInfo
         paths    []string
+
 }
 
 type loadInfo struct {
@@ -30,10 +33,24 @@ type loadInfo struct {
 
 // Create and initialize a new interpreter.
 func New() *Interpreter {
+        pc := parser.NewContext()
+        for s, _ := range types.GetBuiltins() {
+                pc.Builtin(s, nil)
+        }
+        for _, s := range runtime.GetBuiltinNames() {
+                pc.Builtin(s, nil)
+        }
+        for _, s := range runtime.GetDialectNames() {
+                pc.Dialect(s, nil)
+        }
+        for _, s := range runtime.GetModifierNames() {
+                pc.Modifier(s, nil)
+        }
         return &Interpreter{
                 Context: runtime.NewContext("interpreter"),
                 fset:    token.NewFileSet(), 
                 paths:   globalPaths,
+                pc:      pc,
         }
 }
 
@@ -66,6 +83,17 @@ func AddSearchPaths(paths... string) (err error) {
 }
 
 func CommandLine() {
+        defer func() {
+		if e := recover(); e != nil {
+			// resume same panic if it's not a Failure
+			if failure, ok := e.(*runtime.Failure); !ok {
+				panic(e)
+			} else {
+                                fmt.Printf("%s\n", failure)
+                        }
+		}
+        }()
+        
         i := New()
         if err := i.Load("build.smart", nil); err != nil {
                 fmt.Printf("%v\n", err)
