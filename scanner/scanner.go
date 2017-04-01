@@ -811,6 +811,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         
                 case '$':
                         switch tok, ch = token.CALL, rune(s.src[s.readOffset-1]); {
+                        case ch == '.': tok = token.CALL_D
                         case ch == '@': tok = token.CALL_A
                         case ch == '<': tok = token.CALL_L
                         case ch == '^': tok = token.CALL_U

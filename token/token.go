@@ -53,6 +53,7 @@ const (
 	EXC // !
 	QUE // ?
         CALL      // $
+        CALL_D    // $.
         CALL_A    // $@
         CALL_L    // $<
         CALL_U    // $^
@@ -136,6 +137,7 @@ var tokens = [...]string{
         EXC: "!",
         QUE: "?",
 	CALL:      "$",
+        CALL_D:    "$.",
         CALL_A:    "$@",
         CALL_L:    "$<",
         CALL_U:    "$^",

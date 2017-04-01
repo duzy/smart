@@ -56,7 +56,7 @@ func (ctx *Context) CurrentModule() *types.Module {
 }
 
 func (ctx *Context) DeclareModule(pos token.Pos, kw token.Token, path, name string) *types.Module {
-        m := ctx.globe.NewModule(kw, path, name)
+        m := ctx.globe.NewModule(kw, path, name)      
         n := types.NewModuleName(pos, ctx.CurrentModule(), m.Name(), m)
         ctx.Scope().Insert(n) //; assert(n.Scope() == ctx.Scope())
         return m

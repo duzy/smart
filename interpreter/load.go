@@ -263,6 +263,18 @@ func (i *Interpreter) evalExprs(exprs []ast.Expr) (values []types.Value) {
         return
 }
 
+func (i *Interpreter) declare(pos token.Pos, kw token.Token, path, name string) *types.Module {
+        m := i.DeclareModule(pos, kw, path, name)
+        ms := m.Scope()
+        if path == "" && true {
+                path = "."
+        }
+        if ms.Insert(types.NewDef(pos, m, ".", values.String(path))) != nil {
+                panic(fmt.Sprintf("'$.' already defined"))
+        }
+        return m
+}
+
 func (i *Interpreter) use(spec *ast.UseSpec) error {
         fmt.Printf("use: %v\n", spec) // TODO: use
         return nil
@@ -384,14 +396,6 @@ func (i *Interpreter) clause(clause ast.Clause) error {
 func (i *Interpreter) lexing(lexScope *ast.Scope) (err error) {
         //fmt.Printf("%p: outer = %p\n", lexScope, lexScope.Outer)
         for name, sym := range lexScope.Symbols {
-                /* switch clause := sym.Decl.(type) {
-                case *ast.DefineClause:
-                        fmt.Printf("%p: %s, %T\n", lexScope, name, clause.Name)
-                case *ast.RuleClause:
-                        fmt.Printf("%p: %s, %T\n", lexScope, name, clause)
-                default:
-                        fmt.Printf("%p: todo: %s, %T\n", lexScope, name, sym)
-                } */
                 _, s := i.Scope().LookupAt(sym.Pos(), name)
                 //fmt.Printf("lexing: %T %v (%v)\n", s, s, sym.Data)
                 if sym.Data == nil {
@@ -463,8 +467,8 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
         return i.lexing(doc.Scope)
 }
 
-func (i *Interpreter) module(mod *ast.Module) (err error) {
-        m := i.DeclareModule(mod.Keypos, mod.Keyword, mod.Name, mod.Name)
+func (i *Interpreter) module(dir string, mod *ast.Module) (err error) {
+        m := i.declare(mod.Keypos, mod.Keyword, mod.Name, mod.Name)
         defer i.ExitModule(i.EnterModule(m))
 
         //fmt.Printf("module: %s\n", mod.Name)
@@ -489,7 +493,7 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
 
         //fmt.Printf("load: %v %v\n", filename, doc.Name.Name)
         
-        m := i.DeclareModule(doc.Keypos, doc.Keyword, filename, doc.Name.Name)
+        m := i.declare(doc.Keypos, doc.Keyword, dir, doc.Name.Name)
         defer i.ExitModule(i.EnterModule(m))
         return i.file(doc)
 }
@@ -501,7 +505,7 @@ func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err e
         if err == nil {
                 for _, mod := range mods {
                         //fmt.Printf("LoadDir: %v (%v)\n", path, mod)
-                        if err = i.module(mod); err != nil {
+                        if err = i.module(path, mod); err != nil {
                                 break
                         }
                 }

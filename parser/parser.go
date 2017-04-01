@@ -15,6 +15,14 @@ import (
         "fmt"
 )
 
+/*
+type SementicProcessor interface {
+        GetDialects() map[string]interface{}
+        GetModifiers() map[string]interface{}
+        ProcessDefine(clause *ast.DefineClause)
+        ProcessRule(clause *ast.RuleClause)
+} */
+
 var (
         dialects = make(map[string]interface{})
         modifiers = make(map[string]interface{})
@@ -623,7 +631,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
          case token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S, token.CALL_M,
               token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
               token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
-              token.CALL_9:
+              token.CALL_9, token.CALL_D:
                 pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
                 p.next()
 
@@ -1312,6 +1320,13 @@ func (p *parser) parseFile() *ast.File {
 	p.openScope()
 	p.pkgScope = p.topScope
         p.extensions = make(map[string][]string, 2 /* initial capacity */)
+        for _, s := range []string{ "." } {
+                sym := ast.NewSym(ast.Def, s)
+                if alt := p.topScope.Insert(sym); alt != nil {
+                        p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
+                }
+        }
+        
 	var clauses []ast.Clause
 	if p.mode&ModuleClauseOnly == 0 {
                 if p.mode&Flat == 0 {
