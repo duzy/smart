@@ -176,9 +176,16 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case *ast.BadExpr:
                 unreachable();
         case *ast.Ident:
-                //fmt.Printf("ident: %v %T\n", x, x)
+                //fmt.Printf("ident: %T %v\n", x, x)
                 if _, v = i.Scope().LookupAt(x.Pos(), x.Name); v == nil {
-                        runtime.Fail("symbol %s undefined", x.Name)
+                        if x.Sym.Kind == ast.Rul {
+                                //fmt.Printf("rule: %T %v\n", x, x)
+                                m := i.CurrentModule()
+                                v = m.Insert(x.Pos(), x.Name, nil)
+                                //fmt.Printf("rule: %T %v\n", v, v)
+                        } else {
+                                runtime.Fail("symbol %s undefined", x.Name)
+                        }
                 }
                 //fmt.Printf("symbol: %v %T\n", x.Name, v)
         case *ast.BasicLit:
@@ -306,12 +313,14 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 recipes []types.Value
                 m = i.CurrentModule()
         )
-        for _, depend := range i.evalExprs(d.Depends) {
+        for i, depend := range i.evalExprs(d.Depends) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.String())
                 if entry, _ := depend.(*types.RuleEntry); entry != nil {
                         depends = append(depends, entry)
+                } else if depend != nil {
+                        runtime.Fail("%s is not RuleEntry (%T)", depend, depend)
                 } else {
-                        runtime.Fail("entry %s undefined", depend)
+                        runtime.Fail("entry undefined (%v)", d.Depends[i])
                 }
         }
 

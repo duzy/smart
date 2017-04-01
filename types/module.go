@@ -47,17 +47,6 @@ func (m *Module) Scope() *Scope { return m.scope }
 func (m *Module) Imports() []*Module { return m.imports }
 func (m *Module) Uses() []*Use { return m.uses }
 
-/*
-func (m *Module) Entry(pos token.Pos, name string) (entry *RuleEntry) {
-        if sym := m.scope.Lookup(name); sym == nil {
-                entry = &RuleEntry{symbol{m.scope, m, name, RuleEntryType, 0, pos, token.NoPos}, nil}
-                m.scope.Insert(entry)
-        } else if entry, _ = sym.(*RuleEntry); entry == nil {
-                panic(fmt.Sprintf("name '%v' already taken\n", sym.Name()))
-        }
-        return
-} */
-
 func (m *Module) Lookup(s string) (entry *RuleEntry) {
         if sym := m.scope.Lookup(s); sym != nil {
                 entry, _ = sym.(*RuleEntry)
@@ -65,18 +54,16 @@ func (m *Module) Lookup(s string) (entry *RuleEntry) {
         return
 }
 
-func (m *Module) Insert(pos token.Pos, name string, prog Program) {
+func (m *Module) Insert(pos token.Pos, name string, prog Program) (entry *RuleEntry) {
         if isPattern(name) {
                 m.patterns = append(m.patterns, nil)
         } else {
-                var entry *RuleEntry
                 if sym := m.scope.Lookup(name); sym == nil {
                         entry = &RuleEntry{symbol{m.scope, m, name, RuleEntryType, 0, pos, token.NoPos}, nil}
                         m.scope.Insert(entry)
                 } else if entry, _ = sym.(*RuleEntry); entry == nil {
                         panic(fmt.Sprintf("name '%v' already taken\n", sym.Name()))
                 }
-                
                 entry.program = prog
                 entry.pos = pos // overwrite position
                 m.dedicated = append(m.dedicated, entry)

@@ -334,6 +334,7 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                 }
                 x = ident
         case *ast.SelectorExpr:
+                // TODO: handle with extensions
         case *ast.Barecomp: 
                 p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T %v...)", t, t.Elems[0]))
         default: 
@@ -1200,6 +1201,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         
         if p.tok != token.LINEND {
                 depends = p.parseRhsList()
+                for i, depend := range depends {
+                        depends[i] = p.identify(depend)
+                }
         }
 
         if p.tok != token.EOF {
