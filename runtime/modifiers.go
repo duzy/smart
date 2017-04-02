@@ -177,8 +177,10 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                 scope         = prog.context.Scope()
                 targetDef, _  = scope.Lookup("@").(*types.Def)
                 dependDef, _  = scope.Lookup("...").(*types.Def)
-                depends, _    = dependDef.Value().(*values.ListValue)
-                target        = targetDef.Value().String()
+                dependsVal, _ = dependDef.Call()
+                depends, _    = dependsVal.(*values.ListValue)
+                targetVal, _  = targetDef.Call()
+                target        = targetVal.String()
                 missing       = values.List()
                 files         = values.List()
                 nonfiles      = values.List()
@@ -293,7 +295,7 @@ func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (re
 func modifierCheckFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                target = targetDef.Value()
+                target, _ = targetDef.Call()
                 filename = target.String()
         )
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
@@ -308,7 +310,7 @@ func modifierCheckFile(prog *Program, value types.Value, args... types.Value) (r
 func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                target = targetDef.Value()
+                target, _ = targetDef.Call()
                 filename = target.String()
         )
         if f, err := os.Create(filename); err == nil {
@@ -347,7 +349,7 @@ func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (r
 func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                target = targetDef.Value()
+                target, _ = targetDef.Call()
                 filename = target.String()
                 content string
         )

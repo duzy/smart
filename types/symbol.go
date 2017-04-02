@@ -19,7 +19,6 @@ type Symbol interface {
         Module() *Module
         Name() string
         Type() Type // the type of the symbol, differs from the value type
-        Value() Value
 
         Call(args... Value) (Value, error)
 
@@ -66,8 +65,7 @@ func (sym *symbol) Lit() string           { return "" }
 func (sym *symbol) String() string        { return "" }
 func (sym *symbol) Integer() int64        { return 0 }
 func (sym *symbol) Float() float64        { return 0 }
-func (sym *symbol) Value() Value          { return nil }
-func (sym *symbol) Call(a... Value) (Value, error) { return sym.Value(), nil }
+func (sym *symbol) Call(a... Value) (Value, error) { return nil, nil }
 func (sym *symbol) order() uint32         { return sym.ord }
 func (sym *symbol) scopePos() token.Pos   { return sym.scopos }
 
@@ -103,7 +101,6 @@ type Def struct {
 
 func (d *Def) String() string  { return d.name+" = "+d.value.String() }
 func (d *Def) Set(v Value)     { d.value = v }
-func (d *Def) Value() Value    { return d.value }
 func (d *Def) Call(a... Value) (Value, error) {
         return d.value, nil 
 }

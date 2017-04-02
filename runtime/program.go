@@ -56,8 +56,8 @@ func (prog *Program) modify(g *values.GroupValue, out *types.Def) (err error) {
         //       [ foo.baaaar ]
         var name = g.Get(0).String()
         if f, ok := modifiers[name]; ok {
-                var value types.Value
-                if value, err = f(prog, out.Value(), g.Slice(1)...); err == nil && value !=  nil {
+                var value, _ = out.Call()
+                if value, err = f(prog, value, g.Slice(1)...); err == nil && value !=  nil {
                         out.Set(value)
                 }
         } else if i, _ := interpreters[name]; i != nil {
@@ -112,7 +112,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 _   = prog.auto("@", entry)
                 out = prog.auto("-", values.None)
         )
-        defer func() { result = out.Value() }()
+        defer func() { result, _ = out.Call() }()
         
         // TODO: define modifiers in a module, e.g.
         // 
