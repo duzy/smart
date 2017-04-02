@@ -333,10 +333,13 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                         p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
                 }
                 x = ident
-        case *ast.SelectorExpr:
-                // TODO: handle with extensions
         case *ast.Barecomp: 
                 p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T %v...)", t, t.Elems[0]))
+                for i, elem := range t.Elems {
+                        fmt.Printf("%d: %T %v\n", i, elem, elem)
+                }
+        case *ast.SelectorExpr:
+                // TODO: deal with extensions
         default: 
                 p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T)", t))
         }
@@ -658,7 +661,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         pos  = p.pos
                         tok  = p.tok
                         name   ast.Expr
-                        rest   []ast.Expr //*ast.ListExpr
+                        rest   []ast.Expr
                         tokLp  token.Token
                 )
                 switch p.next(); p.tok {
@@ -675,7 +678,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         }
                         rpos = p.expect(token.RPAREN)
                 default:
-                        name = p.checkExpr(p.parseExpr(false))
+                        // Parse name without compising expressions
+                        name = p.checkExpr(p.parseExpr0(false))
                 }
 
                 return &ast.CallExpr{
@@ -734,11 +738,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
         }
 }
 
-func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
-	if p.trace {
-		defer un(trace(p, "Expression"))
-	}
-        x = p.parseExpr0(lhs)
+func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         //fmt.Printf("expr:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
         if x.End() == p.pos && p.lineComment == nil &&
                 p.tok != token.ASSIGN &&
@@ -773,6 +773,14 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                 p.next()
                 x = p.parseSelector(lhs, p.checkExpr(x))
         }
+        return x
+}
+
+func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
+	if p.trace {
+		defer un(trace(p, "Expression"))
+	}
+        x = p.parseComposing(p.parseExpr0(lhs), lhs)
         return
 }
 

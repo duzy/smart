@@ -150,6 +150,10 @@ func (s *Scanner) LeaveCompoundLineContext() {
         s.context &= ^isCompoundLine
 }
 
+func (s *Scanner) IsCompoundLineContext() bool {
+        return s.context&isCompoundLine != 0
+}
+
 func (s *Scanner) error(offs int, msg string) {
 	if s.err != nil {
 		s.err(s.file.Position(s.file.Pos(offs)), msg)
