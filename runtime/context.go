@@ -11,6 +11,7 @@ import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "fmt"
+        "os"
 )
 
 type Context struct {
@@ -18,6 +19,7 @@ type Context struct {
         scope    *types.Scope
         modules  []*types.Module
         exts     map[string][]string
+        workdir  string
 }
 
 func (ctx *Context) SetExts(m map[string][]string) {
@@ -32,6 +34,10 @@ func (ctx *Context) CheckExt(s string) (a []string, v bool) {
                 a, v = ctx.exts[s]
         }
         return
+}
+
+func (ctx *Context) Getwd() string {
+        return ctx.workdir
 }
 
 func (ctx *Context) Globe() *types.Globe {
@@ -189,10 +195,12 @@ func (ctx *Context) Run(targets... string) (err error) {
 
 func NewContext(name string) *Context {
         var (
+                workdir, _ = os.Getwd()
                 globe = types.NewGlobe(name)
                 context = &Context{
                         globe:    globe,
                         scope:    globe.Scope(),
+                        workdir:  workdir,
                 }
         )
         if false {

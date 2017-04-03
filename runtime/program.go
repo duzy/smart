@@ -10,9 +10,11 @@ import (
         //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
+        "path/filepath"
         //"strings"
         "errors"
         "fmt"
+        "os"
 )
 
 // Program (TODO: moving program into `types` package)
@@ -102,6 +104,28 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
 
         //fmt.Printf("Program.Execute: %p %v\n", prog, prog.depends)
+
+        var (
+                top = prog.context.Getwd()
+                path = prog.module.Path()
+                wd, _ = os.Getwd()
+                workdir string
+        )
+        if filepath.IsAbs(path) {
+                workdir = path
+        } else {
+                workdir = filepath.Join(top, path)
+        }
+        if workdir != wd {
+                //fmt.Printf("Program.Execute: %v %v -> %v\n", entry, workdir, path)
+                if err = os.Chdir(path); err == nil {
+                        defer func() {
+                                os.Chdir(wd)
+                        }()
+                } else {
+                        Fail("%v", err)
+                }
+        }
         
         // Calculate depends and files.
         if err = prog.prepare(entry); err != nil {

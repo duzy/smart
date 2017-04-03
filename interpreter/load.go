@@ -178,7 +178,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case *ast.Ident:
                 //fmt.Printf("ident: %T %v\n", x, x)
                 if _, v = i.Scope().LookupAt(x.Pos(), x.Name); v == nil {
-                        if x.Sym.Kind == ast.Rul {
+                        if x.Sym != nil && x.Sym.Kind == ast.Rul {
                                 //fmt.Printf("rule: %T %v\n", x, x)
                                 m := i.CurrentModule()
                                 v = m.Insert(x.Pos(), x.Name, nil)
@@ -210,6 +210,8 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         } else {
                                 runtime.Fail("symbol %s undefined in %s", x.Sel.Name, mn.Name())
                         }
+                } else if id, _ := x.X.(*ast.Ident); id != nil {
+                        runtime.Fail("module '%s' undefiend", id.Name)
                 } else {
                         unreachable()
                 }
@@ -260,6 +262,16 @@ func (i *Interpreter) declare(pos token.Pos, kw token.Token, path, name string) 
         ms := m.Scope()
         if path == "" && true {
                 path = "."
+        }
+
+        var workdir string
+        if filepath.IsAbs(path) {
+                workdir = path
+        } else {
+                workdir = filepath.Join(i.Getwd(), path)
+        }
+        if ms.Insert(types.NewDef(pos, m, "/", values.String(workdir))) != nil {
+                panic(fmt.Sprintf("'$/' already defined"))
         }
         if ms.Insert(types.NewDef(pos, m, ".", values.String(path))) != nil {
                 panic(fmt.Sprintf("'$.' already defined"))
@@ -462,10 +474,10 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
 }
 
 func (i *Interpreter) module(dir string, mod *ast.Module) (err error) {
-        m := i.declare(mod.Keypos, mod.Keyword, mod.Name, mod.Name)
+        m := i.declare(mod.Keypos, mod.Keyword, dir, mod.Name)
         defer i.ExitModule(i.EnterModule(m))
 
-        //fmt.Printf("module: %s\n", mod.Name)
+        //fmt.Printf("module: %s %s\n", dir, mod.Name)
         
         for _, f := range mod.Files {
                 if err = i.file(f); err != nil {

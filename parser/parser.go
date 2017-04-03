@@ -334,10 +334,13 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                 }
                 x = ident
         case *ast.Barecomp: 
-                p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T %v...)", t, t.Elems[0]))
-                for i, elem := range t.Elems {
-                        fmt.Printf("%d: %T %v\n", i, elem, elem)
+                //p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T %v...)", t, t.Elems[0]))
+                name := p.computeCompositeEntryName(t)
+                ident := &ast.Ident{ t.Pos(), name, nil }
+                if p.resolve(ident); ident.Sym == nil {
+                        p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
                 }
+                x = ident
         case *ast.SelectorExpr:
                 // TODO: deal with extensions
         default: 
@@ -638,7 +641,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
          case token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S, token.CALL_M,
               token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
               token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
-              token.CALL_9, token.CALL_D:
+              token.CALL_9, token.CALL_D, token.CALL_R:
                 pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
                 p.next()
 
@@ -1327,7 +1330,7 @@ func (p *parser) parseFile() *ast.File {
 	p.openScope()
 	p.pkgScope = p.topScope
         p.extensions = make(map[string][]string, 2 /* initial capacity */)
-        for _, s := range []string{ "." } {
+        for _, s := range []string{ "/", "." } {
                 sym := ast.NewSym(ast.Def, s)
                 if alt := p.topScope.Insert(sym); alt != nil {
                         p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
