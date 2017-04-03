@@ -181,7 +181,8 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         if x.Sym != nil && x.Sym.Kind == ast.Rul {
                                 //fmt.Printf("rule: %T %v\n", x, x)
                                 m := i.CurrentModule()
-                                v = m.Insert(x.Pos(), x.Name, nil)
+                                k := i.RuleEntryClass(x.Name)
+                                v = m.Insert(k, x.Name, nil)
                                 //fmt.Printf("rule: %T %v\n", v, v)
                         } else {
                                 runtime.Fail("symbol %s undefined", x.Name)
@@ -270,10 +271,10 @@ func (i *Interpreter) declare(pos token.Pos, kw token.Token, path, name string) 
         } else {
                 workdir = filepath.Join(i.Getwd(), path)
         }
-        if ms.Insert(types.NewDef(pos, m, "/", values.String(workdir))) != nil {
+        if ms.Insert(types.NewDef(m, "/", values.String(workdir))) != nil {
                 panic(fmt.Sprintf("'$/' already defined"))
         }
-        if ms.Insert(types.NewDef(pos, m, ".", values.String(path))) != nil {
+        if ms.Insert(types.NewDef(m, ".", values.String(path))) != nil {
                 panic(fmt.Sprintf("'$.' already defined"))
         }
         return m
@@ -306,7 +307,7 @@ func (i *Interpreter) define(d *ast.DefineClause) (err error) {
                         v = i.evalExpr(d.Value)
                 )
 
-                if sym := scope.Insert(types.NewDef(d.TokPos, m, name, v)); sym != nil {
+                if sym := scope.Insert(types.NewDef(m, name, v)); sym != nil {
                         if def, ok := sym.(*types.Def); ok {
                                 def.Set(v)
                         } else {
@@ -343,7 +344,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 // mapping lexical symbols
                 for name, sym := range p.Scope.Symbols {
                         //fmt.Printf("sym: %v %T\n", name, sym)
-                        auto := types.NewAuto(m, name, values.None)
+                        auto := types.NewDef(m, name, values.None)
                         if alt := scope.Insert(auto); alt != nil {
                                 runtime.Fail("%s already defined", name)
                         }
@@ -370,7 +371,8 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         }
         
         for _, target := range i.evalExprs(d.Targets) {
-                m.Insert(target.Pos(), target.String(), prog)
+                s := target.String()
+                m.Insert(i.RuleEntryClass(s), s, prog)
         }
         return
 }

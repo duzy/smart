@@ -54,18 +54,21 @@ func (m *Module) Lookup(s string) (entry *RuleEntry) {
         return
 }
 
-func (m *Module) Insert(pos token.Pos, name string, prog Program) (entry *RuleEntry) {
+func (m *Module) Insert(kind RuleEntryClass, name string, prog Program) (entry *RuleEntry) {
         if isPattern(name) {
                 m.patterns = append(m.patterns, nil)
         } else {
                 if sym := m.scope.Lookup(name); sym == nil {
-                        entry = &RuleEntry{symbol{m.scope, m, name, RuleEntryType, 0, pos, token.NoPos}, nil}
+                        //entry = &RuleEntry{symbol{m.scope, m, name, RuleEntryType, 0, pos, token.NoPos}, nil}
+                        entry = NewRuleEntry(kind, name)
+                        entry.parent = m.scope
+                        entry.module = m
                         m.scope.Insert(entry)
                 } else if entry, _ = sym.(*RuleEntry); entry == nil {
                         panic(fmt.Sprintf("name '%v' already taken\n", sym.Name()))
                 }
                 entry.program = prog
-                entry.pos = pos // overwrite position
+                //entry.pos = pos // overwrite position
                 m.dedicated = append(m.dedicated, entry)
         }
         return

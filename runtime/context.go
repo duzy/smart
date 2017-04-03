@@ -10,6 +10,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
+        "path/filepath"
         "fmt"
         "os"
 )
@@ -34,6 +35,16 @@ func (ctx *Context) CheckExt(s string) (a []string, v bool) {
                 a, v = ctx.exts[s]
         }
         return
+}
+
+func (ctx *Context) RuleEntryClass(name string) types.RuleEntryClass {
+        var kind = types.GeneralRuleEntry
+        if ext := filepath.Ext(name); ext != "" {
+                if _, ok := ctx.exts[ext[1:]]; ok {
+                        kind = types.FileRuleEntry
+                }
+        }
+        return kind
 }
 
 func (ctx *Context) Getwd() string {
@@ -63,7 +74,7 @@ func (ctx *Context) CurrentModule() *types.Module {
 
 func (ctx *Context) DeclareModule(pos token.Pos, kw token.Token, path, name string) *types.Module {
         m := ctx.globe.NewModule(kw, path, name)      
-        n := types.NewModuleName(pos, ctx.CurrentModule(), m.Name(), m)
+        n := types.NewModuleName(ctx.CurrentModule(), m.Name(), m)
         ctx.Scope().Insert(n) //; assert(n.Scope() == ctx.Scope())
         return m
 }

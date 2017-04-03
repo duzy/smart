@@ -31,7 +31,7 @@ func (prog *Program) Scope() *types.Scope { return prog.scope }
 
 func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         if sym := prog.scope.Lookup(name); sym == nil {
-                auto = types.NewAuto(prog.module, name, values.Make(value))
+                auto = types.NewDef(prog.module, name, values.Make(value))
                 prog.scope.Insert(auto)
         } else {
                 //fmt.Printf("auto: %p %T %v\n", prog, sym, sym.Name())

@@ -5,13 +5,10 @@
 //
 package types
 
-import "github.com/duzy/smart/token"
+//import "github.com/duzy/smart/token"
 
 // Value represents a value of a type.
 type Value interface {
-        // Presented position in file, or token.NoPos if not literals.
-        Pos() token.Pos
-        
         // Type returns the underlying type of the value.
         Type() Type
 

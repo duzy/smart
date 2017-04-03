@@ -22,8 +22,6 @@ type Symbol interface {
 
         Call(args... Value) (Value, error)
 
-        Pos() token.Pos
-
         Lit() string
         String() string
         Integer() int64
@@ -52,7 +50,6 @@ type symbol struct {
         name string
         typ Type
         ord uint32
-        pos token.Pos
         scopos token.Pos
 }
 
@@ -60,7 +57,6 @@ func (sym *symbol) Parent() *Scope        { return sym.parent }
 func (sym *symbol) Module() *Module       { return sym.module }
 func (sym *symbol) Name() string          { return sym.name }
 func (sym *symbol) Type() Type            { return sym.typ }
-func (sym *symbol) Pos() token.Pos        { return sym.pos }
 func (sym *symbol) Lit() string           { return "" }
 func (sym *symbol) String() string        { return "" }
 func (sym *symbol) Integer() int64        { return 0 }
@@ -84,8 +80,8 @@ type ModuleName struct {
 // containing the import statement.
 func (n *ModuleName) Imported() *Module { return n.imported }
 
-func NewModuleName(pos token.Pos, mod *Module, name string, imported *Module) *ModuleName {
-	return &ModuleName{symbol{nil, mod, name, ModuleNameType, 0, pos, token.NoPos}, imported, false}
+func NewModuleName(mod *Module, name string, imported *Module) *ModuleName {
+	return &ModuleName{symbol{nil, mod, name, ModuleNameType, 0, token.NoPos}, imported, false}
 }
 
 // A Const represents a declared constant.
@@ -105,12 +101,8 @@ func (d *Def) Call(a... Value) (Value, error) {
         return d.value, nil 
 }
 
-func NewDef(pos token.Pos, mod *Module, name string, value Value) *Def {
-	return &Def{symbol{nil, mod, name, DefineType, 0, pos, token.NoPos}, value}
-}
-
-func NewAuto(mod *Module, name string, value Value) *Def {
-        return NewDef(token.NoPos, mod, name, value)
+func NewDef(mod *Module, name string, value Value) *Def {
+	return &Def{symbol{nil, mod, name, DefineType, 0, token.NoPos}, value}
 }
 
 // A Builtin represents a built-in function.
@@ -129,18 +121,27 @@ func NewBuiltin(name string, f BuiltinFunc) *Builtin {
                 name: name, 
                 typ: BuiltinType,
                 ord: 0,
-                pos: token.NoPos,
                 scopos: token.NoPos,
         }, f}
 }
 
+type RuleEntryClass int
+
+const (
+        GeneralRuleEntry RuleEntryClass = 1<<iota
+        FileRuleEntry
+)
+
 // RuleEntry represents a declared rule entry.
 type RuleEntry struct {
         symbol
+        kind RuleEntryClass
         program Program
 }
 
 func (entry *RuleEntry) String() string { return entry.name }
+
+func (entry *RuleEntry) Kind() RuleEntryClass { return entry.kind }
 
 // RuleEntry.Program returns the rule program.
 func (entry *RuleEntry) Program() Program { return entry.program }
@@ -155,4 +156,14 @@ func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
                 result, err = entry.program.Execute(entry, a, false)
         }
         return
+}
+
+func NewRuleEntry(kind RuleEntryClass, name string) (entry *RuleEntry) {
+        return &RuleEntry{
+                symbol{
+                        nil, nil, name, RuleEntryType, 
+                        0, token.NoPos,
+                },
+                kind, nil,
+        }
 }

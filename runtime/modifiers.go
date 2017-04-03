@@ -210,7 +210,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                         if _, ok := prog.context.CheckExt(ext); ok {
                                                 files.Append(d)
                                         } else {
-                                                FailAt(depend.Pos(), "unsupported file %v", d)
+                                                Fail("unsupported file %v", d)
                                         }
                                 } else {
                                         nonfiles.Append(d)
@@ -220,14 +220,14 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                         if _, ok := prog.context.CheckExt(ext); ok {
                                                 files.Append(d)
                                         } else {
-                                                FailAt(depend.Pos(), "unsupported file %v", d)
+                                                Fail("unsupported file %v", d)
                                         }
                                 } else {
                                         nonfiles.Append(d)
                                 }
                         default:
                                 //fmt.Printf("modifierWhenOutdated: todo: %T %v (from %s)\n", depend, depend, target)
-                                FailAt(depend.Pos(), "unsupported depend %v (%T)", depend, depend)
+                                Fail("unsupported depend %v (%T)", depend, depend)
                         }
                 }
 
