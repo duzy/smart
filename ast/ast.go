@@ -146,10 +146,17 @@ type (
                 Rquote token.Pos
         }
 
-        // A BareComp node represents a bare composing expression.
+        // A Barecomp node represents a bare composing expression.
 	Barecomp struct {
                 Elems  []Expr
-        }        
+        }
+
+        // A Barefile node represents a bare file expression (with extension).
+        Barefile struct {
+                Name    Expr      // basename
+                ExtPos  token.Pos // extension position
+                Ext     string    // extension
+        }
         
         // A ListExpr node represents a list of expressions (seperated spaces).
         ListExpr struct {
@@ -238,6 +245,7 @@ func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
 func (d *SelectorExpr) Pos() token.Pos    { return d.X.Pos() }
 func (d *CallExpr) Pos() token.Pos        { return d.Dollar }
 func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
+func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
 func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
 func (d *UnaryExpr) Pos() token.Pos       { return d.OpPos }
@@ -253,6 +261,7 @@ func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + l
 func (d *BasicLit) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
+func (d *Barefile) End() token.Pos        { return token.Pos(int(d.ExtPos) + len(d.Ext)) }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *SelectorExpr) End() token.Pos    { return d.Sel.End() }
 func (d *CallExpr) End() token.Pos        { return d.Rparen + 1 }
@@ -270,6 +279,7 @@ func (*Bareword) exprNode()        {}
 func (*BasicLit) exprNode()        {}
 func (*CompoundLit) exprNode()     {}
 func (*Barecomp) exprNode()        {}
+func (*Barefile) exprNode()        {}
 func (*ListExpr) exprNode()        {}
 func (*SelectorExpr) exprNode()    {}
 func (*CallExpr) exprNode()        {}
@@ -338,6 +348,10 @@ type (
                 DirectiveSpec
         }
 
+        FilesSpec struct {
+                DirectiveSpec
+        }
+        
         // A EvalSpec node represents evaluation statements.
         // 
 	EvalSpec struct {
@@ -378,6 +392,7 @@ type (
 	//	token.INCLUDE    *IncludeSpec
 	//	token.INSTANCE   *InstanceSpec
 	//	token.EXTENSIONS *ExtensionsSpec
+	//	token.FILES      *FilesSpec
 	//	token.EVAL       *EvalSpec
 	//	token.USE        *UseSpec
 	//

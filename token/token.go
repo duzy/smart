@@ -101,6 +101,7 @@ const (
         IMPORT     // import a.smart
         INSTANCE   // instance
         EXTENSIONS // extensions
+        FILES      // files
 	keyword_end
 )
 
@@ -171,6 +172,7 @@ var tokens = [...]string{
         IMPORT:     "import",
         INSTANCE:   "instance",
         EXTENSIONS: "extensions",
+        FILES:      "files",
 }
 
 func (tok Token) String() (s string) {

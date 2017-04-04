@@ -60,7 +60,7 @@ func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []t
 evaluationLoop:
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {
-                case *values.ListLiteral:
+                case *values.ListValue/*Literal*/:
                         if stmt.Len() == 0 {
                                 continue
                         }

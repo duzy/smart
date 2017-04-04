@@ -22,7 +22,7 @@ type Program struct {
         context *Context
         module  *types.Module
         scope   *types.Scope
-        depends []*types.RuleEntry
+        depends []types.Value // *types.RuleEntry, *values.BarefileValue
         recipes []types.Value
         pipline []types.Value
 }
@@ -81,20 +81,24 @@ func (prog *Program) prepare(/*entry*/ *types.RuleEntry) (err error) {
         // TODO: using rules in a different module as prerequisites, e.g.
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
+dependLoop:
         for _, depend := range prog.depends {
                 //fmt.Printf("Program.prepare: %T %v (%p)\n", depend, depend, depend)
-                if res, err = depend.Call(); err == nil {
-                        //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
-                        if res == nil {
-                                //depends.Append(values.String(depend.Name()))
-                                depends.Append(depend)
-                        } else if res != nil && res != values.None {
-                                //fmt.Printf("%s: %v\n", depend.Name(), res.Lit())
-                                depends.Append(res)
+                switch d := depend.(type) {
+                case *values.BarefileValue:
+                        depends.Append(d)
+                case *types.RuleEntry:
+                        if res, err = d.Call(); err == nil {
+                                //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
+                                if res == nil {
+                                        depends.Append(d)
+                                } else if res != nil && res != values.None {
+                                        depends.Append(res)
+                                }
+                        } else {
+                                //fmt.Printf("Program.prepare: %T %v\n", depend, depend)
+                                break dependLoop
                         }
-                } else {
-                        //fmt.Printf("Program.prepare: %T %v\n", depend, depend)
-                        break
                 }
         }
         return
@@ -158,8 +162,8 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
 pipelineLoop:
         for _, v := range prog.pipline {
                 switch op := v.(type) {
-                case *values.GroupLiteral:
-                        if err = prog.modify(&op.GroupValue, out); err != nil {
+                case *values.GroupValue/*Literal*/:
+                        if err = prog.modify(op/*.GroupValue*/, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
                                                 err = nil
@@ -169,7 +173,7 @@ pipelineLoop:
                                 }
                                 break pipelineLoop
                         }
-                case *values.BarewordLiteral:
+                case *values.BarewordValue/*Literal*/:
                         if i, _ := interpreters[op.String()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
@@ -189,12 +193,12 @@ func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
         return
 }
 
-func NewProgram(context *Context, scope *types.Scope, depends []*types.RuleEntry, recipes... types.Value) *Program {
+func NewProgram(context *Context, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
         return &Program{
                 context:     context,
                 module:      context.CurrentModule(),
                 scope:       scope,
-                depends:     depends,
+                depends:     depends, // *types.RuleEntry, *values.BarefileValue
                 recipes:     recipes,
         }
 }

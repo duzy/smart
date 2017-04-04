@@ -69,6 +69,12 @@ type (
                 elements
         }
 
+        BarefileValue struct {
+                value
+                Name types.Value
+                Ext string
+        }
+        
         CompoundValue struct {
                 value
                 elements
@@ -94,81 +100,13 @@ type (
                 k types.Value
                 v types.Value
         }
-
-        IntLiteral struct {
-                IntValue
-                pos token.Pos
-        }
-
-        FloatLiteral struct {
-                FloatValue
-                pos token.Pos
-        }
-
-        DateTimeLiteral struct {
-                DateTimeValue
-                pos token.Pos
-        }
-        DateLiteral struct {
-                DateValue
-                pos token.Pos
-        }
-        TimeLiteral struct {
-                TimeValue
-                pos token.Pos
-        }
-        
-        UriLiteral struct {
-                UriValue
-                pos token.Pos
-        }
-
-        StringLiteral struct {
-                StringValue
-                pos token.Pos
-        }
-
-        BarewordLiteral struct {
-                BarewordValue
-                pos token.Pos
-        }
-
-        BarecompLiteral struct {
-                BarecompValue
-                pos token.Pos
-        }
-
-        CompoundLiteral struct {
-                CompoundValue
-                pos token.Pos
-        }
-
-        ListLiteral struct {
-                ListValue
-                pos token.Pos
-        }
-
-        GroupLiteral struct {
-                GroupValue
-                pos token.Pos
-        }
-
-        MapLiteral struct {
-                MapValue
-                pos token.Pos
-        }
-
-        PairLiteral struct {
-                PairValue
-                pos token.Pos
-        }
 )
 
 var None = &value{ types.None }
 
-func IntLit(pos token.Pos, s string) (v *IntLiteral) {
+func IntLit(s string) (v *IntValue) {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-                v = &IntLiteral{IntValue{value{types.Int}, i}, pos}
+                v = &IntValue{value{types.Int}, i}
         }
         return
 }
@@ -176,9 +114,9 @@ func Int(s int64) (v *IntValue) {
         return &IntValue{value{types.Int}, s}
 }
 
-func FloatLit(pos token.Pos, s string) (v *FloatLiteral) {
+func FloatLit(s string) (v *FloatValue) {
         if f, e := strconv.ParseFloat(s, 64); e == nil {
-                v = &FloatLiteral{FloatValue{value{types.Float}, f}, pos}
+                v = &FloatValue{value{types.Float}, f}
         }
         return
 }
@@ -186,10 +124,10 @@ func Float(s float64) (v *FloatValue) {
         return &FloatValue{value{types.Float}, s}
 }
 
-func DateTimeLit(pos token.Pos, s string) (v *DateTimeLiteral) {
+func DateTimeLit(s string) (v *DateTimeValue) {
         // time.RFC3339Nano
         if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
-                v = &DateTimeLiteral{DateTimeValue{datetimeValue{value{types.DateTime}, t}}, pos}
+                v = &DateTimeValue{datetimeValue{value{types.DateTime}, t}}
         }
         return
 }
@@ -197,9 +135,9 @@ func DateTime(s time.Time) (v *DateTimeValue) {
         return &DateTimeValue{datetimeValue{value{types.DateTime}, s}}
 }
 
-func DateLit(pos token.Pos, s string) (v *DateLiteral) {
+func DateLit(s string) (v *DateValue) {
         if t, e := time.Parse("2006-01-02", s); e == nil {
-                v = &DateLiteral{DateValue{datetimeValue{value{types.Date}, t}}, pos}
+                v = &DateValue{datetimeValue{value{types.Date}, t}}
         }
         return
 }
@@ -207,9 +145,9 @@ func Date(s time.Time) (v *DateValue) {
         return &DateValue{datetimeValue{value{types.Date}, s}}
 }
 
-func TimeLit(pos token.Pos, s string) (v *TimeLiteral) {
+func TimeLit(s string) (v *TimeValue) {
         if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
-                v = &TimeLiteral{TimeValue{datetimeValue{value{types.Time}, t}}, pos}
+                v = &TimeValue{datetimeValue{value{types.Time}, t}}
         }
         return
 }
@@ -217,9 +155,9 @@ func Time(t time.Time) (v *TimeValue) {
         return &TimeValue{datetimeValue{value{types.Time}, t}}
 }
 
-func UriLit(pos token.Pos, s string) (v *UriLiteral) {
+func UriLit(s string) (v *UriValue) {
         if u, e := url.Parse(s); e == nil {
-                v = &UriLiteral{UriValue{value{types.Uri}, u}, pos}
+                v = &UriValue{value{types.Uri}, u}
         }
         return
 }
@@ -227,59 +165,41 @@ func Uri(s *url.URL) (v *UriValue) {
         return &UriValue{value{types.Uri}, s}
 }
 
-func StringLit(pos token.Pos, s string) (v *StringLiteral) {
-        return &StringLiteral{StringValue{value{types.String}, s}, pos}
+func StringLit(s string) (v *StringValue) {
+        return &StringValue{value{types.String}, s}
 }
 func String(s string) (v *StringValue) {
         return &StringValue{value{types.String}, s}
-}
-
-func BarewordLit(pos token.Pos, s string) (v *BarewordLiteral) {
-        return &BarewordLiteral{BarewordValue{value{types.Bareword}, s}, pos}
-}
-func Bareword(s string) (v *BarewordValue) {
-        return &BarewordValue{value{types.Bareword}, s}
 }
 
 func Ident(names... string) (v *IdentValue) {
         return &IdentValue{value{}, names}
 }
 
-func BarecompLit(pos token.Pos, elems... types.Value) (v *BarecompLiteral) {
-        return &BarecompLiteral{BarecompValue{value{types.Barecomp}, elements{elems}}, pos}
+func Bareword(s string) (v *BarewordValue) {
+        return &BarewordValue{value{types.Bareword}, s}
 }
-func Barecomp(pos token.Pos, elems... types.Value) (v *BarecompValue) {
+
+func Barecomp(elems... types.Value) (v *BarecompValue) {
         return &BarecompValue{value{types.Barecomp}, elements{elems}}
 }
-func CompoundLit(pos token.Pos, elems... types.Value) (v *CompoundLiteral) {
-        return &CompoundLiteral{CompoundValue{value{types.Compound}, elements{elems}}, pos}
+
+func Barefile(name types.Value, ext string) (v *BarefileValue) {
+        return &BarefileValue{value{types.Barefile}, name, ext}
 }
+
 func Compound(elems... types.Value) (v *CompoundValue) {
         return &CompoundValue{value{types.Compound}, elements{elems}}
 }
 
-func ListLit(pos token.Pos, elems... types.Value) (v *ListLiteral) {
-        return &ListLiteral{ListValue{value{types.List}, elements{elems}}, pos}
-}
 func List(elems... types.Value) (v *ListValue) {
         return &ListValue{value{types.List}, elements{elems}}
 }
 
-func GroupLit(pos token.Pos, elems... types.Value) (v *GroupLiteral) {
-        return &GroupLiteral{GroupValue{ListValue{value{types.List}, elements{elems}}}, pos}
-}
 func Group(elems... types.Value) (v *GroupValue) {
         return &GroupValue{ListValue{value{types.List}, elements{elems}}}
 }
 
-func PairLit(pos token.Pos, k, v types.Value) (p *PairLiteral) {
-        if k.Type().Info()&types.IsKeyName != 0 {
-                p = &PairLiteral{PairValue{value{types.Pair}, nil, nil}, pos}
-                p.SetKey(k)
-                p.SetValue(v)
-        }
-        return
-}
 func Pair(k, v types.Value) (p *PairValue) {
         if k.Type().Info()&types.IsKeyName != 0 {
                 p = &PairValue{value{types.Pair}, nil, nil}
@@ -305,18 +225,18 @@ func EscapeChar(s string) string {
         return s
 }
 
-func Literal(pos token.Pos, tok token.Token, s string) (v types.Value) {
+func Literal(tok token.Token, s string) (v types.Value) {
         switch tok {
         default:             v = None
-        case token.INT:      v = IntLit(pos, s)
-        case token.FLOAT:    v = FloatLit(pos, s)
-        case token.DATETIME: v = DateTimeLit(pos, s)
-        case token.DATE:     v = DateLit(pos, s)
-        case token.TIME:     v = TimeLit(pos, s)
-        case token.URI:      v = UriLit(pos, s)
-        case token.BAREWORD: v = BarewordLit(pos, s)
-        case token.STRING:   v = StringLit(pos, s)
-        case token.ESCAPE:   v = StringLit(pos, EscapeChar(s))
+        case token.INT:      v = IntLit(s)
+        case token.FLOAT:    v = FloatLit(s)
+        case token.DATETIME: v = DateTimeLit(s)
+        case token.DATE:     v = DateLit(s)
+        case token.TIME:     v = TimeLit(s)
+        case token.URI:      v = UriLit(s)
+        case token.BAREWORD: v = Bareword(s)
+        case token.STRING:   v = StringLit(s)
+        case token.ESCAPE:   v = StringLit(EscapeChar(s))
         }
         return
 }
@@ -367,6 +287,10 @@ func (p *BarecompValue) Lit() (s string) {
         }
         return
 }
+func (p *BarefileValue) Lit() (s string) {
+        s += p.Name.Lit() + "." + p.Ext
+        return
+}
 func (p *CompoundValue) Lit() (s string) {
         s = "\""
         for _, e := range p.elems {
@@ -403,6 +327,7 @@ func (p *TimeValue) String() string     { return time.Time(p.v).Format("15:04:05
 func (p *UriValue) String() string      { return p.v.String() }
 func (p *StringValue) String() string   { return p.v }
 func (p *BarewordValue) String() string { return p.v }
+func (p *BarefileValue) String() string { return p.Name.String() + "." + p.Ext }
 func (p *BarecompValue) String() (s string) {
         for _, e := range p.elems {
                 s += e.String()
@@ -445,6 +370,7 @@ func (p *TimeValue) Integer() int64     { return p.v.Unix() }
 func (p *UriValue) Integer() int64      { return int64(len(p.v.String())) }
 func (p *StringValue) Integer() int64   { i, _ := strconv.ParseInt(p.v, 10, 64); return i }
 func (p *BarewordValue) Integer() int64 { return 0 }
+func (p *BarefileValue) Integer() int64 { return 0 }
 func (p *BarecompValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *CompoundValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *ListValue) Integer() int64     { return int64(len(p.elems)) }
@@ -460,6 +386,7 @@ func (p *TimeValue) Float() float64     { return float64(p.Integer()) }
 func (p *UriValue) Float() float64      { return float64(p.Integer()) }
 func (p *StringValue) Float() float64   { return float64(p.Integer()) }
 func (p *BarewordValue) Float() float64 { return float64(p.Integer()) }
+func (p *BarefileValue) Float() float64 { return float64(p.Integer()) }
 func (p *BarecompValue) Float() float64 { return float64(p.Integer()) }
 func (p *CompoundValue) Float() float64 { return float64(p.Integer()) }
 func (p *ListValue) Float() float64     { return float64(p.Integer()) }
@@ -490,7 +417,7 @@ func (p *PairValue) SetValue(v types.Value) { p.v = v }
 func (p *PairValue) SetKey(k types.Value) {
         switch o := k.(type) {
         case *PairValue:   k = o.k
-        case *PairLiteral: k = o.k
+        //case *PairLiteral: k = o.k
         }
         if k.Type().Info()&types.IsKeyName != 0 {
                 p.k = k
@@ -498,18 +425,3 @@ func (p *PairValue) SetKey(k types.Value) {
                 p.k = nil
         }
 }
-
-func (p *IntLiteral) Pos() token.Pos      { return p.pos }
-func (p *FloatLiteral) Pos() token.Pos    { return p.pos }
-func (p *DateTimeLiteral) Pos() token.Pos { return p.pos }
-func (p *DateLiteral) Pos() token.Pos     { return p.pos }
-func (p *TimeLiteral) Pos() token.Pos     { return p.pos }
-func (p *UriLiteral) Pos() token.Pos      { return p.pos }
-func (p *StringLiteral) Pos() token.Pos   { return p.pos }
-func (p *BarewordLiteral) Pos() token.Pos { return p.pos }
-func (p *BarecompLiteral) Pos() token.Pos { return p.pos }
-func (p *CompoundLiteral) Pos() token.Pos { return p.pos }
-func (p *ListLiteral) Pos() token.Pos     { return p.pos }
-func (p *GroupLiteral) Pos() token.Pos    { return p.pos }
-func (p *MapLiteral) Pos() token.Pos      { return p.pos }
-func (p *PairLiteral) Pos() token.Pos     { return p.pos }

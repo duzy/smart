@@ -39,6 +39,7 @@ const (
         UriKind
         StringKind
         BarewordKind
+        BarefileKind
         
         // composite types
         CompoundKind
@@ -73,6 +74,7 @@ var (
                 UriKind:        "Uri",
                 StringKind:     "String",
                 BarewordKind:   "Bareword",
+                BarefileKind:   "Barefile",
                 CompoundKind:   "Compound",
                 ListKind:       "List",
                 GroupKind:      "Group",
@@ -111,6 +113,7 @@ const (
         IsTime     // Time type with time component
         IsUri
         IsBareword
+        IsBarefile
 	IsNone
 
         // Properties of composite types.

@@ -205,7 +205,16 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                                 shellFalses += 1
                                         }
                                 }
+                        case *values.BarefileValue:
+                                /*
+                                if _, ok := prog.context.CheckExt(d.Ext); ok {
+                                        files.Append(d)
+                                } else {
+                                        Fail("unknown file %v", d)
+                                } */
+                                files.Append(d)
                         case *types.RuleEntry:
+                                /*
                                 if ext := filepath.Ext(d.String()); ext != "" {
                                         if _, ok := prog.context.CheckExt(ext); ok {
                                                 files.Append(d)
@@ -214,7 +223,8 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                         }
                                 } else {
                                         nonfiles.Append(d)
-                                }
+                                } */
+                                nonfiles.Append(d)
                         case *values.StringValue:
                                 if ext := filepath.Ext(d.String()); ext != "" {
                                         if _, ok := prog.context.CheckExt(ext); ok {

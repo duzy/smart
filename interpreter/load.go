@@ -190,17 +190,19 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 }
                 //fmt.Printf("symbol: %v %T\n", x.Name, v)
         case *ast.BasicLit:
-                v = values.Literal(x.Pos(), x.Kind, x.Value)
+                v = values.Literal(x.Kind, x.Value)
         case *ast.Bareword:
-                v = values.BarewordLit(x.Pos(), x.Value)
+                v = values.Bareword(x.Value)
         case *ast.Barecomp:
-                v = values.BarecompLit(x.Pos(), i.evalExprs(x.Elems)...)
+                v = values.Barecomp(i.evalExprs(x.Elems)...)
+        case *ast.Barefile:
+                v = values.Barefile(i.evalExpr(x.Name), x.Ext)
         case *ast.CompoundLit:
-                v = values.CompoundLit(x.Pos(), i.evalExprs(x.Elems)...)
+                v = values.Compound(i.evalExprs(x.Elems)...)
         case *ast.GroupExpr:
-                v = values.GroupLit(x.Pos(), i.evalExprs(x.Elems)...)
+                v = values.Group(i.evalExprs(x.Elems)...)
         case *ast.ListExpr:
-                v = values.ListLit(x.Pos(), i.evalExprs(x.Elems)...)
+                v = values.List(i.evalExprs(x.Elems)...)
         case *ast.SelectorExpr:
                 if mn, _ := i.evalExpr(x.X).(*types.ModuleName); mn != nil {
                         if m := mn.Imported(); m == nil {
@@ -236,10 +238,10 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         }
                         elems = append(elems, i.evalExprs(x.Elems)...)
                         //fmt.Printf("recipe: %T %T\n", x.Elems[0], elems[0])
-                        v = values.ListLit(x.Pos(), elems...)
+                        v = values.List(elems...)
                 } else {
                         elems := i.evalExprs(x.Elems)
-                        v = values.CompoundLit(x.Pos(), elems...)
+                        v = values.Compound(elems...)
                 }
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
@@ -322,18 +324,21 @@ func (i *Interpreter) define(d *ast.DefineClause) (err error) {
 
 func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         var (
-                depends []*types.RuleEntry
+                depends []types.Value // *types.RuleEntry, *values.BarefileValue
                 recipes []types.Value
                 m = i.CurrentModule()
         )
         for i, depend := range i.evalExprs(d.Depends) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.String())
-                if entry, _ := depend.(*types.RuleEntry); entry != nil {
+                switch entry := depend.(type) {
+                case *types.RuleEntry:
                         depends = append(depends, entry)
-                } else if depend != nil {
-                        runtime.Fail("%s is not RuleEntry (%T)", depend, depend)
-                } else {
+                case *values.BarefileValue:
+                        depends = append(depends, entry)
+                case nil:
                         runtime.Fail("entry undefined (%v)", d.Depends[i])
+                default:
+                        runtime.Fail("%s is not RuleEntry (%T)", depend, depend)
                 }
         }
 
@@ -371,6 +376,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         }
         
         for _, target := range i.evalExprs(d.Targets) {
+                //fmt.Printf("Interpreter.rule: %T %v (%v)\n", target, target, target.String())
                 s := target.String()
                 m.Insert(i.RuleEntryClass(s), s, prog)
         }
@@ -460,13 +466,9 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
                         return err
                 }
         }
-
+        
         i.SetExts(doc.Extensions)
 
-        for _, i := range doc.Unresolved {
-                fmt.Printf("%p: unresolved: %T %v\n", doc.Scope, i.Sym, i.Name)
-        }
-        
         for _, d := range doc.Clauses {
                 if err = i.clause(d); err != nil {
                         return err

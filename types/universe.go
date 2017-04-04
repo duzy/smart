@@ -38,6 +38,7 @@ var (
                 UriKind:      {UriKind, IsUri, "uri"},
                 StringKind:   {StringKind, IsString, "string"},
                 BarewordKind: {BarewordKind, IsBareword, "bareword"},
+                BarefileKind: {BarefileKind, IsBarefile, "barefile"},
                 NoneKind:     {NoneKind, IsNone, "none"},
         }
         
@@ -67,6 +68,7 @@ var (
         Uri      = BasicTypes[UriKind]
         String   = BasicTypes[StringKind]
         Bareword = BasicTypes[BarewordKind]
+        Barefile = BasicTypes[BarefileKind]
         None     = BasicTypes[NoneKind]
 
         // Shortcuts for composite types.
