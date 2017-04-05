@@ -140,37 +140,6 @@ func (i *Interpreter) evalBinary(x *ast.BinaryExpr) (v types.Value) {
         return
 }
 
-/* func (i *Interpreter) splitName(x *ast.Barecomp) (name []string) {
-        var part string
-        for _, elem := range x.Elems {
-                s := i.evalExpr(elem).String()
-                if s == "." {
-                        name = append(name, part)
-                        part = ""
-                } else {
-                        part += s
-                }
-        }
-        if part != "" {
-                name = append(name, part)
-        }
-        return
-}
-
-func (i *Interpreter) evalName(expr ast.Expr) (name []string) {
-        switch x := expr.(type) {
-        case *ast.BasicLit:
-                name = append(name, x.Value)
-        case *ast.Bareword:
-                name = append(name, x.Value)
-        case *ast.Barecomp:
-                name = append(name, i.splitName(x)...)
-        default:
-                name = append(name, "?")
-        }
-        return
-} */
-
 func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         switch x := expr.(type) {
         case *ast.BadExpr:
@@ -188,7 +157,6 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                                 runtime.Fail("symbol %s undefined", x.Name)
                         }
                 }
-                //fmt.Printf("symbol: %v %T\n", x.Name, v)
         case *ast.BasicLit:
                 v = values.Literal(x.Kind, x.Value)
         case *ast.Bareword:
@@ -222,7 +190,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case *ast.CallExpr:
                 var name = i.evalExpr(x.Name)
                 if sym, _ := name.(types.Symbol); sym != nil {
-                        //fmt.Printf("call: %T %v\n", x.Name, sym)
+                        //fmt.Printf("call: %T %T %v\n", x.Name, name, sym)
                         v = i.Fold(x.Pos(), sym, i.evalExprs(x.Args)...)
                 } else if name != nil {
                         runtime.Fail("unsupported name '%s' (%T, %T)", name, x.Name, name)
@@ -309,6 +277,10 @@ func (i *Interpreter) define(d *ast.DefineClause) (err error) {
                         v = i.evalExpr(d.Value)
                 )
 
+                if t, _ := v.(*types.Def); t != nil {
+                        v = t.Value()
+                }
+                
                 if sym := scope.Insert(types.NewDef(m, name, v)); sym != nil {
                         if def, ok := sym.(*types.Def); ok {
                                 def.Set(v)

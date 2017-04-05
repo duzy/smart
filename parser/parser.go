@@ -48,6 +48,7 @@ type parser struct {
 	// Non-syntactic parser control
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
+        noSel   bool
         
 	// Ordinary identifier scopes
 	pkgScope   *ast.Scope        // pkgScope.Outer == nil
@@ -585,11 +586,11 @@ func (p *parser) parseLhsList() []ast.Expr {
 	return list
 }
 
-func (p *parser) parseRhsList() []ast.Expr {
-	old := p.inRhs
+func (p *parser) parseRhsList(sel bool) []ast.Expr {
+	oldRhs := p.inRhs
 	p.inRhs = true
 	list := p.parseExprList(false)
-	p.inRhs = old
+	p.inRhs = oldRhs
 	return list
 }
 
@@ -690,14 +691,20 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 case token.LPAREN:
                         lpos, tokLp = p.pos, p.tok
                         p.next()
+                        oldSel := p.noSel
+                        p.noSel = false
                         name = p.checkExpr(p.parseExpr(false))
                         if p.tok != token.RPAREN {
+                                oldSel := p.noSel
+                                p.noSel = true
                                 rest = append(rest, p.parseListExpr(false))
                                 for p.tok == token.COMMA {
                                         p.next()
                                         rest = append(rest, p.parseListExpr(false))
                                 }
+                                p.noSel = oldSel
                         }
+                        p.noSel = oldSel
                         rpos = p.expect(token.RPAREN)
                 default:
                         // Parse name without compising expressions
@@ -792,7 +799,16 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 }
         } else if p.tok == token.PERIOD {
                 p.next()
-                x = p.parseSelector(lhs, p.checkExpr(x))
+                if p.noSel {
+                        x = &ast.Barecomp{
+                                []ast.Expr{ 
+                                        x, &ast.Bareword{ p.pos, "." },
+                                        p.checkExpr(p.parseExpr(lhs)),
+                                },
+                        }
+                } else {
+                        x = p.parseSelector(lhs, p.checkExpr(x))
+                }
         }
         return x
 }
@@ -1019,9 +1035,13 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         
         doc := p.leadComment
         pos := p.expect(tok)
-        elems := p.parseRhsList()
+
+        oldSel := p.noSel
+        p.noSel = true
+        elems := p.parseRhsList(false)
         comment := p.lineComment
-        
+        p.noSel = oldSel
+
         // Take it from parser, since the line comment is assigned
         // to the DefineClause.
         p.lineComment = nil
@@ -1258,7 +1278,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         }
         
         if p.tok != token.LINEND {
-                depends = p.parseRhsList()
+                depends = p.parseRhsList(true)
                 for i, depend := range depends {
                         depends[i] = p.identify(depend)
                 }

@@ -95,11 +95,10 @@ type Def struct {
         value Value
 }
 
+func (d *Def) Value() Value    { return d.value }
 func (d *Def) String() string  { return d.name+" = "+d.value.String() }
 func (d *Def) Set(v Value)     { d.value = v }
-func (d *Def) Call(a... Value) (Value, error) {
-        return d.value, nil 
-}
+func (d *Def) Call(a... Value) (Value, error) { return d.value, nil }
 
 func NewDef(mod *Module, name string, value Value) *Def {
 	return &Def{symbol{nil, mod, name, DefineType, 0, token.NoPos}, value}
