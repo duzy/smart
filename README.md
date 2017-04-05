@@ -10,7 +10,7 @@ language. It's still in drafting state, not finished for real use yet.
 
 The language is inspired by [GNU make](https://www.gnu.org/software/make/).
 It's having same similar syntax as `makefile`, but a `smart` program is highly
-modularized, multi-dialect (extensiable) and data-typed. In a `makefile`, there's 
+modularized, multi-dialect (extensible) and data-typed. In a `makefile`, there's 
 only a global namespace, macros defined can later be referenced by any other macros
 or rules. In `smart`, symbols are contained in a module, and the major modules are
 projects. A project is designed to be executed in order to update outdated targets,
@@ -49,7 +49,7 @@ foo.o:[shell]: foo.cpp
 # The `plain` dialect simply expend the recipes into plain text,
 # and the `(as text)` tells that the symbol `text` is being used to
 # store the plain text. The `,` starts post-execution of the recipes.
-foo.cpp:[plain (as text), (write-file $(text), $@)]:
+foo.cpp:[plain (as text), (update-file $(text), $@)]:
 	#include <iostream>
 	int main(int argc, char** argv) {
 	    std::cout <<"$(GREETING)" << std::endl;
