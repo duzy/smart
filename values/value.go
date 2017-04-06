@@ -288,7 +288,10 @@ func (p *BarecompValue) Lit() (s string) {
         return
 }
 func (p *BarefileValue) Lit() (s string) {
-        s += p.Name.Lit() + "." + p.Ext
+        s += p.Name.Lit()
+        if p.Ext != "" {
+                s += "." + p.Ext
+        }
         return
 }
 func (p *CompoundValue) Lit() (s string) {
@@ -327,7 +330,13 @@ func (p *TimeValue) String() string     { return time.Time(p.v).Format("15:04:05
 func (p *UriValue) String() string      { return p.v.String() }
 func (p *StringValue) String() string   { return p.v }
 func (p *BarewordValue) String() string { return p.v }
-func (p *BarefileValue) String() string { return p.Name.String() + "." + p.Ext }
+func (p *BarefileValue) String() string {
+        s := p.Name.String()
+        if p.Ext != "" {
+                s += "." + p.Ext
+        }
+        return s
+}
 func (p *BarecompValue) String() (s string) {
         for _, e := range p.elems {
                 s += e.String()

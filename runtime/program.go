@@ -108,8 +108,10 @@ dependLoop:
                                         depend = s
                                         goto dependSwitch
                                 }
+                                Fail("unknown dependency %s", sym.Name())
+                        } else {
+                                Fail("unsupported dependency (%T)", d)
                         }
-                        Fail("unsupported dependency (%T)", d)
                 }
         }
         return

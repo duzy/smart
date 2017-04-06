@@ -1280,7 +1280,15 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         if p.tok != token.LINEND {
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
-                        depends[i] = p.identify(depend)
+                        if bw, _ := depend.(*ast.Bareword); bw != nil {
+                                if p.isFileName(bw.Value) {
+                                        depends[i] = &ast.Barefile{ Name: bw }
+                                } else {
+                                        depends[i] = p.identify(depend)
+                                }
+                        } else {
+                                depends[i] = p.identify(depend)
+                        }
                 }
         }
 
