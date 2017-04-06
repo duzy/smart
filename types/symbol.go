@@ -69,6 +69,15 @@ func (sym *symbol) setParent(parent *Scope)   { sym.parent = parent }
 func (sym *symbol) setOrder(order uint32)     { /*assert(order > 0);*/ sym.ord = order }
 func (sym *symbol) setScopePos(pos token.Pos) { sym.scopos = pos }
 
+func NewDummy(mod *Module, scope *Scope, name string) Symbol {
+	return &symbol{scope, mod, name, Invalid, 0, token.NoPos}
+}
+
+func IsDummy(s Symbol) bool {
+        _, ok := s.(*symbol)
+        return ok
+}
+
 type ModuleName struct {
         symbol
         imported *Module

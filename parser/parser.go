@@ -1439,7 +1439,7 @@ func (p *parser) parseFile() *ast.File {
 		assert(ident.Sym == unresolved, "symbol already resolved")
 		ident.Sym = p.pkgScope.Lookup(ident.Name) // also removes unresolved sentinel
 		if ident.Sym == nil {
-                        p.error(ident.Pos(), fmt.Sprintf("%s is unresolved", ident.Name))
+                        //p.error(ident.Pos(), fmt.Sprintf("%s is unresolved", ident.Name))
 			p.unresolved[i] = ident
 			i++
 		}

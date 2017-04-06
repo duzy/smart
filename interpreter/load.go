@@ -145,16 +145,16 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case *ast.BadExpr:
                 unreachable();
         case *ast.Ident:
-                //fmt.Printf("ident: %T %v\n", x, x)
                 if _, v = i.Scope().LookupAt(x.Pos(), x.Name); v == nil {
+                        m := i.CurrentModule()
                         if x.Sym != nil && x.Sym.Kind == ast.Rul {
                                 //fmt.Printf("rule: %T %v\n", x, x)
-                                m := i.CurrentModule()
                                 k := i.RuleEntryClass(x.Name)
                                 v = m.Insert(k, x.Name, nil)
                                 //fmt.Printf("rule: %T %v\n", v, v)
                         } else {
-                                runtime.Fail("symbol %s undefined", x.Name)
+                                //runtime.Fail("symbol %s undefined", x.Name)
+                                v = types.NewDummy(m, i.Scope(), x.Name)
                         }
                 }
         case *ast.BasicLit:
@@ -195,7 +195,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 } else if name != nil {
                         runtime.Fail("unsupported name '%s' (%T, %T)", name, x.Name, name)
                 } else {
-                        runtime.Fail("symbol %v undefined", x.Name)
+                        runtime.Fail("calling undefined symbol %v", x.Name)
                 }
         case *ast.RecipeExpr:
                 if x.Dialect == "" {
@@ -460,6 +460,7 @@ func (i *Interpreter) module(dir string, mod *ast.Module) (err error) {
                         break
                 }
         }
+
         return
 }
 

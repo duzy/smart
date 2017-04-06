@@ -16,11 +16,11 @@ import (
 )
 
 type Context struct {
-        globe    *types.Globe
-        scope    *types.Scope
-        modules  []*types.Module
-        exts     map[string][]string
-        workdir  string
+        globe      *types.Globe
+        scope      *types.Scope
+        modules    []*types.Module
+        exts       map[string][]string
+        workdir    string
 }
 
 func (ctx *Context) SetExts(m map[string][]string) {
@@ -145,13 +145,26 @@ type delegate struct {
         p token.Pos
 }
 
-func (p *delegate) call() types.Value { v, _ := p.s.Call(p.a...); return v }
+func (p *delegate) Type() types.Type  { return nil }
+func (p *delegate) Pos() token.Pos    { return p.p }
 func (p *delegate) Lit() string       { return p.call().Lit() }
 func (p *delegate) String() string    { return p.call().String() }
 func (p *delegate) Integer() int64    { return p.call().Integer() }
 func (p *delegate) Float() float64    { return p.call().Float() }
-func (p *delegate) Pos() token.Pos    { return p.p }
-func (p *delegate) Type() types.Type  { return nil }
+func (p *delegate) call() (v types.Value) {
+        if types.IsDummy(p.s) {
+                scope := p.s.Parent()
+                if _, s := scope.LookupAt(token.NoPos, p.s.Name()); s == nil {
+                        v = values.None
+                } else {
+                        p.s = s
+                        v, _ = s.Call(p.a...)
+                }
+        } else {
+                v, _ = p.s.Call(p.a...)
+        }
+        return v 
+}
 
 func (ctx *Context) Fold(pos token.Pos, sym types.Symbol, args... types.Value) types.Value {
         return &delegate{

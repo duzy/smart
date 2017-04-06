@@ -12,6 +12,7 @@ import (
         "github.com/duzy/smart/runtime"
         "path/filepath"
         "errors"
+        "flag"
         "fmt"
         "os"
 )
@@ -20,11 +21,10 @@ var globalPaths []string
 
 type Interpreter struct {
         *runtime.Context
-        pc       *parser.Context
-        fset     *token.FileSet
-        loads    []*loadInfo
-        paths    []string
-
+        pc         *parser.Context
+        fset       *token.FileSet
+        loads      []*loadInfo
+        paths      []string
 }
 
 type loadInfo struct {
@@ -47,10 +47,10 @@ func New() *Interpreter {
                 pc.Modifier(s, nil)
         }
         return &Interpreter{
-                Context: runtime.NewContext("interpreter"),
-                fset:    token.NewFileSet(), 
-                paths:   globalPaths,
-                pc:      pc,
+                Context:    runtime.NewContext("interpreter"),
+                fset:       token.NewFileSet(), 
+                paths:      globalPaths,
+                pc:         pc,
         }
 }
 
@@ -93,12 +93,14 @@ func CommandLine() {
                         }
 		}
         }()
-        
+
+        flag.Parse()
+
         i := New()
         if err := i.Load("build.smart", nil); err != nil {
                 fmt.Printf("%v\n", err)
                 return
-        } else if err = i.Run(); err != nil {
+        } else if err = i.Run(flag.Args()...); err != nil {
                 fmt.Printf("%v\n", err)
                 return
         }
