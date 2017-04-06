@@ -310,7 +310,11 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 case nil:
                         runtime.Fail("entry undefined (%v)", d.Depends[i])
                 default:
-                        runtime.Fail("%s is not RuleEntry (%T)", depend, depend)
+                        if types.IsDummyValue(depend) {
+                                depends = append(depends, entry)
+                        } else {
+                                runtime.Fail("%T is not RuleEntry (%s)", depend, depend)
+                        }
                 }
         }
 

@@ -56,58 +56,52 @@ type dialectDefault struct {
 
 func (t *dialectDefault) dialect() string { return "default" }
 func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []types.Value) (types.Value, error) {
-        var list = values.List()
+        var (
+                list = values.List()
+                err error
+        )
 evaluationLoop:
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {
-                case *values.ListValue/*Literal*/:
+                case *values.ListValue:
                         if stmt.Len() == 0 {
                                 continue
                         }
-                        var v = stmt.Get(0)
+                        var (
+                                v = stmt.Get(0)
+                                e error
+                        )
                         switch ident := v.(type) {
-                        case *types.Builtin:
-                                if v, e := ident.Call(stmt.Slice(1)...); e == nil && v != nil {
-                                        list.Append(v)
-                                } else if p, _ := e.(*returner); p != nil {
-                                        if p.value != nil {
-                                                list.Append(p.value)
-                                        }
-                                        break evaluationLoop
-                                }
-                        case *types.RuleEntry:
-                                if v, e := ident.Call(stmt.Slice(1)...); e == nil && v != nil {
-                                        list.Append(v)
-                                } else if p, _ := e.(*returner); p != nil {
-                                        if p.value != nil {
-                                                list.Append(p.value)
-                                        }
-                                        break evaluationLoop
-                                }
-                                /*
-                        case *values.IdentValue:
-                                var _, sym = prog.context.lookupAt(token.NoPos, ident.Names, false)
-                                if sym == nil {
-                                        s := fmt.Sprintf("undefined statement %s", ident)
-                                        return nil, errors.New(s)
-                                } else {
-                                        //fmt.Printf("statement: %v %T\n", ident.Names, sym)
-                                        if v, _ = sym.Call(stmt.Slice(1)...); v != nil {
-                                                list.Append(v)
-                                        }
-                                        //fmt.Printf("statement: %v %v\n", ident.Names, v)
-                                } */
-                        default:
+                        case *types.Builtin:   v, e = ident.Call(stmt.Slice(1)...)
+                        case *types.RuleEntry: v, e = ident.Call(stmt.Slice(1)...)
+                         default:
                                 if stmt.Len() == 1 {
                                         list.Append(v)
                                 } else {
                                         list.Append(recipe)
                                 }
                         }
+                        if e == nil && v != nil {
+                                list.Append(v)
+                                if g, _ := v.(*values.GroupValue); g != nil {
+                                        if s, c := g.Get(0), g.Get(1); s != nil && c != nil &&
+                                                s.String() == "shell" && c.Integer() != 0 {
+                                                //fmt.Printf("evaluate: %v\n", v)
+                                                break evaluationLoop
+                                        }
+                                }
+                        } else if p, _ := e.(*returner); p != nil {
+                                if p.value != nil {
+                                        list.Append(p.value)
+                                }
+                                break evaluationLoop
+                        } else if e != nil {
+                                err = e; break evaluationLoop
+                        }
                 default:
                         panic("unreachable")
                 }
         }
         //fmt.Printf("statement: %v\n", list)
-        return list, nil
+        return list, err
 }

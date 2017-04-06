@@ -86,6 +86,7 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                         } else {
                                 status = values.String(s)
                         }
+                        break
                 }
         }
         

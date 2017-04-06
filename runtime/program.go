@@ -7,7 +7,7 @@
 package runtime
 
 import (
-        //"github.com/duzy/smart/token"
+        "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "path/filepath"
@@ -84,6 +84,7 @@ func (prog *Program) prepare(/*entry*/ *types.RuleEntry) (err error) {
 dependLoop:
         for _, depend := range prog.depends {
                 //fmt.Printf("Program.prepare: %T %v (%p)\n", depend, depend, depend)
+        dependSwitch:
                 switch d := depend.(type) {
                 case *values.BarefileValue:
                         depends.Append(d)
@@ -96,9 +97,19 @@ dependLoop:
                                         depends.Append(res)
                                 }
                         } else {
-                                //fmt.Printf("Program.prepare: %T %v\n", depend, depend)
+                                //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
                                 break dependLoop
                         }
+                default:
+                        if types.IsDummyValue(d) {
+                                sym, _ := d.(types.Symbol)
+                                scope := sym.Parent()
+                                if _, s := scope.LookupAt(token.NoPos, sym.Name()); s != nil {
+                                        depend = s
+                                        goto dependSwitch
+                                }
+                        }
+                        Fail("unsupported dependency (%T)", d)
                 }
         }
         return
@@ -162,8 +173,8 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
 pipelineLoop:
         for _, v := range prog.pipline {
                 switch op := v.(type) {
-                case *values.GroupValue/*Literal*/:
-                        if err = prog.modify(op/*.GroupValue*/, out); err != nil {
+                case *values.GroupValue:
+                        if err = prog.modify(op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
                                                 err = nil
@@ -173,12 +184,19 @@ pipelineLoop:
                                 }
                                 break pipelineLoop
                         }
-                case *values.BarewordValue/*Literal*/:
+                case *values.BarewordValue:
                         if i, _ := interpreters[op.String()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
                         } else if err = prog.interpret(i, out); err != nil {
+                                //fmt.Printf("interpret: %v\n", err)
                                 break pipelineLoop
+                        /* } else if g, _ := out.Value().(*values.GroupValue); g != nil {
+                                if s, c := g.Get(0), g.Get(1); s != nil && c != nil &&
+                                        s.String() == "shell" && c.Integer() != 0 {
+                                        //fmt.Printf("interpret: %v\n", c)
+                                        break pipelineLoop
+                                } */
                         }
                 default:
                         err = errors.New(fmt.Sprintf("unsupported modifier '%s'", v))

@@ -78,6 +78,11 @@ func IsDummy(s Symbol) bool {
         return ok
 }
 
+func IsDummyValue(s Value) bool {
+        _, ok := s.(*symbol)
+        return ok
+}
+
 type ModuleName struct {
         symbol
         imported *Module
