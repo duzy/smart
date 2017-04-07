@@ -11,6 +11,7 @@ import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "path/filepath"
+        "strings"
         "fmt"
         "os"
 )
@@ -79,7 +80,11 @@ func (ctx *Context) DeclareModule(pos token.Pos, kw token.Token, path, name stri
         return m
 }
 
-func (ctx *Context) EnterModule(m *types.Module) *types.Scope {
+func (ctx *Context) EnterModule(m *types.Module, imported bool) *types.Scope {
+        var cm = ctx.CurrentModule()
+        if imported && cm != nil {
+                cm.AddImport(m)
+        }
         ctx.modules = append(ctx.modules, m)
         return ctx.SetScope(m.Scope())
 }
@@ -191,25 +196,34 @@ func (ctx *Context) Run(targets... string) (err error) {
         var (
                 value types.Value
                 updated int
-                m = ctx.Globe().Main()
+                mm = ctx.Globe().Main()
         )
         
-        defer ctx.ExitModule(ctx.EnterModule(m))
+        defer ctx.ExitModule(ctx.EnterModule(mm, false))
         
         if len(targets) == 0 {
-                if entry := m.GetDefaultEntry(); entry != nil {
+                if entry := mm.GetDefaultEntry(); entry != nil {
                         if value, err = entry.Call(); err == nil {
                                 updated += 1
                         }
                 }
         } else {
+                var m = mm
                 for _, target := range targets {
+                        if names := strings.Split(target, "."); len(names)>1 {
+                                for _, s := range names[0:len(names)-1] {
+                                        m = m.FindImport(s)
+                                }
+                                target = names[len(names)-1]
+                        }
                         if entry := m.Lookup(target); entry != nil {
                                 if value, err = entry.Call(); err == nil {
                                         updated += 1
                                 } else {
                                         break
                                 }
+                        } else {
+                                fmt.Printf("target %s not found\n", target)
                         }
                 }
         }

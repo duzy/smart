@@ -103,8 +103,6 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) (err e
         }
 
 importModule:
-        //fmt.Printf("import: %v\n", path)
-        
         if isDir {
                 err = i.LoadDir(modulePath, nil)
         } else {
@@ -455,7 +453,7 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
 
 func (i *Interpreter) module(dir string, mod *ast.Module) (err error) {
         m := i.declare(mod.Keypos, mod.Keyword, dir, mod.Name)
-        defer i.ExitModule(i.EnterModule(m))
+        defer i.ExitModule(i.EnterModule(m, true))
 
         //fmt.Printf("module: %s %s\n", dir, mod.Name)
         
@@ -481,7 +479,7 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
         //fmt.Printf("load: %v %v\n", filename, doc.Name.Name)
         
         m := i.declare(doc.Keypos, doc.Keyword, dir, doc.Name.Name)
-        defer i.ExitModule(i.EnterModule(m))
+        defer i.ExitModule(i.EnterModule(m, true))
         return i.file(doc)
 }
 

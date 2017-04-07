@@ -47,6 +47,19 @@ func (m *Module) Scope() *Scope { return m.scope }
 func (m *Module) Imports() []*Module { return m.imports }
 func (m *Module) Uses() []*Use { return m.uses }
 
+func (m *Module) AddImport(o *Module) {
+        m.imports = append(m.imports, o)
+}
+
+func (m *Module) FindImport(name string) (res *Module) {
+        for _, m := range m.imports {
+                if m.Name() == name {
+                        res = m; break
+                }
+        }
+        return
+}
+
 func (m *Module) Lookup(s string) (entry *RuleEntry) {
         if sym := m.scope.Lookup(s); sym != nil {
                 entry, _ = sym.(*RuleEntry)
