@@ -51,6 +51,9 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                 // Escape '$$' sequences.
                 source = strings.Replace(source, "$$", "$", -1)
 
+                // Remove tabs in line breakings.
+                source = strings.Replace(source, "\\\n\t", "\\\n", -1)
+
                 if strings.HasPrefix(source, "@") {
                         source = source[1:]
                 } else {
