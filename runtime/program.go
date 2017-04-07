@@ -87,7 +87,12 @@ dependLoop:
         dependSwitch:
                 switch d := depend.(type) {
                 case *values.BarefileValue:
-                        depends.Append(d)
+                        if _, s := prog.scope.LookupAt(token.NoPos, d.String()); s != nil {
+                                depend = s
+                                goto dependSwitch
+                        } else {
+                                depends.Append(d)
+                        }
                 case *types.RuleEntry:
                         if res, err = d.Call(); err == nil {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
@@ -134,9 +139,10 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 workdir = filepath.Join(top, path)
         }
         if workdir != wd {
-                //fmt.Printf("Program.Execute: %v %v -> %v\n", entry, workdir, path)
+                fmt.Printf("smart: Entering directory '%s'\n", path)
                 if err = os.Chdir(path); err == nil {
                         defer func() {
+                                fmt.Printf("smart: Leaving directory '%s'\n", path)
                                 os.Chdir(wd)
                         }()
                 } else {
