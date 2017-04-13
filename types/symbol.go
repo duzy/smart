@@ -143,6 +143,8 @@ type RuleEntryClass int
 const (
         GeneralRuleEntry RuleEntryClass = 1<<iota
         FileRuleEntry
+        PatternRuleEntry
+        PatternFileRuleEntry
 )
 
 // RuleEntry represents a declared rule entry.
@@ -150,9 +152,11 @@ type RuleEntry struct {
         symbol
         kind RuleEntryClass
         program Program
+        stem string // only applied for PatternRuleEntry
 }
 
 func (entry *RuleEntry) String() string { return entry.name }
+func (entry *RuleEntry) Stem() string { return entry.stem }
 
 func (entry *RuleEntry) Kind() RuleEntryClass { return entry.kind }
 
@@ -177,6 +181,7 @@ func NewRuleEntry(kind RuleEntryClass, name string) (entry *RuleEntry) {
                         nil, nil, name, RuleEntryType, 
                         0, token.NoPos,
                 },
-                kind, nil,
+                kind, nil, 
+                "",
         }
 }

@@ -187,6 +187,13 @@ type (
                 Tok token.Token   //
         }
 
+	// A PercExpr node represents a percent expression.
+        PercExpr struct {
+		X     Expr        // left operand (or nil)
+		OpPos token.Pos   // position of '%'
+		Y     Expr        // right operand
+        }
+
 	// A UnaryExpr node represents a unary expression.
 	// Currently only '+', '-' are defined for numbers.
 	//
@@ -248,6 +255,7 @@ func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
 func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
+func (d *PercExpr) Pos() token.Pos        { return d.OpPos }
 func (d *UnaryExpr) Pos() token.Pos       { return d.OpPos }
 func (d *BinaryExpr) Pos() token.Pos      { return d.OpPos }
 func (d *KeyValueExpr) Pos() token.Pos    { return d.Key.Pos() }
@@ -266,6 +274,7 @@ func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End()
 func (d *SelectorExpr) End() token.Pos    { return d.Sel.End() }
 func (d *CallExpr) End() token.Pos        { return d.Rparen + 1 }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
+func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }
 func (d *UnaryExpr) End() token.Pos       { return d.OpPos + 1 }
 func (d *BinaryExpr) End() token.Pos      { return d.OpPos + 1 }
 func (d *KeyValueExpr) End() token.Pos    { return d.Value.End() }
@@ -284,6 +293,7 @@ func (*ListExpr) exprNode()        {}
 func (*SelectorExpr) exprNode()    {}
 func (*CallExpr) exprNode()        {}
 func (*GroupExpr) exprNode()       {}
+func (*PercExpr) exprNode()        {}
 func (*UnaryExpr) exprNode()       {}
 func (*BinaryExpr) exprNode()      {}
 func (*KeyValueExpr) exprNode()    {}
@@ -470,6 +480,7 @@ type File struct {
 	Unresolved []*Ident        // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
         Extensions map[string][]string
+        Files      []string
 }
 
 // A Module node represents a set of source files

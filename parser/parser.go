@@ -365,6 +365,8 @@ func (p *parser) isFileName(s string) bool {
                         if ok, _ := filepath.Match(pat, s); ok {
                                 return true
                         }
+                } else if s == pat {
+                        return true
                 }
         }
         return false
@@ -451,6 +453,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.BinaryExpr:
         case *ast.KeyValueExpr:
         case *ast.SelectorExpr:
+        case *ast.PercExpr:
         case *ast.Ident:
 	default:
 		// all other nodes are not proper expressions
@@ -727,6 +730,20 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
         //case token.LBRACK:
         //case token.LBRACE:
 
+        case token.PERIOD:
+                pos := p.pos
+                p.next()
+                return &ast.Bareword{ pos, "." }
+
+        case token.PERC:
+                pos := p.pos
+                p.next()
+                y := p.checkExpr(p.parseExpr(false))
+                return &ast.PercExpr{
+                        OpPos: pos,
+                        Y: y,
+                }
+
         case token.PLUS, token.MINUS:
                 tok, pos := p.tok, p.pos
                 p.next()
@@ -776,6 +793,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 p.tok != token.COMMA &&
                 p.tok != token.COLON &&
                 p.tok != token.PERIOD &&
+                p.tok != token.PERC &&
                 p.tok != token.LINEND &&
                 p.tok != token.ILLEGAL {
                 //fmt.Printf("compose: %T %v %v %v\t%v %v\n", x, x, x.Pos(), x.End(), p.pos, p.tok)
@@ -808,6 +826,12 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         }
                 } else {
                         x = p.parseSelector(lhs, p.checkExpr(x))
+                }
+        } else if p.tok == token.PERC {
+                return &ast.PercExpr{
+                        X: x,
+                        OpPos: p.pos,
+                        Y: p.checkExpr(p.parseExpr(lhs)),
                 }
         }
         return x
@@ -1232,6 +1256,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         } else {
                                 p.error(target.Pos(), fmt.Sprintf("unknown barefile name (%T)", t.Name))
                         }
+                case *ast.PercExpr:
+                        
+                        continue
                 default:
                         p.error(target.Pos(), fmt.Sprintf("unknown entry type (%T)", t))
                         continue
@@ -1277,6 +1304,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 p.next()
         }
         
+        // Parsing depends...
         if p.tok != token.LINEND {
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
@@ -1286,6 +1314,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 } else {
                                         depends[i] = p.identify(depend)
                                 }
+                        } else if per, _ := depend.(*ast.PercExpr); per != nil {
+                                // untouched
                         } else {
                                 depends[i] = p.identify(depend)
                         }
@@ -1453,6 +1483,11 @@ func (p *parser) parseFile() *ast.File {
 		}
 	}
 
+        var files []string
+        for s, _ := range p.files {
+                files = append(files, s)
+        }
+        
 	return &ast.File{
 		Doc:        doc,
 		Keypos:     pos,
@@ -1464,5 +1499,6 @@ func (p *parser) parseFile() *ast.File {
                 Unresolved: p.unresolved[0:i],
 		Comments:   p.comments,
                 Extensions: p.extensions,
+                Files:      files,
 	}
 }

@@ -89,6 +89,7 @@ const (
 	PLUS  // unary +
 	MINUS // unary -
 	PCON  // path concatenation '/'
+        PERC  // percent sign '%'
 	operator_end
 
 	keyword_beg
@@ -162,6 +163,7 @@ var tokens = [...]string{
         PLUS:  "+",
         MINUS: "-",
 	PCON:  "/",
+	PERC:  "%",
         
         PROJECT:    "project",
         MODULE:     "module",

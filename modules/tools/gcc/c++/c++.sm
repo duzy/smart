@@ -13,8 +13,10 @@ libs =
 linker = g++
 link = $(linker) $(link_flags)
 
+compile_flags =
+
 compiler = g++
-compile = $(compiler)
+compile = $(compiler) '-c' $(compile_flags)
 
 sources =
 

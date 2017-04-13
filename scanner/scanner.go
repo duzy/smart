@@ -780,9 +780,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case '*':
                         tok = token.MUL
                 case '/':
-                        tok = token.QUO
+                        tok = token.QUO */
                 case '%':
-                        tok = token.REM */
+                        tok = token.PERC
                 case '+':
                         tok = token.PLUS
                 case '-':
@@ -946,7 +946,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 default:
 			// next reports unexpected BOMs - don't repeat
 			if ch != bom {
-				s.error(s.file.Offset(pos-2), fmt.Sprintf("illegal character %#U", ch))
+				s.error(s.file.Offset(pos), fmt.Sprintf("illegal character %#U", ch))
 			}
 			tok = token.ILLEGAL
 			lit = string(ch)

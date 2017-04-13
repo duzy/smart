@@ -147,8 +147,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         m := i.CurrentModule()
                         if x.Sym != nil && x.Sym.Kind == ast.Rul {
                                 //fmt.Printf("rule: %T %v\n", x, x)
-                                k := i.RuleEntryClass(x.Name)
-                                v = m.Insert(k, x.Name, nil)
+                                v = m.Insert(x.Name, nil)
                                 //fmt.Printf("rule: %T %v\n", v, v)
                         } else {
                                 //runtime.Fail("symbol %s undefined", x.Name)
@@ -209,6 +208,9 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         elems := i.evalExprs(x.Elems)
                         v = values.Compound(elems...)
                 }
+        case *ast.PercExpr:
+                m := i.CurrentModule()
+                v = types.NewPercentPattern(m, i.evalExpr(x.X), i.evalExpr(x.Y))
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
         case nil:
@@ -305,8 +307,10 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                         depends = append(depends, entry)
                 case *values.BarefileValue:
                         depends = append(depends, entry)
+                case *types.PercentPattern:
+                        depends = append(depends, entry)
                 case nil:
-                        runtime.Fail("entry undefined (%v)", d.Depends[i])
+                        runtime.Fail("entry undefined (%T %v)", d.Depends[i], d.Depends[i])
                 default:
                         if types.IsDummyValue(depend) {
                                 depends = append(depends, entry)
@@ -351,8 +355,12 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         
         for _, target := range i.evalExprs(d.Targets) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", target, target, target.String())
-                s := target.String()
-                m.Insert(i.RuleEntryClass(s), s, prog)
+                switch entry := target.(type) {
+                case *types.PercentPattern:
+                        m.AddPercentPattern(entry, prog)
+                default:
+                        m.Insert(target.String(), prog)
+                }
         }
         return
 }
@@ -421,7 +429,9 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
                 // TODO: parsing parameters
         }
 
-        i.SetExts(doc.Extensions)
+        m := i.CurrentModule()
+        m.AddFiles(doc.Files)
+        m.AddExts(doc.Extensions)
 
         for _, d := range doc.Clauses {
                 if err = i.clause(d); err != nil {
@@ -441,8 +451,6 @@ func (i *Interpreter) file(doc *ast.File) (err error) {
                 }
         }
         
-        i.SetExts(doc.Extensions)
-
         for _, d := range doc.Clauses {
                 if err = i.clause(d); err != nil {
                         return err
@@ -456,8 +464,10 @@ func (i *Interpreter) module(dir string, mod *ast.Module) (err error) {
         defer i.ExitModule(i.EnterModule(m, true))
 
         //fmt.Printf("module: %s %s\n", dir, mod.Name)
-        
+
         for _, f := range mod.Files {
+                m.AddFiles(f.Files)
+                m.AddExts(f.Extensions)
                 if err = i.file(f); err != nil {
                         break
                 }
@@ -479,6 +489,8 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
         //fmt.Printf("load: %v %v\n", filename, doc.Name.Name)
         
         m := i.declare(doc.Keypos, doc.Keyword, dir, doc.Name.Name)
+        m.AddFiles(doc.Files)
+        m.AddExts(doc.Extensions)
         defer i.ExitModule(i.EnterModule(m, true))
         return i.file(doc)
 }

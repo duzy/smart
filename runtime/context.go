@@ -10,7 +10,6 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        "path/filepath"
         "strings"
         "fmt"
         "os"
@@ -20,32 +19,7 @@ type Context struct {
         globe      *types.Globe
         scope      *types.Scope
         modules    []*types.Module
-        exts       map[string][]string
         workdir    string
-}
-
-func (ctx *Context) SetExts(m map[string][]string) {
-        ctx.exts = m
-}
-
-func (ctx *Context) CheckExt(s string) (a []string, v bool) {
-        if len(s) > 0 {
-                if s[0] == '.' {
-                        s = s[1:]
-                }
-                a, v = ctx.exts[s]
-        }
-        return
-}
-
-func (ctx *Context) RuleEntryClass(name string) types.RuleEntryClass {
-        var kind = types.GeneralRuleEntry
-        if ext := filepath.Ext(name); ext != "" {
-                if _, ok := ctx.exts[ext[1:]]; ok {
-                        kind = types.FileRuleEntry
-                }
-        }
-        return kind
 }
 
 func (ctx *Context) Getwd() string {
@@ -74,7 +48,7 @@ func (ctx *Context) CurrentModule() *types.Module {
 }
 
 func (ctx *Context) DeclareModule(pos token.Pos, kw token.Token, path, name string) *types.Module {
-        m := ctx.globe.NewModule(kw, path, name)      
+        m := ctx.globe.NewModule(kw, path, name)
         n := types.NewModuleName(ctx.CurrentModule(), m.Name(), m)
         ctx.Scope().Insert(n) //; assert(n.Scope() == ctx.Scope())
         return m

@@ -10,7 +10,7 @@ import (
         //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        "path/filepath"
+        //"path/filepath"
         "hash/crc64"
         "strings"
         //"errors"
@@ -214,32 +214,19 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                         }
                                 }
                         case *values.BarefileValue:
-                                /*
-                                if _, ok := prog.context.CheckExt(d.Ext); ok {
-                                        files.Append(d)
-                                } else {
-                                        Fail("unknown file %v", d)
-                                } */
                                 files.Append(d)
                         case *types.RuleEntry:
-                                /*
-                                if ext := filepath.Ext(d.String()); ext != "" {
-                                        if _, ok := prog.context.CheckExt(ext); ok {
-                                                files.Append(d)
-                                        } else {
-                                                Fail("unsupported file %v", d)
-                                        }
-                                } else {
+                                switch d.Kind() {
+                                case types.FileRuleEntry, types.PatternFileRuleEntry:
+                                        files.Append(d)
+                                case types.GeneralRuleEntry, types.PatternRuleEntry:
                                         nonfiles.Append(d)
-                                } */
-                                nonfiles.Append(d)
+                                default:
+                                        Fail("unsupported depend %v (%T)", depend, depend)
+                                }
                         case *values.StringValue:
-                                if ext := filepath.Ext(d.String()); ext != "" {
-                                        if _, ok := prog.context.CheckExt(ext); ok {
-                                                files.Append(d)
-                                        } else {
-                                                Fail("unsupported file %v", d)
-                                        }
+                                if prog.module.IsFile(d.String()) {
+                                        files.Append(d)
                                 } else {
                                         nonfiles.Append(d)
                                 }
@@ -263,7 +250,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
         }
 
         if shellFalses > 0 {
-                err = &breaker{ fmt.Sprintf("failed '%v'", shellFalses), false }
+                err = &breaker{ fmt.Sprintf("got %v failures", shellFalses), false }
                 goto DoneWhen // target shall be updated
         }
 

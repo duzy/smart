@@ -90,6 +90,7 @@ func CommandLine() {
 				panic(e)
 			} else {
                                 fmt.Printf("%s\n", failure)
+                                os.Exit(-1) // exit abnormally
                         }
 		}
         }()

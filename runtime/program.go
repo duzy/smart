@@ -70,7 +70,7 @@ func (prog *Program) modify(g *values.GroupValue, out *types.Def) (err error) {
         return
 }
 
-func (prog *Program) prepare(/*entry*/ *types.RuleEntry) (err error) {
+func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
         var (
                 res types.Value
                 depends = values.List()
@@ -91,7 +91,16 @@ dependLoop:
                                 depend = s
                                 goto dependSwitch
                         } else {
-                                depends.Append(d)
+                                if p, stem := prog.module.MatchPattern(d.String()); p != nil {
+                                        //fmt.Printf("pattern: %v %v (%v)\n", depend, p, stem)
+                                        depend = p.Entry(stem)
+                                        goto dependSwitch
+                                }
+                                if _, err := os.Stat(d.String()); err == nil {
+                                        depends.Append(d)
+                                } else {
+                                        Fail("no file or directory %v", d)
+                                }
                         }
                 case *types.RuleEntry:
                         if res, err = d.Call(); err == nil {
@@ -105,6 +114,30 @@ dependLoop:
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
                                 break dependLoop
                         }
+                case *types.PercentPattern:
+                        if stem := entry.Stem(); stem != "" {
+                                dent := d.Entry(entry.Stem())
+                                name := dent.String()
+                                switch prog.module.EntryClass(name) {
+                                case types.GeneralRuleEntry:
+                                        depend = dent
+                                        goto dependSwitch
+                                case types.FileRuleEntry:
+                                        if p, stem := prog.module.MatchPattern(name); p != nil {
+                                                depend = p.Entry(stem)
+                                                goto dependSwitch
+                                        }
+                                        if _, err := os.Stat(name); err == nil {
+                                                depends.Append(dent)
+                                        } else {
+                                                Fail("no file or directory %v", dent)
+                                        }
+                                default:
+                                        Fail("unknown dependency (%v)", dent)
+                                }
+                        } else {
+                                Fail("empty stem (%s, dependency %v)", entry, d)
+                        }
                 default:
                         if types.IsDummyValue(d) {
                                 sym, _ := d.(types.Symbol)
@@ -115,7 +148,7 @@ dependLoop:
                                 }
                                 Fail("unknown dependency %s", sym.Name())
                         } else {
-                                Fail("unsupported dependency (%T)", d)
+                                Fail("unknown dependency (%T)", d)
                         }
                 }
         }
