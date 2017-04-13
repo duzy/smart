@@ -149,11 +149,19 @@ func modifierShellStatus(prog *Program, value types.Value, args... types.Value) 
 }
 
 func modifierShellStdout(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        def := prog.auto("shell-stdout", "on")
+        if len(args) > 0 && args[0].String() == "off" {
+                def.Set(args[0])
+        }
         promptShellResult(value, 2)
         return
 }
 
 func modifierShellStderr(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        def := prog.auto("shell-stderr", "on")
+        if len(args) > 0 && args[0].String() == "off" {
+                def.Set(args[0])
+        }
         promptShellResult(value, 3)
         return
 }

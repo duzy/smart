@@ -14,7 +14,7 @@ import (
         "unicode"
         "bytes"
         "fmt"
-        //"os"
+        "os"
 )
 
 var defaultShellInterpreter = "sh"
@@ -36,11 +36,14 @@ type dialectShell struct {
 func (s *dialectShell) dialect() string { return "shell" }
 func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
+                stdoutOpt = prog.scope.Lookup("shell-stdout").(*types.Def)
+                stderrOpt = prog.scope.Lookup("shell-stderr").(*types.Def)
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value
                 source string
         )
+        
         for _, recipe := range recipes {
                 source += recipe.String() // trimRightSpaces(recipe.String())
                 if strings.HasSuffix(source, "\\") {
@@ -76,6 +79,12 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                         sh = exec.Command(s.interpreter, a...)
                 }
                 sh.Stdout, sh.Stderr = &stdout, &stderr
+                if stdoutOpt != nil && stdoutOpt.Value().String() == "on" {
+                        sh.Stdout = os.Stdout
+                }
+                if stderrOpt != nil && stderrOpt.Value().String() == "on" {
+                        sh.Stderr = os.Stderr
+                }
                 err = sh.Run(); source = ""
                 if err == nil {
                         status = values.Int(0) //values.None
