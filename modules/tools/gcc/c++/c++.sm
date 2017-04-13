@@ -7,8 +7,11 @@ extensions (
   object=( o obj )
 )
 
+link_flags =
+libs = 
+
 linker = g++
-link = $(linker)
+link = $(linker) $(link_flags)
 
 compiler = g++
 compile = $(compiler)

@@ -352,11 +352,15 @@ func (p *CompoundValue) String() (s string) {
         return
 }
 func (p *ListValue) String() (s string) {
-        for i, e := range p.elems {
-                if 0 < i {
-                        s += " "
+        var x = 0
+        for _, e := range p.elems {
+                if v := e.String(); v != "" {
+                        if 0 < x {
+                                s += " "
+                        }
+                        s += v
+                        x += 1
                 }
-                s += e.String()
         }
         return
 }
