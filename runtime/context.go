@@ -213,6 +213,10 @@ func (ctx *Context) Run(targets... string) (err error) {
                         if names := strings.Split(target, "."); len(names)>1 {
                                 for _, s := range names[0:len(names)-1] {
                                         m = m.FindImport(s)
+                                        if m == nil {
+                                                fmt.Printf("project '%s' not imported", s)
+                                                return
+                                        }
                                 }
                                 target = names[len(names)-1]
                         }
