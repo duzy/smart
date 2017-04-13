@@ -36,8 +36,8 @@ type dialectShell struct {
 func (s *dialectShell) dialect() string { return "shell" }
 func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
-                stdoutOpt = prog.scope.Lookup("shell-stdout").(*types.Def)
-                stderrOpt = prog.scope.Lookup("shell-stderr").(*types.Def)
+                stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
+                stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value
