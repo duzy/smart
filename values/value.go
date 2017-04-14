@@ -74,6 +74,11 @@ type (
                 Name types.Value
                 Ext string
         }
+
+        FlagValue struct {
+                value
+                Name types.Value
+        }
         
         CompoundValue struct {
                 value
@@ -188,6 +193,10 @@ func Barefile(name types.Value, ext string) (v *BarefileValue) {
         return &BarefileValue{value{types.Barefile}, name, ext}
 }
 
+func Flag(name types.Value) (v *FlagValue) {
+        return &FlagValue{value{types.Flag}, name}
+}
+
 func Compound(elems... types.Value) (v *CompoundValue) {
         return &CompoundValue{value{types.Compound}, elements{elems}}
 }
@@ -294,6 +303,10 @@ func (p *BarefileValue) Lit() (s string) {
         }
         return
 }
+func (p *FlagValue) Lit() (s string) {
+        s = "-" + p.Name.Lit()
+        return
+}
 func (p *CompoundValue) Lit() (s string) {
         s = "\""
         for _, e := range p.elems {
@@ -336,6 +349,9 @@ func (p *BarefileValue) String() string {
                 s += "." + p.Ext
         }
         return s
+}
+func (p *FlagValue) String() string {
+        return "-" + p.Name.String()
 }
 func (p *BarecompValue) String() (s string) {
         for _, e := range p.elems {
@@ -384,6 +400,7 @@ func (p *UriValue) Integer() int64      { return int64(len(p.v.String())) }
 func (p *StringValue) Integer() int64   { i, _ := strconv.ParseInt(p.v, 10, 64); return i }
 func (p *BarewordValue) Integer() int64 { return 0 }
 func (p *BarefileValue) Integer() int64 { return 0 }
+func (p *FlagValue) Integer() int64     { return 0 }
 func (p *BarecompValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *CompoundValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *ListValue) Integer() int64     { return int64(len(p.elems)) }
@@ -400,6 +417,7 @@ func (p *UriValue) Float() float64      { return float64(p.Integer()) }
 func (p *StringValue) Float() float64   { return float64(p.Integer()) }
 func (p *BarewordValue) Float() float64 { return float64(p.Integer()) }
 func (p *BarefileValue) Float() float64 { return float64(p.Integer()) }
+func (p *FlagValue) Float() float64     { return float64(p.Integer()) }
 func (p *BarecompValue) Float() float64 { return float64(p.Integer()) }
 func (p *CompoundValue) Float() float64 { return float64(p.Integer()) }
 func (p *ListValue) Float() float64     { return float64(p.Integer()) }

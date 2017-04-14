@@ -40,6 +40,7 @@ const (
         StringKind
         BarewordKind
         BarefileKind
+        FlagKind
         
         // composite types
         CompoundKind
@@ -75,6 +76,7 @@ var (
                 StringKind:     "String",
                 BarewordKind:   "Bareword",
                 BarefileKind:   "Barefile",
+                FlagKind:       "Flag",
                 CompoundKind:   "Compound",
                 ListKind:       "List",
                 GroupKind:      "Group",
@@ -114,6 +116,7 @@ const (
         IsUri
         IsBareword
         IsBarefile
+        IsFlag
 	IsNone
 
         // Properties of composite types.
@@ -139,7 +142,7 @@ const (
         IsDateTime  = IsDate | IsTime
 	IsNumeric   = IsInteger | IsFloat
         IsKeyName   = IsInteger | IsString | IsBareword
-	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword
+	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword | IsBarefile | IsFlag
 	IsBasic     = IsBoolean | IsOrdered | IsNone
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair
         IsConstType = IsBasic
@@ -178,6 +181,8 @@ func (t *Basic) IsTime() bool     { return t.info&IsTime != 0 }
 func (t *Basic) IsDateTime() bool { return t.info&IsDateTime != 0 }
 func (t *Basic) IsUri() bool      { return t.info&IsUri != 0 }
 func (t *Basic) IsBareword() bool { return t.info&IsBareword != 0 }
+func (t *Basic) IsBarefile() bool { return t.info&IsBarefile != 0 }
+func (t *Basic) IsFlag() bool     { return t.info&IsFlag != 0 }
 func (t *Basic) IsNone() bool     { return t.info&IsNone != 0 }
 
 type Composite struct {

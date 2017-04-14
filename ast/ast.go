@@ -139,6 +139,12 @@ type (
 		Value    string      // literal string; e.g. 42, 0x7f, 3.14, 1e-9, 2.4i, 'a', '\x7f', "foo" or `\m\n\o`
 	}
 
+        // A FlagExpr is a bare word leading by dash '-'.
+        FlagExpr struct {
+                DashPos token.Pos
+                Name    Expr
+        }
+
         // A CompoundLit node represents a composed list of expressions (not separated by spaces).
         CompoundLit struct {
                 Lquote token.Pos
@@ -248,6 +254,7 @@ func (d *BadExpr) Pos() token.Pos         { return d.From }
 func (d *Ident) Pos() token.Pos           { return d.NamePos }
 func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
+func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
 func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
 func (d *SelectorExpr) Pos() token.Pos    { return d.X.Pos() }
 func (d *CallExpr) Pos() token.Pos        { return d.Dollar }
@@ -267,6 +274,7 @@ func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Ident) End() token.Pos           { return token.Pos(int(d.NamePos) + len(d.Name)) }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *BasicLit) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
+func (d *FlagExpr) End() token.Pos        { return d.Name.End() }
 func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *Barefile) End() token.Pos        { return token.Pos(int(d.ExtPos) + len(d.Ext)) }
@@ -286,6 +294,7 @@ func (*BadExpr) exprNode()         {}
 func (*Ident) exprNode()           {}
 func (*Bareword) exprNode()        {}
 func (*BasicLit) exprNode()        {}
+func (*FlagExpr) exprNode()        {}
 func (*CompoundLit) exprNode()     {}
 func (*Barecomp) exprNode()        {}
 func (*Barefile) exprNode()        {}

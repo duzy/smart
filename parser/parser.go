@@ -454,6 +454,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
         case *ast.KeyValueExpr:
         case *ast.SelectorExpr:
         case *ast.PercExpr:
+        case *ast.FlagExpr:
         case *ast.Ident:
 	default:
 		// all other nodes are not proper expressions
@@ -743,8 +744,17 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         OpPos: pos,
                         Y: y,
                 }
+                
+        case token.MINUS:
+                pos := p.pos
+                p.next()
+                x := p.checkExpr(p.parseExpr(false))
+                return &ast.FlagExpr{
+                        DashPos: pos,
+                        Name: x,
+                }
 
-        case token.PLUS, token.MINUS:
+        case token.PLUS:
                 tok, pos := p.tok, p.pos
                 p.next()
                 x := p.checkExpr(p.parseExpr(false))
@@ -753,14 +763,6 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         Op: tok,
                         X: x,
                 }
-
-        /* case token.PERIOD:
-                pos := p.pos
-                p.next()
-                return &ast.Bareword{
-                        ValuePos: pos,
-                        Value: ".",
-                } */
 
         case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, 
              token.IMPORT, token.INSTANCE, token.EXTENSIONS, token.FILES:

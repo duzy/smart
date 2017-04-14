@@ -116,12 +116,12 @@ func (i *Interpreter) evalUnary(x *ast.UnaryExpr) (v types.Value) {
         if t, ok := operand.Type().(*types.Basic); ok && t.IsFloat() {
                 switch x.Op {
                 case token.PLUS:  v = values.Float(+operand.Float())
-                case token.MINUS: v = values.Float(-operand.Float())
+                //case token.MINUS: v = values.Float(-operand.Float())
                 }
         } else {
                 switch x.Op {
                 case token.PLUS:  v = values.Int(+operand.Integer())
-                case token.MINUS: v = values.Int(-operand.Integer())
+                //case token.MINUS: v = values.Int(-operand.Integer())
                 }
         }
         return
@@ -162,12 +162,16 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 v = values.Barecomp(i.evalExprs(x.Elems)...)
         case *ast.Barefile:
                 v = values.Barefile(i.evalExpr(x.Name), x.Ext)
+        case *ast.FlagExpr:
+                v = values.Flag(i.evalExpr(x.Name))
         case *ast.CompoundLit:
                 v = values.Compound(i.evalExprs(x.Elems)...)
         case *ast.GroupExpr:
                 v = values.Group(i.evalExprs(x.Elems)...)
         case *ast.ListExpr:
                 v = values.List(i.evalExprs(x.Elems)...)
+        case *ast.KeyValueExpr:
+                v = values.Pair(i.evalExpr(x.Key), i.evalExpr(x.Value))
         case *ast.SelectorExpr:
                 if mn, _ := i.evalExpr(x.X).(*types.ModuleName); mn != nil {
                         if m := mn.Imported(); m == nil {
@@ -216,6 +220,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
         case nil:
                 v = values.None
         default:
+                //fmt.Printf("%T %v\n", x, x)
                 unreachable()
         }
         return

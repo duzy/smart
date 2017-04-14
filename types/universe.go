@@ -39,6 +39,7 @@ var (
                 StringKind:   {StringKind, IsString, "string"},
                 BarewordKind: {BarewordKind, IsBareword, "bareword"},
                 BarefileKind: {BarefileKind, IsBarefile, "barefile"},
+                FlagKind:     {FlagKind, IsFlag, "flag"},
                 NoneKind:     {NoneKind, IsNone, "none"},
         }
         
@@ -69,6 +70,7 @@ var (
         String   = BasicTypes[StringKind]
         Bareword = BasicTypes[BarewordKind]
         Barefile = BasicTypes[BarefileKind]
+        Flag     = BasicTypes[FlagKind]
         None     = BasicTypes[NoneKind]
 
         // Shortcuts for composite types.
