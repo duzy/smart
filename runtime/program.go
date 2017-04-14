@@ -90,17 +90,16 @@ dependLoop:
                         if _, s := prog.scope.LookupAt(token.NoPos, d.String()); s != nil {
                                 depend = s
                                 goto dependSwitch
+                        }
+                        if p, stem := prog.module.MatchPattern(d.String()); p != nil {
+                                //fmt.Printf("pattern: %v %v (%v)\n", depend, p, stem)
+                                depend = p.Entry(stem)
+                                goto dependSwitch
+                        }
+                        if _, err := os.Stat(d.String()); err == nil {
+                                depends.Append(d)
                         } else {
-                                if p, stem := prog.module.MatchPattern(d.String()); p != nil {
-                                        //fmt.Printf("pattern: %v %v (%v)\n", depend, p, stem)
-                                        depend = p.Entry(stem)
-                                        goto dependSwitch
-                                }
-                                if _, err := os.Stat(d.String()); err == nil {
-                                        depends.Append(d)
-                                } else {
-                                        Fail("no file or directory %v", d)
-                                }
+                                Fail("no file or directory %v", d)
                         }
                 case *types.RuleEntry:
                         if res, err = d.Call(); err == nil {
@@ -123,6 +122,10 @@ dependLoop:
                                         depend = dent
                                         goto dependSwitch
                                 case types.FileRuleEntry:
+                                        if _, s := prog.scope.LookupAt(token.NoPos, name); s != nil {
+                                                depend = s
+                                                goto dependSwitch
+                                        }
                                         if p, stem := prog.module.MatchPattern(name); p != nil {
                                                 depend = p.Entry(stem)
                                                 goto dependSwitch
