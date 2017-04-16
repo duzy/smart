@@ -84,18 +84,19 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
 dependLoop:
         for _, depend := range prog.depends {
                 //fmt.Printf("Program.prepare: %T %v (%p)\n", depend, depend, depend)
+                var isFileEntry = false
         dependSwitch:
                 switch d := depend.(type) {
                 case *values.BarefileValue:
                         //fmt.Printf("barefile: %T %T %v\n", depend, d, d)
                         if _, s := prog.scope.LookupAt(token.NoPos, d.String()); s != nil {
-                                depend = s
+                                depend, isFileEntry = s, true
                                 goto dependSwitch
                         }
                         if p, stem := prog.module.MatchPattern(d.String()); p != nil {
                                 entry := p.Entry(stem)
                                 //fmt.Printf("pattern: %T %T %v (%v, %v)\n", depend, p, p, stem, entry)
-                                depend = entry
+                                depend, isFileEntry = entry, true
                                 goto dependSwitch
                         }
                         if _, err := os.Stat(d.String()); err == nil {
@@ -106,7 +107,9 @@ dependLoop:
                 case *types.RuleEntry:
                         if res, err = d.Call(); err == nil {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, res)
-                                if res == values.None {
+                                if isFileEntry {
+                                        depends.Append(values.Group(targetRegularKind, d))
+                                } else if res == values.None {
                                         //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, d, d.Kind())
                                         switch d.Kind() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
@@ -131,11 +134,11 @@ dependLoop:
                                         goto dependSwitch
                                 case types.FileRuleEntry:
                                         if _, s := prog.scope.LookupAt(token.NoPos, name); s != nil {
-                                                depend = s
+                                                depend, isFileEntry = s, true
                                                 goto dependSwitch
                                         }
                                         if p, stem := prog.module.MatchPattern(name); p != nil {
-                                                depend = p.Entry(stem)
+                                                depend, isFileEntry = p.Entry(stem), true
                                                 goto dependSwitch
                                         }
                                         if _, err := os.Stat(name); err == nil {
@@ -163,6 +166,7 @@ dependLoop:
                         }
                 }
         }
+        //fmt.Printf("Program.prepare: %v: %v\n", entry, depends)
         return
 }
 

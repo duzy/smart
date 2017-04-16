@@ -13,7 +13,7 @@ libs =
 linker = g++
 link = $(linker) $(link_flags)
 
-compile_flags =
+compile_flags = -std=c++1z
 
 compiler = g++
 compile = $(compiler) '-c' $(compile_flags)

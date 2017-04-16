@@ -77,9 +77,7 @@ var (
 
                 `args`:         modifierSetArgs,
 
-                `when-outdated`: modifierWhenOutdated,
-                `compare`:       modifierWhenOutdated,
-                `prereq`:        modifierWhenOutdated,
+                `compare`:      modifierCompare,
                 
                 `check-dir`:    modifierCheckDir,
                 `check-file`:   modifierCheckFile,
@@ -180,7 +178,7 @@ func modifierSetArgs(prog *Program, value types.Value, args... types.Value) (res
         return
 }
 
-func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierCompare(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 scope         = prog.context.Scope()
                 targetDef, _  = scope.Lookup("@").(*types.Def)
@@ -198,7 +196,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
         if depends != nil || depends.Len() > 0 {
                 for _, depend := range depends.Slice(0) {
                 retryDepend:
-                        //fmt.Printf("modifierWhenOutdated: %T %v (from %s)\n", depend, depend, target)
+                        //fmt.Printf("modifierCompare: %T %v (from %s)\n", depend, depend, target)
                         switch d := depend.(type) {
                         case *values.ListValue:
                                 if depend = d.Take(0); depend != nil {
@@ -231,7 +229,7 @@ func modifierWhenOutdated(prog *Program, value types.Value, args... types.Value)
                                         nonfiles.Append(d)
                                 }
                         default:
-                                //fmt.Printf("modifierWhenOutdated: todo: %T %v (from %s)\n", depend, depend, target)
+                                //fmt.Printf("modifierCompare: todo: %T %v (from %s)\n", depend, depend, target)
                                 Fail("unsupported depend %v (%T)", depend, depend)
                         }
                 }
