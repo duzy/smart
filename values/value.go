@@ -444,6 +444,8 @@ func (p *elements) ToBarecomp() *BarecompValue { return &BarecompValue{value{typ
 func (p *elements) ToCompound() *CompoundValue { return &CompoundValue{value{types.Compound}, *p} }
 func (p *elements) ToList() *ListValue         { return &ListValue{value{types.List}, *p} }
 
+func (p *PairValue) Key() types.Value { return p.k }
+func (p *PairValue) Value() types.Value { return p.v }
 func (p *PairValue) SetValue(v types.Value) { p.v = v }
 func (p *PairValue) SetKey(k types.Value) {
         switch o := k.(type) {

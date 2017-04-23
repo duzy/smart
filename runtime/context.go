@@ -11,6 +11,7 @@ import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "strings"
+        "time"
         "fmt"
         "os"
 )
@@ -19,6 +20,7 @@ type Context struct {
         globe      *types.Globe
         scope      *types.Scope
         modules    []*types.Module
+        outdated   map[string]time.Time
         workdir    string
 }
 
@@ -176,6 +178,8 @@ func (ctx *Context) Run(targets... string) (err error) {
         defer ctx.ExitModule(ctx.EnterModule(mm, false))
         
         if len(targets) == 0 {
+                //ctx.outdated = make(map[string][]string)
+                ctx.outdated = make(map[string]time.Time)
                 if entry := mm.GetDefaultEntry(); entry != nil {
                         if value, err = entry.Call(); err == nil {
                                 updated += 1
@@ -195,6 +199,8 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 target = names[len(names)-1]
                         }
                         if entry := m.Lookup(target); entry != nil {
+                                //ctx.outdated = make(map[string][]string)
+                                ctx.outdated = make(map[string]time.Time)
                                 if value, err = entry.Call(); err == nil {
                                         updated += 1
                                 } else {

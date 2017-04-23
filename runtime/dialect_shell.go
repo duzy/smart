@@ -33,6 +33,14 @@ type dialectShell struct {
         xopt string // execute option: -c (sh, python), -e (perl)
 }
 
+func isTrueValue(s string) (res bool) {
+        switch strings.ToLower(s) {
+        case "on", "yes", "y", "1":
+                res = true
+        }
+        return
+}
+
 func (s *dialectShell) dialect() string { return "shell" }
 func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
@@ -43,6 +51,34 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                 status types.Value
                 source string
         )
+
+        /*
+        for _, a := range args {
+                switch p := a.(type) {
+                case *values.PairValue:
+                        var opt = types.Value(values.None)
+                        switch k, v := p.Key().String(), p.Value().String(); k {
+                        case "stdout":
+                                if isTrueValue(v) {
+                                        opt = values.Bareword("on")
+                                }
+                                if stdoutOpt == nil {
+                                        stdoutOpt = prog.auto("shell-stdout", opt)
+                                } else {
+                                        stdoutOpt.Set(opt)
+                                }
+                        case "stderr":
+                                if isTrueValue(v) {
+                                        opt = values.Bareword("on")
+                                }
+                                if stderrOpt == nil {
+                                        stderrOpt = prog.auto("shell-stderr", opt)
+                                } else {
+                                        stderrOpt.Set(opt)
+                                }
+                        }
+                }
+        } */
         
         for _, recipe := range recipes {
                 source += recipe.String() // trimRightSpaces(recipe.String())

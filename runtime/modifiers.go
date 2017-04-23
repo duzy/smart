@@ -190,7 +190,6 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 missing       = values.List()
                 files         = values.List()
                 nonfiles      = values.List()
-                //prerequisites = values.List()
                 shellFalses  int
         )
         if depends != nil || depends.Len() > 0 {
@@ -243,7 +242,6 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 if files.Len() > 0 {
                         prog.auto("<", files.Get(0))
                         prog.auto("^", files)
-                        //goto CheckFiles
                 }
         }
 
@@ -252,17 +250,22 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 goto DoneWhen // target shall be updated
         }
 
-//CheckFiles:
         if fi, _ := os.Stat(target); fi != nil {
                 for _, depend := range files.Slice(0) {
-                        fi2, e := os.Stat(depend.String())
+                        //fmt.Printf("%v: %v (%v)\n", target, depend, prog.context.outdated)
+                        var strDepend = depend.String()
+                        if t, ok := prog.context.outdated[strDepend]; ok && t.After(fi.ModTime()) {
+                                goto DoneWhen // target is outdated
+                        }
+                        
+                        fi2, e := os.Stat(strDepend)
                         if fi2 == nil || e != nil { // no such file or directory
                                 err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend),
                                         false }
                                 goto DoneWhen
                         }
-                        
-                        if fi2.ModTime().After(fi.ModTime()) {
+                        if t := fi2.ModTime(); t.After(fi.ModTime()) {
+                                prog.context.outdated[target] = t
                                 goto DoneWhen // target is outdated
                         }
                 }
@@ -276,7 +279,6 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                 goto DoneWhen
                         }
                 }
-                
                 goto DoneWhen // target shall be updated
         }
 

@@ -106,7 +106,7 @@ dependLoop:
                         }
                 case *types.RuleEntry:
                         if res, err = d.Call(); err == nil {
-                                //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, res)
+                                //fmt.Printf("Program.prepare: %T %v (%v) (isFileEntry:%v)\n", depend, depend, res, isFileEntry)
                                 if isFileEntry {
                                         depends.Append(values.Group(targetRegularKind, d))
                                 } else if res == values.None {
@@ -173,7 +173,7 @@ dependLoop:
 func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
 
-        //fmt.Printf("Program.Execute: %p %v\n", prog, prog.depends)
+        //fmt.Printf("Program.Execute: %v %v\n", entry, prog.depends)
 
         var (
                 top = prog.context.Getwd()
