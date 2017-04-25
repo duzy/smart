@@ -50,9 +50,7 @@ var (
                         xopt: "-e",
                 },
 
-                `docker-exec`: &dialectShell{
-                        interpreter: "docker",
-                        xopt: "exec",
+                `docksh`: &dialectDockex{
                 },
 
                 `xml`: &dialectXml{
