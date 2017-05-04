@@ -336,18 +336,8 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                         p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
                 }
                 x = ident
-                /*
-        case *ast.Barecomp: 
-                //p.error(t.Pos(), fmt.Sprintf("unsupported name literal (%T %v...)", t, t.Elems[0]))
-                name, ext := p.computeCompositeEntryName(t)
-                ident := &ast.Ident{ t.Pos(), name, nil }
-                if p.resolve(ident); ident.Sym == nil {
-                        p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
-                }
-                fmt.Printf("ext: %v\n", ext)
-                x = ident */
-        case *ast.Barefile:
-                // Barefile is a special identifier itself.
+        case *ast.Barefile, *ast.PathExpr:
+                // Barefile and PathExpr are a special identifier itself.
         case *ast.SelectorExpr:
                 // TODO: deal with extensions
         default: 
@@ -453,12 +443,13 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.BinaryExpr:
         case *ast.KeyValueExpr:
         case *ast.SelectorExpr:
+        case *ast.PathExpr:
         case *ast.PercExpr:
         case *ast.FlagExpr:
         case *ast.Ident:
 	default:
 		// all other nodes are not proper expressions
-		p.errorExpected(x.Pos(), "expression")
+		p.errorExpected(x.Pos(), "valid expression")
 		x = &ast.BadExpr{From: x.Pos(), To: p.safePos(x.End())}
 	}
 	return x
@@ -727,10 +718,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
         case token.LPAREN:
                 return p.parseGroupExpr()
-                
-        //case token.LBRACK:
-        //case token.LBRACE:
 
+        //case token.PCON:
         case token.PERIOD:
                 pos := p.pos
                 p.next()
@@ -787,29 +776,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
 func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         //fmt.Printf("expr:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
-        if x.End() == p.pos && p.lineComment == nil &&
-                p.tok != token.ASSIGN &&
-                p.tok != token.COMPOSED &&
-                p.tok != token.RPAREN &&
-                p.tok != token.RBRACK &&
-                p.tok != token.COMMA &&
-                p.tok != token.COLON &&
-                p.tok != token.PERIOD &&
-                p.tok != token.PERC &&
-                p.tok != token.LINEND &&
-                p.tok != token.ILLEGAL {
-                //fmt.Printf("compose: %T %v %v %v\t%v %v\n", x, x, x.Pos(), x.End(), p.pos, p.tok)
-                var (
-                        elems = []ast.Expr{ x }
-                        y = p.checkExpr(p.parseExpr(lhs))
-                )
-                if c, ok := y.(*ast.Barecomp); ok {
-                        elems = append(elems, c.Elems...)
-                } else {
-                        elems = append(elems, y)
-                }
-                x = &ast.Barecomp{ elems }
-        } else if !lhs && p.tok == token.ASSIGN {
+        if p.tok == token.ASSIGN && !lhs {
                 pos := p.pos
                 p.next()
                 x = &ast.KeyValueExpr{
@@ -829,12 +796,70 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 } else {
                         x = p.parseSelector(lhs, p.checkExpr(x))
                 }
+        } else if p.tok == token.PCON {
+                var (
+                        segments []ast.Expr
+                        pos = x.Pos()
+                )
+
+                good := func() bool {
+                        switch x.(type) {
+                        case *ast.Barefile: // good
+                        case *ast.Bareword: // good
+                        case *ast.Barecomp: // good
+                        case *ast.BasicLit: // TODO: validate t.Kind...
+                        default:
+                                //fmt.Printf("%T %v (%v)\n", x, x, p.tok)
+                                p.errorExpected(x.Pos(), "path segment")
+                                return false
+                        }
+                        return true
+                }
+
+                if good() {
+                        segments = append(segments, x)
+                        p.next() // next token after '/'
+                        prev := p.pos
+                        x = p.checkExpr(p.parseExpr(lhs))
+                        if pp, ok := x.(*ast.PathExpr); ok {
+                                segments = append(segments, pp.Segments...)
+                        } else if x.Pos() == prev && good() {
+                                segments = append(segments, x)
+                        }
+                }
+                return &ast.PathExpr{ PosBeg:pos, Segments:segments, PosEnd:p.pos }
         } else if p.tok == token.PERC {
                 return &ast.PercExpr{
                         X: x,
                         OpPos: p.pos,
                         Y: p.checkExpr(p.parseExpr(lhs)),
                 }
+        } else if p.tok == token.COMPOSED {
+                // ignored
+        } else if p.tok == token.RPAREN {
+                // ignored
+        } else if p.tok == token.RBRACK {
+                // ignored
+        } else if p.tok == token.COMMA {
+                // ignored
+        } else if p.tok == token.COLON {
+                // ignored
+        } else if p.tok == token.LINEND {
+                // ignored
+        } else if p.tok == token.ILLEGAL {
+                p.error(p.pos, "illegal token")
+        } else if x.End() == p.pos && p.lineComment == nil {
+                //fmt.Printf("compose: %T %v %v %v\t%v %v\n", x, x, x.Pos(), x.End(), p.pos, p.tok)
+                var (
+                        elems = []ast.Expr{ x }
+                        y = p.checkExpr(p.parseExpr(lhs))
+                )
+                if c, ok := y.(*ast.Barecomp); ok {
+                        elems = append(elems, c.Elems...)
+                } else {
+                        elems = append(elems, y)
+                }
+                x = &ast.Barecomp{ elems }
         }
         return x
 }

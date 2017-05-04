@@ -135,7 +135,7 @@ type (
 	// A BasicLit node represents a literal of basic type.
 	BasicLit struct {
 		ValuePos token.Pos   // literal position
-		Kind     token.Token // token.INT, token.FLOAT, token.IMAG, token.CHAR, or token.STRING
+		Kind     token.Token // token.INT, token.FLOAT, token.CHAR, or token.STRING
 		Value    string      // literal string; e.g. 42, 0x7f, 3.14, 1e-9, 2.4i, 'a', '\x7f', "foo" or `\m\n\o`
 	}
 
@@ -169,11 +169,18 @@ type (
                 Elems []Expr
         }
 
-        // Group expression surrounded by '(' and ')'.
+        // GroupExpr is a expression surrounded by '(' and ')'.
         GroupExpr struct {
                 Lparen token.Pos
                 Elems []Expr
                 Rparen token.Pos
+        }
+
+        // A PathExpr node represents a path (expressions concated by '/').
+        PathExpr struct {
+                PosBeg token.Pos
+                Segments []Expr
+                PosEnd token.Pos
         }
 
         // A SelectorExpr node represents an expression followed by a selector.
@@ -256,6 +263,7 @@ func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
 func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
+func (d *PathExpr) Pos() token.Pos        { return d.PosBeg }
 func (d *SelectorExpr) Pos() token.Pos    { return d.X.Pos() }
 func (d *CallExpr) Pos() token.Pos        { return d.Dollar }
 func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
@@ -279,6 +287,7 @@ func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *Barefile) End() token.Pos        { return token.Pos(int(d.ExtPos) + len(d.Ext)) }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
+func (d *PathExpr) End() token.Pos        { return d.PosEnd }
 func (d *SelectorExpr) End() token.Pos    { return d.Sel.End() }
 func (d *CallExpr) End() token.Pos        { return d.Rparen + 1 }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
@@ -299,6 +308,7 @@ func (*CompoundLit) exprNode()     {}
 func (*Barecomp) exprNode()        {}
 func (*Barefile) exprNode()        {}
 func (*ListExpr) exprNode()        {}
+func (*PathExpr) exprNode()        {}
 func (*SelectorExpr) exprNode()    {}
 func (*CallExpr) exprNode()        {}
 func (*GroupExpr) exprNode()       {}

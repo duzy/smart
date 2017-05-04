@@ -162,6 +162,8 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 v = values.Barecomp(i.evalExprs(x.Elems)...)
         case *ast.Barefile:
                 v = values.Barefile(i.evalExpr(x.Name), x.Ext)
+        case *ast.PathExpr:
+                v = values.Path(i.evalExprs(x.Segments)...)
         case *ast.FlagExpr:
                 v = values.Flag(i.evalExpr(x.Name))
         case *ast.CompoundLit:
@@ -176,7 +178,6 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 if mn, _ := i.evalExpr(x.X).(*types.ModuleName); mn != nil {
                         if m := mn.Imported(); m == nil {
                                 runtime.Fail("module %s undefined", mn.Name())
-                        //} else if _, sym := m.Scope().LookupAt(x.Pos(), x.Sel.Name); sym != nil {
                         } else if sym := m.Scope().Lookup(x.Sel.Name); sym != nil {
                                 v = sym
                         } else {
@@ -308,11 +309,8 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         for i, depend := range i.evalExprs(d.Depends) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.String())
                 switch entry := depend.(type) {
-                case *types.RuleEntry:
-                        depends = append(depends, entry)
-                case *values.BarefileValue:
-                        depends = append(depends, entry)
-                case *types.PercentPattern:
+                case *types.RuleEntry, *values.BarefileValue, *values.PathValue,
+                        *types.PercentPattern:
                         depends = append(depends, entry)
                 case nil:
                         runtime.Fail("entry undefined (%T %v)", d.Depends[i], d.Depends[i])
@@ -320,7 +318,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                         if types.IsDummyValue(depend) {
                                 depends = append(depends, entry)
                         } else {
-                                runtime.Fail("%T is not RuleEntry (%s)", depend, depend)
+                                runtime.Fail("%T is not valid RuleEntry (%s)", depend, depend)
                         }
                 }
         }

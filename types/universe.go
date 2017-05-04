@@ -39,6 +39,7 @@ var (
                 StringKind:   {StringKind, IsString, "string"},
                 BarewordKind: {BarewordKind, IsBareword, "bareword"},
                 BarefileKind: {BarefileKind, IsBarefile, "barefile"},
+                PathKind:     {PathKind, IsBarefile, "path"},
                 FlagKind:     {FlagKind, IsFlag, "flag"},
                 NoneKind:     {NoneKind, IsNone, "none"},
         }
@@ -70,6 +71,7 @@ var (
         String   = BasicTypes[StringKind]
         Bareword = BasicTypes[BarewordKind]
         Barefile = BasicTypes[BarefileKind]
+        Path     = BasicTypes[PathKind]
         Flag     = BasicTypes[FlagKind]
         None     = BasicTypes[NoneKind]
 

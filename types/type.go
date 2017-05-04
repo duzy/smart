@@ -40,6 +40,7 @@ const (
         StringKind
         BarewordKind
         BarefileKind
+        PathKind
         FlagKind
         
         // composite types
@@ -76,6 +77,7 @@ var (
                 StringKind:     "String",
                 BarewordKind:   "Bareword",
                 BarefileKind:   "Barefile",
+                PathKind:       "Path",
                 FlagKind:       "Flag",
                 CompoundKind:   "Compound",
                 ListKind:       "List",
@@ -116,6 +118,7 @@ const (
         IsUri
         IsBareword
         IsBarefile
+        IsPath
         IsFlag
 	IsNone
 
@@ -142,7 +145,7 @@ const (
         IsDateTime  = IsDate | IsTime
 	IsNumeric   = IsInteger | IsFloat
         IsKeyName   = IsInteger | IsString | IsBareword
-	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword | IsBarefile | IsFlag
+	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword | IsBarefile | IsPath | IsFlag
 	IsBasic     = IsBoolean | IsOrdered | IsNone
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair
         IsConstType = IsBasic
@@ -182,6 +185,7 @@ func (t *Basic) IsDateTime() bool { return t.info&IsDateTime != 0 }
 func (t *Basic) IsUri() bool      { return t.info&IsUri != 0 }
 func (t *Basic) IsBareword() bool { return t.info&IsBareword != 0 }
 func (t *Basic) IsBarefile() bool { return t.info&IsBarefile != 0 }
+func (t *Basic) IsPath() bool     { return t.info&IsPath != 0 }
 func (t *Basic) IsFlag() bool     { return t.info&IsFlag != 0 }
 func (t *Basic) IsNone() bool     { return t.info&IsNone != 0 }
 

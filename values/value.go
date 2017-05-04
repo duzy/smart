@@ -13,6 +13,7 @@ import (
         "strings"
         "strconv"
         "time"
+        "os"
 )
 
 // Scalar literal/value types. A literal is literrally written in the source code,
@@ -73,6 +74,11 @@ type (
                 value
                 Name types.Value
                 Ext string
+        }
+        
+        PathValue struct {
+                value
+                Segments []types.Value
         }
 
         FlagValue struct {
@@ -193,6 +199,10 @@ func Barefile(name types.Value, ext string) (v *BarefileValue) {
         return &BarefileValue{value{types.Barefile}, name, ext}
 }
 
+func Path(segments... types.Value) (v *PathValue) {
+        return &PathValue{value{types.Path}, segments}
+}
+
 func Flag(name types.Value) (v *FlagValue) {
         return &FlagValue{value{types.Flag}, name}
 }
@@ -303,6 +313,15 @@ func (p *BarefileValue) Lit() (s string) {
         }
         return
 }
+func (p *PathValue) Lit() (s string) {
+        // TODO: add '/' for root dir
+        for i, seg := range p.Segments {
+                if i > 0 { s += string(os.PathSeparator) }
+                s += seg.Lit()
+        }
+        // TODO: add '/' if there's such a suffix
+        return
+}
 func (p *FlagValue) Lit() (s string) {
         s = "-" + p.Name.Lit()
         return
@@ -349,6 +368,15 @@ func (p *BarefileValue) String() string {
                 s += "." + p.Ext
         }
         return s
+}
+func (p *PathValue) String() (s string) {
+        // TODO: add '/' for root dir
+        for i, seg := range p.Segments {
+                if i > 0 { s += string(os.PathSeparator) }
+                s += seg.String()
+        }
+        // TODO: add '/' if there's such a suffix
+        return
 }
 func (p *FlagValue) String() string {
         return "-" + p.Name.String()
@@ -400,6 +428,7 @@ func (p *UriValue) Integer() int64      { return int64(len(p.v.String())) }
 func (p *StringValue) Integer() int64   { i, _ := strconv.ParseInt(p.v, 10, 64); return i }
 func (p *BarewordValue) Integer() int64 { return 0 }
 func (p *BarefileValue) Integer() int64 { return 0 }
+func (p *PathValue) Integer() int64     { return 0 }
 func (p *FlagValue) Integer() int64     { return 0 }
 func (p *BarecompValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *CompoundValue) Integer() int64 { return int64(len(p.elems)) }
@@ -417,6 +446,7 @@ func (p *UriValue) Float() float64      { return float64(p.Integer()) }
 func (p *StringValue) Float() float64   { return float64(p.Integer()) }
 func (p *BarewordValue) Float() float64 { return float64(p.Integer()) }
 func (p *BarefileValue) Float() float64 { return float64(p.Integer()) }
+func (p *PathValue) Float() float64     { return float64(p.Integer()) }
 func (p *FlagValue) Float() float64     { return float64(p.Integer()) }
 func (p *BarecompValue) Float() float64 { return float64(p.Integer()) }
 func (p *CompoundValue) Float() float64 { return float64(p.Integer()) }

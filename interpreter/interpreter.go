@@ -11,20 +11,36 @@ import (
         "github.com/duzy/smart/parser"
         "github.com/duzy/smart/runtime"
         "path/filepath"
+        "strings"
         "errors"
         "flag"
         "fmt"
         "os"
 )
 
-var globalPaths []string
+type searchlist []string
+
+func (sl *searchlist) String() string {
+        return fmt.Sprint(*sl)
+}
+
+func (sl *searchlist) Set(value string) error {
+        *sl = append(*sl, strings.Split(value, ",")...)
+        return nil
+}
+
+var globalPaths searchlist
+
+func init() {
+        flag.Var(&globalPaths, "search", "comma-separated list of search paths")
+}
 
 type Interpreter struct {
         *runtime.Context
         pc         *parser.Context
         fset       *token.FileSet
         loads      []*loadInfo
-        paths      []string
+        paths      searchlist
 }
 
 type loadInfo struct {
@@ -49,7 +65,7 @@ func New() *Interpreter {
         return &Interpreter{
                 Context:    runtime.NewContext("interpreter"),
                 fset:       token.NewFileSet(), 
-                paths:      globalPaths,
+                paths:      []string(globalPaths),
                 pc:         pc,
         }
 }

@@ -81,29 +81,17 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
         // TODO: using rules in a different module as prerequisites, e.g.
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
-dependLoop:
-        for _, depend := range prog.depends {
+        dependLoop: for _, depend := range prog.depends {
                 //fmt.Printf("Program.prepare: %T %v (%p)\n", depend, depend, depend)
-                var isFileEntry = false
-        dependSwitch:
-                switch d := depend.(type) {
+                var (
+                        isFileEntry = false
+                        file string
+                )
+                dependSwitch: switch d := depend.(type) {
                 case *values.BarefileValue:
-                        //fmt.Printf("barefile: %T %T %v\n", depend, d, d)
-                        if _, s := prog.scope.LookupAt(token.NoPos, d.String()); s != nil {
-                                depend, isFileEntry = s, true
-                                goto dependSwitch
-                        }
-                        if p, stem := prog.module.MatchPattern(d.String()); p != nil {
-                                entry := p.Entry(stem)
-                                //fmt.Printf("pattern: %T %T %v (%v, %v)\n", depend, p, p, stem, entry)
-                                depend, isFileEntry = entry, true
-                                goto dependSwitch
-                        }
-                        if _, err := os.Stat(d.String()); err == nil {
-                                depends.Append(d)
-                        } else {
-                                Fail("no file or directory %v", d)
-                        }
+                        file = d.String(); goto handleFileEntry
+                case *values.PathValue:
+                        file = d.String(); goto handleFileEntry
                 case *types.RuleEntry:
                         if res, err = d.Call(); err == nil {
                                 //fmt.Printf("Program.prepare: %T %v (%v) (isFileEntry:%v)\n", depend, depend, res, isFileEntry)
@@ -130,22 +118,9 @@ dependLoop:
                                 name := dent.String()
                                 switch prog.module.EntryClass(name) {
                                 case types.GeneralRuleEntry:
-                                        depend = dent
-                                        goto dependSwitch
+                                        depend = dent; goto dependSwitch
                                 case types.FileRuleEntry:
-                                        if _, s := prog.scope.LookupAt(token.NoPos, name); s != nil {
-                                                depend, isFileEntry = s, true
-                                                goto dependSwitch
-                                        }
-                                        if p, stem := prog.module.MatchPattern(name); p != nil {
-                                                depend, isFileEntry = p.Entry(stem), true
-                                                goto dependSwitch
-                                        }
-                                        if _, err := os.Stat(name); err == nil {
-                                                depends.Append(dent)
-                                        } else {
-                                                Fail("no file or directory %v", dent)
-                                        }
+                                        file, depend = name, dent; goto handleFileEntry
                                 default:
                                         Fail("unknown dependency (%v)", dent)
                                 }
@@ -163,6 +138,28 @@ dependLoop:
                                 Fail("unknown dependency %s", sym.Name())
                         } else {
                                 Fail("unknown dependency (%T)", d)
+                        }
+                }
+                
+                continue // done with RuleEntry
+                
+                handleFileEntry: if file != "" {
+                        //fmt.Printf("convert: %T %v\n", depend, depend)
+                        if _, s := prog.scope.LookupAt(token.NoPos, file); s != nil {
+                                depend, isFileEntry = s, true
+                                goto dependSwitch
+                        }
+                        if p, stem := prog.module.MatchPattern(file); p != nil {
+                                entry := p.Entry(stem)
+                                //fmt.Printf("pattern: %T %T %v (%v, %v)\n", depend, p, p, stem, entry)
+                                depend, isFileEntry = entry, true
+                                goto dependSwitch
+                        }
+                        
+                        if _, err := os.Stat(file); err == nil {
+                                depends.Append(depend)
+                        } else {
+                                Fail("no rule to make file '%v'", depend)
                         }
                 }
         }
