@@ -11,7 +11,7 @@ libs =
 
 compiler = g++
 compile_flags = -std=c++1z
-compile = $(compiler) -c $(compile_flags)
+compile = $(compiler) $(compile_flags) -c
 
 archiver = ar
 archive_flags = crus

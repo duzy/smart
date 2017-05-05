@@ -171,9 +171,11 @@ func (m *Module) IsFile(s string) (v bool) {
                                 }
                         }
                 }
+                var ss = filepath.Base(s)
                 for _, pat := range m.files {
                         if strings.ContainsAny(pat, "*?[") {
-                                v, _ = filepath.Match(pat, s)
+                                v, _ = filepath.Match(pat, ss)
+                                //fmt.Printf("IsFile: %v, %v, %v\n", s, pat, v)
                         } else { 
                                 v = s == pat
                         }

@@ -8,6 +8,7 @@ package types
 
 import (
         "github.com/duzy/smart/token"
+        "fmt"
 )
 
 // Symbol is a value defined in a scope.
@@ -146,6 +147,21 @@ const (
         PatternRuleEntry
         PatternFileRuleEntry
 )
+
+var ruleEntryClassNames = []string{
+        GeneralRuleEntry:     "GeneralRuleEntry",
+        FileRuleEntry:        "FileRuleEntry",
+        PatternRuleEntry:     "PatternRuleEntry",
+        PatternFileRuleEntry: "PatternFileRuleEntry",
+}
+
+func (c RuleEntryClass) String() string {
+        var i = int(c)
+        if 0 < i && i < len(ruleEntryClassNames) {
+                return ruleEntryClassNames[i]
+        }
+        return fmt.Sprintf("RuleEntryClass(%d)", i)
+}
 
 // RuleEntry represents a declared rule entry.
 type RuleEntry struct {

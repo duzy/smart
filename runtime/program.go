@@ -88,10 +88,6 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         file string
                 )
                 dependSwitch: switch d := depend.(type) {
-                case *values.BarefileValue:
-                        file = d.String(); goto handleFileEntry
-                case *values.PathValue:
-                        file = d.String(); goto handleFileEntry
                 case *types.RuleEntry:
                         if res, err = d.Call(); err == nil {
                                 //fmt.Printf("Program.prepare: %T %v (%v) (isFileEntry:%v)\n", depend, depend, res, isFileEntry)
@@ -110,17 +106,25 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 }
                         } else {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
-                                break dependLoop
+                                Fail("failed to update '%v'", entry); break dependLoop
                         }
+                case *values.BarefileValue:
+                        file = d.String(); goto handleFileEntry
+                case *values.PathValue:
+                        file = d.String(); goto handleFileEntry
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
-                                dent := d.Entry(entry.Stem())
-                                name := dent.String()
+                                var (
+                                        dent = d.Entry(entry.Stem())
+                                        name = dent.String()
+                                )
                                 switch prog.module.EntryClass(name) {
                                 case types.GeneralRuleEntry:
+                                        fmt.Printf("%v: %v -> %v (general)\n", entry, depend, dent)
                                         depend = dent; goto dependSwitch
                                 case types.FileRuleEntry:
-                                        file, depend = name, dent; goto handleFileEntry
+                                        fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
+                                        depend, file = dent, name; goto handleFileEntry
                                 default:
                                         Fail("unknown dependency (%v)", dent)
                                 }
@@ -132,8 +136,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 sym, _ := d.(types.Symbol)
                                 scope := sym.Parent()
                                 if _, s := scope.LookupAt(token.NoPos, sym.Name()); s != nil {
-                                        depend = s
-                                        goto dependSwitch
+                                        depend = s; goto dependSwitch
                                 }
                                 Fail("unknown dependency %s", sym.Name())
                         } else {
