@@ -64,7 +64,9 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) (err e
                 modulePath string
                 isDir bool
         )
-        if abs := filepath.IsAbs(path); abs || strings.HasPrefix(path, "./") {
+        if abs := filepath.IsAbs(path); abs || 
+                strings.HasPrefix(path, "../") ||
+                strings.HasPrefix(path, "./") {
                 var s = path
                 if !abs && linfo.dir != "" {
                         s = filepath.Join(linfo.dir, s)
@@ -99,10 +101,12 @@ func (i *Interpreter) loadImportSpec(doc *ast.File, spec *ast.ImportSpec) (err e
         }
         
         if modulePath == "" {
-                return errors.New(fmt.Sprintf("module '%s' missing", path))
+                return errors.New(fmt.Sprintf("import: '%s' not found", path))
         }
 
 importModule:
+        //fmt.Printf("import: '%s'\n", path)
+        
         if isDir {
                 err = i.LoadDir(modulePath, nil)
         } else {
@@ -253,11 +257,14 @@ func (i *Interpreter) declare(pos token.Pos, kw token.Token, path, name string) 
         if ms.Insert(types.NewDef(m, ".", values.String(path))) != nil {
                 panic(fmt.Sprintf("'$.' already defined"))
         }
+        if ms.Insert(types.NewDef(m, "..", values.String(filepath.Dir(path)))) != nil {
+                panic(fmt.Sprintf("'$..' already defined"))
+        }
         return m
 }
 
 func (i *Interpreter) use(spec *ast.UseSpec) error {
-        fmt.Printf("use: %v\n", spec) // TODO: use
+        runtime.Fail("unimplemented: use %v\n", spec) // TODO: use
         return nil
 }
 

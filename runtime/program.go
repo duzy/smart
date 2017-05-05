@@ -120,10 +120,10 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 )
                                 switch prog.module.EntryClass(name) {
                                 case types.GeneralRuleEntry:
-                                        fmt.Printf("%v: %v -> %v (general)\n", entry, depend, dent)
+                                        //fmt.Printf("%v: %v -> %v (general)\n", entry, depend, dent)
                                         depend = dent; goto dependSwitch
                                 case types.FileRuleEntry:
-                                        fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
+                                        //fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
                                         depend, file = dent, name; goto handleFileEntry
                                 default:
                                         Fail("unknown dependency (%v)", dent)

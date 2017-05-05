@@ -42,6 +42,7 @@ const (
 	LBRACE    // {    left curly
 	COMMA     // ,
 	PERIOD    // .
+        DOTDOT    // ..
 
 	RPAREN    // )
 	RBRACK    // ]
@@ -55,6 +56,7 @@ const (
         CALL      // $
         CALL_R    // $/
         CALL_D    // $.
+        CALL_DD   // $..
         CALL_A    // $@
         CALL_L    // $<
         CALL_U    // $^
@@ -130,6 +132,7 @@ var tokens = [...]string{
 	LBRACE: "{",
 	COMMA:  ",",
 	PERIOD: ".",
+        DOTDOT: "..",
 
 	RPAREN:    ")",
 	RBRACK:    "]",
@@ -142,6 +145,7 @@ var tokens = [...]string{
 	CALL:      "$",
         CALL_R:    "$/",
         CALL_D:    "$.",
+        CALL_DD:   "$..",
         CALL_A:    "$@",
         CALL_L:    "$<",
         CALL_U:    "$^",

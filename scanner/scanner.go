@@ -808,6 +808,10 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         switch tok, ch = token.CALL, rune(s.src[s.readOffset-1]); {
                         case ch == '/': tok = token.CALL_R
                         case ch == '.': tok = token.CALL_D
+                                if s.readOffset < len(s.src) && rune(s.src[s.readOffset]) == '.' {
+                                        tok = token.CALL_DD
+                                        s.next() // eat one '.' character
+                                }
                         case ch == '@': tok = token.CALL_A
                         case ch == '<': tok = token.CALL_L
                         case ch == '^': tok = token.CALL_U
@@ -884,7 +888,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.COMMA
                         s.skipPostLineFeeds = true
                 case '.':
-                        tok = token.PERIOD
+                        if s.ch == '.' {
+                                tok = token.DOTDOT
+                                s.next()
+                        } else {
+                                tok = token.PERIOD
+                        }
                         s.skipPostLineFeeds = true
                 case ':':
                         if s.parenDepth == 0 {

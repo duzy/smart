@@ -656,7 +656,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
          case token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S, token.CALL_M,
               token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
               token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
-              token.CALL_9, token.CALL_D, token.CALL_R:
+              token.CALL_9, token.CALL_R, token.CALL_D, token.CALL_DD:
                 pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
                 p.next()
 

@@ -19,15 +19,15 @@ import (
 )
 
 type Context struct {
-	builtins *ast.Scope // builtin scope
-        dialects map[string]interface{}
+	builtins  *ast.Scope // builtin scope
+        dialects  map[string]interface{}
         modifiers map[string]interface{}
 }
 
 func NewContext() *Context {
         return &Context{
-                builtins: ast.NewScope(nil),
-                dialects: make(map[string]interface{}),
+                builtins:  ast.NewScope(nil),
+                dialects:  make(map[string]interface{}),
                 modifiers: make(map[string]interface{}),
         }
 }
