@@ -1,21 +1,33 @@
 # Example to really generate files
 project example
 
-import "tools/gcc/c++"
+import (
+    'tools/gcc/c++'
+    './foo'
+)
 
-build: ! : example
+files '*.o' '*.cpp' 'example'
 
-example : [ (when-outdated) shell (check-file) ] : example.o check-something
-	echo $(c++.LINK) -o $@ $< > $@
+fo = foo
+var = var
 
-example.o : [ (when-outdated) shell (check-file) ] : example.txt
-	echo $(c++.COMPILE) -o $@ $^ > $@
+run-example: [ (shell-stdout) (shell) ] : example
+	@echo $(foo.var)
+	@echo $(foo.bar.var)
+	@echo $(foo.bar.a.var)
+	@echo $(foo.bar.b.var)
+	@echo $($(fo).var)
+	@echo $($(fo).$(var))
+	./example
 
-example.txt : [ (when-outdated) plain (update-file) ]
+example: [ (compare) (shell-stderr) (shell) (check-file) ] : example.o
+	$(c++.link) -o $@ $<
+
+example.o: [ (compare) (shell-stderr) (shell) (check-file) ] : example.cpp
+	$(c++.compile) -o $@ $^
+
+example.cpp: [ (compare) (plain) (update-file) ]
 	#include <iostream>
 	int main() {
 	  std::cout << "$@" << std::endl;
 	}
-
-check-something: [ shell ]
-	false

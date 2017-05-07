@@ -1,0 +1,5 @@
+project foo
+
+import './bar'
+
+var = foo

@@ -1,0 +1,8 @@
+project bar
+
+import (
+  './a'
+  './b'
+)
+
+var = bar

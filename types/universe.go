@@ -124,12 +124,13 @@ func (g *Globe) Main() *Project { return g.main }
 // NewProject returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (g *Globe) NewProject(absPath, specPath, name string) (m *Project) {
+func (g *Globe) NewProject(absPath, relPath, spec, name string) (m *Project) {
 	scope := NewScope(g.scope, token.NoPos, token.NoPos, fmt.Sprintf("project %q", name/*specPath*/))
 	m = &Project{
                 absPath: absPath,
-                specPath: specPath, 
-                name: name, 
+                relPath: relPath, 
+                spec: spec,
+                name: name,
                 scope: scope,
         }
         if g.main == nil {

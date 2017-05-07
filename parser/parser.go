@@ -488,31 +488,33 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
 		defer un(trace(p, "Selector"))
 	}
 
-        bw := p.parseBareword()
-        if _, ok := p.extensions[bw.Value]; ok {
-                res = &ast.Barefile{ x, bw.Pos(), bw.Value }
-                return
-        }
-        
-        // Convert x into an Ident or Barefile
-        switch t := x.(type) {
-        case *ast.Bareword:
-                if p.isFileName(t.Value + "." + bw.Value) {
+        s := p.checkExpr(p.parseExpr(lhs))
+
+        if bw, ok := s.(*ast.Bareword); ok {
+                if _, ok := p.extensions[bw.Value]; ok {
                         res = &ast.Barefile{ x, bw.Pos(), bw.Value }
                         return
                 }
 
-                x = &ast.Ident{ t.ValuePos, t.Value, nil }
-                if lhs {
-                        p.resolve(x)
+                if t, ok := x.(*ast.Bareword); ok && p.isFileName(t.Value+"."+bw.Value) {
+                        res = &ast.Barefile{ x, bw.Pos(), bw.Value }
+                        return
                 }
-        default:
-                p.error(t.Pos(), fmt.Sprintf("unsupported selection upon a %T", x))
+
+                // convert the S operator into an Ident
+                s = &ast.Ident{ bw.ValuePos, bw.Value, nil }
         }
 
-        sel := &ast.Ident{ bw.ValuePos, bw.Value, nil }
-        res = &ast.SelectorExpr{ X: x, Sel: sel }
-        //fmt.Printf("parseSelector: %T %v %v\n", x, x, sel.Name)
+        // Convert x into an Ident or Barefile
+        if t, ok := x.(*ast.Bareword); ok {
+                x = &ast.Ident{ t.ValuePos, t.Value, nil }
+                p.tryResolve(x, true)
+        }
+
+        res = &ast.SelectorExpr{ x, s }
+        if p.tok == token.PERIOD {
+                res = p.parseSelector(lhs, res)
+        }
         return
 }
 

@@ -17,44 +17,44 @@ numbers = -123 +"100"
 eval print "this is a test ($(foo.FOOBAR) $(FOOBAR))\n"
 eval println 'this is a test (foo bar example.foobar)'
 
-test = $(fs.OSNAME)
+test = $(OSNAME)
 test = foo bar
 
 ## Starting rule of shell program
 start : ! : \
-  process.cmd \
-  process.python \
-  process.perl \
-  process.default \
-  process.plain \
-  process.xml.1 \
-  process.xml.2 \
-  process.json.1 \
-  process.json.2 \
-  process.json.3 \
-  process.json.4
+  process_cmd \
+  process_python \
+  process_perl \
+  process_default \
+  process_plain \
+  process_xml_1 \
+  process_xml_2 \
+  process_json_1 \
+  process_json_2 \
+  process_json_3 \
+  process_json_4
 
-process.cmd : [ shell ] :
+process_cmd : [ shell ] :
 	echo '$@' && \\
-	echo 'process.cmd'
+	echo 'process_cmd'
 
-process.python : [ python ] :
+process_python : [ python ] :
 	print "$@"
-	print "process.python"
+	print "process_python"
 
-process.perl : [ perl ] :
+process_perl : [ perl ] :
 	printf "$@\n";
-	printf "process.perl\n";
+	printf "process_perl\n";
 
-process.default:
+process_default:
 	println 'interpretes statements by default'
 
-process.plain : [ plain ] :
+process_plain : [ plain ] :
 	this is a plain text ($(TAG_BOOK))
 	this is a plain text (book)
 
 # [ xml (as x), (xml-write-file (xml-search $x, 'book one'), $@) ]
-process.xml.1 : [ xml ] :
+process_xml_1 : [ xml ] :
 	<books number="3">
 	  <$(TAG_BOOK) id="1">
 	    <$(TAG_TITLE)>$(BOOK_TITLE_1)</$(TAG_TITLE)>
@@ -64,12 +64,12 @@ process.xml.1 : [ xml ] :
 	  </$(TAG_BOOK)>
 	  <book id="3"> <title>  abc  </title> </book>
 	</books>
-process.xml.2 : [ xml ] :
+process_xml_2 : [ xml ] :
 	<book><title>book one</title></book>
 	<book><title>book two</title></book>
 	<book><title>book three</title></book>
 
-process.json.1 : [ json ] :
+process_json_1 : [ json ] :
 	{
 	  "Name": "Platypus",
 	  "Order": "Monotremata",
@@ -80,9 +80,9 @@ process.json.1 : [ json ] :
 	    "Number": 1.234
 	  }
 	}
-process.json.2 : [ json ] :
+process_json_2 : [ json ] :
 	[ "a", "b", "c", 1, 2, 3, null ]
-process.json.3 : [ json ] :
+process_json_3 : [ json ] :
 	[
 	  {"Name": "Ed", "Text": "Knock knock."},
 	  {"Name": "Sam", "Text": "Who's there?"},
@@ -90,7 +90,7 @@ process.json.3 : [ json ] :
 	  {"Name": "Sam", "Text": "Go fmt who?"},
 	  {"Name": "Ed", "Text": "Go fmt yourself!"}
 	]
-process.json.4 : [ json ] : # json stream
+process_json_4 : [ json ] : # json stream
 	{"Name": "Ed", "Text": "Knock knock."}
 	{"Name": "Sam", "Text": "Who's there?"}
 	{"Name": "Ed", "Text": "Go fmt."}

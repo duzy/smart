@@ -7,12 +7,14 @@ package interpreter
 
 import (
         "testing"
+        "fmt"
 )
 
 func TestLoad(t *testing.T) {
         i := New()
         if err := i.Load(`testdata/example.smart`, nil); err != nil {
-                t.Fatalf("Load: %v", err)
+                fmt.Printf("%v\n", err)
+                t.Fatalf("Load: testdata/example.smart")
         }
         if err := i.Run(); err != nil {
                 t.Fatalf("Load: %v", err)
@@ -23,9 +25,10 @@ func TestBuildExample(t *testing.T) {
         i := New()
         i.AddSearchPaths(`../modules`)
         if err := i.Load(`testdata/example-build.smart`, nil); err != nil {
-                t.Fatalf("Load: %v", err)
+                fmt.Printf("%v\n", err)
+                t.Fatalf("Load: testdata/example-build.smart")
         }
         if err := i.Run(); err != nil {
-                t.Fatalf("Load: %v", err)
+                t.Fatalf("Run: %v", err)
         }
 }

@@ -185,8 +185,8 @@ type (
 
         // A SelectorExpr node represents an expression followed by a selector.
 	SelectorExpr struct {
-		X   Expr   // expression
-		Sel *Ident // field selector
+		X Expr // expression
+		S Expr // field selector, or sub-selector
 	}
 
         // Call expression
@@ -288,7 +288,7 @@ func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End()
 func (d *Barefile) End() token.Pos        { return token.Pos(int(d.ExtPos) + len(d.Ext)) }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *PathExpr) End() token.Pos        { return d.PosEnd }
-func (d *SelectorExpr) End() token.Pos    { return d.Sel.End() }
+func (d *SelectorExpr) End() token.Pos    { return d.S.End() }
 func (d *CallExpr) End() token.Pos        { return d.Rparen + 1 }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }

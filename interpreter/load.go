@@ -138,8 +138,8 @@ importProject:
         return
 }
 
-func (i *Interpreter) evalUnary(x *ast.UnaryExpr) (v types.Value) {
-        operand := i.evalExpr(x.X)
+func (i *Interpreter) unary(scope *types.Scope, x *ast.UnaryExpr) (v types.Value) {
+        operand := i.expr(scope, x.X)
         if t, ok := operand.Type().(*types.Basic); ok && t.IsFloat() {
                 switch x.Op {
                 case token.PLUS:  v = values.Float(+operand.Float())
@@ -154,8 +154,8 @@ func (i *Interpreter) evalUnary(x *ast.UnaryExpr) (v types.Value) {
         return
 }
 
-func (i *Interpreter) evalBinary(x *ast.BinaryExpr) (v types.Value) {
-        operand1, operand2 := i.evalExpr(x.X), i.evalExpr(x.Y)
+func (i *Interpreter) binary(scope *types.Scope, x *ast.BinaryExpr) (v types.Value) {
+        operand1, operand2 := i.expr(scope, x.X), i.expr(scope, x.Y)
         switch x.Op {
         default:
                 assert(operand1 != nil)
@@ -165,103 +165,148 @@ func (i *Interpreter) evalBinary(x *ast.BinaryExpr) (v types.Value) {
         return
 }
 
-func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
-        switch x := expr.(type) {
-        case *ast.BadExpr:
-                unreachable();
+func (i *Interpreter) ident(scope *types.Scope, x *ast.Ident) (v types.Value) {
+        if _, v = scope.LookupAt(x.Pos(), x.Name); v == nil {
+                p := i.project
+                if x.Sym != nil && x.Sym.Kind == ast.Rul {
+                        v = p.Insert(x.Name, nil)
+                } else {
+                        v = types.NewDummy(p, i.Scope(), x.Name)
+                }
+        }
+        return
+}
+
+func (i *Interpreter) selector(scope *types.Scope, p *types.Project, x *ast.SelectorExpr) (v types.Value) {
+        var base types.Value
+        switch t := x.X.(type) {
         case *ast.Ident:
-                if _, v = i.Scope().LookupAt(x.Pos(), x.Name); v == nil {
-                        m := i.project
-                        //fmt.Printf("eval:ident: '%v' (%T %v) in %v, %v, %v\n", x.Name, x.Sym, x.Sym,
-                        //        i.Scope(), m.Scope(), i.project.Scope())
-                        if x.Sym != nil && x.Sym.Kind == ast.Rul {
-                                //fmt.Printf("rule: %T %v\n", x, x)
-                                v = m.Insert(x.Name, nil)
-                                //fmt.Printf("rule: %T %v\n", v, v)
+                base = p.Scope().Lookup(t.Name)
+        default:
+                if name := i.expr(scope, t).String(); name == "" {
+                        if c, ok := t.(*ast.CallExpr); ok {
+                                runtime.Fail("'%v' is empty", c.Name)
                         } else {
-                                //runtime.Fail("symbol %s undefined", x.Name)
-                                v = types.NewDummy(m, i.Scope(), x.Name)
+                                runtime.Fail("'%T' is empty", t)
+                        }
+                } else {
+                        base = p.Scope().Lookup(name)
+                }
+        }
+
+        if base == nil {
+                runtime.Fail("'%T' undefined in %s", x.X, p.Name())
+        }
+
+        if pn, _ := base.(*types.ProjectName); pn != nil {
+                sub := pn.Imported()
+                if sub == nil {
+                        runtime.Fail("importee of %s is nil", pn.Name())
+                }
+
+                switch s := x.S.(type) {
+                case *ast.Ident:
+                        if obj := sub.Scope().Lookup(s.Name); obj == nil {
+                                runtime.Fail("'%s' undefined in %s", s.Name, pn.Name())
+                        } else {
+                                v = obj
+                        }
+                case *ast.SelectorExpr:
+                        v = i.selector(scope, sub, s)
+                default:
+                        if name := i.expr(scope, s).String(); name == "" {
+                                if c, ok := s.(*ast.CallExpr); ok {
+                                        runtime.Fail("'%v' is empty", c.Name)
+                                } else {
+                                        runtime.Fail("'%T' is empty", s)
+                                }
+                        } else if obj := sub.Scope().Lookup(name); obj == nil {
+                                runtime.Fail("'%s' undefined in %s", name, pn.Name())
+                        } else {
+                                v = obj
                         }
                 }
+        } else {
+                runtime.Fail("bad selection upon %T %v", base, base)
+        }
+        return
+}
+
+func (i *Interpreter) call(scope *types.Scope, x *ast.CallExpr) (v types.Value) {
+        var name = i.expr(scope, x.Name)
+        if obj, _ := name.(types.Object); obj != nil {
+                v = i.Fold(x.Pos(), obj, i.exprs(scope, x.Args)...)
+        } else if name != nil {
+                runtime.Fail("unsupported name '%s' (%T, %T)", name, x.Name, name)
+        } else {
+                runtime.Fail("calling undefined object %v", x.Name)
+        }
+        return
+}
+
+func (i *Interpreter) recipe(scope *types.Scope, x *ast.RecipeExpr) (v types.Value) {
+        if x.Dialect == "" {
+                var elems []types.Value
+                switch t := x.Elems[0].(type) {
+                default: runtime.Fail("unsupported recipe %T", t)
+                case *ast.SelectorExpr, *ast.Ident:
+                }
+                elems = append(elems, i.exprs(scope, x.Elems)...)
+                //fmt.Printf("recipe: %T %T\n", x.Elems[0], elems[0])
+                v = values.List(elems...)
+        } else {
+                elems := i.exprs(scope, x.Elems)
+                v = values.Compound(elems...)
+        }
+        return
+}
+
+func (i *Interpreter) expr(scope *types.Scope, expr ast.Expr) (v types.Value) {
+        switch x := expr.(type) {
+        case *ast.Ident:
+                v = i.ident(scope, x)
+        case *ast.SelectorExpr:
+                v = i.selector(scope, i.project, x)
+        case *ast.CallExpr:
+                v = i.call(scope, x)
+        case *ast.RecipeExpr:
+                v = i.recipe(scope, x)
         case *ast.BasicLit:
                 v = values.Literal(x.Kind, x.Value)
         case *ast.Bareword:
                 v = values.Bareword(x.Value)
         case *ast.Barecomp:
-                v = values.Barecomp(i.evalExprs(x.Elems)...)
+                v = values.Barecomp(i.exprs(scope, x.Elems)...)
         case *ast.Barefile:
-                v = values.Barefile(i.evalExpr(x.Name), x.Ext)
+                v = values.Barefile(i.expr(scope, x.Name), x.Ext)
         case *ast.PathExpr:
-                v = values.Path(i.evalExprs(x.Segments)...)
+                v = values.Path(i.exprs(scope, x.Segments)...)
         case *ast.FlagExpr:
-                v = values.Flag(i.evalExpr(x.Name))
+                v = values.Flag(i.expr(scope, x.Name))
         case *ast.CompoundLit:
-                v = values.Compound(i.evalExprs(x.Elems)...)
+                v = values.Compound(i.exprs(scope, x.Elems)...)
         case *ast.GroupExpr:
-                v = values.Group(i.evalExprs(x.Elems)...)
+                v = values.Group(i.exprs(scope, x.Elems)...)
         case *ast.ListExpr:
-                v = values.List(i.evalExprs(x.Elems)...)
+                v = values.List(i.exprs(scope, x.Elems)...)
         case *ast.KeyValueExpr:
-                v = values.Pair(i.evalExpr(x.Key), i.evalExpr(x.Value))
-        case *ast.SelectorExpr:
-                if mn, _ := i.evalExpr(x.X).(*types.ProjectName); mn != nil {
-                        if m := mn.Imported(); m == nil {
-                                runtime.Fail("importee of %s is nil", mn.Name())
-                        } else if sym := m.Scope().Lookup(x.Sel.Name); sym != nil {
-                                v = sym
-                        } else {
-                                runtime.Fail("symbol %s undefined in %s", x.Sel.Name, mn.Name())
-                        }
-                } else if id, _ := x.X.(*ast.Ident); id != nil {
-                        //fmt.Printf("eval:selector: '%v'.%v in %v, %v\n", id.Name, x.Sel.Name, i.Scope(), i.project.Scope())
-                        //runtime.Fail("project %s is not imported (%s.%v)", id.Name, id.Name, x.Sel.Name)
-                        runtime.Fail("project %s is not imported (%s.%v) in %v, %v", 
-                                id.Name, id.Name, x.Sel.Name,
-                                i.Scope()/*.Parent().Parent().Parent()*/,
-                                i.project.Scope())
-                } else {
-                        unreachable()
-                }
-        case *ast.CallExpr:
-                var name = i.evalExpr(x.Name)
-                if sym, _ := name.(types.Object); sym != nil {
-                        //fmt.Printf("call: %T %T %v\n", x.Name, name, sym)
-                        v = i.Fold(x.Pos(), sym, i.evalExprs(x.Args)...)
-                } else if name != nil {
-                        runtime.Fail("unsupported name '%s' (%T, %T)", name, x.Name, name)
-                } else {
-                        runtime.Fail("calling undefined object %v", x.Name)
-                }
-        case *ast.RecipeExpr:
-                if x.Dialect == "" {
-                        var elems []types.Value
-                        switch t := x.Elems[0].(type) {
-                        default: runtime.Fail("unsupported recipe %T", t)
-                        case *ast.SelectorExpr, *ast.Ident:
-                        }
-                        elems = append(elems, i.evalExprs(x.Elems)...)
-                        //fmt.Printf("recipe: %T %T\n", x.Elems[0], elems[0])
-                        v = values.List(elems...)
-                } else {
-                        elems := i.evalExprs(x.Elems)
-                        v = values.Compound(elems...)
-                }
+                v = values.Pair(i.expr(scope, x.Key), i.expr(scope, x.Value))
         case *ast.PercExpr:
-                v = types.NewPercentPattern(i.project, i.evalExpr(x.X), i.evalExpr(x.Y))
+                v = types.NewPercentPattern(i.project, i.expr(scope, x.X), i.expr(scope, x.Y))
         case *ast.UnaryExpr:
-                v = i.evalUnary(x)
+                v = i.unary(scope, x)
         case nil:
                 v = values.None
         default:
-                //fmt.Printf("%T %v\n", x, x)
+                fmt.Printf("unsupported expression %T %v\n", x, x)
                 unreachable()
         }
         return
 }
 
-func (i *Interpreter) evalExprs(exprs []ast.Expr) (values []types.Value) {
+func (i *Interpreter) exprs(scope *types.Scope, exprs []ast.Expr) (values []types.Value) {
         for _, x := range exprs {
-                values = append(values, i.evalExpr(x))
+                values = append(values, i.expr(scope, x))
         }
         return
 }
@@ -273,9 +318,10 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
 
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
-                name := i.evalExpr(spec.Props[0])
+                scope := i.Scope()
+                name := i.expr(scope, spec.Props[0])
                 if _, fun := i.Scope().LookupAt(spec.EndPos, name.String()); fun != nil {
-                        args := i.evalExprs(spec.Props[1:])
+                        args := i.exprs(scope, spec.Props[1:])
                         res, _ = fun.Call(args...)
                 } else {
                         err = errors.New(fmt.Sprintf("undefined '%s'", name))
@@ -289,8 +335,8 @@ func (i *Interpreter) define(d *ast.DefineClause) (sym types.Object, err error) 
         if p := i.project; p != nil {
                 var (
                         scope = p.Scope()
-                        name = i.evalExpr(d.Name).String()
-                        v = i.evalExpr(d.Value)
+                        name = i.expr(scope, d.Name).String()
+                        v = i.expr(scope, d.Value)
                 )
 
                 if t, _ := v.(*types.Def); t != nil {
@@ -316,7 +362,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 recipes []types.Value
                 m = i.project//CurrentProject()
         )
-        for i, depend := range i.evalExprs(d.Depends) {
+        for i, depend := range i.exprs(i.Scope(), d.Depends) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.String())
                 switch entry := depend.(type) {
                 case *types.RuleEntry, *values.BarefileValue, *values.PathValue,
@@ -349,7 +395,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 }
                 
                 if p.Values != nil {
-                        recipes = i.evalExprs(p.Values)
+                        recipes = i.exprs(scope, p.Values)
                 }
         } else {
                 return errors.New(fmt.Sprintf("unsupported program type"))
@@ -357,7 +403,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         
         var modifiers []types.Value
         if d.Modifier != nil {
-                modifiers = i.evalExprs(d.Modifier.Elems)
+                modifiers = i.exprs(scope, d.Modifier.Elems)
         }
         
         var prog = runtime.NewProgram(i.Context, i.project, scope, depends, recipes...)
@@ -367,7 +413,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 }
         }
         
-        for _, target := range i.evalExprs(d.Targets) {
+        for _, target := range i.exprs(scope, d.Targets) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", target, target, target.String())
                 switch entry := target.(type) {
                 case *types.PercentPattern:
@@ -395,13 +441,14 @@ func (i *Interpreter) lexing(lexScope *ast.Scope) (err error) {
 
 func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         var (
+                scope = i.Scope()
                 linfo = i.loads[len(i.loads)-1]
-                specPath = i.evalExpr(spec.Props[0]).String()
+                specPath = i.expr(scope, spec.Props[0]).String()
                 params []types.Value
         )
 
         if len(spec.Props) > 1 {
-                params = i.evalExprs(spec.Props[1:])
+                params = i.exprs(scope, spec.Props[1:])
         }
 
         var (
@@ -452,13 +499,7 @@ func (i *Interpreter) declareProject(name string) (err error) {
         linfo := i.loads[len(i.loads)-1]
         dec, ok := linfo.declares[name]
         if !ok {
-                dec = &declare{
-                        project: i.Globe().NewProject(linfo.absPath, linfo.specPath, name),
-                }
-                linfo.declares[name] = dec
-
                 var (
-                        ms = dec.project.Scope()
                         absPath = linfo.absPath
                         relPath, relPathParent string
                 )
@@ -467,14 +508,20 @@ func (i *Interpreter) declareProject(name string) (err error) {
                         absPath, _ = filepath.Abs(absPath)
                 }
 
-                //fmt.Printf("%s: %s, %s\n", name, relPath, absPath)
-                
                 relPath, _ = filepath.Rel(i.Getwd(), absPath)
                 relPathParent = filepath.Dir(relPath)
                 if relPath == "." && relPathParent == "." {
                         relPathParent = ".."
                 }
 
+                //fmt.Printf("declare: %s, %s, %s\n", name, relPath, absPath)
+                
+                dec = &declare{
+                        project: i.Globe().NewProject(absPath, relPath, linfo.specPath, name),
+                }
+                linfo.declares[name] = dec
+
+                var ms = dec.project.Scope()
                 if ms.Insert(types.NewDef(dec.project, "/", values.String(absPath))) != nil {
                         panic(fmt.Sprintf("'$/' already defined"))
                 }
@@ -490,8 +537,8 @@ func (i *Interpreter) declareProject(name string) (err error) {
                 //fmt.Printf("DeclareProject: %s -> %s, %v\n", loader.Name(), dec.project.Name(), dec.s)
 
                 if obj := loader.Scope().Lookup(name); obj == nil {
-                        mn := types.NewProjectName(loader, name, dec.project)
-                        loader.Scope().Insert(mn)
+                        pn := types.NewProjectName(loader, name, dec.project)
+                        loader.Scope().Insert(pn)
                 } else if v, ok := obj.(*types.ProjectName); !ok || v == nil {
                         err = errors.New(fmt.Sprintf("name '%s' already taken (%T)", name, obj))
                 }
@@ -519,8 +566,8 @@ func (i *Interpreter) declareProject(name string) (err error) {
 // Interpreter.Load loads script from a file or source code (string, []byte).
 func (i *Interpreter) load(specPath, absPath string, source interface{}) error {
         if loaded, ok := i.loaded[absPath]; ok {
-                mn := types.NewProjectName(i.project, loaded.Name(), loaded)
-                i.project.Scope().Insert(mn)
+                pn := types.NewProjectName(i.project, loaded.Name(), loaded)
+                i.project.Scope().Insert(pn)
                 //fmt.Printf("Load: already loaded '%v'\n", specPath)
                 //fmt.Printf("Load: %v\n", i.project.Scope())
                 //fmt.Printf("Load: %v\n", loaded.Scope())
@@ -543,8 +590,8 @@ func (i *Interpreter) load(specPath, absPath string, source interface{}) error {
 
 func (i *Interpreter) loadDir(specPath, absPath string, filter func(os.FileInfo) bool) (err error) {
         if loaded, ok := i.loaded[absPath]; ok {
-                mn := types.NewProjectName(i.project, loaded.Name(), loaded)
-                i.project.Scope().Insert(mn)
+                pn := types.NewProjectName(i.project, loaded.Name(), loaded)
+                i.project.Scope().Insert(pn)
                 //fmt.Printf("LoadDir: already loaded '%v'\n", specPath)
                 //fmt.Printf("LoadDir: %v\n", i.project.Scope())
                 //fmt.Printf("LoadDir: %v\n", loaded.Scope())
@@ -630,7 +677,7 @@ func (pc *parseContext) EvalExpr(x ast.Expr) (s fmt.Stringer, err error) {
 		}
         }()
 
-        s = pc.evalExpr(x)
+        s = pc.expr(pc.Scope(), x)
         //fmt.Printf("EvalExpr: %T '%s'\n", x, s)
         return
 }

@@ -106,14 +106,15 @@ func (p *delegate) Float() float64    { return p.call().Float() }
 func (p *delegate) call() (v types.Value) {
         if types.IsDummy(p.s) {
                 scope := p.s.Parent()
-                if _, s := scope.LookupAt(token.NoPos, p.s.Name()); s == nil {
-                        v = values.None
-                } else {
+                if _, s := scope.LookupAt(token.NoPos, p.s.Name()); s != nil {
                         p.s = s
                         v, _ = s.Call(p.a...)
                 }
         } else {
                 v, _ = p.s.Call(p.a...)
+        }
+        if v == nil {
+                v = values.None
         }
         return v 
 }

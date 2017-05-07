@@ -59,7 +59,7 @@ func (obj *object) Project() *Project     { return obj.project }
 func (obj *object) Name() string          { return obj.name }
 func (obj *object) Type() Type            { return obj.typ }
 func (obj *object) Lit() string           { return "" }
-func (obj *object) String() string        { return fmt.Sprintf("object ", obj.name) }
+func (obj *object) String() string        { return fmt.Sprintf("object %v", obj.name) }
 func (obj *object) Integer() int64        { return 0 }
 func (obj *object) Float() float64        { return 0 }
 func (obj *object) Call(a... Value) (Value, error) { return nil, nil }

@@ -176,12 +176,12 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         //fmt.Printf("Program.Execute: %v %v\n", entry, prog.depends)
 
         var (
-                //top = prog.context.Getwd()
                 p = prog.project
                 workdir = p.AbsPath()
                 wd, _ = os.Getwd()
+                //top = prog.context.Getwd()
         )
-        //fmt.Printf("%s: %s, %s\n", p.Name(), p.SpecPath(), p.AbsPath())
+        //fmt.Printf("%s: %s, %s; %s\n", p.Name(), p.RelPath(), p.AbsPath(), wd)
         if workdir != wd {
                 fmt.Printf("smart: Entering directory '%s'\n", workdir)
                 if err = os.Chdir(workdir); err == nil {
