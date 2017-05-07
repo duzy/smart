@@ -24,8 +24,6 @@ var builtins = map[string]BuiltinFunc {
         `print`:   builtinPrint,
         `printl`:  builtinPrintl,
         `println`: builtinPrintln,
-        `dir`:     builtinDir,
-        `base`:    builtinBase,
 }
 
 func GetBuiltins() map[string]BuiltinFunc {
@@ -70,15 +68,5 @@ func builtinPrintl(args... Value) (Value, error) {
 func builtinPrintln(args... Value) (Value, error) {
         builtinPrint(args...)
         fmt.Printf("\n")
-        return nil, nil
-}
-
-func builtinDir(args... Value) (Value, error) {
-        // TODO: ...
-        return nil, nil
-}
-
-func builtinBase(args... Value) (Value, error) {
-        // TODO: ...
         return nil, nil
 }

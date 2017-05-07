@@ -10,9 +10,10 @@ import (
         //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
+        "encoding/base64"
+        "path/filepath"
         "io/ioutil"
         "bytes"
-        "encoding/base64"
         //"fmt"
 )
 
@@ -24,6 +25,10 @@ var (
                 `lit`:          builtinLit,
                 //`run`:          builtinRun,
 
+                `base`:         builtinBase,
+                `dirdir`:       builtinDirDir,
+                `dir`:          builtinDir,
+                
                 `read-file`:    builtinReadFile,
 
                 `encode-base64`:  builtinEncodeBase64,
@@ -149,4 +154,52 @@ func builtinDecodeBase64(ctx *Context, args... types.Value) (res types.Value, er
                 }
         }
         return
+}
+
+func builtinBase(ctx *Context, args... types.Value) (types.Value, error) {
+        var (
+                l []types.Value
+                s string
+        )
+        for _, a := range args {
+                s = filepath.Base(a.String())
+                l = append(l, values.String(s))
+        }
+        if len(l) == 1 {
+                return l[0], nil
+        } else {
+                return values.List(l...), nil
+        }
+}
+
+func builtinDirDir(ctx *Context, args... types.Value) (types.Value, error) {
+        var (
+                l []types.Value
+                s string
+        )
+        for _, a := range args {
+                s = filepath.Dir(filepath.Dir(a.String()))
+                l = append(l, values.String(s))
+        }
+        if len(l) == 1 {
+                return l[0], nil
+        } else {
+                return values.List(l...), nil
+        }
+}
+
+func builtinDir(ctx *Context, args... types.Value) (types.Value, error) {
+        var (
+                l []types.Value
+                s string
+        )
+        for _, a := range args {
+                s = filepath.Dir(a.String())
+                l = append(l, values.String(s))
+        }
+        if len(l) == 1 {
+                return l[0], nil
+        } else {
+                return values.List(l...), nil
+        }
 }
