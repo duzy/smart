@@ -35,6 +35,18 @@ func init() {
         flag.Var(&globalPaths, "search", "comma-separated list of search paths")
 }
 
+type declare struct {
+        project *types.Project
+        backscope *types.Scope
+}
+
+type loadinfo struct {
+        specPath, absPath, baseName string
+        loader *types.Project
+        scope *types.Scope
+        declares map[string]*declare // all project declares in the loaded dir
+}
+
 type Interpreter struct {
         *runtime.Context
         pc       *parser.Context
@@ -42,20 +54,7 @@ type Interpreter struct {
         paths    searchlist
         loads    []*loadinfo
         loaded   map[string]*types.Project
-        projects map[string]*enterexit // all projects in the same project dir
         project  *types.Project
-}
-
-type loadinfo struct {
-        specPath, absPath, baseName string
-        loader *types.Project
-        scope *types.Scope
-        projects map[string]*types.Project // all projects in the loaded dir
-}
-
-type enterexit struct {
-        p *types.Project
-        s *types.Scope
 }
 
 type parseContext struct {
@@ -68,7 +67,6 @@ func New() (interpreter *Interpreter) {
                 Context:  runtime.NewContext("interpreter"),
                 fset:     token.NewFileSet(), 
                 paths:    []string(globalPaths),
-                projects: make(map[string]*enterexit),
                 loaded:   make(map[string]*types.Project),
         }
         interpreter.pc = parser.NewContext(&parseContext{ interpreter })

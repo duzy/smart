@@ -111,7 +111,6 @@ type Project struct {
 	path      string
 	name      string
         scope     *Scope
-        imports   []*Project
         uses      []*Use
 
         exts      map[string][]string
@@ -125,21 +124,7 @@ type Project struct {
 func (m *Project) Path() string { return m.path }
 func (m *Project) Name() string { return m.name }
 func (m *Project) Scope() *Scope { return m.scope }
-func (m *Project) Imports() []*Project { return m.imports }
 func (m *Project) Uses() []*Use { return m.uses }
-
-func (m *Project) AddImport(o *Project) {
-        m.imports = append(m.imports, o)
-}
-
-func (m *Project) FindImport(name string) (res *Project) {
-        for _, m := range m.imports {
-                if m.Name() == name {
-                        res = m; break
-                }
-        }
-        return
-}
 
 func (m *Project) AddExts(exts map[string][]string) {
         if m.exts == nil {
@@ -188,13 +173,6 @@ func (m *Project) EntryClass(name string) (kind RuleEntryClass) {
                 kind = FileRuleEntry
         }
         //fmt.Printf(": %v %v %v\n", name, kind, m.files)
-        return
-}
-
-func (m *Project) Lookup(s string) (entry *RuleEntry) {
-        if sym := m.scope.Lookup(s); sym != nil {
-                entry, _ = sym.(*RuleEntry)
-        }
         return
 }
 

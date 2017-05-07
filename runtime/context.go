@@ -19,7 +19,6 @@ import (
 type Context struct {
         globe      *types.Globe
         scope      *types.Scope
-        projects    []*types.Project
         outdated   map[string]time.Time
         workdir    string
 }
@@ -40,28 +39,6 @@ func (ctx *Context) SetScope(scope *types.Scope) (prev *types.Scope) {
         prev = ctx.scope
         ctx.scope = scope
         return
-}
-
-func (ctx *Context) CurrentProject() *types.Project {
-        if n := len(ctx.projects); n > 0 {
-                return ctx.projects[n-1]
-        }
-        return nil
-}
-
-func (ctx *Context) EnterProject(m *types.Project, imported bool) *types.Scope {
-        if imported {
-                if cm := ctx.CurrentProject(); cm != nil {
-                        cm.AddImport(m)
-                }
-        }
-        ctx.projects = append(ctx.projects, m)
-        return ctx.SetScope(m.Scope())
-}
-
-func (ctx *Context) ExitProject(prev *types.Scope) {
-        ctx.projects = ctx.projects[0:len(ctx.projects)-1]
-        ctx.SetScope(prev)
 }
 
 func (ctx *Context) lookupAt(pos token.Pos, ident []string, findProject bool) (*types.Scope, types.Object) {
@@ -168,11 +145,10 @@ func (ctx *Context) Run(targets... string) (err error) {
                 updated int
                 mm = ctx.Globe().Main()
         )
-        
-        defer ctx.ExitProject(ctx.EnterProject(mm, false))
+
+        //fmt.Printf("run: %v\n", targets)
         
         if len(targets) == 0 {
-                //ctx.outdated = make(map[string][]string)
                 ctx.outdated = make(map[string]time.Time)
                 if entry := mm.GetDefaultEntry(); entry != nil {
                         if value, err = entry.Call(); err == nil {
@@ -180,28 +156,50 @@ func (ctx *Context) Run(targets... string) (err error) {
                         }
                 }
         } else {
-                var m = mm
                 for _, target := range targets {
+                        var m = mm
                         if names := strings.Split(target, "."); len(names)>1 {
                                 for _, s := range names[0:len(names)-1] {
-                                        m = m.FindImport(s)
+                                        var obj = m.Scope().Lookup(s)
+                                        switch t := obj.(type) {
+                                        case *types.ProjectName:
+                                                m = t.Imported()
+                                        case nil:
+                                                fmt.Printf("'%s' is not defined in %v", s, m.Scope())
+                                                return
+                                        default:
+                                                fmt.Printf("object '%s' is not project (%T)", s, t)
+                                                return
+                                        }
                                         if m == nil {
-                                                fmt.Printf("project '%s' not imported", s)
+                                                fmt.Printf("project '%s' not imported %v", s)
                                                 return
                                         }
                                 }
                                 target = names[len(names)-1]
                         }
-                        if entry := m.Lookup(target); entry != nil {
-                                //ctx.outdated = make(map[string][]string)
+
+                        var entry *types.RuleEntry
+                        switch t := m.Scope().Lookup(target).(type) {
+                        case *types.ProjectName:
+                                entry = t.Imported().GetDefaultEntry()
+                        case *types.RuleEntry:
+                                entry = t
+                        case nil:
+                                fmt.Printf("'%s' is not defined in %v", target, m.Scope())
+                                return
+                        default:
+                                fmt.Printf("object '%s' is not callable (%T)", target, t)
+                                return
+                        }
+
+                        if entry != nil {
                                 ctx.outdated = make(map[string]time.Time)
                                 if value, err = entry.Call(); err == nil {
                                         updated += 1
                                 } else {
                                         break
                                 }
-                        } else {
-                                fmt.Printf("target %s not found\n", target)
                         }
                 }
         }

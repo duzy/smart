@@ -25,6 +25,9 @@ type RuntimeContext interface {
         IsDialect(s string) bool
         IsModifier(s string) bool
 
+        Extensions(exts map[string][]string)
+        Files(a []string)
+
         DeclareProject(name string) error
 
         OpenScope(as *ast.Scope, pos token.Pos, comment string) error

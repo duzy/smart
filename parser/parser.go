@@ -948,6 +948,7 @@ func (p *parser) parseExtensions(value ast.Expr) (exts []string) {
 
 func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.ExtensionsSpec{ p.parseDirectiveSpec() }
+        extensions := make(map[string][]string)
         for _, prop := range spec.Props {
                 // fmt.Printf("extension: %T %v\n", prop, prop)
                 switch ext := prop.(type) {
@@ -973,6 +974,7 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
                         } else {
                                 for _, v := range exts {
                                         p.extensions[v] = append(p.extensions[v], key)
+                                        extensions[v] = append(extensions[v], key)
                                 }
                         }
                 default:
@@ -982,23 +984,28 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
                         } else {
                                 for _, v := range exts {
                                         p.extensions[v] = append(p.extensions[v], "")
+                                        extensions[v] = append(extensions[v], "")
                                 }
                         }
                         continue
                 }
         }
+        p.runtime.Extensions(extensions)
         return spec
 }
 
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        var files []string
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
         for _, prop := range spec.Props {
                 switch t := prop.(type) {
                 case *ast.Bareword:
                         p.files[t.Value] = t.Pos()
+                        files = append(files, t.Value)
                 case *ast.BasicLit:
                         if t.Kind == token.STRING {
                                 p.files[t.Value] = t.Pos()
+                                files = append(files, t.Value)
                         } else {
                                 p.error(t.Pos(), fmt.Sprintf("invalid file '%s'", t.Value))
                         }
@@ -1007,6 +1014,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         continue
                 }
         }
+        p.runtime.Files(files)
         return spec
 }
 

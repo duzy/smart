@@ -267,10 +267,10 @@ func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
         return
 }
 
-func NewProgram(context *Context, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
+func NewProgram(context *Context, project *types.Project, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
         return &Program{
                 context:     context,
-                project:     context.CurrentProject(),
+                project:     project, //context.CurrentProject(),
                 scope:       scope,
                 depends:     depends, // *types.RuleEntry, *values.BarefileValue
                 recipes:     recipes,

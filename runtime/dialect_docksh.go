@@ -17,17 +17,17 @@ import (
         "os"
 )
 
-type dialectDockex struct {
+type dialectDocksh struct {
         monoInterpreter
 }
 
-func (s *dialectDockex) dialect() string { return "docksh" }
-func (s *dialectDockex) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (s *dialectDocksh) dialect() string { return "docksh" }
+func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 _, symDxi = prog.scope.LookupAt(token.NoPos, "docker-exec-image")
-                _, symWd = prog.scope.LookupAt(token.NoPos, ".")
+                _, symWd = prog.scope.LookupAt(token.NoPos, "/") // "."
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value

@@ -50,7 +50,7 @@ var (
                         xopt: "-e",
                 },
 
-                `docksh`: &dialectDockex{
+                `docksh`: &dialectDocksh{
                 },
 
                 `xml`: &dialectXml{

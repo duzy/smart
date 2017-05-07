@@ -26,32 +26,32 @@ func restoreLoadingInfo(i *Interpreter) {
         var (
                 last = len(i.loads)-1
                 linfo = i.loads[last]
-                names []string
         )
 
         i.loads = i.loads[0:last]
+        i.project = linfo.loader
         i.SetScope(linfo.scope)
 
-        for _, project := range linfo.projects {
-                names = append(names, project.Name())
-                //ee := i.projects[name]
-                //i.Context.ExitProject(ee.s)
+        var names []string
+        for _, declare := range linfo.declares {
+                names = append(names, declare.project.Name())
         }
-        
+
+        /*
         if loader := linfo.loader; loader != nil {
                 fmt.Printf("exit: %v from '%s' -> %v\n", names, loader.Name(), linfo.scope)
         } else {
                 fmt.Printf("exit: %v -> %v\n", names, linfo.scope)
-        }
+        } */
 }
 
 func saveLoadingInfo(i *Interpreter, specPath, absPath, baseName string) *Interpreter {
         i.loads = append(i.loads, &loadinfo{
                 specPath: specPath,
                 absPath:  absPath,
-                loader:   i.CurrentProject(),
+                loader:   i.project,
                 scope:    i.Scope(),
-                projects: make(map[string]*types.Project),
+                declares: make(map[string]*declare),
         })
         return i
 }
@@ -171,7 +171,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                 unreachable();
         case *ast.Ident:
                 if _, v = i.Scope().LookupAt(x.Pos(), x.Name); v == nil {
-                        m := i.CurrentProject()
+                        m := i.project
                         //fmt.Printf("eval:ident: '%v' (%T %v) in %v, %v, %v\n", x.Name, x.Sym, x.Sym,
                         //        i.Scope(), m.Scope(), i.project.Scope())
                         if x.Sym != nil && x.Sym.Kind == ast.Rul {
@@ -213,9 +213,12 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                                 runtime.Fail("symbol %s undefined in %s", x.Sel.Name, mn.Name())
                         }
                 } else if id, _ := x.X.(*ast.Ident); id != nil {
-                        fmt.Printf("eval:selector: '%v'.%v in %v, %v\n", id.Name, x.Sel.Name, i.Scope(), i.project.Scope())
-                        runtime.Fail("project %s is not imported (%s.%v)",
-                                id.Name, id.Name, x.Sel.Name)
+                        //fmt.Printf("eval:selector: '%v'.%v in %v, %v\n", id.Name, x.Sel.Name, i.Scope(), i.project.Scope())
+                        //runtime.Fail("project %s is not imported (%s.%v)", id.Name, id.Name, x.Sel.Name)
+                        runtime.Fail("project %s is not imported (%s.%v) in %v, %v", 
+                                id.Name, id.Name, x.Sel.Name,
+                                i.Scope()/*.Parent().Parent().Parent()*/,
+                                i.project.Scope())
                 } else {
                         unreachable()
                 }
@@ -244,8 +247,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         v = values.Compound(elems...)
                 }
         case *ast.PercExpr:
-                m := i.CurrentProject()
-                v = types.NewPercentPattern(m, i.evalExpr(x.X), i.evalExpr(x.Y))
+                v = types.NewPercentPattern(i.project, i.evalExpr(x.X), i.evalExpr(x.Y))
         case *ast.UnaryExpr:
                 v = i.evalUnary(x)
         case nil:
@@ -284,9 +286,9 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
 }
 
 func (i *Interpreter) define(d *ast.DefineClause) (sym types.Object, err error) {
-        if m := i.CurrentProject(); m != nil {
+        if p := i.project; p != nil {
                 var (
-                        scope = m.Scope()
+                        scope = p.Scope()
                         name = i.evalExpr(d.Name).String()
                         v = i.evalExpr(d.Value)
                 )
@@ -295,7 +297,7 @@ func (i *Interpreter) define(d *ast.DefineClause) (sym types.Object, err error) 
                         v = t.Value()
                 }
                 
-                if sym = scope.Insert(types.NewDef(m, name, v)); sym != nil {
+                if sym = scope.Insert(types.NewDef(p, name, v)); sym != nil {
                         if def, ok := sym.(*types.Def); ok {
                                 def.Set(v)
                         } else {
@@ -312,7 +314,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         var (
                 depends []types.Value // *types.RuleEntry, *values.BarefileValue
                 recipes []types.Value
-                m = i.CurrentProject()
+                m = i.project//CurrentProject()
         )
         for i, depend := range i.evalExprs(d.Depends) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.String())
@@ -358,7 +360,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 modifiers = i.evalExprs(d.Modifier.Elems)
         }
         
-        var prog = runtime.NewProgram(i.Context, scope, depends, recipes...)
+        var prog = runtime.NewProgram(i.Context, i.project, scope, depends, recipes...)
         if len(modifiers) > 0 {
                 if err = prog.SetModifiers(modifiers...); err != nil {
                         return
@@ -417,16 +419,9 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
                 // TODO: parsing parameters
         }
 
-        m := i.CurrentProject()
-        m.AddFiles(doc.Files)
-        m.AddExts(doc.Extensions)
-
-        /*
-        for _, d := range doc.Clauses {
-                if err = i.clause(d); err != nil {
-                        return err
-                }
-        } */
+        p := i.project
+        p.AddFiles(doc.Files)
+        p.AddExts(doc.Extensions)
         return i.lexing(doc.Scope)
 }
 
@@ -435,13 +430,13 @@ func (i *Interpreter) openScope(as *ast.Scope, pos token.Pos, comment string) (e
         //defer i.SetScope(i.SetScope(scope))
         scope := types.NewScope(i.Scope(), pos, token.NoPos, comment)
         as.Runtime = i.SetScope(scope)
-        fmt.Printf("OpenScope: %s in %s\n", i.Scope(), as.Runtime)
+        //fmt.Printf("OpenScope: %s in %s\n", i.Scope(), as.Runtime)
         return
 }
 
 func (i *Interpreter) closeScope(as *ast.Scope) (err error) {
         if scope, ok := as.Runtime.(*types.Scope); ok {
-                fmt.Printf("CloseScope: %s -> %s\n", i.Scope(), scope)
+                //fmt.Printf("CloseScope: %s -> %s\n", i.Scope(), scope)
                 i.SetScope(scope)
         } else {
                 err = errors.New(fmt.Sprintf("bad runtime scope (%T)", as.Runtime))
@@ -451,23 +446,39 @@ func (i *Interpreter) closeScope(as *ast.Scope) (err error) {
 
 func (i *Interpreter) declareProject(name string) (err error) {
         if i.project != nil && i.project.Name() == name {
-                //return nil
+                return nil
         }
         
         linfo := i.loads[len(i.loads)-1]
-        
-        ee, ok := i.projects[name]
+        dec, ok := linfo.declares[name]
         if !ok {
-                ee = &enterexit{
-                        p: i.Globe().NewProject(linfo.specPath, name),
+                var projectPath string
+                for n := len(i.loads)-1; n >= 0; n -= 1 {
+                        s := i.loads[n].specPath
+                        if strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../") {
+                                projectPath = filepath.Join(s, projectPath)
+                        } else if strings.HasPrefix(s, "/") {
+                                projectPath = filepath.Join(s, projectPath)
+                                break
+                        } else {
+                                projectPath = filepath.Join(i.loads[n].absPath, projectPath)
+                                break
+                        }
                 }
-                i.projects[name] = ee
+                if projectPath == "" {
+                        projectPath = "."
+                }
+                
+                dec = &declare{
+                        project: i.Globe().NewProject(projectPath, name),
+                }
+                linfo.declares[name] = dec
 
                 var (
-                        ms = ee.p.Scope()
                         absPath = linfo.absPath
                         specPath = linfo.specPath
                         specPathParent = filepath.Dir(specPath)
+                        ms = dec.project.Scope()
                 )
                 if !filepath.IsAbs(absPath) {
                         //absPath = filepath.Join(i.Getwd(), absPath)
@@ -476,28 +487,22 @@ func (i *Interpreter) declareProject(name string) (err error) {
                 if specPath == "." && specPathParent == "." {
                         specPathParent = ".."
                 }
-                if ms.Insert(types.NewDef(ee.p, "/", values.String(absPath))) != nil {
+                if ms.Insert(types.NewDef(dec.project, "/", values.String(absPath))) != nil {
                         panic(fmt.Sprintf("'$/' already defined"))
                 }
-                if ms.Insert(types.NewDef(ee.p, ".", values.String(specPath))) != nil {
+                if ms.Insert(types.NewDef(dec.project, ".", values.String(specPath))) != nil {
                         panic(fmt.Sprintf("'$.' already defined"))
                 }
-                if ms.Insert(types.NewDef(ee.p, "..", values.String(specPathParent))) != nil {
+                if ms.Insert(types.NewDef(dec.project, "..", values.String(specPathParent))) != nil {
                         panic(fmt.Sprintf("'$..' already defined"))
                 }
         }
 
-        if p, _ := linfo.projects[name]; p == nil {
-                linfo.projects[name] = ee.p
-        } else if p != ee.p {
-                err = errors.New(fmt.Sprintf("multiple instances of name '%s'", name))
-        }
-        
         if loader := linfo.loader; loader != nil {
-                //fmt.Printf("DeclareProject: %s -> %s, %v\n", loader.Name(), ee.p.Name(), ee.s)
+                //fmt.Printf("DeclareProject: %s -> %s, %v\n", loader.Name(), dec.project.Name(), dec.s)
 
                 if obj := loader.Scope().Lookup(name); obj == nil {
-                        mn := types.NewProjectName(loader, name, ee.p)
+                        mn := types.NewProjectName(loader, name, dec.project)
                         loader.Scope().Insert(mn)
                 } else if v, ok := obj.(*types.ProjectName); !ok || v == nil {
                         err = errors.New(fmt.Sprintf("name '%s' already taken (%T)", name, obj))
@@ -507,18 +512,19 @@ func (i *Interpreter) declareProject(name string) (err error) {
         }
 
         if i.project != nil {
-                //ee := i.projects[name]
-                //i.Context.ExitProject(ee.s)
+                //ee := i.declared[name]
+                //i.Context.ExitProject(dec.s)
         }
 
-        ee.s = i.Context.EnterProject(ee.p, false)
-        i.project = ee.p
+        i.project = dec.project
+        dec.backscope = i.SetScope(dec.project.Scope())
 
-        if loader := linfo.loader; loader != nil {
-                fmt.Printf("DeclareProject: %v in %v; %v -> %v\n", ee.p.Name(), loader.Name(), ee.s, i.Scope())
+        /*
+        if loader, backscope := linfo.loader, dec.backscope; loader != nil {
+                fmt.Printf("DeclareProject: %v in %v; %v -> %v\n", dec.project.Name(), loader.Name(), backscope, i.Scope())
         } else {
-                fmt.Printf("DeclareProject: %v in %v; %v -> %v\n", ee.p.Name(), loader, ee.s, i.Scope())
-        }
+                fmt.Printf("DeclareProject: %v in %v; %v -> %v\n", dec.project.Name(), loader, backscope, i.Scope())
+        } */
         return
 }
 
@@ -584,6 +590,14 @@ func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err e
         return i.loadDir(path, path, filter)
 }
 
+func (pc *parseContext) Extensions(exts map[string][]string) {
+        pc.project.AddExts(exts)
+}
+
+func (pc *parseContext) Files(a []string) {
+        pc.project.AddFiles(a)
+}
+
 func (pc *parseContext) DeclareProject(name string) error {
         return pc.declareProject(name)
 }
@@ -629,7 +643,6 @@ func (pc *parseContext) EvalExpr(x ast.Expr) (s fmt.Stringer, err error) {
         }()
 
         s = pc.evalExpr(x)
-
         //fmt.Printf("EvalExpr: %T '%s'\n", x, s)
         return
 }
