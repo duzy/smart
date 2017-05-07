@@ -181,7 +181,9 @@ func (i *Interpreter) selector(scope *types.Scope, p *types.Project, x *ast.Sele
         var base types.Value
         switch t := x.X.(type) {
         case *ast.Ident:
-                base = p.Scope().Lookup(t.Name)
+                if base = p.Scope().Lookup(t.Name); base == nil {
+                        runtime.Fail("'%s' undefined in '%s'", t.Name, p.Name())
+                }
         default:
                 if name := i.expr(scope, t).String(); name == "" {
                         if c, ok := t.(*ast.CallExpr); ok {
@@ -190,12 +192,14 @@ func (i *Interpreter) selector(scope *types.Scope, p *types.Project, x *ast.Sele
                                 runtime.Fail("'%T' is empty", t)
                         }
                 } else {
-                        base = p.Scope().Lookup(name)
+                        if base = p.Scope().Lookup(name); base == nil {
+                                runtime.Fail("'%s' undefined in '%s'", name, p.Name())
+                        }
                 }
         }
 
         if base == nil {
-                runtime.Fail("'%T' undefined in %s", x.X, p.Name())
+                runtime.Fail("'%T' undefined in '%s'", x.X, p.Name())
         }
 
         if pn, _ := base.(*types.ProjectName); pn != nil {
