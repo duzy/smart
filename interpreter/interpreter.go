@@ -58,6 +58,10 @@ type enterexit struct {
         s *types.Scope
 }
 
+type parseContext struct {
+        *Interpreter
+}
+
 // Create and initialize a new interpreter.
 func New() (interpreter *Interpreter) {
         interpreter = &Interpreter{
@@ -67,7 +71,7 @@ func New() (interpreter *Interpreter) {
                 projects: make(map[string]*enterexit),
                 loaded:   make(map[string]*types.Project),
         }
-        interpreter.pc = parser.NewContext(interpreter)
+        interpreter.pc = parser.NewContext(&parseContext{ interpreter })
         for s, _ := range types.GetBuiltins() {
                 interpreter.pc.Builtin(s, nil)
         }

@@ -56,10 +56,6 @@ func saveLoadingInfo(i *Interpreter, specPath, absPath, baseName string) *Interp
         return i
 }
 
-func (i *Interpreter) Import(spec *ast.ImportSpec) error {
-        return i.loadImportSpec(spec)
-}
-
 func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
         var (
                 linfo = i.loads[len(i.loads)-1]
@@ -142,19 +138,6 @@ importProject:
         return
 }
 
-func (i *Interpreter) EvalExpr(x ast.Expr) (s fmt.Stringer, err error) {
-	defer func() {
-		if e := recover(); e != nil {
-                        err = errors.New(fmt.Sprintf("%v", e))
-		}
-        }()
-
-        s = i.evalExpr(x)
-
-        //fmt.Printf("EvalExpr: %T '%s'\n", x, s)
-        return
-}
-
 func (i *Interpreter) evalUnary(x *ast.UnaryExpr) (v types.Value) {
         operand := i.evalExpr(x.X)
         if t, ok := operand.Type().(*types.Basic); ok && t.IsFloat() {
@@ -230,10 +213,9 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                                 runtime.Fail("symbol %s undefined in %s", x.Sel.Name, mn.Name())
                         }
                 } else if id, _ := x.X.(*ast.Ident); id != nil {
-                        fmt.Printf("eval:selector: '%v' in %v, %v\n", id.Name, i.Scope(), i.project.Scope())
-                        panic(fmt.Sprintf("eval: %s.%v", id.Name, x.Sel.Name))
-                        runtime.Fail("project '%s' is not imported in %s",
-                                id.Name, i.Scope())
+                        fmt.Printf("eval:selector: '%v'.%v in %v, %v\n", id.Name, x.Sel.Name, i.Scope(), i.project.Scope())
+                        runtime.Fail("project %s is not imported (%s.%v)",
+                                id.Name, id.Name, x.Sel.Name)
                 } else {
                         unreachable()
                 }
@@ -282,33 +264,6 @@ func (i *Interpreter) evalExprs(exprs []ast.Expr) (values []types.Value) {
         return
 }
 
-/*
-func (i *Interpreter) declareProject(path string) *types.Project {
-        m := i.Context.Globe().NewProject(path, "")
-        ms := m.Scope()
-        if path == "" && true {
-                path = "."
-        }
-
-        var workdir string
-        if filepath.IsAbs(path) {
-                workdir = path
-        } else {
-                workdir = filepath.Join(i.Getwd(), path)
-        }
-        if ms.Insert(types.NewDef(m, "/", values.String(workdir))) != nil {
-                panic(fmt.Sprintf("'$/' already defined"))
-        }
-        if ms.Insert(types.NewDef(m, ".", values.String(path))) != nil {
-                panic(fmt.Sprintf("'$.' already defined"))
-        }
-        if ms.Insert(types.NewDef(m, "..", values.String(filepath.Dir(path)))) != nil {
-                panic(fmt.Sprintf("'$..' already defined"))
-        }
-        return m
-}
-*/
-
 func (i *Interpreter) use(spec *ast.UseSpec) error {
         runtime.Fail("unimplemented: use %v\n", spec) // TODO: use
         return nil
@@ -326,10 +281,6 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                 }
         }
         return
-}
-
-func (i *Interpreter) Define(d *ast.DefineClause) (parser.RuntimeSym, error) {
-        return i.define(d)
 }
 
 func (i *Interpreter) define(d *ast.DefineClause) (sym types.Object, err error) {
@@ -355,23 +306,6 @@ func (i *Interpreter) define(d *ast.DefineClause) (sym types.Object, err error) 
                 err = errors.New(fmt.Sprintf("define %v not in a project scope", d.Name))
         }
         return
-}
-
-func (i *Interpreter) Include(spec *ast.IncludeSpec) error {
-        return i.include(spec)
-}
-
-func (i *Interpreter) Use(spec *ast.UseSpec) error {
-        return i.use(spec)
-}
-
-func (i *Interpreter) Eval(spec *ast.EvalSpec) error {
-        _, err := i.eval(spec)
-        return err
-}
-
-func (i *Interpreter) DeclareRule(clause *ast.RuleClause) (parser.RuntimeSym, error) {
-        return nil, i.rule(clause)
 }
 
 func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
@@ -496,7 +430,7 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         return i.lexing(doc.Scope)
 }
 
-func (i *Interpreter) OpenScope(as *ast.Scope, pos token.Pos, comment string) (err error) {
+func (i *Interpreter) openScope(as *ast.Scope, pos token.Pos, comment string) (err error) {
         //scope := types.NewScope(i.Scope(), doc.Keypos, token.NoPos, "file")
         //defer i.SetScope(i.SetScope(scope))
         scope := types.NewScope(i.Scope(), pos, token.NoPos, comment)
@@ -505,7 +439,7 @@ func (i *Interpreter) OpenScope(as *ast.Scope, pos token.Pos, comment string) (e
         return
 }
 
-func (i *Interpreter) CloseScope(as *ast.Scope) (err error) {
+func (i *Interpreter) closeScope(as *ast.Scope) (err error) {
         if scope, ok := as.Runtime.(*types.Scope); ok {
                 fmt.Printf("CloseScope: %s -> %s\n", i.Scope(), scope)
                 i.SetScope(scope)
@@ -515,7 +449,7 @@ func (i *Interpreter) CloseScope(as *ast.Scope) (err error) {
         return
 }
 
-func (i *Interpreter) DeclareProject(name string) (err error) {
+func (i *Interpreter) declareProject(name string) (err error) {
         if i.project != nil && i.project.Name() == name {
                 //return nil
         }
@@ -648,4 +582,54 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
 
 func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
         return i.loadDir(path, path, filter)
+}
+
+func (pc *parseContext) DeclareProject(name string) error {
+        return pc.declareProject(name)
+}
+
+func (pc *parseContext) OpenScope(as *ast.Scope, pos token.Pos, comment string) error {
+        return pc.openScope(as, pos, comment)
+}
+
+func (pc *parseContext) CloseScope(as *ast.Scope) error {
+        return pc.closeScope(as)
+}
+
+func (pc *parseContext) Import(spec *ast.ImportSpec) error {
+        return pc.loadImportSpec(spec)
+}
+
+func (pc *parseContext) Include(spec *ast.IncludeSpec) error {
+        return pc.include(spec)
+}
+
+func (pc *parseContext) Use(spec *ast.UseSpec) error {
+        return pc.use(spec)
+}
+
+func (pc *parseContext) Eval(spec *ast.EvalSpec) error {
+        _, err := pc.eval(spec)
+        return err
+}
+        
+func (pc *parseContext) Define(clause *ast.DefineClause) (parser.RuntimeSym, error) {
+        return pc.define(clause)
+}
+
+func (pc *parseContext) DeclareRule(clause *ast.RuleClause) (parser.RuntimeSym, error) {
+        return nil, pc.rule(clause)
+}
+        
+func (pc *parseContext) EvalExpr(x ast.Expr) (s fmt.Stringer, err error) {
+	defer func() {
+		if e := recover(); e != nil {
+                        err = errors.New(fmt.Sprintf("%v", e))
+		}
+        }()
+
+        s = pc.evalExpr(x)
+
+        //fmt.Printf("EvalExpr: %T '%s'\n", x, s)
+        return
 }
