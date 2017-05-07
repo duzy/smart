@@ -6,6 +6,6 @@
 package types
 
 type Use struct {
-        module *Module
+        project *Project
         params []Value
 }

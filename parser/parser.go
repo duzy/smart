@@ -62,7 +62,10 @@ type parser struct {
 }
 
 func (p *parser) init(ctx *Context, fset *token.FileSet, filename string, src []byte, mode Mode) {
-	p.Context, p.file = ctx, fset.AddFile(filename, -1, len(src))
+        p.Context = ctx
+        p.topScope = ctx.universe
+        p.file = fset.AddFile(filename, -1, len(src))
+        
 	var m scanner.Mode
 	if mode&ParseComments != 0 {
 		m = scanner.ScanComments
@@ -298,10 +301,13 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 	if ident == nil {
 		return
 	}
+        
 	assert(ident.Sym == nil, "identifier already declared or resolved")
+        
 	if ident.Name == "_" {
 		return
 	}
+        
 	// try to resolve the identifier
 	for s := p.topScope; s != nil; s = s.Outer {
 		if sym := s.Lookup(ident.Name); sym != nil {
@@ -309,11 +315,7 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 			return
 		}
 	}
-        // check builtin names
-        if sym := p.builtins.Lookup(ident.Name); sym != nil {
-                ident.Sym = sym
-                return
-        }
+        
 	// all local scopes are known, so any unresolved identifier
 	// must be found either in the file scope, package scope
 	// (perhaps in another file), or universe scope --- collect
@@ -336,10 +338,8 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                         p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
                 }
                 x = ident
-        case *ast.Barefile, *ast.PathExpr:
+        case *ast.Barefile, *ast.PathExpr, *ast.SelectorExpr:
                 // Barefile and PathExpr are a special identifier itself.
-        case *ast.SelectorExpr:
-                // TODO: deal with extensions
         default: 
                 p.error(t.Pos(), fmt.Sprintf("unkown identifier (%T)", t))
         }
@@ -365,11 +365,17 @@ func (p *parser) isFileName(s string) bool {
 // ----------------------------------------------------------------------------
 // Scoping
 
-func (p *parser) openScope() {
+func (p *parser) openScope(comment string) {
 	p.topScope = ast.NewScope(p.topScope)
+        if err := p.runtime.OpenScope(p.topScope, p.pos, comment); err != nil {
+                p.error(p.pos, fmt.Sprintf("open scope (%v)", err))
+        }
 }
 
 func (p *parser) closeScope() {
+        if err := p.runtime.CloseScope(p.topScope); err != nil {
+                p.error(p.pos, fmt.Sprintf("close scope (%v)", err))
+        }
 	p.topScope = p.topScope.Outer
 }
 
@@ -437,8 +443,8 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.BasicLit:
 	case *ast.CompoundLit:
 	case *ast.CallExpr:
-	case *ast.GroupExpr: //panic("unreachable")
-	case *ast.ListExpr:  panic("unreachable")
+	case *ast.GroupExpr:
+	case *ast.ListExpr: panic("unreachable")
 	case *ast.UnaryExpr:
 	case *ast.BinaryExpr:
         case *ast.KeyValueExpr:
@@ -485,27 +491,28 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
         bw := p.parseBareword()
         if _, ok := p.extensions[bw.Value]; ok {
                 res = &ast.Barefile{ x, bw.Pos(), bw.Value }
-        } else {
-                // Convert x into an Ident or Barefile
-                switch t := x.(type) {
-                case *ast.Bareword:
-                        if p.isFileName(t.Value + "." + bw.Value) {
-                                res = &ast.Barefile{ x, bw.Pos(), bw.Value }
-                                return
-                        } else {
-                                x = &ast.Ident{ t.ValuePos, t.Value, nil }
-                        }
-                        if lhs {
-                                p.resolve(x)
-                        }
-                default:
-                        p.error(t.Pos(), fmt.Sprintf("select operation unsupported for %T", x))
+                return
+        }
+        
+        // Convert x into an Ident or Barefile
+        switch t := x.(type) {
+        case *ast.Bareword:
+                if p.isFileName(t.Value + "." + bw.Value) {
+                        res = &ast.Barefile{ x, bw.Pos(), bw.Value }
+                        return
                 }
 
-                sel := &ast.Ident{ bw.ValuePos, bw.Value, nil }
-                //fmt.Printf("parseSelector: %T %v %v\n", x, x, sel.Name)
-                res = &ast.SelectorExpr{X: x, Sel: sel}
+                x = &ast.Ident{ t.ValuePos, t.Value, nil }
+                if lhs {
+                        p.resolve(x)
+                }
+        default:
+                p.error(t.Pos(), fmt.Sprintf("unsupported selection upon a %T", x))
         }
+
+        sel := &ast.Ident{ bw.ValuePos, bw.Value, nil }
+        res = &ast.SelectorExpr{ X: x, Sel: sel }
+        //fmt.Printf("parseSelector: %T %v %v\n", x, x, sel.Name)
         return
 }
 
@@ -705,7 +712,6 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         // Parse name without compising expressions
                         name = p.checkExpr(p.parseExpr0(false))
                 }
-
                 return &ast.CallExpr{
                         Dollar: pos,
                         Lparen: lpos,
@@ -890,16 +896,29 @@ func isValidImport(lit string) bool {
 
 func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
 	spec := &ast.ImportSpec{ p.parseDirectiveSpec() }
-        p.imports = append(p.imports, spec)
+        if err := p.runtime.Import(spec); err != nil {
+                p.error(spec.Pos(), fmt.Sprintf("%v", err))
+        } else {
+                p.imports = append(p.imports, spec)
+        }
         return spec
 }
 
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        return &ast.IncludeSpec{ p.parseDirectiveSpec() }
+        spec := &ast.IncludeSpec{ p.parseDirectiveSpec() }
+        if err := p.runtime.Include(spec); err != nil {
+                p.error(spec.Pos(), fmt.Sprintf("%v", err))
+        }
+        return spec
 }
 
 func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        return &ast.UseSpec{ p.parseDirectiveSpec() }
+        spec := &ast.UseSpec{ p.parseDirectiveSpec() }
+        if err := p.runtime.Use(spec); err != nil {
+                p.error(spec.Pos(), fmt.Sprintf("%v", err))
+        }
+        return spec
+
 }
 
 func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
@@ -994,6 +1013,9 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
 func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.EvalSpec{ p.parseDirectiveSpec() }
         spec.Props[0] = p.identify(spec.Props[0])
+        if err := p.runtime.Eval(spec); err != nil {
+                p.error(spec.Pos(), fmt.Sprintf("%v", err))
+        }
         return spec
 }
 
@@ -1120,9 +1142,15 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 p.error(pos, "unsupported name")
         }
         if name != "" {
+                rs, err := p.runtime.Define(clause)
+                if err != nil {
+                        p.error(pos, fmt.Sprintf("%s", err))
+                }
+                
                 //fmt.Printf("%p: define: %T %s\n", p.topScope, clause.Name, name)
                 sym := ast.NewSym(ast.Def, name)
                 sym.Decl = clause
+                sym.Data = rs
                 if alt := p.topScope.Insert(sym); alt != nil {
                         p.error(ident.Pos(), fmt.Sprintf("name '%s' already taken", name))
                         //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
@@ -1183,34 +1211,56 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
                 dialect string
         )
         for p.tok != token.RBRACK && p.tok != token.EOF {
-                x := p.checkExpr(p.parseExpr(false))
+                var (
+                        x = p.checkExpr(p.parseExpr(false))
+                        name string
+                        pos token.Pos
+                )
+                
                 switch t := x.(type) {
                 case *ast.Bareword:
-                        if _, ok := p.dialects[t.Value]; ok {
-                                if dialect == "" {
-                                        dialect = t.Value
-                                }
-                        } else {
-                                p.error(t.Pos(), fmt.Sprintf("no dialect '%s'", t.Value))
-                        }
+                        name, pos = t.Value, t.Pos()
+                        goto checkName
                 case *ast.GroupExpr:
-                        if bw, _ := t.Elems[0].(*ast.Bareword); bw != nil {
-                                if _, ok := p.dialects[bw.Value]; ok {
-                                        if dialect == "" {
-                                                dialect = bw.Value
-                                        }
-                                } else if _, ok := p.modifiers[bw.Value]; ok {
-                                        // ...
-                                } else {
-                                        p.error(t.Pos(), fmt.Sprintf("no dialect or modifier '%s'", bw.Value))
+                        switch n := t.Elems[0].(type) {
+                        case *ast.Bareword:
+                                name, pos = n.Value, n.Pos()
+                                goto checkName
+                        case *ast.CallExpr, *ast.Barecomp, *ast.BasicLit:
+                                v, e := p.runtime.EvalExpr(n)
+                                if e != nil {
+                                        p.error(n.Pos(), fmt.Sprintf("%v (%v)", e, n))
+                                        goto next
                                 }
-                        } else {
-                                p.error(t.Pos(), "unsupported dialect or modifier")
+
+                                if name, pos = v.String(), x.Pos(); name == "" {
+                                        p.error(n.Pos(), fmt.Sprintf("empty name (%v)", n))
+                                        goto next
+                                }
+                                goto checkName
+                        default:
+                                p.error(n.Pos(), "unsupported dialect or modifier")
+                                goto next
                         }
                 }
+                goto addModifier
+
+                checkName: if p.runtime.IsDialect(name) { //if _, ok := p.dialects[name]; ok {
+                        if dialect == "" {
+                                dialect = name
+                        } else {
+                                p.error(pos, fmt.Sprintf("multi-dialect unsupported, already defined '%s'", dialect))
+                                goto next
+                        }
+                } else if p.runtime.IsModifier(name) { //if _, ok := p.modifiers[name]; ok {
+                        // ...
+                } else {
+                        p.error(pos, fmt.Sprintf("no dialect or modifier '%s'", name))
+                        goto next
+                }
                 
-                elems = append(elems, x)
-                if p.tok == token.COMMA {
+                addModifier: elems = append(elems, x)
+                next: if p.tok == token.COMMA {
                         p.next() // TODO: grouping modifiers
                 }
         }
@@ -1221,29 +1271,6 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
                 Rbrack: rpos,
         }
 }
-
-/* func (p *parser) computeCompositeEntryName(t *ast.Barecomp) (s, ext string) {
-        if n := len(t.Elems); n > 2 {
-                if bw, _ := t.Elems[n-2].(*ast.Bareword); bw != nil && bw.Value == "." {
-                        if bw, _ = t.Elems[n-1].(*ast.Bareword); bw != nil {
-                                if _, ok := p.extensions[bw.Value]; ok {
-                                        ext = bw.Value
-                                } else {
-                                        p.error(bw.Pos(), "unknown extension")
-                                }
-                        }
-                }
-        }
-        for _, elem := range t.Elems {
-                switch bw := elem.(type) {
-                case *ast.Bareword: s += bw.Value
-                default:
-                        fmt.Printf("computeCompositeEntryName: %T %v\n", bw, bw)
-                        p.error(bw.Pos(), "unsupported name")
-                }
-        }
-        return
-} */
 
 // https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
 var automatics = []string{
@@ -1305,7 +1332,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 }
         }
         
-	p.openScope(); defer p.closeScope()
+	p.openScope(fmt.Sprintf("rule"))
+        defer p.closeScope()
+        
         for _, s := range automatics {
                 sym := ast.NewSym(ast.Def, s)
                 if alt := p.topScope.Insert(sym); alt != nil {
@@ -1376,6 +1405,15 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 sym.Decl = clause
         }
 
+        rs, err := p.runtime.DeclareRule(clause)
+        if err == nil {
+                for _, sym := range symbols {
+                        sym.Data = rs
+                }
+        } else {
+                p.error(pos, fmt.Sprintf("%s", err))
+        }
+        
         return clause
 }
 
@@ -1459,13 +1497,15 @@ func (p *parser) parseFile() *ast.File {
                 if p.errors.Len() != 0 {
                         return nil
                 }
+
+                p.runtime.DeclareProject(ident.Name)
         }
 
-	p.openScope()
+        p.openScope(fmt.Sprintf(`file "%s"`, p.file.Name()))
 	p.pkgScope = p.topScope
         p.extensions = make(map[string][]string, 2 /* initial capacity */)
         p.files = make(map[string]token.Pos, 2)
-        for _, s := range []string{ "/", "." } {
+        for _, s := range []string{ "/", ".", ".." } {
                 sym := ast.NewSym(ast.Def, s)
                 if alt := p.topScope.Insert(sym); alt != nil {
                         p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
@@ -1494,8 +1534,7 @@ func (p *parser) parseFile() *ast.File {
 			}
 		}
 	}
-	p.closeScope()
-	assert(p.topScope == nil, "unbalanced scopes")
+	p.closeScope(); assert(p.topScope == p.universe, "unbalanced scopes")
 
 	// resolve global identifiers within the same file
 	i := 0

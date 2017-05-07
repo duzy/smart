@@ -10,28 +10,28 @@ import (
         "fmt"
 )
 
-// A Qualifier controls how named module-level objects are printed in
+// A Qualifier controls how named project-level objects are printed in
 // calls to TypeString, ObjectString, and SelectionString.
 //
 // These three formatting routines call the Qualifier for each
-// module-level object O, and if the Qualifier returns a non-empty
+// project-level object O, and if the Qualifier returns a non-empty
 // string p, the object is printed in the form p.O.
 // If it returns an empty string, only the object name O is printed.
 //
-// Using a nil Qualifier is equivalent to using (*Module).Path: the
+// Using a nil Qualifier is equivalent to using (*Project).Path: the
 // object is qualified by the import path, e.g., "encoding/json.Marshal".
 //
-type Qualifier func(*Module) string
+type Qualifier func(*Project) string
 
 // RelativeTo(pkg) returns a Qualifier that fully qualifies members of
-// all modules other than pkg.
-func RelativeTo(pkg *Module) Qualifier {
+// all projects other than pkg.
+func RelativeTo(pkg *Project) Qualifier {
 	if pkg == nil {
 		return nil
 	}
-	return func(other *Module) string {
+	return func(other *Project) string {
 		if pkg == other {
-			return "" // same module; unqualified
+			return "" // same project; unqualified
 		}
 		return other.path //other.Path()
 	}
@@ -39,7 +39,7 @@ func RelativeTo(pkg *Module) Qualifier {
 
 // TypeString returns the string representation of typ.
 // The Qualifier controls the printing of
-// module-level objects, and may be nil.
+// project-level objects, and may be nil.
 func TypeString(typ Type, qf Qualifier) string {
 	var buf bytes.Buffer
 	WriteType(&buf, typ, qf)
@@ -48,7 +48,7 @@ func TypeString(typ Type, qf Qualifier) string {
 
 // WriteType writes the string representation of typ to buf.
 // The Qualifier controls the printing of
-// module-level objects, and may be nil.
+// project-level objects, and may be nil.
 func WriteType(buf *bytes.Buffer, typ Type, qf Qualifier) {
 	writeType(buf, typ, qf, make([]Type, 8))
 }

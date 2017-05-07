@@ -20,7 +20,7 @@ import (
 // Program (TODO: moving program into `types` package)
 type Program struct {
         context *Context
-        module  *types.Module
+        project  *types.Project
         scope   *types.Scope
         depends []types.Value // *types.RuleEntry, *values.BarefileValue
         recipes []types.Value
@@ -31,7 +31,7 @@ func (prog *Program) Scope() *types.Scope { return prog.scope }
 
 func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         if sym := prog.scope.Lookup(name); sym == nil {
-                auto = types.NewDef(prog.module, name, values.Make(value))
+                auto = types.NewDef(prog.project, name, values.Make(value))
                 prog.scope.Insert(auto)
         } else {
                 //fmt.Printf("auto: %p %T %v\n", prog, sym, sym.Name())
@@ -53,7 +53,7 @@ func (prog *Program) interpret(i interpreter, out *types.Def, args... types.Valu
 }
 
 func (prog *Program) modify(g *values.GroupValue, out *types.Def) (err error) {
-        // TODO: using rules in a different module to implement modifiers, e.g.
+        // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
         var name = g.Get(0).String()
@@ -78,7 +78,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
 
         prog.auto("...", depends)
 
-        // TODO: using rules in a different module as prerequisites, e.g.
+        // TODO: using rules in a different project as prerequisites, e.g.
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
         dependLoop: for _, depend := range prog.depends {
@@ -118,7 +118,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         dent = d.Entry(entry.Stem())
                                         name = dent.String()
                                 )
-                                switch prog.module.EntryClass(name) {
+                                switch prog.project.EntryClass(name) {
                                 case types.GeneralRuleEntry:
                                         //fmt.Printf("%v: %v -> %v (general)\n", entry, depend, dent)
                                         depend = dent; goto dependSwitch
@@ -133,7 +133,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         }
                 default:
                         if types.IsDummyValue(d) {
-                                sym, _ := d.(types.Symbol)
+                                sym, _ := d.(types.Object)
                                 scope := sym.Parent()
                                 if _, s := scope.LookupAt(token.NoPos, sym.Name()); s != nil {
                                         depend = s; goto dependSwitch
@@ -152,7 +152,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 depend, isFileEntry = s, true
                                 goto dependSwitch
                         }
-                        if p, stem := prog.module.MatchPattern(file); p != nil {
+                        if p, stem := prog.project.MatchPattern(file); p != nil {
                                 entry := p.Entry(stem)
                                 //fmt.Printf("pattern: %T %T %v (%v, %v)\n", depend, p, p, stem, entry)
                                 depend, isFileEntry = entry, true
@@ -177,7 +177,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
 
         var (
                 top = prog.context.Getwd()
-                path = prog.module.Path()
+                path = prog.project.Path()
                 wd, _ = os.Getwd()
                 workdir string
         )
@@ -209,7 +209,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         )
         defer func() { result, _ = out.Call() }()
         
-        // TODO: define modifiers in a module, e.g.
+        // TODO: define modifiers in a project, e.g.
         // 
         //      some-modifier : - :
         //              smart statments going here...
@@ -270,7 +270,7 @@ func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
 func NewProgram(context *Context, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
         return &Program{
                 context:     context,
-                module:      context.CurrentModule(),
+                project:     context.CurrentProject(),
                 scope:       scope,
                 depends:     depends, // *types.RuleEntry, *values.BarefileValue
                 recipes:     recipes,

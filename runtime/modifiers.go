@@ -102,17 +102,13 @@ var (
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
 
-func GetDialectNames() (a []string) {
-        for s, _ := range interpreters {
-                a = append(a, s)
-        }
+func (ctx *Context) IsDialect(s string) (ok bool) {
+        _, ok = interpreters[s]
         return
 }
 
-func GetModifierNames() (a []string) {
-        for s, _ := range modifiers {
-                a = append(a, s)
-        }
+func (ctx *Context) IsModifier(s string) (ok bool) {
+        _, ok = modifiers[s]
         return
 }
 
@@ -220,7 +216,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                         Fail("unsupported depend %v (%T)", depend, depend)
                                 }
                         case *values.StringValue:
-                                if prog.module.IsFile(d.String()) {
+                                if prog.project.IsFile(d.String()) {
                                         files.Append(d)
                                 } else {
                                         nonfiles.Append(d)

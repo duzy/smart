@@ -21,10 +21,10 @@ var (
 // Predeclared types.
 var (
         CoreTypes = []*Core {
-                DefineKind:     {DefineKind, IsDefine, "Define"},
-                ModuleNameKind: {ModuleNameKind, IsBuiltin, "ModuleName"},
-                BuiltinKind:    {BuiltinKind, IsRuleEntry, "Builtin"},
-                RuleEntryKind:  {RuleEntryKind, IsModuleName, "RuleEntry"},
+                DefineKind:      {DefineKind, IsDefine, "Define"},
+                ProjectNameKind: {ProjectNameKind, IsBuiltin, "ProjectName"},
+                BuiltinKind:     {BuiltinKind, IsRuleEntry, "Builtin"},
+                RuleEntryKind:   {RuleEntryKind, IsProjectName, "RuleEntry"},
         }
         
         BasicTypes = []*Basic {
@@ -54,10 +54,10 @@ var (
         }
 
         // Shortcuts of core types
-        DefineType     = CoreTypes[DefineKind]
-        BuiltinType    = CoreTypes[BuiltinKind]
-        RuleEntryType  = CoreTypes[RuleEntryKind]
-        ModuleNameType = CoreTypes[ModuleNameKind]
+        DefineType      = CoreTypes[DefineKind]
+        BuiltinType     = CoreTypes[BuiltinKind]
+        RuleEntryType   = CoreTypes[RuleEntryKind]
+        ProjectNameType = CoreTypes[ProjectNameKind]
 
         // Shortcuts of basic types.
         Invalid  = BasicTypes[InvalidKind]
@@ -106,32 +106,30 @@ func IsUniverse(scope *Scope) bool {
 // A Globe represents a global execution context in the Universe. 
 type Globe struct {
         scope  *Scope
-	unsafe *Module
-        main   *Module
+	unsafe *Project
+        main   *Project
 }
 
 // Scope returns the globe scope.
 func (g *Globe) Scope() *Scope { return g.scope }
 
-// Main returns the main module.
-func (g *Globe) Main() *Module { return g.main }
+// Main returns the main project.
+func (g *Globe) Main() *Project { return g.main }
 
-// SetMain changes the main module.
-/* func (g *Globe) SetMain(m *Module) {
+// SetMain changes the main project.
+/* func (g *Globe) SetMain(m *Project) {
         g.main = m 
 } */
 
-// NewModule returns a new Module for the given module path and name;
+// NewProject returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
-// The module is not complete and contains no explicit imports.
-func (g *Globe) NewModule(kw token.Token, path, name string) (m *Module) {
-	scope := NewScope(g.scope, token.NoPos, token.NoPos, fmt.Sprintf("module %q", path))
-	m = &Module{
-                keyword: kw, 
+// The project is not complete and contains no explicit imports.
+func (g *Globe) NewProject(path, name string) (m *Project) {
+	scope := NewScope(g.scope, token.NoPos, token.NoPos, fmt.Sprintf("project %q", path))
+	m = &Project{
                 path: path, 
                 name: name, 
                 scope: scope,
-                //entries: make(map[string]*RuleEntry),
         }
         if g.main == nil {
                 g.main = m

@@ -18,12 +18,13 @@ import (
 type Scope struct {
 	Outer   *Scope
 	Symbols map[string]*Symbol
+        Runtime interface{} // runtime scope
 }
 
 // NewScope creates a new scope nested in the outer scope.
 func NewScope(outer *Scope) *Scope {
 	const n = 4 // initial scope capacity
-	return &Scope{outer, make(map[string]*Symbol, n)}
+	return &Scope{outer, make(map[string]*Symbol, n), nil}
 }
 
 // Lookup returns the symbol with the given name if it is
@@ -70,7 +71,6 @@ func (s *Scope) String() string {
 //
 //	Kind    Data type         Data value
 //	Pro	*types.Project    project scope
-//	Mod	*types.Module     module scope
 //	Rul	*types.RuleEntry  rule scope
 //	Def	*types.Define     definition value
 //	Con     != nil            constant value
@@ -80,7 +80,7 @@ type Symbol struct {
 	Name string      // declared name
 	Decl interface{} // corresponding declaration; or nil
 	Data interface{} // symbol-specific data; or nil
-	Type interface{} // placeholder for type information; may be nil
+	//Type interface{} // placeholder for type information; may be nil
 }
 
 // NewSym creates a new symbol of a given kind and name.
@@ -110,7 +110,6 @@ type SymKind int
 const (
 	Bad SymKind = iota // for error handling
 	Pro                // project
-	Mod                // module
 	Def                // definition
 	Bui                // builtin
 	Rul                // rule
@@ -120,7 +119,6 @@ const (
 var symKindStrings = [...]string{
 	Bad: "bad",
 	Pro: "project",
-	Mod: "module",
 	Def: "define",
         Bui: "builtin",
 	Rul: "rule",

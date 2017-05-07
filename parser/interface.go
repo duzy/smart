@@ -13,39 +13,53 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-        //"fmt"
+        "fmt"
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/ast"
 )
 
-type Context struct {
-	builtins  *ast.Scope // builtin scope
-        dialects  map[string]interface{}
-        modifiers map[string]interface{}
+type RuntimeSym interface{
 }
 
-func NewContext() *Context {
+type RuntimeContext interface {
+        IsDialect(s string) bool
+        IsModifier(s string) bool
+
+        DeclareProject(name string) error
+
+        OpenScope(as *ast.Scope, pos token.Pos, comment string) error
+        CloseScope(as *ast.Scope) error
+
+        Import(spec *ast.ImportSpec) error
+        Include(spec *ast.IncludeSpec) error
+        Use(spec *ast.UseSpec) error
+        Eval(spec *ast.EvalSpec) error
+        
+        Define(clause *ast.DefineClause) (RuntimeSym, error)
+        DeclareRule(clause *ast.RuleClause) (RuntimeSym, error)
+        
+        EvalExpr(x ast.Expr) (fmt.Stringer, error)
+}
+
+type Context struct {
+        runtime  RuntimeContext
+	universe *ast.Scope // builtin scope
+}
+
+func NewContext(runtime RuntimeContext) *Context {
         return &Context{
-                builtins:  ast.NewScope(nil),
-                dialects:  make(map[string]interface{}),
-                modifiers: make(map[string]interface{}),
+                runtime:  runtime,
+                universe: ast.NewScope(nil),
         }
 }
 
 func (c *Context) Builtin(s string, i interface{}) {
         //fmt.Printf("builtin: %v\n", s)
         sym := ast.NewSym(ast.Bui, s)
-        if alt := c.builtins.Insert(sym); alt != nil {
+        if alt := c.universe.Insert(sym); alt != nil {
+                panic(fmt.Sprintf("duplicated builtin '%s'", s))
                 // FIXME: unreachable
         }
-}
-
-func (c *Context) Dialect(s string, i interface{}) {
-        c.dialects[s] = i
-}
-
-func (c *Context) Modifier(s string, i interface{}) {
-        c.modifiers[s] = i
 }
 
 // If src != nil, readSource converts src to a []byte if possible;
@@ -83,14 +97,15 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 type Mode uint
 
 const (
-	ModuleClauseOnly Mode             = 1 << iota  // stop parsing after project or module clause
-	ImportsOnly                                    // stop parsing after import declarations
-	ParseComments                                  // parse comments and add them to AST
-        Flat                                           // parsing in flat mode (no module/project/import keywords)
-	Trace                                          // print a trace of parsed productions
-	DeclarationErrors                              // report declaration errors
-	SpuriousErrors                                 // same as AllErrors, for backward-compatibility
-	AllErrors         = SpuriousErrors             // report all errors (not just the first 10 on different lines)
+	ModuleClauseOnly Mode = 1 << iota // stop parsing after project or module clause
+	ImportsOnly                       // stop parsing after import declarations
+	ParseComments                     // parse comments and add them to AST
+        Flat                              // parsing in flat mode (donot create a new module)
+	Trace                             // print a trace of parsed productions
+	DeclarationErrors                 // report declaration errors
+	SpuriousErrors                    // same as AllErrors, for backward-compatibility
+	AllErrors = SpuriousErrors        // report all errors (not just the first 10 on different lines)
+        parsingDir
 )
 
 // ParseFile parses the source code of a single Go source file and returns
@@ -130,7 +145,7 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 
 		// set result values
 		if f == nil {
-			// source is not a valid Go source file - satisfy
+			// source is not a valid source file - satisfy
 			// ParseFile API and return a valid (but) empty
 			// *ast.File
 			f = &ast.File{
@@ -146,7 +161,6 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 	// parse source
 	p.init(c, fset, filename, text, mode)
 	f = p.parseFile()
-
 	return
 }
 
@@ -162,7 +176,7 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 // returned. If a parse error occurred, a non-nil but incomplete map and the
 // first error encountered are returned.
 //
-func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Module, first error) {
+func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Project, first error) {
 	fd, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -174,24 +188,23 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 		return nil, err
 	}
 
-	mods = make(map[string]*ast.Module)
+	mods = make(map[string]*ast.Project)
 	for _, d := range list {
                 sm := strings.HasSuffix(d.Name(), ".smart") || strings.HasSuffix(d.Name(), ".sm")
 		if sm && (filter == nil || filter(d)) {
 			filename := filepath.Join(path, d.Name())
-			if src, err := c.ParseFile(fset, filename, nil, mode); err == nil {
+			if src, err := c.ParseFile(fset, filename, nil, mode|parsingDir); err == nil {
 				name := src.Name.Name
 				mod, found := mods[name]
 				if !found {
-					mod = &ast.Module{
-                                                Keyword: src.Keyword,
+					mod = &ast.Project{
                                                 Name:    name,
                                                 Scope:   ast.NewScope(nil),
                                                 Files:   make(map[string]*ast.File),
                                         }
 					mods[name] = mod
 				}
-				mod.Files[filename] = src
+                                mod.Files[filename] = src
 			} else if first == nil {
 				first = err
 			}

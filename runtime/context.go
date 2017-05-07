@@ -19,7 +19,7 @@ import (
 type Context struct {
         globe      *types.Globe
         scope      *types.Scope
-        modules    []*types.Module
+        projects    []*types.Project
         outdated   map[string]time.Time
         workdir    string
 }
@@ -42,37 +42,31 @@ func (ctx *Context) SetScope(scope *types.Scope) (prev *types.Scope) {
         return
 }
 
-func (ctx *Context) CurrentModule() *types.Module {
-        if n := len(ctx.modules); n > 0 {
-                return ctx.modules[n-1]
+func (ctx *Context) CurrentProject() *types.Project {
+        if n := len(ctx.projects); n > 0 {
+                return ctx.projects[n-1]
         }
         return nil
 }
 
-func (ctx *Context) DeclareModule(pos token.Pos, kw token.Token, path, name string) *types.Module {
-        m := ctx.globe.NewModule(kw, path, name)
-        n := types.NewModuleName(ctx.CurrentModule(), m.Name(), m)
-        ctx.Scope().Insert(n) //; assert(n.Scope() == ctx.Scope())
-        return m
-}
-
-func (ctx *Context) EnterModule(m *types.Module, imported bool) *types.Scope {
-        var cm = ctx.CurrentModule()
-        if imported && cm != nil {
-                cm.AddImport(m)
+func (ctx *Context) EnterProject(m *types.Project, imported bool) *types.Scope {
+        if imported {
+                if cm := ctx.CurrentProject(); cm != nil {
+                        cm.AddImport(m)
+                }
         }
-        ctx.modules = append(ctx.modules, m)
+        ctx.projects = append(ctx.projects, m)
         return ctx.SetScope(m.Scope())
 }
 
-func (ctx *Context) ExitModule(prev *types.Scope) {
-        ctx.modules = ctx.modules[0:len(ctx.modules)-1]
+func (ctx *Context) ExitProject(prev *types.Scope) {
+        ctx.projects = ctx.projects[0:len(ctx.projects)-1]
         ctx.SetScope(prev)
 }
 
-func (ctx *Context) lookupAt(pos token.Pos, ident []string, findModule bool) (*types.Scope, types.Symbol) {
+func (ctx *Context) lookupAt(pos token.Pos, ident []string, findProject bool) (*types.Scope, types.Object) {
         var (
-                sym types.Symbol
+                sym types.Object
                 xname = len(ident)
                 name  = ident[xname-1]
                 scope = ctx.Scope()
@@ -81,7 +75,7 @@ func (ctx *Context) lookupAt(pos token.Pos, ident []string, findModule bool) (*t
                 for _, s := range ident[0:xname-1] {
                         _, sym = scope.LookupAt(pos, s)
                         //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
-                        if t, ok := sym.(*types.ModuleName); ok && t != nil {
+                        if t, ok := sym.(*types.ProjectName); ok && t != nil {
                                 if m := t.Imported(); m != nil {
                                         scope = m.Scope()
                                 } else {
@@ -98,9 +92,9 @@ func (ctx *Context) lookupAt(pos token.Pos, ident []string, findModule bool) (*t
 
 lookupName:
         _, sym = scope.LookupAt(pos, name)
-        if !findModule && sym != nil {
-                // Skip any ModuleName symbols, and lookup upword.
-                if _, ok := sym.(*types.ModuleName); ok {
+        if !findProject && sym != nil {
+                // Skip any ProjectName objects, and lookup upword.
+                if _, ok := sym.(*types.ProjectName); ok {
                         scope = scope.Parent()
                         goto lookupName
                 }
@@ -121,7 +115,7 @@ func (ctx *Context) callAt(pos token.Pos, ident []string, args... types.Value) t
 
 type delegate struct {
         x *Context
-        s types.Symbol
+        s types.Object
         a []types.Value
         p token.Pos
 }
@@ -147,7 +141,7 @@ func (p *delegate) call() (v types.Value) {
         return v 
 }
 
-func (ctx *Context) Fold(pos token.Pos, sym types.Symbol, args... types.Value) types.Value {
+func (ctx *Context) Fold(pos token.Pos, sym types.Object, args... types.Value) types.Value {
         return &delegate{
                 x: ctx,
                 s: sym,
@@ -175,7 +169,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                 mm = ctx.Globe().Main()
         )
         
-        defer ctx.ExitModule(ctx.EnterModule(mm, false))
+        defer ctx.ExitProject(ctx.EnterProject(mm, false))
         
         if len(targets) == 0 {
                 //ctx.outdated = make(map[string][]string)

@@ -37,37 +37,44 @@ func init() {
 
 type Interpreter struct {
         *runtime.Context
-        pc         *parser.Context
-        fset       *token.FileSet
-        loads      []*loadInfo
-        paths      searchlist
+        pc       *parser.Context
+        fset     *token.FileSet
+        paths    searchlist
+        loads    []*loadinfo
+        loaded   map[string]*types.Project
+        projects map[string]*enterexit // all projects in the same project dir
+        project  *types.Project
 }
 
-type loadInfo struct {
-        dir, file string
+type loadinfo struct {
+        specPath, absPath, baseName string
+        loader *types.Project
+        scope *types.Scope
+        projects map[string]*types.Project // all projects in the loaded dir
+}
+
+type enterexit struct {
+        p *types.Project
+        s *types.Scope
 }
 
 // Create and initialize a new interpreter.
-func New() *Interpreter {
-        pc := parser.NewContext()
+func New() (interpreter *Interpreter) {
+        interpreter = &Interpreter{
+                Context:  runtime.NewContext("interpreter"),
+                fset:     token.NewFileSet(), 
+                paths:    []string(globalPaths),
+                projects: make(map[string]*enterexit),
+                loaded:   make(map[string]*types.Project),
+        }
+        interpreter.pc = parser.NewContext(interpreter)
         for s, _ := range types.GetBuiltins() {
-                pc.Builtin(s, nil)
+                interpreter.pc.Builtin(s, nil)
         }
         for _, s := range runtime.GetBuiltinNames() {
-                pc.Builtin(s, nil)
+                interpreter.pc.Builtin(s, nil)
         }
-        for _, s := range runtime.GetDialectNames() {
-                pc.Dialect(s, nil)
-        }
-        for _, s := range runtime.GetModifierNames() {
-                pc.Modifier(s, nil)
-        }
-        return &Interpreter{
-                Context:    runtime.NewContext("interpreter"),
-                fset:       token.NewFileSet(), 
-                paths:      []string(globalPaths),
-                pc:         pc,
-        }
+        return
 }
 
 func (i *Interpreter) AddSearchPaths(paths... string) (err error) {

@@ -498,21 +498,21 @@ type File struct {
 	Imports    []*ImportSpec   // imports in this file
 	Unresolved []*Ident        // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
-        Extensions map[string][]string
         Files      []string
+        Extensions map[string][]string
 }
 
-// A Module node represents a set of source files
-// collectively building a Module.
+// A Project node represents a set of source files
+// collectively building a Project.
 //
-type Module struct {
-	Keypos  token.Pos          // position of "module" or "project" keyword
-        Keyword token.Token        // e.g. "module", "project"
-	Name    string             // project/module name
-	Scope   *Scope             // project/module scope across all files
+type Project struct {
+	Keypos  token.Pos          // position of "project" keyword
+	Name    string             // project name
+	Scope   *Scope             // project scope across all files
 	Imports map[string]*Symbol // map of project id -> project symbol
 	Files   map[string]*File   // source files by filename
+        Runtime interface{}
 }
 
-func (*Module) Pos() token.Pos { return token.NoPos }
-func (*Module) End() token.Pos { return token.NoPos }
+func (*Project) Pos() token.Pos { return token.NoPos }
+func (*Project) End() token.Pos { return token.NoPos }

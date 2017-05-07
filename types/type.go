@@ -58,7 +58,7 @@ const (
         DefineKind
         BuiltinKind
         RuleEntryKind
-        ModuleNameKind
+        ProjectNameKind
 
         // type for expressions compute to nothing/empty
         NoneKind
@@ -88,7 +88,7 @@ var (
                 DefineKind:     "Define",
                 BuiltinKind:    "Builtin",
                 RuleEntryKind:  "RuleEntry",
-                ModuleNameKind: "ModuleName",
+                ProjectNameKind: "ProjectName",
                 NoneKind:       "None",
         }
 )
@@ -137,9 +137,9 @@ const (
         IsDefine
         IsBuiltin
         IsRuleEntry
-        IsModuleName
+        IsProjectName
 
-        IsCore      = IsDefine | IsBuiltin | IsRuleEntry | IsModuleName
+        IsCore      = IsDefine | IsBuiltin | IsRuleEntry | IsProjectName
         IsSymbolic  = IsCore
         
         IsDateTime  = IsDate | IsTime

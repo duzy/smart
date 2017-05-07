@@ -14,14 +14,14 @@ import (
         "io"
 )
 
-// A Scope maintains a set of symbols and links to its containing
-// (parent) and contained (children) scopes. Symbols may be inserted
+// A Scope maintains a set of objects and links to its containing
+// (parent) and contained (children) scopes. Objects may be inserted
 // and looked up by name. The zero value for Scope is a ready-to-use
 // empty scope.
 type Scope struct {
         parent *Scope
         children []*Scope
-        elems map[string]Symbol
+        elems map[string]Object
         pos, end token.Pos
         comment string
 }
@@ -61,55 +61,55 @@ func (s *Scope) NumChildren() int { return len(s.children) }
 // Child returns the i'th child scope for 0 <= i < NumChildren().
 func (s *Scope) Child(i int) *Scope { return s.children[i] }
 
-// Lookup returns the symbol in scope s with the given name if such an
-// symbol exists; otherwise the result is nil.
-func (s *Scope) Lookup(name string) Symbol {
+// Lookup returns the object in scope s with the given name if such an
+// object exists; otherwise the result is nil.
+func (s *Scope) Lookup(name string) Object {
 	return s.elems[name]
 }
 
 // LookupParent follows the parent chain of scopes starting with s until
-// it finds a scope where Lookup(name) returns a non-nil symbol, and then
-// returns that scope and symbol. If a valid position pos is provided,
-// only symbols that were declared at or before pos are considered.
-// If no such scope and symbol exists, the result is (nil, nil).
+// it finds a scope where Lookup(name) returns a non-nil object, and then
+// returns that scope and object. If a valid position pos is provided,
+// only objects that were declared at or before pos are considered.
+// If no such scope and object exists, the result is (nil, nil).
 //
-// Note that sym.Parent() may be different from the returned scope if the
-// symbol was inserted into the scope and already had a parent at that
-// time (see Insert, below). This can only happen for dot-imported symbols
+// Note that obj.Parent() may be different from the returned scope if the
+// object was inserted into the scope and already had a parent at that
+// time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
-func (s *Scope) LookupParent(name string, pos token.Pos) (*Scope, Symbol) {
+func (s *Scope) LookupParent(name string, pos token.Pos) (*Scope, Object) {
 	for ; s != nil; s = s.parent {
-		if sym := s.elems[name]; sym != nil && (!pos.IsValid() || sym.scopePos() <= pos) {
-			return s, sym
+		if obj := s.elems[name]; obj != nil && (!pos.IsValid() || obj.scopePos() <= pos) {
+			return s, obj
 		}
 	}
 	return nil, nil
 }
 
-func (s *Scope) LookupAt(pos token.Pos, name string) (*Scope, Symbol) {
-        if sym := s.Lookup(name); sym == nil {
+func (s *Scope) LookupAt(pos token.Pos, name string) (*Scope, Object) {
+        if obj := s.Lookup(name); obj == nil {
                 return s.LookupParent(name, pos)
         } else {
-                return s, sym
+                return s, obj
         }
 }
 
-// Insert attempts to insert an symbol sym into scope s.
-// If s already contains an alternative symbol alt with
+// Insert attempts to insert an object obj into scope s.
+// If s already contains an alternative object alt with
 // the same name, Insert leaves s unchanged and returns alt.
-// Otherwise it inserts sym, sets the symbol's parent scope
+// Otherwise it inserts obj, sets the object's parent scope
 // if not already set, and returns nil.
-func (s *Scope) Insert(sym Symbol) Symbol {
-	name := sym.Name()
+func (s *Scope) Insert(obj Object) Object {
+	name := obj.Name()
 	if alt := s.elems[name]; alt != nil {
 		return alt
 	}
 	if s.elems == nil {
-		s.elems = make(map[string]Symbol)
+		s.elems = make(map[string]Object)
 	}
-	s.elems[name] = sym
-	if sym.Parent() == nil {
-		sym.setParent(s)
+	s.elems[name] = obj
+	if obj.Parent() == nil {
+		obj.setParent(s)
 	}
 	return nil
 }
@@ -166,7 +166,7 @@ func (s *Scope) WriteTo(w io.Writer, n int, recurse bool) {
 
 	fmt.Fprintf(w, "%s%s scope %p {", indn, s.comment, s)
 	if len(s.elems) == 0 {
-		fmt.Fprintf(w, "}\n")
+		fmt.Fprintf(w, "}")
 		return
 	}
 
