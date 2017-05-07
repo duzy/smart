@@ -10,7 +10,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        "path/filepath"
+        //"path/filepath"
         //"strings"
         "errors"
         "fmt"
@@ -176,21 +176,17 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         //fmt.Printf("Program.Execute: %v %v\n", entry, prog.depends)
 
         var (
-                top = prog.context.Getwd()
-                path = prog.project.Path()
+                //top = prog.context.Getwd()
+                p = prog.project
+                workdir = p.AbsPath()
                 wd, _ = os.Getwd()
-                workdir string
         )
-        if filepath.IsAbs(path) {
-                workdir = path
-        } else {
-                workdir = filepath.Join(top, path)
-        }
+        //fmt.Printf("%s: %s, %s\n", p.Name(), p.SpecPath(), p.AbsPath())
         if workdir != wd {
-                fmt.Printf("smart: Entering directory '%s'\n", path)
-                if err = os.Chdir(path); err == nil {
+                fmt.Printf("smart: Entering directory '%s'\n", workdir)
+                if err = os.Chdir(workdir); err == nil {
                         defer func() {
-                                fmt.Printf("smart: Leaving directory '%s'\n", path)
+                                fmt.Printf("smart: Leaving directory '%s'\n", workdir)
                                 os.Chdir(wd)
                         }()
                 } else {

@@ -108,7 +108,8 @@ type Program interface {
 }
 
 type Project struct {
-	path      string
+	absPath   string
+	specPath  string
 	name      string
         scope     *Scope
         uses      []*Use
@@ -121,7 +122,8 @@ type Project struct {
         patterns  []Pattern
 }
 
-func (m *Project) Path() string { return m.path }
+func (m *Project) AbsPath() string { return m.absPath }
+func (m *Project) SpecPath() string { return m.specPath }
 func (m *Project) Name() string { return m.name }
 func (m *Project) Scope() *Scope { return m.scope }
 func (m *Project) Uses() []*Use { return m.uses }

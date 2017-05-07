@@ -452,48 +452,36 @@ func (i *Interpreter) declareProject(name string) (err error) {
         linfo := i.loads[len(i.loads)-1]
         dec, ok := linfo.declares[name]
         if !ok {
-                var projectPath string
-                for n := len(i.loads)-1; n >= 0; n -= 1 {
-                        s := i.loads[n].specPath
-                        if strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../") {
-                                projectPath = filepath.Join(s, projectPath)
-                        } else if strings.HasPrefix(s, "/") {
-                                projectPath = filepath.Join(s, projectPath)
-                                break
-                        } else {
-                                projectPath = filepath.Join(i.loads[n].absPath, projectPath)
-                                break
-                        }
-                }
-                if projectPath == "" {
-                        projectPath = "."
-                }
-                
                 dec = &declare{
-                        project: i.Globe().NewProject(projectPath, name),
+                        project: i.Globe().NewProject(linfo.absPath, linfo.specPath, name),
                 }
                 linfo.declares[name] = dec
 
                 var (
-                        absPath = linfo.absPath
-                        specPath = linfo.specPath
-                        specPathParent = filepath.Dir(specPath)
                         ms = dec.project.Scope()
+                        absPath = linfo.absPath
+                        relPath, relPathParent string
                 )
                 if !filepath.IsAbs(absPath) {
                         //absPath = filepath.Join(i.Getwd(), absPath)
                         absPath, _ = filepath.Abs(absPath)
                 }
-                if specPath == "." && specPathParent == "." {
-                        specPathParent = ".."
+
+                //fmt.Printf("%s: %s, %s\n", name, relPath, absPath)
+                
+                relPath, _ = filepath.Rel(i.Getwd(), absPath)
+                relPathParent = filepath.Dir(relPath)
+                if relPath == "." && relPathParent == "." {
+                        relPathParent = ".."
                 }
+
                 if ms.Insert(types.NewDef(dec.project, "/", values.String(absPath))) != nil {
                         panic(fmt.Sprintf("'$/' already defined"))
                 }
-                if ms.Insert(types.NewDef(dec.project, ".", values.String(specPath))) != nil {
+                if ms.Insert(types.NewDef(dec.project, ".", values.String(relPath))) != nil {
                         panic(fmt.Sprintf("'$.' already defined"))
                 }
-                if ms.Insert(types.NewDef(dec.project, "..", values.String(specPathParent))) != nil {
+                if ms.Insert(types.NewDef(dec.project, "..", values.String(relPathParent))) != nil {
                         panic(fmt.Sprintf("'$..' already defined"))
                 }
         }

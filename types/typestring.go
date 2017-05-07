@@ -23,17 +23,17 @@ import (
 //
 type Qualifier func(*Project) string
 
-// RelativeTo(pkg) returns a Qualifier that fully qualifies members of
-// all projects other than pkg.
-func RelativeTo(pkg *Project) Qualifier {
-	if pkg == nil {
+// RelativeTo(pro) returns a Qualifier that fully qualifies members of
+// all projects other than pro.
+func RelativeTo(pro *Project) Qualifier {
+	if pro == nil {
 		return nil
 	}
 	return func(other *Project) string {
-		if pkg == other {
+		if pro == other {
 			return "" // same project; unqualified
 		}
-		return other.path //other.Path()
+		return other.absPath //other.specPath
 	}
 }
 
