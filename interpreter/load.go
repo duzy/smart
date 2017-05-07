@@ -231,7 +231,7 @@ func (i *Interpreter) evalExpr(expr ast.Expr) (v types.Value) {
                         }
                 } else if id, _ := x.X.(*ast.Ident); id != nil {
                         fmt.Printf("eval:selector: '%v' in %v, %v\n", id.Name, i.Scope(), i.project.Scope())
-                        panic("..")
+                        panic(fmt.Sprintf("eval: %s.%v", id.Name, x.Sel.Name))
                         runtime.Fail("project '%s' is not imported in %s",
                                 id.Name, i.Scope())
                 } else {
