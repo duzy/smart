@@ -73,25 +73,17 @@ const (
         CALL_9    // $9
 
        
-        ASSIGN    // =
-        /*
-        QUE_ASSIGN // ?=
-        SCO_ASSIGN // :=
-        DCO_ASSIGN // ::=
-        EXC_ASSIGN // !=     exclamation */
-        ADD_ASSIGN // +=
-
-        /*
-	ADD // +
-	SUB // -
-	MUL // *
-	QUO // /
-	REM // % */
+        ASSIGN     //   =
+        ADD_ASSIGN //  +=
+        QUE_ASSIGN //  ?=       question colon
+        EXC_ASSIGN //  !=       exclamation
+        SCO_ASSIGN //  :=       single colon
+        DCO_ASSIGN // ::=       double colon
 
 	PLUS  // unary +
 	MINUS // unary -
 	PCON  // path concatenation '/'
-        PERC  // percent sign '%'
+        PERC  // percent sign '%'(REM)
 	operator_end
 
 	keyword_beg
@@ -163,6 +155,10 @@ var tokens = [...]string{
 
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",
+        QUE_ASSIGN: "?=",
+        EXC_ASSIGN: "!=",
+        SCO_ASSIGN: ":=",
+        DCO_ASSIGN: "::=",
 
         PLUS:  "+",
         MINUS: "-",

@@ -56,10 +56,40 @@ func saveLoadingInfo(i *Interpreter, specPath, absPath, baseName string) *Interp
         return i
 }
 
+type usedefine struct {
+        name string
+        value types.Value
+        pos *token.Position
+}
+
+func (p *usedefine) Type() types.Type     { return p.value.Type() }
+func (p *usedefine) Pos() *token.Position { return p.pos }
+func (p *usedefine) Lit() string          { return p.name + " = " + p.value.Lit() }
+func (p *usedefine) String() string       { return p.name + " = " + p.value.String() }
+func (p *usedefine) Integer() int64       { return 0 }
+func (p *usedefine) Float() float64       { return 0 }
+func (p *usedefine) Define(project *types.Project) (result types.Value, err error) {
+        var (
+                scope = project.Scope()
+                def = scope.Lookup(p.name)
+        )
+        if def == nil {
+                scope.Insert(types.NewDef(project, p.name, p.value))
+        } else if t, _ := def.(*types.Def); t != nil {
+                t.Set(p.value)
+        } else {
+                err = errors.New(fmt.Sprintf("name '%s' taken in '%s'", p.name, project.Name()))
+        }
+        return
+}
+
 func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
         var (
+                scope = i.Scope()
                 linfo = i.loads[len(i.loads)-1]
                 specPath string
+                params []types.Value
+                nouse bool
         )
         if 0 < len(spec.Props) {
                 switch lit := spec.Props[0].(type) {
@@ -74,6 +104,14 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
                                                 specPath = lit.Value
                                         }
                                 }
+                        }
+                }
+
+                for _, prop := range spec.Props[1:] {
+                        if v := i.expr(scope, prop); v.String() == "nouse" {
+                                nouse = true
+                        } else {
+                                params = append(params, v)
                         }
                 }
         }
@@ -134,6 +172,19 @@ importProject:
                 err = i.loadDir(specPath, absPath, nil)
         } else {
                 err = i.load(specPath, absPath, nil)
+        }
+
+        if err == nil && !nouse {
+                loaded := i.loaded[absPath]
+                use := loaded.Scope().Lookup("use")
+                if rule, _ := use.(*types.RuleEntry); rule != nil {
+                        result, err := rule.Call(values.Any(i.project))
+                        if err != nil {
+                                //...
+                        } else if result == nil {
+                        }
+                        //fmt.Printf("use: %v, %v (%v)\n", i.project.Name(), loaded.Name(), result)
+                }
         }
         return
 }
@@ -252,8 +303,9 @@ func (i *Interpreter) recipe(scope *types.Scope, x *ast.RecipeExpr) (v types.Val
         if x.Dialect == "" {
                 var elems []types.Value
                 switch t := x.Elems[0].(type) {
-                default: runtime.Fail("unsupported recipe %T", t)
+                default: runtime.Fail("unimplemented recipe (%T)", t)
                 case *ast.SelectorExpr, *ast.Ident:
+                case *ast.UseDefineClause:
                 }
                 elems = append(elems, i.exprs(scope, x.Elems)...)
                 //fmt.Printf("recipe: %T %T\n", x.Elems[0], elems[0])
@@ -301,9 +353,14 @@ func (i *Interpreter) expr(scope *types.Scope, expr ast.Expr) (v types.Value) {
                 v = i.unary(scope, x)
         case nil:
                 v = values.None
+        case *ast.UseDefineClause:
+                v = &usedefine{
+                        name: i.expr(scope, x.Name).String(),
+                        value: i.expr(scope, x.Value),
+                        pos: nil,
+                }
         default:
-                fmt.Printf("unsupported expression %T %v\n", x, x)
-                unreachable()
+                runtime.Fail("unimplemented expression (%T)", x)
         }
         return
 }
@@ -316,7 +373,7 @@ func (i *Interpreter) exprs(scope *types.Scope, exprs []ast.Expr) (values []type
 }
 
 func (i *Interpreter) use(spec *ast.UseSpec) error {
-        runtime.Fail("unimplemented: use %v\n", spec) // TODO: use
+        runtime.Fail("unimplemented: %T\n", spec) // TODO: use
         return nil
 }
 
@@ -326,7 +383,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                 name := i.expr(scope, spec.Props[0])
                 if _, fun := i.Scope().LookupAt(spec.EndPos, name.String()); fun != nil {
                         args := i.exprs(scope, spec.Props[1:])
-                        res, _ = fun.Call(args...)
+                        res, _ = fun.(types.Caller).Call(args...)
                 } else {
                         err = errors.New(fmt.Sprintf("undefined '%s'", name))
                         //fmt.Printf("error: `%v' is invalid\n", name)
@@ -335,42 +392,41 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         return
 }
 
-func (i *Interpreter) define(d *ast.DefineClause) (sym types.Object, err error) {
-        if p := i.project; p != nil {
-                var (
-                        scope = p.Scope()
-                        name = i.expr(scope, d.Name).String()
-                        v = i.expr(scope, d.Value)
-                )
-
-                if t, _ := v.(*types.Def); t != nil {
-                        v = t.Value()
-                }
-                
-                if sym = scope.Insert(types.NewDef(p, name, v)); sym != nil {
-                        if def, ok := sym.(*types.Def); ok {
-                                def.Set(v)
-                        } else {
-                                err = errors.New(fmt.Sprintf("name '%s' already taken", name))
-                        }
-                }
-        } else {
+func (i *Interpreter) define(scope *types.Scope, d *ast.DefineClause) (obj types.Object, err error) {
+        if i.project == nil {
                 err = errors.New(fmt.Sprintf("define %v not in a project scope", d.Name))
+                return
+        }
+        
+        var (
+                name = i.expr(scope, d.Name).String()
+                v = i.expr(scope, d.Value)
+        )
+
+        if t, _ := v.(*types.Def); t != nil {
+                v = t.Value()
+        }
+        
+        
+        if obj = i.project.Scope().Insert(types.NewDef(i.project, name, v)); obj != nil {
+                if def, ok := obj.(*types.Def); ok {
+                        def.Set(v)
+                } else {
+                        err = errors.New(fmt.Sprintf("name '%s' already taken", name))
+                }
         }
         return
 }
 
-func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
+func (i *Interpreter) rule(scope *types.Scope, d *ast.RuleClause) (err error) {
         var (
-                depends []types.Value // *types.RuleEntry, *values.BarefileValue
+                depends []types.Value
                 recipes []types.Value
-                m = i.project//CurrentProject()
         )
-        for i, depend := range i.exprs(i.Scope(), d.Depends) {
+        for i, depend := range i.exprs(scope, d.Depends) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", depend, depend, depend.String())
                 switch entry := depend.(type) {
-                case *types.RuleEntry, *values.BarefileValue, *values.PathValue,
-                        *types.PercentPattern:
+                case *types.RuleEntry, *values.BarefileValue, *values.PathValue, *types.PercentPattern:
                         depends = append(depends, entry)
                 case nil:
                         runtime.Fail("entry undefined (%T %v)", d.Depends[i], d.Depends[i])
@@ -383,15 +439,11 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 }
         }
 
-        //scope := types.NewScope(i.Scope(), d.TokPos, token.NoPos, "rule")
-        //defer i.SetScope(i.SetScope(scope))
-        scope := i.Scope()
-        
         if p, ok := d.Program.(*ast.ProgramExpr); ok && p != nil {
                 // mapping lexical objects
                 for name, sym := range p.Scope.Symbols {
                         //fmt.Printf("sym: %v %T\n", name, sym)
-                        auto := types.NewDef(m, name, values.None)
+                        auto := types.NewDef(i.project, name, values.None)
                         if alt := scope.Insert(auto); alt != nil {
                                 runtime.Fail("%s already defined", name)
                         }
@@ -421,9 +473,9 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 //fmt.Printf("Interpreter.rule: %T %v (%v)\n", target, target, target.String())
                 switch entry := target.(type) {
                 case *types.PercentPattern:
-                        m.AddPercentPattern(entry, prog)
+                        i.project.AddPercentPattern(entry, prog)
                 default:
-                        m.Insert(target.String(), prog)
+                        i.project.Insert(target.String(), prog)
                 }
         }
         return
@@ -667,13 +719,15 @@ func (pc *parseContext) Eval(spec *ast.EvalSpec) error {
 }
         
 func (pc *parseContext) Define(clause *ast.DefineClause) (parser.RuntimeSym, error) {
-        return pc.define(clause)
+        return pc.define(pc.Scope(), clause)
 }
 
 func (pc *parseContext) DeclareRule(clause *ast.RuleClause) (parser.RuntimeSym, error) {
-        return nil, pc.rule(clause)
+        //scope := types.NewScope(i.Scope(), d.TokPos, token.NoPos, "rule")
+        //defer i.SetScope(i.SetScope(scope))
+        return nil, pc.rule(pc.Scope(), clause)
 }
-        
+
 func (pc *parseContext) EvalExpr(x ast.Expr) (s fmt.Stringer, err error) {
 	defer func() {
 		if e := recover(); e != nil {

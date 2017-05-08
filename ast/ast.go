@@ -440,7 +440,7 @@ type (
 	DefineClause struct {
 		Doc     *CommentGroup // associated documentation; or nil
 		TokPos  token.Pos     // position of Tok
-		Tok     token.Token   // '=', ':='
+		Tok     token.Token   // '=', ':=', '+=', '?=', etc.
 		Name    Expr          // name for the defining symbol
                 Value   Expr          // value of the definition
 		Comment *CommentGroup // line comments; or nil
@@ -456,6 +456,13 @@ type (
                 TokPos  token.Pos      // position of ':', '::', etc
 		Tok     token.Token    // token ':', '::'
 	}
+
+        UseDefineClause struct {
+                *DefineClause
+        }
+        UseRuleClause struct {
+                *RuleClause
+        }
 )
 
 func (d *BadClause) Pos() token.Pos    { return d.From }
@@ -481,6 +488,9 @@ func (*BadClause) clauseNode()     {}
 func (*GenericClause) clauseNode() {}
 func (*DefineClause) clauseNode()  {}
 func (*RuleClause) clauseNode()    {}
+
+func (*UseDefineClause) exprNode() {}
+func (*UseRuleClause) exprNode() {}
 
 // A File node represents a Smart source file.
 //

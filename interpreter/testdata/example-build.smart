@@ -18,6 +18,9 @@ run-example: [ (shell-stdout) (shell) ] : example
 	@echo $(foo.bar.b.var)
 	@echo $($(fo).var)
 	@echo $($(fo).$(var))
+	@echo 'foo_use_a:' $(foo_use_a)
+	@echo 'foo_use_b:' $(foo_use_b)
+	@echo 'foo_use_c:' $(foo_use_c)
 	./example
 
 example: [ (compare) (shell-stderr) (shell) (check-file) ] : example.o

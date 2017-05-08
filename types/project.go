@@ -6,7 +6,7 @@
 package types
 
 import (
-        //"github.com/duzy/smart/token"
+        "github.com/duzy/smart/token"
         "path/filepath"
         "strings"
         "fmt"
@@ -53,6 +53,7 @@ func NewPercentPattern(m *Project, prefix, suffix Value) Pattern {
 }
 
 func (p *PercentPattern) Lit() string { return p.String() }
+func (p *PercentPattern) Pos() *token.Position { return nil }
 func (p *PercentPattern) String() (s string) {
         if p.prefix != nil {
                 s = p.prefix.String()
@@ -94,6 +95,7 @@ func NewRegexpPattern() Pattern {
 }
 
 func (p *RegexpPattern) Lit() string { return p.String() }
+func (p *RegexpPattern) Pos() *token.Position { return nil }
 func (p *RegexpPattern) String() (s string) { return "" }
 func (p *RegexpPattern) Match(s string) (matched bool, stem string) {
         return

@@ -19,22 +19,22 @@ import (
 // Scalar literal/value types. A literal is literrally written in the source code,
 // a value is calculated from the program.
 type (
-        value struct {
-                typ types.Type
-        }
+        none struct {}
 
+        AnyValue struct {
+                none // same as none but holding a interface{}
+                Any interface{}
+        }
+        
         IntValue struct {
-                value
                 v int64
         }
         
         FloatValue struct {
-                value
                 v float64
         }
 
         datetimeValue struct {
-                value
                 v time.Time
         }
         DateTimeValue struct { datetimeValue }
@@ -42,22 +42,18 @@ type (
         TimeValue     struct { datetimeValue }
         
         UriValue struct {
-                value
                 v *url.URL
         }
 
         StringValue struct {
-                value
                 v string
         }
 
         BarewordValue struct {
-                value
                 v string
         }
 
         IdentValue struct {
-                value
                 Names []string
         }
         
@@ -66,33 +62,27 @@ type (
         }
 
         BarecompValue struct {
-                value
                 elements
         }
 
         BarefileValue struct {
-                value
                 Name types.Value
                 Ext string
         }
         
         PathValue struct {
-                value
                 Segments []types.Value
         }
 
         FlagValue struct {
-                value
                 Name types.Value
         }
         
         CompoundValue struct {
-                value
                 elements
         }
 
         ListValue struct {
-                value
                 elements
         }
 
@@ -101,127 +91,129 @@ type (
         }
 
         MapValue struct {
-                value
                 //elems map[types.Value]types.Value
                 elems map[string]types.Value
         }
 
         PairValue struct { // key=value
-                value
                 k types.Value
                 v types.Value
         }
 )
 
-var None = &value{ types.None }
+var None = &none{}
+
+func Any(any interface{}) *AnyValue {
+        return &AnyValue{ Any:any }
+}
 
 func IntLit(s string) (v *IntValue) {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-                v = &IntValue{value{types.Int}, i}
+                v = &IntValue{i}
         }
         return
 }
 func Int(s int64) (v *IntValue) {
-        return &IntValue{value{types.Int}, s}
+        return &IntValue{s}
 }
 
 func FloatLit(s string) (v *FloatValue) {
         if f, e := strconv.ParseFloat(s, 64); e == nil {
-                v = &FloatValue{value{types.Float}, f}
+                v = &FloatValue{f}
         }
         return
 }
 func Float(s float64) (v *FloatValue) {
-        return &FloatValue{value{types.Float}, s}
+        return &FloatValue{s}
 }
 
 func DateTimeLit(s string) (v *DateTimeValue) {
         // time.RFC3339Nano
         if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
-                v = &DateTimeValue{datetimeValue{value{types.DateTime}, t}}
+                v = &DateTimeValue{datetimeValue{t}}
         }
         return
 }
 func DateTime(s time.Time) (v *DateTimeValue) {
-        return &DateTimeValue{datetimeValue{value{types.DateTime}, s}}
+        return &DateTimeValue{datetimeValue{s}}
 }
 
 func DateLit(s string) (v *DateValue) {
         if t, e := time.Parse("2006-01-02", s); e == nil {
-                v = &DateValue{datetimeValue{value{types.Date}, t}}
+                v = &DateValue{datetimeValue{t}}
         }
         return
 }
 func Date(s time.Time) (v *DateValue) {
-        return &DateValue{datetimeValue{value{types.Date}, s}}
+        return &DateValue{datetimeValue{s}}
 }
 
 func TimeLit(s string) (v *TimeValue) {
         if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
-                v = &TimeValue{datetimeValue{value{types.Time}, t}}
+                v = &TimeValue{datetimeValue{t}}
         }
         return
 }
 func Time(t time.Time) (v *TimeValue) {
-        return &TimeValue{datetimeValue{value{types.Time}, t}}
+        return &TimeValue{datetimeValue{t}}
 }
 
 func UriLit(s string) (v *UriValue) {
         if u, e := url.Parse(s); e == nil {
-                v = &UriValue{value{types.Uri}, u}
+                v = &UriValue{u}
         }
         return
 }
 func Uri(s *url.URL) (v *UriValue) {
-        return &UriValue{value{types.Uri}, s}
+        return &UriValue{s}
 }
 
 func StringLit(s string) (v *StringValue) {
-        return &StringValue{value{types.String}, s}
+        return &StringValue{s}
 }
 func String(s string) (v *StringValue) {
-        return &StringValue{value{types.String}, s}
+        return &StringValue{s}
 }
 
 func Ident(names... string) (v *IdentValue) {
-        return &IdentValue{value{}, names}
+        return &IdentValue{names}
 }
 
 func Bareword(s string) (v *BarewordValue) {
-        return &BarewordValue{value{types.Bareword}, s}
+        return &BarewordValue{s}
 }
 
 func Barecomp(elems... types.Value) (v *BarecompValue) {
-        return &BarecompValue{value{types.Barecomp}, elements{elems}}
+        return &BarecompValue{elements{elems}}
 }
 
 func Barefile(name types.Value, ext string) (v *BarefileValue) {
-        return &BarefileValue{value{types.Barefile}, name, ext}
+        return &BarefileValue{name, ext}
 }
 
 func Path(segments... types.Value) (v *PathValue) {
-        return &PathValue{value{types.Path}, segments}
+        return &PathValue{segments}
 }
 
 func Flag(name types.Value) (v *FlagValue) {
-        return &FlagValue{value{types.Flag}, name}
+        return &FlagValue{name}
 }
 
 func Compound(elems... types.Value) (v *CompoundValue) {
-        return &CompoundValue{value{types.Compound}, elements{elems}}
+        return &CompoundValue{elements{elems}}
 }
 
 func List(elems... types.Value) (v *ListValue) {
-        return &ListValue{value{types.List}, elements{elems}}
+        return &ListValue{elements{elems}}
 }
 
 func Group(elems... types.Value) (v *GroupValue) {
-        return &GroupValue{ListValue{value{types.List}, elements{elems}}}
+        return &GroupValue{ListValue{elements{elems}}}
 }
 
 func Pair(k, v types.Value) (p *PairValue) {
         if k.Type().Info()&types.IsKeyName != 0 {
-                p = &PairValue{value{types.Pair}, nil, nil}
+                p = &PairValue{nil, nil}
                 p.SetKey(k)
                 p.SetValue(v)
         }
@@ -282,10 +274,13 @@ func MakeAll(in... interface{}) (out []types.Value) {
         return
 }
 
-func (p *value) Pos() token.Pos         { return token.NoPos }
-func (p *value) Type() types.Type       { return p.typ }
+func (p *none) Type() types.Type        { return types.None }
+func (p *none) Pos() *token.Position    { return nil }
+func (p *none) Lit() string             { return "" }
+func (p *none) String() string          { return "" }
+func (p *none) Integer() int64          { return 0 }
+func (p *none) Float() float64          { return 0 }
 
-func (p *value) Lit() string            { return "" }
 func (p *IntValue) Lit() string         { return p.String() }
 func (p *FloatValue) Lit() string       { return p.String() }
 func (p *DateTimeValue) Lit() string    { return p.String() }
@@ -353,7 +348,6 @@ func (p *PairValue) Lit() string {
         return p.k.Lit() + "=" + p.v.Lit()
 }
 
-func (p *value) String() string         { return "" }
 func (p *IntValue) String() string      { return strconv.FormatInt(int64(p.v),10) } // Itoa
 func (p *FloatValue) String() string    { return strconv.FormatFloat(float64(p.v),'g', -1, 64) }
 func (p *DateTimeValue) String() string { return time.Time(p.v).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
@@ -418,7 +412,6 @@ func (p *PairValue) String() string {
         return p.k.String() + "=" + p.v.String()
 }
 
-func (p *value) Integer() int64         { return 0 }
 func (p *IntValue) Integer() int64      { return p.v }
 func (p *FloatValue) Integer() int64    { return int64(p.v) }
 func (p *DateTimeValue) Integer() int64 { return p.v.Unix() }
@@ -426,17 +419,17 @@ func (p *DateValue) Integer() int64     { return p.v.Unix() }
 func (p *TimeValue) Integer() int64     { return p.v.Unix() }
 func (p *UriValue) Integer() int64      { return int64(len(p.v.String())) }
 func (p *StringValue) Integer() int64   { i, _ := strconv.ParseInt(p.v, 10, 64); return i }
+func (p *BarecompValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *BarewordValue) Integer() int64 { return 0 }
 func (p *BarefileValue) Integer() int64 { return 0 }
 func (p *PathValue) Integer() int64     { return 0 }
 func (p *FlagValue) Integer() int64     { return 0 }
-func (p *BarecompValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *CompoundValue) Integer() int64 { return int64(len(p.elems)) }
 func (p *ListValue) Integer() int64     { return int64(len(p.elems)) }
 func (p *GroupValue) Integer() int64    { return int64(len(p.ListValue.elems)) }
 func (p *PairValue) Integer() int64     { return p.v.Integer() }
 
-func (p *value) Float() float64         { return 0.0 }
+
 func (p *IntValue) Float() float64      { return float64(p.v) }
 func (p *FloatValue) Float() float64    { return p.v }
 func (p *DateTimeValue) Float() float64 { return float64(p.Integer()) }
@@ -445,14 +438,50 @@ func (p *TimeValue) Float() float64     { return float64(p.Integer()) }
 func (p *UriValue) Float() float64      { return float64(p.Integer()) }
 func (p *StringValue) Float() float64   { return float64(p.Integer()) }
 func (p *BarewordValue) Float() float64 { return float64(p.Integer()) }
+func (p *BarecompValue) Float() float64 { return float64(p.Integer()) }
 func (p *BarefileValue) Float() float64 { return float64(p.Integer()) }
 func (p *PathValue) Float() float64     { return float64(p.Integer()) }
 func (p *FlagValue) Float() float64     { return float64(p.Integer()) }
-func (p *BarecompValue) Float() float64 { return float64(p.Integer()) }
 func (p *CompoundValue) Float() float64 { return float64(p.Integer()) }
 func (p *ListValue) Float() float64     { return float64(p.Integer()) }
 func (p *GroupValue) Float() float64    { return float64(p.Integer()) }
 func (p *PairValue) Float() float64     { return p.v.Float() }
+
+func (p *IntValue) Type() types.Type      { return types.Int }
+func (p *FloatValue) Type() types.Type    { return types.Float }
+func (p *DateTimeValue) Type() types.Type { return types.DateTime }
+func (p *DateValue) Type() types.Type     { return types.Date }
+func (p *TimeValue) Type() types.Type     { return types.Time }
+func (p *UriValue) Type() types.Type      { return types.Uri }
+func (p *StringValue) Type() types.Type   { return types.String }
+func (p *IdentValue) Type() types.Type    { return types.Ident }
+func (p *BarewordValue) Type() types.Type { return types.Bareword }
+func (p *BarecompValue) Type() types.Type { return types.Barecomp }
+func (p *BarefileValue) Type() types.Type { return types.Barefile }
+func (p *PathValue) Type() types.Type     { return types.Path }
+func (p *FlagValue) Type() types.Type     { return types.Flag }
+func (p *CompoundValue) Type() types.Type { return types.Compound }
+func (p *GroupValue) Type() types.Type    { return types.Group }
+func (p *ListValue) Type() types.Type     { return types.List }
+func (p *PairValue) Type() types.Type     { return types.Pair }
+
+func (p *IntValue) Pos() *token.Position      { return nil }
+func (p *FloatValue) Pos() *token.Position    { return nil }
+func (p *DateTimeValue) Pos() *token.Position { return nil }
+func (p *DateValue) Pos() *token.Position     { return nil }
+func (p *TimeValue) Pos() *token.Position     { return nil }
+func (p *UriValue) Pos() *token.Position      { return nil }
+func (p *StringValue) Pos() *token.Position   { return nil }
+func (p *IdentValue) Pos() *token.Position    { return nil }
+func (p *BarewordValue) Pos() *token.Position { return nil }
+func (p *BarecompValue) Pos() *token.Position { return nil }
+func (p *BarefileValue) Pos() *token.Position { return nil }
+func (p *PathValue) Pos() *token.Position     { return nil }
+func (p *FlagValue) Pos() *token.Position     { return nil }
+func (p *CompoundValue) Pos() *token.Position { return nil }
+func (p *GroupValue) Pos() *token.Position    { return nil }
+func (p *ListValue) Pos() *token.Position     { return nil }
+func (p *PairValue) Pos() *token.Position     { return nil }
 
 func (p *elements) Len() int                      { return len(p.elems) }
 func (p *elements) Append(v... types.Value)       { p.elems = append(p.elems, v...) }
@@ -470,9 +499,9 @@ func (p *elements) Take(n int) (v types.Value) {
         }
         return 
 }
-func (p *elements) ToBarecomp() *BarecompValue { return &BarecompValue{value{types.Barecomp}, *p} }
-func (p *elements) ToCompound() *CompoundValue { return &CompoundValue{value{types.Compound}, *p} }
-func (p *elements) ToList() *ListValue         { return &ListValue{value{types.List}, *p} }
+func (p *elements) ToBarecomp() *BarecompValue { return &BarecompValue{*p} }
+func (p *elements) ToCompound() *CompoundValue { return &CompoundValue{*p} }
+func (p *elements) ToList() *ListValue         { return &ListValue{*p} }
 
 func (p *PairValue) Key() types.Value { return p.k }
 func (p *PairValue) Value() types.Value { return p.v }

@@ -20,8 +20,7 @@ type Object interface {
         Project() *Project
         Name() string
         Type() Type // the type of the object, differs from the value type
-
-        Call(args... Value) (Value, error)
+        Pos() *token.Position // position or nil
 
         Lit() string
         String() string
@@ -56,13 +55,14 @@ type object struct {
 
 func (obj *object) Parent() *Scope        { return obj.parent }
 func (obj *object) Project() *Project     { return obj.project }
+func (obj *object) Pos() *token.Position  { return nil /*obj.pos*/ }
 func (obj *object) Name() string          { return obj.name }
 func (obj *object) Type() Type            { return obj.typ }
 func (obj *object) Lit() string           { return "" }
 func (obj *object) String() string        { return fmt.Sprintf("object %v", obj.name) }
 func (obj *object) Integer() int64        { return 0 }
 func (obj *object) Float() float64        { return 0 }
-func (obj *object) Call(a... Value) (Value, error) { return nil, nil }
+//func (obj *object) Call(a... Value) (Value, error) { return nil, nil }
 func (obj *object) order() uint32         { return obj.ord }
 func (obj *object) scopePos() token.Pos   { return obj.scopos }
 
@@ -74,7 +74,12 @@ func NewDummy(mod *Project, scope *Scope, name string) Object {
 	return &object{scope, mod, name, Invalid, 0, token.NoPos}
 }
 
-func IsDummy(s Object) bool {
+func IsDummy(s interface{}) bool {
+        _, ok := s.(*object)
+        return ok
+}
+
+func IsDummyObject(s Object) bool {
         _, ok := s.(*object)
         return ok
 }

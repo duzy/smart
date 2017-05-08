@@ -173,7 +173,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
 func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
         defer prog.context.SetScope(prog.context.SetScope(prog.scope))
 
-        //fmt.Printf("Program.Execute: %v %v\n", entry, prog.depends)
+        //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.depends)
 
         var (
                 p = prog.project
@@ -216,7 +216,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 if i, _ := interpreters[``]; i == nil {
                         err = errors.New("no default dialect")
                         return
-                } else if err = prog.interpret(i, out); err != nil {
+                } else if err = prog.interpret(i, out, args...); err != nil {
                         // ...
                 }
                 return
@@ -240,15 +240,9 @@ pipelineLoop:
                         if i, _ := interpreters[op.String()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
-                        } else if err = prog.interpret(i, out); err != nil {
+                        } else if err = prog.interpret(i, out, args...); err != nil {
                                 //fmt.Printf("interpret: %v\n", err)
                                 break pipelineLoop
-                        /* } else if g, _ := out.Value().(*values.GroupValue); g != nil {
-                                if s, c := g.Get(0), g.Get(1); s != nil && c != nil &&
-                                        s.String() == "shell" && c.Integer() != 0 {
-                                        //fmt.Printf("interpret: %v\n", c)
-                                        break pipelineLoop
-                                } */
                         }
                 default:
                         err = errors.New(fmt.Sprintf("unsupported modifier '%s'", v))

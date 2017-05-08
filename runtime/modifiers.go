@@ -281,7 +281,7 @@ DoneWhen:
 }
 
 func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        var target, _ = prog.scope.Lookup("@").Call()
+        var target, _ = prog.scope.Lookup("@").(types.Caller).Call()
         if fi, _ := os.Stat(target.String()); fi != nil && fi.Mode().IsDir() {
                 result = values.Group(targetDirectoryKind, target)
         } else {

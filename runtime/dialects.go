@@ -10,8 +10,8 @@ import (
         //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        //"errors"
-        //"fmt"
+        "errors"
+        "fmt"
 )
 
 type interpretMode int
@@ -71,10 +71,23 @@ evaluationLoop:
                                 v = stmt.Get(0)
                                 e error
                         )
-                        switch ident := v.(type) {
-                        case *types.Builtin:   v, e = ident.Call(stmt.Slice(1)...)
-                        case *types.RuleEntry: v, e = ident.Call(stmt.Slice(1)...)
-                         default:
+                        switch t := v.(type) {
+                        case types.Definer:
+                                if n := len(args); n != 1 {
+                                        err = errors.New(fmt.Sprintf("wrong define arguments", n))
+                                        break evaluationLoop
+                                }
+                                if a, _ := args[0].(*values.AnyValue); a != nil {
+                                        if p, ok := a.Any.(*types.Project); ok {
+                                                v, e = t.Define(p); break
+                                        }
+                                }
+                                err = errors.New("wrong define arguments")
+                                break evaluationLoop
+
+                        case types.Caller:
+                                v, e = t.Call(stmt.Slice(1)...)
+                        default:
                                 if stmt.Len() == 1 {
                                         list.Append(v)
                                 } else {

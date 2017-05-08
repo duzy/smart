@@ -82,9 +82,12 @@ lookupName:
 }
 
 func (ctx *Context) callAt(pos token.Pos, ident []string, args... types.Value) types.Value {
-        if _, sym := ctx.lookupAt(pos, ident, false); sym != nil {
-                if v, _ := sym.Call(args...); v != nil {
-                        return v
+        if _, obj := ctx.lookupAt(pos, ident, false); obj != nil {
+                switch t := obj.(type) {
+                case types.Caller:
+                        if v, _ := t.Call(args...); v != nil {
+                                return v
+                        }
                 }
         }
         return values.None
@@ -94,24 +97,24 @@ type delegate struct {
         x *Context
         s types.Object
         a []types.Value
-        p token.Pos
+        p *token.Position
 }
 
-func (p *delegate) Type() types.Type  { return nil }
-func (p *delegate) Pos() token.Pos    { return p.p }
-func (p *delegate) Lit() string       { return p.call().Lit() }
-func (p *delegate) String() string    { return p.call().String() }
-func (p *delegate) Integer() int64    { return p.call().Integer() }
-func (p *delegate) Float() float64    { return p.call().Float() }
+func (p *delegate) Type() types.Type     { return p.s.Type() }
+func (p *delegate) Pos() *token.Position { return p.p }
+func (p *delegate) Lit() string          { return p.call().Lit() }
+func (p *delegate) String() string       { return p.call().String() }
+func (p *delegate) Integer() int64       { return p.call().Integer() }
+func (p *delegate) Float() float64       { return p.call().Float() }
 func (p *delegate) call() (v types.Value) {
         if types.IsDummy(p.s) {
                 scope := p.s.Parent()
                 if _, s := scope.LookupAt(token.NoPos, p.s.Name()); s != nil {
                         p.s = s
-                        v, _ = s.Call(p.a...)
                 }
-        } else {
-                v, _ = p.s.Call(p.a...)
+        }
+        if c, ok := p.s.(types.Caller); ok {
+                v, _ = c.Call(p.a...)
         }
         if v == nil {
                 v = values.None
@@ -124,7 +127,7 @@ func (ctx *Context) Fold(pos token.Pos, sym types.Object, args... types.Value) t
                 x: ctx,
                 s: sym,
                 a: args,
-                p: pos,
+                //p: pos,
         }
 }
 

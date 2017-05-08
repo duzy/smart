@@ -5,10 +5,13 @@
 //
 package types
 
-//import "github.com/duzy/smart/token"
+import "github.com/duzy/smart/token"
 
 // Value represents a value of a type.
 type Value interface {
+        // Pos returns the position of the value occurs position in file or nil.
+        //Pos() *token.Position
+        
         // Type returns the underlying type of the value.
         Type() Type
 
@@ -24,3 +27,39 @@ type Value interface {
         // Float returns the float form of the value.
         Float() float64
 }
+
+type Definer interface {
+        Value
+        Define(p *Project) (Value, error)
+}
+
+type Caller interface {
+        Value
+        Call(args... Value) (Value, error)
+}
+
+type Poser interface {
+        Value
+        Pos() *token.Position
+}
+
+type positional struct {
+        Value
+        pos *token.Position
+}
+
+func (p *positional) Pos() *token.Position { return p.pos }
+
+// Positional wraps a value with a valid position
+func Positional(v Value, pos *token.Position) Poser {
+        if p, ok := v.(*positional); ok {
+                p.pos = pos
+                return p
+        }
+        return &positional{ v, pos }
+}
+
+type Holder struct {
+        I interface{}
+}
+

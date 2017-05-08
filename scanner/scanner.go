@@ -770,12 +770,24 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         s.next() // discard '\n'
                 case '!':
                         tok = token.EXC
+                        if s.ch == '=' {
+                                tok = token.EXC_ASSIGN
+                                s.next()
+                        }
                 case '?':
                         tok = token.QUE
+                        if s.ch == '=' {
+                                tok = token.QUE_ASSIGN
+                                s.next()
+                        }
                 case '%':
                         tok = token.PERC
                 case '+':
                         tok = token.PLUS
+                        if s.ch == '=' {
+                                tok = token.ADD_ASSIGN
+                                s.next()
+                        }
                 case '-':
                         tok = token.MINUS
                 case '/':
@@ -864,11 +876,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 }
                         }
                 case '=':
-                        if /*s.context & isDefine == 0*/true {
-                                tok = token.ASSIGN
-                        } else {
-                                s.error(s.offset-2, "duplicate define context")
-                        }
+                        tok = token.ASSIGN
                 case '\n':
                         /* if s.parenDepth == 0 {
                                 tok = token.LINEND
@@ -901,28 +909,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 case ':':
                                         tok = token.COLON2
                                         s.next() // consume the second ':'
-                                /* case '!', '?':
-                                        ch = s.ch
-                                        switch s.next(); s.ch {
-                                        case ':':
-                                                s.next() // consume the second ':'
-                                                switch ch {
-                                                case '!': tok = token.COLON_EXC
-                                                case '?': tok = token.COLON_QUE
-                                                }
-                                        case '[':
-                                                s.next() // consume the second '['
-                                                //switch ch {
-                                                //case '!': tok = token.COLON_LBE
-                                                //case '?': tok = token.COLON_LBQ
-                                                //}
-                                        default:
-                                                s.error(s.offset-3, fmt.Sprintf("unexpected character %#U", s.ch))
-                                                tok = token.ILLEGAL
+                                        if s.ch == '=' {
+                                                tok = token.DCO_ASSIGN
+                                                s.next() // consume '='
                                         }
-                                case '[':
-                                        tok = token.COLON_LBK
-                                        s.next() // consume '[' */
+                                case '=':
+                                        tok = token.SCO_ASSIGN
+                                        s.next() // consume '='
                                 default:
                                         tok = token.COLON
                                 }
