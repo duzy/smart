@@ -12,6 +12,11 @@ fo = foo
 var = var
 foobar += example
 
+use foo
+use foo
+use foo
+use foo
+
 run-example: [ (shell-stdout) (shell) ] : example
 	@echo $(foo.var)
 	@echo $(foo.bar.var)

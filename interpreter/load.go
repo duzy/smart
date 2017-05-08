@@ -113,7 +113,7 @@ func set(p *types.Project, op token.Token, name string, value types.Value) (def 
         case token.ASSIGN: // =
                 def.Set(value)
         default:
-                unreachable()
+                runtime.Fail("unknown set opcode %v\n", op)
         }
         return
 }
@@ -227,15 +227,10 @@ importProject:
         }
 
         if err == nil && !nouse {
-                loaded := i.loaded[absPath]
-                use := loaded.Scope().Lookup("use")
-                if rule, _ := use.(*types.RuleEntry); rule != nil {
-                        result, err := rule.Call(values.Any(i.project))
-                        if err != nil {
-                                //...
-                        } else if result == nil {
-                        }
-                        //fmt.Printf("use: %v, %v (%v)\n", i.project.Name(), loaded.Name(), result)
+                if loaded, _ := i.loaded[absPath]; loaded != nil {
+                        err = i.useProject(loaded)
+                } else {
+                        unreachable()
                 }
         }
         return
@@ -407,6 +402,7 @@ func (i *Interpreter) expr(scope *types.Scope, expr ast.Expr) (v types.Value) {
                 v = values.None
         case *ast.UseDefineClause:
                 v = &usedefine{
+                        op: x.Tok,
                         name: i.expr(scope, x.Name).String(),
                         value: i.expr(scope, x.Value),
                         pos: nil,
@@ -424,9 +420,51 @@ func (i *Interpreter) exprs(scope *types.Scope, exprs []ast.Expr) (values []type
         return
 }
 
-func (i *Interpreter) use(spec *ast.UseSpec) error {
-        runtime.Fail("unimplemented: %T\n", spec) // TODO: use
+func (i *Interpreter) useProject(project *types.Project) error {
+        use := project.Scope().Lookup("use")
+        if rule, _ := use.(*types.RuleEntry); rule != nil {
+                result, err := rule.Call(values.Any(i.project))
+                //fmt.Printf("use: %v, %v (%v)\n", i.project.Name(), loaded.Name(), result)
+                if err != nil {
+                        return err
+                } else if result == nil {
+                        // ...
+                }
+        }
         return nil
+}
+
+func (i *Interpreter) use(spec *ast.UseSpec) error {
+        var (
+                scope = i.project.Scope()
+                name string
+                params []types.Value
+                project *types.Project
+        )
+        if len(spec.Props) == 0 {
+                return errors.New("empty use spec")
+        }
+        if name = i.expr(scope, spec.Props[0]).String(); name == "" {
+                return errors.New("empty use target")
+        }
+        for _, prop := range spec.Props[1:] {
+                params = append(params, i.expr(scope, prop))
+        }
+
+        obj := scope.Lookup(name)
+        if obj == nil {
+                return errors.New(fmt.Sprintf("'%s' is undefined in '%s'", name, i.project.Name()))
+        }
+
+        if pn, ok := obj.(*types.ProjectName); ok {
+                if project = pn.Imported(); project == nil {
+                        return errors.New(fmt.Sprintf("project '%s' is nil", name))
+                }
+        } else {
+                return errors.New(fmt.Sprintf("'%s' is not a project (%T)", name, obj))
+        }
+
+        return i.useProject(project)
 }
 
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
