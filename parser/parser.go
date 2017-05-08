@@ -229,6 +229,16 @@ func (p *parser) next() {
 // A bailout panic is raised to indicate early termination.
 type bailout struct{}
 
+func (p *parser) info(pos token.Pos, s string, a... interface{}) {
+        fmt.Printf("%s:info: ", p.file.Position(pos))
+        fmt.Printf(s, a...)
+}
+
+func (p *parser) warn(pos token.Pos, s string, a... interface{}) {
+        fmt.Printf("%s:warn: ", p.file.Position(pos))
+        fmt.Printf(s, a...)
+}
+
 func (p *parser) error(pos token.Pos, msg string) {
 	epos := p.file.Position(pos)
 
@@ -389,6 +399,29 @@ func assert(cond bool, msg string) {
 	}
 }
 
+// syncClause advances to the next tok.
+// Used for synchronization after an error.
+//
+func sync(p *parser, tok token.Token) {
+	for {
+		switch p.tok {
+		case tok:
+			if p.pos == p.syncPos && p.syncCnt < 10 {
+				p.syncCnt++
+				return
+			}
+			if p.pos > p.syncPos {
+				p.syncPos = p.pos
+				p.syncCnt = 0
+				return
+			}
+		case token.EOF:
+			return
+		}
+		p.next()
+	}
+}
+
 // syncClause advances to the next declaration.
 // Used for synchronization after an error.
 //
@@ -456,7 +489,8 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
         case *ast.Ident:
 	default:
 		// all other nodes are not proper expressions
-		p.errorExpected(x.Pos(), "valid expression")
+                p.warn(x.Pos(), "bad expression (%T)\n", x)
+		p.errorExpected(x.Pos(), "bad expression")
 		x = &ast.BadExpr{From: x.Pos(), To: p.safePos(x.End())}
 	}
 	return x
@@ -777,6 +811,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
         default:
                 pos := p.pos
+                p.warn(pos, "%v\n", p.tok)
                 p.errorExpected(pos, "clause or expression")
                 p.next() // go to next token
                 return &ast.BadExpr{ From:pos, To:p.pos }
@@ -1183,8 +1218,9 @@ func (p *parser) parseUseRecipe() (x ast.Expr) {
                 d := p.parseDefineClause(p.tok, x).(*ast.DefineClause)
                 x = &ast.UseDefineClause{ d }
         default:
-                fmt.Printf("use: %T %v %v\n", x, x, p.tok)
-                p.error(p.pos, fmt.Sprintf("unimplemented use clause: %v (%T)", p.tok, x))
+                p.warn(x.Pos(), "bad statement '%v' (%T)\n", x, x)
+                p.error(p.pos, fmt.Sprintf("unimplemented use statement: %T", x))
+                sync(p, token.LINEND)
         }
         return
 }

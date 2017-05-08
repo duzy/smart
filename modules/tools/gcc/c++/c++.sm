@@ -23,5 +23,8 @@ link = $(linker) $(link_flags)
 
 sources =
 
-compile-sources:
-	println 'TODO: compile $(sources)'
+use:
+	compile_flags += $(compile_flags)
+	compile = $(compile) $$(compile_flags)
+	link_flags += $(link_flags)
+	link = $(link)

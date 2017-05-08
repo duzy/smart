@@ -15,7 +15,8 @@ foobar += example
 use foo
 use foo
 use foo
-use foo
+
+compile_flags += -g
 
 run-example: [ (shell-stdout) (shell) ] : example
 	@echo $(foo.var)
@@ -31,10 +32,10 @@ run-example: [ (shell-stdout) (shell) ] : example
 	./example
 
 example: [ (compare) (shell-stderr) (shell) (check-file) ] : example.o
-	$(c++.link) -o $@ $<
+	$(link) -o $@ $<
 
 example.o: [ (compare) (shell-stderr) (shell) (check-file) ] : example.cpp
-	$(c++.compile) -o $@ $^
+	$(compile) -o $@ $^
 
 example.cpp: [ (compare) (plain) (update-file) ]
 	#include <iostream>
