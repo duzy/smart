@@ -1162,9 +1162,9 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 sym := ast.NewSym(ast.Def, name)
                 sym.Decl = clause
                 sym.Data = rs
-                if alt := p.topScope.Insert(sym); alt != nil {
-                        p.error(ident.Pos(), fmt.Sprintf("name '%s' already taken", name))
+                if alt := p.topScope.Insert(sym); alt != nil /*&& tok != token.ADD_ASSIGN*/ {
                         //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
+                        //p.error(ident.Pos(), fmt.Sprintf("name '%s' already taken", name))
                 }
         }
         return clause

@@ -280,7 +280,7 @@ func (i *Interpreter) selector(scope *types.Scope, p *types.Project, x *ast.Sele
         switch t := x.X.(type) {
         case *ast.Ident:
                 if base = p.Scope().Lookup(t.Name); base == nil {
-                        runtime.Fail("'%s' undefined in '%s'", t.Name, p.Name())
+                        runtime.Fail("'%s' undefined in project '%s' (from %s)", t.Name, p.Name(), i.project.Name())
                 }
         default:
                 if name := i.expr(scope, t).String(); name == "" {
@@ -309,7 +309,7 @@ func (i *Interpreter) selector(scope *types.Scope, p *types.Project, x *ast.Sele
                 switch s := x.S.(type) {
                 case *ast.Ident:
                         if obj := sub.Scope().Lookup(s.Name); obj == nil {
-                                runtime.Fail("'%s' undefined in %s", s.Name, pn.Name())
+                                runtime.Fail("'%s' undefined in project '%s' (%s)", s.Name, pn.Name(), i.project.Name())
                         } else {
                                 v = obj
                         }
@@ -323,7 +323,7 @@ func (i *Interpreter) selector(scope *types.Scope, p *types.Project, x *ast.Sele
                                         runtime.Fail("'%T' is empty", s)
                                 }
                         } else if obj := sub.Scope().Lookup(name); obj == nil {
-                                runtime.Fail("'%s' undefined in %s", name, pn.Name())
+                                runtime.Fail("'%s' undefined in project '%s' (%s)", name, pn.Name(), i.project.Name())
                         } else {
                                 v = obj
                         }
@@ -437,23 +437,30 @@ func (i *Interpreter) useProject(project *types.Project) error {
 func (i *Interpreter) use(spec *ast.UseSpec) error {
         var (
                 scope = i.project.Scope()
-                name string
+                name types.Value
                 params []types.Value
                 project *types.Project
+                obj types.Object
         )
         if len(spec.Props) == 0 {
                 return errors.New("empty use spec")
         }
-        if name = i.expr(scope, spec.Props[0]).String(); name == "" {
+        if name = i.expr(scope, spec.Props[0]); name == nil /*|| name == types.None*/ {
                 return errors.New("empty use target")
         }
         for _, prop := range spec.Props[1:] {
                 params = append(params, i.expr(scope, prop))
         }
 
-        obj := scope.Lookup(name)
-        if obj == nil {
-                return errors.New(fmt.Sprintf("'%s' is undefined in '%s'", name, i.project.Name()))
+        if pn, ok := name.(*types.ProjectName); ok {
+                if project = pn.Imported(); project == nil {
+                        return errors.New(fmt.Sprintf("%v is nil", pn))
+                }
+                goto useProject
+        }
+        
+        if obj = scope.Lookup(name.String()); obj == nil {
+                return errors.New(fmt.Sprintf("'%s' is undefined in %v", name, scope)) //i.project.Name()))
         }
 
         if pn, ok := obj.(*types.ProjectName); ok {
@@ -464,7 +471,7 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
                 return errors.New(fmt.Sprintf("'%s' is not a project (%T)", name, obj))
         }
 
-        return i.useProject(project)
+        useProject: return i.useProject(project)
 }
 
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
