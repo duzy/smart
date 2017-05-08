@@ -8,3 +8,4 @@ use:
 	foo_use_a = foo a
 	foo_use_b = foo b
 	foo_use_c = foo c
+	foobar += foo

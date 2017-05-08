@@ -51,8 +51,8 @@ const (
 
 	COLON     // :
 	COLON2    // ::
-	EXC // !
-	QUE // ?
+	EXC       // !          exclamation
+	QUE       // ?
         CALL      // $
         CALL_R    // $/
         CALL_D    // $.
@@ -74,11 +74,11 @@ const (
 
        
         ASSIGN     //   =
-        ADD_ASSIGN //  +=
-        QUE_ASSIGN //  ?=       question colon
-        EXC_ASSIGN //  !=       exclamation
-        SCO_ASSIGN //  :=       single colon
-        DCO_ASSIGN // ::=       double colon
+        ADD_ASSIGN //  +=       append
+        QUE_ASSIGN //  ?=       set if absent (defined, including empty)
+        EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
+        SCO_ASSIGN //  :=       simply expanded
+        DCO_ASSIGN // ::=       simply expanded (POSIX standard)
 
 	PLUS  // unary +
 	MINUS // unary -

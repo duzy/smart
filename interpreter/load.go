@@ -14,8 +14,10 @@ import (
         "github.com/duzy/smart/values"
         "github.com/duzy/smart/runtime"
         "path/filepath"
+        "os/exec"
         "strings"
         "errors"
+        "bytes"
         "fmt"
         "os"
 )
@@ -56,7 +58,68 @@ func saveLoadingInfo(i *Interpreter, specPath, absPath, baseName string) *Interp
         return i
 }
 
+func set(p *types.Project, op token.Token, name string, value types.Value) (def *types.Def, err error) {
+        // See https://www.gnu.org/software/make/manual/html_node/Setting.html
+        var obj = p.Scope().Lookup(name)
+        if obj == nil {
+                def = types.NewDef(p, name, value)
+                p.Scope().Insert(def)
+                return
+        }
+        if def, _ = obj.(*types.Def); def == nil {
+                err = errors.New(fmt.Sprintf("name '%s' already taken in '%s'", name, p.Name()))
+                return
+        }
+
+        switch op {
+        case token.QUE_ASSIGN: // ?=
+                // noop, only set if absent (not defined)
+        case token.ADD_ASSIGN: // +=
+                var (
+                        l []types.Value
+                        v = def.Value()
+                )
+                if a, ok := v.(*values.ListValue); ok {
+                        l = append(l, a.Slice(0)...)
+                } else {
+                        l = append(l, v)
+                }
+                if a, ok := value.(*values.ListValue); ok {
+                        l = append(l, a.Slice(0)...)
+                } else {
+                        l = append(l, value)
+                }
+                if len(l) == 1 {
+                        def.Set(l[0])
+                } else {
+                        def.Set(values.List(l...))
+                }
+        case token.EXC_ASSIGN: // !=
+                var (
+                        source = value.String()
+                        sh = exec.Command("sh", "-c", source)
+                        stdout bytes.Buffer
+                        stderr bytes.Buffer
+                )
+                sh.Stdout, sh.Stderr = &stdout, &stderr
+                if err = sh.Run(); err == nil {
+                        def.Set(values.String(stdout.String()))
+                } else {
+                        def.Set(values.None)
+                }
+        case token.SCO_ASSIGN, token.DCO_ASSIGN:
+                // TODO: 'expand' all calls?
+                def.Set(value)
+        case token.ASSIGN: // =
+                def.Set(value)
+        default:
+                unreachable()
+        }
+        return
+}
+
 type usedefine struct {
+        op token.Token
         name string
         value types.Value
         pos *token.Position
@@ -69,18 +132,7 @@ func (p *usedefine) String() string       { return p.name + " = " + p.value.Stri
 func (p *usedefine) Integer() int64       { return 0 }
 func (p *usedefine) Float() float64       { return 0 }
 func (p *usedefine) Define(project *types.Project) (result types.Value, err error) {
-        var (
-                scope = project.Scope()
-                def = scope.Lookup(p.name)
-        )
-        if def == nil {
-                scope.Insert(types.NewDef(project, p.name, p.value))
-        } else if t, _ := def.(*types.Def); t != nil {
-                t.Set(p.value)
-        } else {
-                err = errors.New(fmt.Sprintf("name '%s' taken in '%s'", p.name, project.Name()))
-        }
-        return
+        return set(project, p.op, p.name, p.value)
 }
 
 func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
@@ -397,25 +449,11 @@ func (i *Interpreter) define(scope *types.Scope, d *ast.DefineClause) (obj types
                 err = errors.New(fmt.Sprintf("define %v not in a project scope", d.Name))
                 return
         }
-        
         var (
                 name = i.expr(scope, d.Name).String()
                 v = i.expr(scope, d.Value)
         )
-
-        if t, _ := v.(*types.Def); t != nil {
-                v = t.Value()
-        }
-        
-        
-        if obj = i.project.Scope().Insert(types.NewDef(i.project, name, v)); obj != nil {
-                if def, ok := obj.(*types.Def); ok {
-                        def.Set(v)
-                } else {
-                        err = errors.New(fmt.Sprintf("name '%s' already taken", name))
-                }
-        }
-        return
+        return set(i.project, d.Tok, name, v)
 }
 
 func (i *Interpreter) rule(scope *types.Scope, d *ast.RuleClause) (err error) {
