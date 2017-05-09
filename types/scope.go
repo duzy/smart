@@ -104,6 +104,11 @@ func (s *Scope) Insert(obj Object) Object {
 	if alt := s.elems[name]; alt != nil {
 		return alt
 	}
+        s.replace(name, obj)
+	return nil
+}
+
+func (s *Scope) replace(name string, obj Object) {
 	if s.elems == nil {
 		s.elems = make(map[string]Object)
 	}
@@ -111,7 +116,6 @@ func (s *Scope) Insert(obj Object) Object {
 	if obj.Parent() == nil {
 		obj.setParent(s)
 	}
-	return nil
 }
 
 // Pos and End describe the scope's source code extent [pos, end).

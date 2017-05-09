@@ -816,6 +816,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.context |= isCompoundString
                         }
                         
+                case '*':
+                        tok = token.STAR
                 case '&':
                         tok = token.REF
                 case '$':

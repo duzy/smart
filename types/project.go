@@ -34,7 +34,7 @@ func (p *pattern) entry(name, stem string) (entry *RuleEntry) {
         if p.project != nil && p.project.IsFile(name) {
                 kind = PatternFileRuleEntry
         }
-        entry = NewRuleEntry(kind, name)
+        entry = p.parent.NewRuleEntry(p.project, kind, name)
         entry.parent = p.parent
         entry.project = p.project
         entry.program = p.program
@@ -209,13 +209,11 @@ func (m *Project) FindPercentPattern(s string) (res *PercentPattern) {
 }
 
 func (m *Project) Insert(name string, prog Program) (entry *RuleEntry) {
-        if sym := m.scope.Lookup(name); sym == nil {
-                entry = NewRuleEntry(m.EntryClass(name), name)
-                entry.parent = m.scope
-                entry.project = m
-                m.scope.Insert(entry)
-        } else if entry, _ = sym.(*RuleEntry); entry == nil {
-                panic(fmt.Sprintf("name '%v' already taken\n", sym.Name()))
+        var alt Object
+        if entry, alt = m.scope.InsertNewRuleEntry(m, m.EntryClass(name), name); alt != nil {
+                if entry, _ = alt.(*RuleEntry); entry == nil {
+                        panic(fmt.Sprintf("name '%v' already taken\n", name))
+                }
         }
         entry.program = prog
         //entry.pos = pos // overwrite position

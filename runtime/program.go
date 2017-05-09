@@ -30,13 +30,11 @@ type Program struct {
 func (prog *Program) Scope() *types.Scope { return prog.scope }
 
 func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
-        if sym := prog.scope.Lookup(name); sym == nil {
-                auto = types.NewDef(prog.project, name, values.Make(value))
-                prog.scope.Insert(auto)
-        } else {
+        var alt types.Object
+        if auto, alt = prog.scope.InsertNewDef(prog.project, name, values.Make(value)); alt != nil {
                 //fmt.Printf("auto: %p %T %v\n", prog, sym, sym.Name())
                 var found = false
-                if auto, found = sym.(*types.Def); found {
+                if auto, found = alt.(*types.Def); found {
                         auto.Set(values.Make(value))
                 }
         }
@@ -132,7 +130,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 Fail("empty stem (%s, dependency %v)", entry, d)
                         }
                 default:
-                        if types.IsDummyValue(d) {
+                        if types.IsDummy(d) {
                                 sym, _ := d.(types.Object)
                                 scope := sym.Parent()
                                 if _, s := scope.LookupAt(token.NoPos, sym.Name()); s != nil {

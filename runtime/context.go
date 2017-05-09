@@ -53,7 +53,7 @@ func (ctx *Context) lookupAt(pos token.Pos, ident []string, findProject bool) (*
                         _, sym = scope.LookupAt(pos, s)
                         //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
                         if t, ok := sym.(*types.ProjectName); ok && t != nil {
-                                if m := t.Imported(); m != nil {
+                                if m := t.Project(); m != nil {
                                         scope = m.Scope()
                                 } else {
                                         return nil, nil
@@ -132,9 +132,13 @@ func (ctx *Context) Fold(pos token.Pos, obj types.Object, args... types.Value) t
 }
 
 func (ctx *Context) defineBuiltin(name string, f builtin) {
-        ctx.globe.Scope().Insert(types.NewBuiltin(name, func(args... types.Value) (types.Value, error) {
+        scope := ctx.globe.Scope()
+        _, alt := scope.InsertNewBuiltin(name, func(args... types.Value) (types.Value, error) {
                 return f(ctx, args...)
-        }))
+        })
+        if alt != nil {
+                panic(fmt.Sprintf("builtin '%s' already defined", name))
+        }
 }
 
 func (ctx *Context) defineBuiltins() {
@@ -167,7 +171,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                         var obj = m.Scope().Lookup(s)
                                         switch t := obj.(type) {
                                         case *types.ProjectName:
-                                                m = t.Imported()
+                                                m = t.Project()
                                         case nil:
                                                 fmt.Printf("'%s' is not defined in %v", s, m.Scope())
                                                 return
@@ -186,7 +190,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                         var entry *types.RuleEntry
                         switch t := m.Scope().Lookup(target).(type) {
                         case *types.ProjectName:
-                                entry = t.Imported().GetDefaultEntry()
+                                entry = t.Project().GetDefaultEntry()
                         case *types.RuleEntry:
                                 entry = t
                         case nil:

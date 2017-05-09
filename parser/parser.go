@@ -482,6 +482,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.Bareword:
 	case *ast.BasicLit:
 	case *ast.CompoundLit:
+	case *ast.GlobExpr:
 	case *ast.RefExpr:
 	case *ast.CallExpr:
 	case *ast.GroupExpr:
@@ -722,6 +723,11 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         Rparen: token.NoPos,
                         Tok: tok,
                 }
+
+        case token.STAR:
+                pos, tok := p.pos, p.tok
+                p.next()
+                return &ast.GlobExpr{ TokPos:pos, Tok:tok }
 
         case token.REF:
                 pos := p.pos

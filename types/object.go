@@ -42,6 +42,7 @@ type Object interface {
 
 // An object implements the common parts of an Object.
 type object struct {
+        value
         parent *Scope
         project *Project
         name string
@@ -53,13 +54,11 @@ type object struct {
 func (obj *object) Parent() *Scope        { return obj.parent }
 func (obj *object) Project() *Project     { return obj.project }
 func (obj *object) Name() string          { return obj.name }
-func (obj *object) Pos() *token.Position  { return nil /*obj.pos*/ }
+func (obj *object) Pos() *token.Position  { return nil /*obj.scopos*/ }
 
 func (obj *object) Type() Type            { return obj.typ }
 func (obj *object) String() string        { return obj.Lit() }
 func (obj *object) Lit() string           { return fmt.Sprintf("object %v", obj.name) }
-func (obj *object) Integer() int64        { return 0 }
-func (obj *object) Float() float64        { return 0 }
 
 func (obj *object) order() uint32         { return obj.ord }
 func (obj *object) scopePos() token.Pos   { return obj.scopos }
@@ -68,8 +67,23 @@ func (obj *object) setParent(parent *Scope)   { obj.parent = parent }
 func (obj *object) setOrder(order uint32)     { /*assert(order > 0);*/ obj.ord = order }
 func (obj *object) setScopePos(pos token.Pos) { obj.scopos = pos }
 
-func NewDummy(mod *Project, scope *Scope, name string) Object {
-	return &object{scope, mod, name, Invalid, 0, token.NoPos}
+func (scope *Scope) NewDummy(project *Project, name string) Object {
+	return &object{
+                parent:  scope,
+                project: project,
+                name:    name,
+                typ:     Invalid,
+                ord:     0,
+                scopos:  token.NoPos,
+        }
+}
+
+func (scope *Scope) InsertNewDummy(project *Project, name string) (obj, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                obj = scope.NewDummy(project, name)
+                scope.replace(name, obj)
+        }
+        return
 }
 
 func IsDummy(s interface{}) bool {
@@ -77,32 +91,40 @@ func IsDummy(s interface{}) bool {
         return ok
 }
 
-func IsDummyObject(s Object) bool {
-        _, ok := s.(*object)
-        return ok
-}
-
-func IsDummyValue(s Value) bool {
-        _, ok := s.(*object)
-        return ok
-}
-
 type ProjectName struct {
         object
-        imported *Project
+        project *Project
         used bool // set if the project was used
 }
 
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
-func (n *ProjectName) Imported() *Project { return n.imported }
+func (n *ProjectName) Project() *Project { return n.project }
 func (n *ProjectName) String() string  {
-        return fmt.Sprintf("project %s %p", n.name, n.imported)
+        return fmt.Sprintf("project %s %p", n.name, n.project)
 }
 
-func NewProjectName(mod *Project, name string, imported *Project) *ProjectName {
-	return &ProjectName{object{nil, mod, name, ProjectNameType, 0, token.NoPos}, imported, false}
+func (scope *Scope) NewProjectName(container *Project, name string, project *Project) *ProjectName {
+	return &ProjectName{
+                object{
+                        parent:  scope,
+                        project: container,
+                        name:    name,
+                        typ:     ProjectNameType,
+                        ord:     0,
+                        scopos:  token.NoPos,
+                },
+                project, false,
+        }
+}
+
+func (scope *Scope) InsertNewProjectName(container *Project, name string, project *Project) (pn *ProjectName, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                pn = scope.NewProjectName(container, name, project)
+                scope.replace(name, pn)
+        }
+        return
 }
 
 // A Def represents a definition.
@@ -119,8 +141,26 @@ func (d *Def) Call(a... Value) (Value, error) {
         return d.value, nil 
 }
 
-func NewDef(mod *Project, name string, value Value) *Def {
-	return &Def{object{nil, mod, name, DefineType, 0, token.NoPos}, value}
+func (scope *Scope) NewDef(project *Project, name string, value Value) *Def {
+	return &Def{
+                object{
+                        parent:  scope,
+                        project: project,
+                        name:    name,
+                        typ:     DefineType,
+                        ord:     0,
+                        scopos:  token.NoPos,
+                },
+                value,
+        }
+}
+
+func (scope *Scope) InsertNewDef(project *Project, name string, value Value) (def *Def, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                def = scope.NewDef(project, name, value)
+                scope.replace(name, def)
+        }
+        return
 }
 
 // A Builtin represents a built-in function.
@@ -133,15 +173,26 @@ type Builtin struct {
 func (p *Builtin) String() string { return fmt.Sprintf("builtin %v", p.name) }
 func (p *Builtin) Call(a... Value) (Value, error) { return p.f(a...) }
 
-func NewBuiltin(name string, f BuiltinFunc) *Builtin {
-        return &Builtin{object{
-                parent: nil, 
-                project: nil, 
-                name: name, 
-                typ: BuiltinType,
-                ord: 0,
-                scopos: token.NoPos,
-        }, f}
+func (scope *Scope) NewBuiltin(name string, f BuiltinFunc) *Builtin {
+        return &Builtin{
+                object{
+                        parent:  scope,
+                        project: nil,
+                        name:    name, 
+                        typ:     BuiltinType,
+                        ord:     0,
+                        scopos:  token.NoPos,
+                },
+                f,
+        }
+}
+
+func (scope *Scope) InsertNewBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                bui = scope.NewBuiltin(name, f)
+                scope.replace(name, bui)
+        }
+        return
 }
 
 type RuleEntryClass int
@@ -196,13 +247,24 @@ func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
         return
 }
 
-func NewRuleEntry(kind RuleEntryClass, name string) (entry *RuleEntry) {
+func (scope *Scope) NewRuleEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry) {
         return &RuleEntry{
                 object{
-                        nil, nil, name, RuleEntryType, 
-                        0, token.NoPos,
+                        parent:  scope,
+                        project: project,
+                        name:    name,
+                        typ:     RuleEntryType,
+                        ord:     0,
+                        scopos:  token.NoPos,
                 },
-                kind, nil, 
-                "",
+                kind, nil, "",
         }
+}
+
+func (scope *Scope) InsertNewRuleEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                entry = scope.NewRuleEntry(project, kind, name)
+                scope.replace(name, entry)
+        }
+        return
 }

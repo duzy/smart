@@ -86,7 +86,9 @@ var (
 
 func defUniverseBuiltins() {
         for name, f := range builtins {
-                universe.Insert(NewBuiltin(name, f))
+                if _, alt := universe.InsertNewBuiltin(name, f); alt != nil {
+                        panic(fmt.Sprintf("builtin '%s' already defined", name))
+                }
         }
 }
 

@@ -32,15 +32,18 @@ type Value interface {
         Float() float64
 }
 
-type NoneValue struct {}
+type value struct {}
+func (*value) Type() Type         { return Invalid }
+func (*value) Lit() string        { return "" }
+func (*value) String() string     { return "" }
+func (*value) Integer() int64     { return 0 }
+func (*value) Float() float64     { return 0 }
+
+type NoneValue struct { value }
 func (p *NoneValue) Type() Type         { return None }
-func (p *NoneValue) Lit() string        { return "" }
-func (p *NoneValue) String() string     { return "" }
-func (p *NoneValue) Integer() int64     { return 0 }
-func (p *NoneValue) Float() float64     { return 0 }
 
 type AnyValue struct {
-        NoneValue // same as none but holding a interface{}
+        value
         V interface{}
 }
 
