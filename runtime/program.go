@@ -36,6 +36,8 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
                 var found = false
                 if auto, found = alt.(*types.Def); found {
                         auto.Set(values.Make(value))
+                } else {
+                        Fail("name '%v' already taken", name)
                 }
         }
         return
@@ -169,10 +171,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
 }
 
 func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
-        defer prog.context.SetScope(prog.context.SetScope(prog.scope))
-
         //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.depends)
-
         var (
                 p = prog.project
                 workdir = p.AbsPath()
@@ -255,10 +254,10 @@ func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
         return
 }
 
-func NewProgram(context *Context, project *types.Project, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
+func (context *Context) NewProgram(project *types.Project, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
         return &Program{
                 context:     context,
-                project:     project, //context.CurrentProject(),
+                project:     project,
                 scope:       scope,
                 depends:     depends, // *types.RuleEntry, *types.BarefileValue
                 recipes:     recipes,

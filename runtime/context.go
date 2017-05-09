@@ -18,7 +18,6 @@ import (
 
 type Context struct {
         globe      *types.Globe
-        scope      *types.Scope
         outdated   map[string]time.Time
         workdir    string
 }
@@ -29,68 +28,6 @@ func (ctx *Context) Getwd() string {
 
 func (ctx *Context) Globe() *types.Globe {
         return ctx.globe
-}
-
-func (ctx *Context) Scope() *types.Scope {
-        return ctx.scope
-}
-
-func (ctx *Context) SetScope(scope *types.Scope) (prev *types.Scope) {
-        prev = ctx.scope
-        ctx.scope = scope
-        return
-}
-
-func (ctx *Context) lookupAt(pos token.Pos, ident []string, findProject bool) (*types.Scope, types.Object) {
-        var (
-                sym types.Object
-                xname = len(ident)
-                name  = ident[xname-1]
-                scope = ctx.Scope()
-        )
-        if xname == 2 {
-                for _, s := range ident[0:xname-1] {
-                        _, sym = scope.LookupAt(pos, s)
-                        //fmt.Printf("scope: %p: %v (%v)\n", scope, scope.Names(), sym)
-                        if t, ok := sym.(*types.ProjectName); ok && t != nil {
-                                if m := t.Project(); m != nil {
-                                        scope = m.Scope()
-                                } else {
-                                        return nil, nil
-                                }
-                        } else {
-                                return nil, nil
-                        }
-                }
-        } else if xname > 2 {
-                // FIXME: supports multi-scopes lookup (e.g. foo.bar.name)?
-                return nil, nil
-        }
-
-lookupName:
-        _, sym = scope.LookupAt(pos, name)
-        if !findProject && sym != nil {
-                // Skip any ProjectName objects, and lookup upword.
-                if _, ok := sym.(*types.ProjectName); ok {
-                        scope = scope.Parent()
-                        goto lookupName
-                }
-        }
-        
-//lookupDone:
-        return scope, sym
-}
-
-func (ctx *Context) callAt(pos token.Pos, ident []string, args... types.Value) types.Value {
-        if _, obj := ctx.lookupAt(pos, ident, false); obj != nil {
-                switch t := obj.(type) {
-                case types.Caller:
-                        if v, _ := t.Call(args...); v != nil {
-                                return v
-                        }
-                }
-        }
-        return values.None
 }
 
 type delegate struct {
@@ -221,7 +158,6 @@ func NewContext(name string) *Context {
                 globe = types.NewGlobe(name)
                 context = &Context{
                         globe:    globe,
-                        scope:    globe.Scope(),
                         workdir:  workdir,
                 }
         )

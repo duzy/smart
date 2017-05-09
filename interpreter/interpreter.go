@@ -54,7 +54,8 @@ type Interpreter struct {
         paths    searchlist
         loads    []*loadinfo
         loaded   map[string]*types.Project
-        project  *types.Project
+        project  *types.Project // the current project
+        scope    *types.Scope   // the current scope
 }
 
 type parseContext struct {
@@ -69,6 +70,7 @@ func New() (interpreter *Interpreter) {
                 paths:    []string(globalPaths),
                 loaded:   make(map[string]*types.Project),
         }
+        interpreter.scope = interpreter.Globe().Scope()
         interpreter.pc = parser.NewContext(&parseContext{ interpreter })
         for s, _ := range types.GetBuiltins() {
                 interpreter.pc.Builtin(s, nil)

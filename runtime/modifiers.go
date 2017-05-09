@@ -174,7 +174,7 @@ func modifierSetArgs(prog *Program, value types.Value, args... types.Value) (res
 
 func modifierCompare(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
-                scope         = prog.context.Scope()
+                scope         = prog.scope //context.Scope()
                 targetDef, _  = scope.Lookup("@").(*types.Def)
                 dependDef, _  = scope.Lookup("...").(*types.Def)
                 dependsVal, _ = dependDef.Call()
