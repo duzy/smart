@@ -9,6 +9,7 @@ import (
         "github.com/duzy/smart/token"
         "path/filepath"
         "strings"
+        "errors"
         "fmt"
 )
 
@@ -208,16 +209,18 @@ func (m *Project) FindPercentPattern(s string) (res *PercentPattern) {
         return
 }
 
-func (m *Project) Insert(name string, prog Program) (entry *RuleEntry) {
+func (m *Project) Insert(name string, prog Program) (entry *RuleEntry, err error) {
         var alt Object
         if entry, alt = m.scope.InsertNewRuleEntry(m, m.EntryClass(name), name); alt != nil {
                 if entry, _ = alt.(*RuleEntry); entry == nil {
-                        panic(fmt.Sprintf("name '%v' already taken\n", name))
+                        err = errors.New(fmt.Sprintf("name '%v' already taken (%T)\n", name, alt))
                 }
         }
-        entry.program = prog
-        //entry.pos = pos // overwrite position
-        m.dedicated = append(m.dedicated, entry)
+        if entry != nil && err == nil {
+                entry.program = prog
+                //entry.pos = pos // overwrite position
+                m.dedicated = append(m.dedicated, entry)
+        }
         return
 }
 

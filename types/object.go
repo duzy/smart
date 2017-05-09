@@ -94,7 +94,6 @@ func IsDummy(s interface{}) bool {
 type ProjectName struct {
         object
         project *Project
-        used bool // set if the project was used
 }
 
 // Imported returns the project that was imported.
@@ -115,13 +114,48 @@ func (scope *Scope) NewProjectName(container *Project, name string, project *Pro
                         ord:     0,
                         scopos:  token.NoPos,
                 },
-                project, false,
+                project,
         }
 }
 
 func (scope *Scope) InsertNewProjectName(container *Project, name string, project *Project) (pn *ProjectName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 pn = scope.NewProjectName(container, name, project)
+                scope.replace(name, pn)
+        }
+        return
+}
+
+type ScopeName struct {
+        object
+        scope *Scope
+}
+
+// Imported returns the project that was imported.
+// It is distinct from Project(), which is the project
+// containing the import statement.
+func (n *ScopeName) Scope() *Scope { return n.scope }
+func (n *ScopeName) String() string  {
+        return fmt.Sprintf("project %s %p", n.name, n.project)
+}
+
+func (scope *Scope) NewScopeName(project *Project, name string, s *Scope) *ScopeName {
+	return &ScopeName{
+                object{
+                        parent:  scope,
+                        project: project,
+                        name:    name,
+                        typ:     Invalid, //ScopeNameType,
+                        ord:     0,
+                        scopos:  token.NoPos,
+                },
+                s,
+        }
+}
+
+func (scope *Scope) InsertNewScopeName(project *Project, name string, s *Scope) (pn *ScopeName, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                pn = scope.NewScopeName(project, name, s)
                 scope.replace(name, pn)
         }
         return

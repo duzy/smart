@@ -1209,6 +1209,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         if !p.isUse && name != "" {
                 rs, err := p.runtime.Define(clause)
                 if err != nil {
+                        p.warn(pos, fmt.Sprintf("error defining '%s'", name))
                         p.error(pos, fmt.Sprintf("%s", err))
                 }
                 
@@ -1421,6 +1422,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 //fmt.Printf("%p: rentry: %T %v\n", p.topScope, target, name)
                 sym := ast.NewSym(ast.Rul, name)
                 if alt := p.topScope.Insert(sym); alt != nil {
+                        p.warn(target.Pos(), fmt.Sprintf("'%s' already taken", name))
                         p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
                         //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
                 } else {
@@ -1433,6 +1435,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         for _, s := range automatics {
                 sym := ast.NewSym(ast.Def, s)
                 if alt := p.topScope.Insert(sym); alt != nil {
+                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
                         p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
                 }
         }
@@ -1613,7 +1616,7 @@ func (p *parser) parseFile() *ast.File {
                         return nil
                 }
 
-                p.runtime.DeclareProject(ident.Name)
+                p.runtime.DeclareProject(ident)
         }
 
         p.openScope(fmt.Sprintf(`file "%s"`, p.file.Name()))
@@ -1623,6 +1626,7 @@ func (p *parser) parseFile() *ast.File {
         for _, s := range []string{ "/", ".", ".." } {
                 sym := ast.NewSym(ast.Def, s)
                 if alt := p.topScope.Insert(sym); alt != nil {
+                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
                         p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
                 }
         }

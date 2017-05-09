@@ -28,7 +28,7 @@ type RuntimeContext interface {
         Extensions(exts map[string][]string)
         Files(a []string)
 
-        DeclareProject(name string) error
+        DeclareProject(ident *ast.Ident) error
 
         OpenScope(as *ast.Scope, pos token.Pos, comment string) error
         CloseScope(as *ast.Scope) error
