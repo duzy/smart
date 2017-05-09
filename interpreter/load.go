@@ -312,6 +312,19 @@ importProject:
 
         if err == nil && !nouse {
                 if loaded, _ := i.loaded[absPath]; loaded != nil {
+                        scope := i.project.Scope()
+                        pn, _ := scope.Lookup(loaded.Name()).(*types.ProjectName)
+                        if pn == nil {
+                                return errors.New(fmt.Sprintf("no project name for '%s'", loaded.Name()))
+                        }
+                        // FIXME: defined used project in represented order
+                        if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
+                                if alt := sn.Scope().Insert(pn); alt != nil {
+                                        return errors.New(fmt.Sprintf("'%s' already defined in use scope", pn.Name()))
+                                }
+                        } else {
+                                return errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
+                        }
                         err = i.useProject(loaded)
                 } else {
                         unreachable()
@@ -409,6 +422,7 @@ func (i *Interpreter) selector(first nameScoper, x *ast.SelectorExpr) (v types.V
                         next = sub
                 }
         case *types.ScopeName:
+                // i.parseInfo(x.Pos(), "selector: %s", t.Scope())
                 if scope = t.Scope(); scope == nil {
                         i.parseFail(x.Pos(), "importee of %s (scope) is nil", t.Name())
                 } else {
@@ -437,8 +451,11 @@ func (i *Interpreter) selector(first nameScoper, x *ast.SelectorExpr) (v types.V
                         var list = values.List()
                         for _, name := range scope.Names() {
                                 if pn, _ := scope.Lookup(name).(*types.ProjectName); pn != nil {
-                                        entry := pn.Project().GetDefaultEntry()
-                                        list.Append(entry)
+                                        if entry := pn.Project().GetDefaultEntry(); entry != nil {
+                                                if entry.Name() != useRuleName /*"use"*/ {
+                                                        list.Append(entry)
+                                                }
+                                        }
                                 } else {
                                         i.parseFail(s.Pos(), "'%s' is not project in %s", name, scope)
                                 }
@@ -587,8 +604,7 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
         if len(spec.Props) == 0 {
                 //i.parseFail(spec.Pos(), "empty use spec")
                 return errors.New("empty use spec")
-        }
-        if name = i.expr(spec.Props[0]); name == nil {
+        } else if name = i.expr(spec.Props[0]); name == nil {
                 //i.parseFail(spec.Props[0].Pos(), "undefined use spec")
                 return errors.New("undefined use target")
         } else if  name == values.None {
@@ -622,6 +638,7 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
         }
 
         useProject: if scope = i.project.Scope(); pn != nil {
+                // FIXME: defined used project in represented order
                 if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
                         if alt := sn.Scope().Insert(pn); alt != nil {
                                 return errors.New(fmt.Sprintf("'%s' already defined in use scope", pn.Name()))

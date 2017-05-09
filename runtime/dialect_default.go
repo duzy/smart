@@ -39,7 +39,7 @@ evaluationLoop:
                         switch t := v.(type) {
                         case types.Definer:
                                 if n := len(args); n != 1 {
-                                        err = errors.New(fmt.Sprintf("wrong define arguments", n))
+                                        err = errors.New(fmt.Sprintf("wrong define arguments (%v)", n))
                                         break evaluationLoop
                                 }
                                 if a, _ := args[0].(*types.AnyValue); a != nil {

@@ -106,7 +106,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 }
                         } else {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
-                                Fail("failed to update '%v'", entry); break dependLoop
+                                Fail("failed to update '%v' (%v)", entry, err); break dependLoop
                         }
                 case *types.BarefileValue:
                         file = d.String(); goto handleFileEntry
