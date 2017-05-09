@@ -52,7 +52,7 @@ func (prog *Program) interpret(i interpreter, out *types.Def, args... types.Valu
         return
 }
 
-func (prog *Program) modify(g *values.GroupValue, out *types.Def) (err error) {
+func (prog *Program) modify(g *types.GroupValue, out *types.Def) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -95,7 +95,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         depends.Append(values.Group(targetRegularKind, d))
                                 } else if res == values.None {
                                         //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, d, d.Kind())
-                                        switch d.Kind() {
+                                        switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
                                                 depends.Append(values.Group(targetRegularKind, d))
                                         }
@@ -108,9 +108,9 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
                                 Fail("failed to update '%v'", entry); break dependLoop
                         }
-                case *values.BarefileValue:
+                case *types.BarefileValue:
                         file = d.String(); goto handleFileEntry
-                case *values.PathValue:
+                case *types.PathValue:
                         file = d.String(); goto handleFileEntry
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
@@ -225,7 +225,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
 pipelineLoop:
         for _, v := range prog.pipline {
                 switch op := v.(type) {
-                case *values.GroupValue:
+                case *types.GroupValue:
                         if err = prog.modify(op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
@@ -236,7 +236,7 @@ pipelineLoop:
                                 }
                                 break pipelineLoop
                         }
-                case *values.BarewordValue:
+                case *types.BarewordValue:
                         if i, _ := interpreters[op.String()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
@@ -262,7 +262,7 @@ func NewProgram(context *Context, project *types.Project, scope *types.Scope, de
                 context:     context,
                 project:     project, //context.CurrentProject(),
                 scope:       scope,
-                depends:     depends, // *types.RuleEntry, *values.BarefileValue
+                depends:     depends, // *types.RuleEntry, *types.BarefileValue
                 recipes:     recipes,
         }
 }

@@ -14,41 +14,6 @@ import (
         "fmt"
 )
 
-type interpretMode int
-
-const (
-        interpretSingle interpretMode = 1<<iota
-        interpretMulti
-)
-
-type interpreter interface {
-        dialect() string
-        mode() interpretMode
-        evaluate(prog *Program, args []types.Value, recipes []types.Value) (types.Value, error)
-}
-
-type monoInterpreter struct {
-}
-
-type polyInterpreter struct {
-}
-
-func (*monoInterpreter) mode() interpretMode { return interpretSingle }
-func (*polyInterpreter) mode() interpretMode { return interpretMulti }
-
-func joinRecipesString(recipes... types.Value) string {
-        var (
-                x = len(recipes)-1
-                s string
-        )
-        for n, recipe := range recipes {
-                if s += recipe.String(); n < x {
-                        s += "\n"
-                }
-        }
-        return s
-}
-
 // dialectDefault evaluates smart statements
 type dialectDefault struct {
         polyInterpreter
@@ -63,7 +28,7 @@ func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []t
 evaluationLoop:
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {
-                case *values.ListValue:
+                case *types.ListValue:
                         if stmt.Len() == 0 {
                                 continue
                         }
@@ -77,8 +42,8 @@ evaluationLoop:
                                         err = errors.New(fmt.Sprintf("wrong define arguments", n))
                                         break evaluationLoop
                                 }
-                                if a, _ := args[0].(*values.AnyValue); a != nil {
-                                        if p, ok := a.Any.(*types.Project); ok {
+                                if a, _ := args[0].(*types.AnyValue); a != nil {
+                                        if p, ok := a.V.(*types.Project); ok {
                                                 v, e = t.Define(p); break
                                         }
                                 }
@@ -96,7 +61,7 @@ evaluationLoop:
                         }
                         if e == nil && v != nil {
                                 list.Append(v)
-                                if g, _ := v.(*values.GroupValue); g != nil {
+                                if g, _ := v.(*types.GroupValue); g != nil {
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil &&
                                                 s.String() == "shell" && c.Integer() != 0 {
                                                 //fmt.Printf("evaluate: %v\n", v)

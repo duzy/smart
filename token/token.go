@@ -53,6 +53,7 @@ const (
 	COLON2    // ::
 	EXC       // !          exclamation
 	QUE       // ?
+
         CALL      // $
         CALL_R    // $/
         CALL_D    // $.
@@ -72,7 +73,8 @@ const (
         CALL_8    // $8
         CALL_9    // $9
 
-       
+        REF   // &
+        
         ASSIGN     //   =
         ADD_ASSIGN //  +=       append
         QUE_ASSIGN //  ?=       set if absent (defined, including empty)
@@ -134,6 +136,7 @@ var tokens = [...]string{
         COLON2:    "::",
         EXC: "!",
         QUE: "?",
+
 	CALL:      "$",
         CALL_R:    "$/",
         CALL_D:    "$.",
@@ -153,6 +156,8 @@ var tokens = [...]string{
         CALL_8:    "$8",
         CALL_9:    "$9",
 
+	REF:       "&",
+        
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",
         QUE_ASSIGN: "?=",

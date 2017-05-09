@@ -230,11 +230,17 @@ func (p *parser) next() {
 type bailout struct{}
 
 func (p *parser) info(pos token.Pos, s string, a... interface{}) {
+        if !strings.HasSuffix(s, "\n") {
+                s += "\n"
+        }
         fmt.Printf("%s:info: ", p.file.Position(pos))
         fmt.Printf(s, a...)
 }
 
 func (p *parser) warn(pos token.Pos, s string, a... interface{}) {
+        if !strings.HasSuffix(s, "\n") {
+                s += "\n"
+        }
         fmt.Printf("%s:warn: ", p.file.Position(pos))
         fmt.Printf(s, a...)
 }
@@ -476,6 +482,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.Bareword:
 	case *ast.BasicLit:
 	case *ast.CompoundLit:
+	case *ast.RefExpr:
 	case *ast.CallExpr:
 	case *ast.GroupExpr:
 	case *ast.ListExpr: panic("unreachable")
@@ -565,7 +572,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
         if p.tok == token.RPAREN || p.tok == token.LBRACK /*|| p.tok == token.COLON_RBK*/ {
                 return true
         }
-        if token.COLON <= p.tok && p.tok < token.CALL {
+        if token.COLON <= p.tok && p.tok <= token.QUE {
                 return true
         }
         return p.tok == token.EOF || p.tok == token.LINEND || 
@@ -716,6 +723,12 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         Tok: tok,
                 }
 
+        case token.REF:
+                pos := p.pos
+                p.next()
+                x := p.checkExpr(p.parseExpr(false))
+                return &ast.RefExpr{ Tok: pos, X: x }
+                
         case token.CALL:
                 var (
                         lpos = token.NoPos
@@ -1507,7 +1520,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseEvalSpec)
 	case token.USE:
                 pos := p.expect(p.tok)
-                if token.COLON <= p.tok && p.tok < token.CALL {
+                if token.COLON <= p.tok && p.tok <= token.QUE {
                         var list = []ast.Expr{
                                 &ast.Bareword{
                                         ValuePos: pos, 
@@ -1543,7 +1556,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 } */
                 list = append(list, p.parseLhsList()...)
         }
-        if token.COLON <= p.tok && p.tok < token.CALL {
+        if token.COLON <= p.tok && p.tok <= token.QUE {
                 return p.parseRuleClause(p.tok, list)
         }
 

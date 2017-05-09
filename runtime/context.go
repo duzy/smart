@@ -95,25 +95,25 @@ func (ctx *Context) callAt(pos token.Pos, ident []string, args... types.Value) t
 
 type delegate struct {
         x *Context
-        s types.Object
+        o types.Object
         a []types.Value
         p *token.Position
 }
 
-func (p *delegate) Type() types.Type     { return p.s.Type() }
+func (p *delegate) Type() types.Type     { return p.o.Type() }
 func (p *delegate) Pos() *token.Position { return p.p }
 func (p *delegate) Lit() string          { return p.call().Lit() }
 func (p *delegate) String() string       { return p.call().String() }
 func (p *delegate) Integer() int64       { return p.call().Integer() }
 func (p *delegate) Float() float64       { return p.call().Float() }
 func (p *delegate) call() (v types.Value) {
-        if types.IsDummy(p.s) {
-                scope := p.s.Parent()
-                if _, s := scope.LookupAt(token.NoPos, p.s.Name()); s != nil {
-                        p.s = s
+        if types.IsDummy(p.o) {
+                scope := p.o.Parent()
+                if _, s := scope.LookupAt(token.NoPos, p.o.Name()); s != nil {
+                        p.o = s
                 }
         }
-        if c, ok := p.s.(types.Caller); ok {
+        if c, ok := p.o.(types.Caller); ok {
                 v, _ = c.Call(p.a...)
         }
         if v == nil {
@@ -122,10 +122,10 @@ func (p *delegate) call() (v types.Value) {
         return v 
 }
 
-func (ctx *Context) Fold(pos token.Pos, sym types.Object, args... types.Value) types.Value {
+func (ctx *Context) Fold(pos token.Pos, obj types.Object, args... types.Value) types.Value {
         return &delegate{
                 x: ctx,
-                s: sym,
+                o: obj,
                 a: args,
                 //p: pos,
         }

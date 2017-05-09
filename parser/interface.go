@@ -47,6 +47,7 @@ type RuntimeContext interface {
 type Context struct {
         runtime  RuntimeContext
 	universe *ast.Scope // builtin scope
+        p        *parser    // current parser (or nil)
 }
 
 func NewContext(runtime RuntimeContext) *Context {
@@ -62,6 +63,25 @@ func (c *Context) Builtin(s string, i interface{}) {
         if alt := c.universe.Insert(sym); alt != nil {
                 panic(fmt.Sprintf("duplicated builtin '%s'", s))
                 // FIXME: unreachable
+        }
+}
+
+func (c *Context) Position(pos token.Pos) (position token.Position) {
+        if c.p != nil {
+                position = c.p.file.Position(pos)
+        }
+        return
+}
+
+func (c *Context) ParseWarn(pos token.Pos, s string, a... interface{}) {
+        if c.p != nil {
+                c.p.warn(pos, s, a...)
+        }
+}
+
+func (c *Context) ParseInfo(pos token.Pos, s string, a... interface{}) {
+        if c.p != nil {
+                c.p.info(pos, s, a...)
         }
 }
 
@@ -137,7 +157,10 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 		return nil, err
 	}
 
-	var p parser
+	var (
+                oldp = c.p
+                p parser
+        )
 	defer func() {
 		if e := recover(); e != nil {
 			// resume same panic if it's not a bailout
@@ -159,7 +182,11 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 
 		p.errors.Sort()
 		err = p.errors.Err()
+                c.p = oldp
 	}()
+
+        // set the current parser
+        c.p = &p
 
 	// parse source
 	p.init(c, fset, filename, text, mode)

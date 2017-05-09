@@ -113,7 +113,7 @@ func (ctx *Context) IsModifier(s string) (ok bool) {
 }
 
 func getGroupElem(output types.Value, n int, v types.Value) types.Value {
-        if g, ok := output.(*values.GroupValue); ok {
+        if g, ok := output.(*types.GroupValue); ok {
                 if elem := g.Get(n); elem != nil {
                         v = elem
                 }
@@ -122,7 +122,7 @@ func getGroupElem(output types.Value, n int, v types.Value) types.Value {
 }
 
 func promptShellResult(output types.Value, n int) {
-        if g, ok := output.(*values.GroupValue); ok {
+        if g, ok := output.(*types.GroupValue); ok {
                 if elem := g.Get(0); elem != nil && elem.String() == "shell" {
                         if elem = g.Get(n); elem != nil {
                                 if s := elem.String(); strings.HasSuffix(s, "\n") {
@@ -159,7 +159,7 @@ func modifierShellStderr(prog *Program, value types.Value, args... types.Value) 
 }
 
 func modifierSelect(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        if g, ok := value.(*values.GroupValue); ok && len(args) > 0 {
+        if g, ok := value.(*types.GroupValue); ok && len(args) > 0 {
                 result = g.Get(int(args[0].Integer()))
         } else {
                 result = values.None
@@ -178,7 +178,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 targetDef, _  = scope.Lookup("@").(*types.Def)
                 dependDef, _  = scope.Lookup("...").(*types.Def)
                 dependsVal, _ = dependDef.Call()
-                depends, _    = dependsVal.(*values.ListValue)
+                depends, _    = dependsVal.(*types.ListValue)
                 targetVal, _  = targetDef.Call()
                 target        = targetVal.String()
                 missing       = values.List()
@@ -191,12 +191,12 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 retryDepend:
                         //fmt.Printf("modifierCompare: %T %v (from %s)\n", depend, depend, target)
                         switch d := depend.(type) {
-                        case *values.ListValue:
+                        case *types.ListValue:
                                 if depend = d.Take(0); depend != nil {
                                         goto retryDepend
                                 }
-                        case *values.GroupValue:
-                                switch k, _ := d.Get(0).(*values.BarewordValue); { 
+                        case *types.GroupValue:
+                                switch k, _ := d.Get(0).(*types.BarewordValue); { 
                                 case k == targetRegularKind, k == targetDirectoryKind:
                                         files.Append(d.Get(1))
                                 case k == targetShellKind:
@@ -204,10 +204,10 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                                 shellFalses += 1
                                         }
                                 }
-                        case *values.BarefileValue:
+                        case *types.BarefileValue:
                                 files.Append(d)
                         case *types.RuleEntry:
-                                switch d.Kind() {
+                                switch d.Class() {
                                 case types.FileRuleEntry, types.PatternFileRuleEntry:
                                         files.Append(d)
                                 case types.GeneralRuleEntry, types.PatternRuleEntry:
@@ -215,7 +215,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                 default:
                                         Fail("unsupported depend %v (%T)", depend, depend)
                                 }
-                        case *values.StringValue:
+                        case *types.StringValue:
                                 if prog.project.IsFile(d.String()) {
                                         files.Append(d)
                                 } else {
@@ -316,8 +316,8 @@ func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (r
                 defer f.Close()
                 var content string
                 switch v := value.(type) {
-                case *values.GroupValue:
-                        switch t, _ := v.Get(0).(*values.BarewordValue); t {
+                case *types.GroupValue:
+                        switch t, _ := v.Get(0).(*types.BarewordValue); t {
                         case targetPlainKind:
                                 content = v.Get(1).String()
                         case targetJsonKind:
@@ -354,8 +354,8 @@ func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (
         )
 
         switch v := value.(type) {
-        case *values.GroupValue:
-                switch t, _ := v.Get(0).(*values.BarewordValue); t {
+        case *types.GroupValue:
+                switch t, _ := v.Get(0).(*types.BarewordValue); t {
                 case targetPlainKind:
                         content = v.Get(1).String()
                 case targetJsonKind:

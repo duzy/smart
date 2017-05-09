@@ -816,6 +816,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.context |= isCompoundString
                         }
                         
+                case '&':
+                        tok = token.REF
                 case '$':
                         switch tok, ch = token.CALL, rune(s.src[s.readOffset-1]); {
                         case ch == '/': tok = token.CALL_R

@@ -25,6 +25,6 @@ sources =
 
 use:
 	compile_flags += $(compile_flags)
-	compile = $(compile) $$(compile_flags)
+	compile = $(compile) &$(compile_flags)
 	link_flags += $(link_flags)
 	link = $(link)
