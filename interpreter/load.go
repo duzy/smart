@@ -400,18 +400,21 @@ func (i *Interpreter) selector(first nameScoper, x *ast.SelectorExpr) (v types.V
                 if name = t.Name; name == "use" {
                         name = useScopeName // demangle use scope name
                 }
-        default:
-                if name := i.expr(t).String(); name == "" {
-                        if c, ok := t.(*ast.CallExpr); ok {
-                                i.parseFail(x.Pos(), "'%v' is empty", c.Name)
-                        } else {
-                                i.parseFail(x.Pos(), "'%T' is empty", t)
-                        }
+        case *ast.CallExpr:
+                if name = i.expr(t).String(); name == "" {
+                        i.parseInfo(t.Pos(), "selection on (%T)\n", t)
+                        i.parseFail(t.Pos(), "'%v' is empty", t.Name)
                 }
+                //i.parseInfo(t.Pos(), "selection on '%s' (%T)\n", name, t)
+        default:
+                if name = i.expr(t).String(); name == "" {
+                        i.parseFail(t.Pos(), "'%T' is empty", t)
+                }
+                //i.parseInfo(t.Pos(), "selection on '%s' (%T)\n", name, t)
         }
 
         if base = scope.Lookup(name); base == nil {
-                i.parseFail(x.Pos(), "'%s' is undefined in project '%s'", name, first.Name())
+                i.parseFail(x.X.Pos(), "selection '%s' (nil) in %s", name, first.Scope())
         }
 
         switch t := base.(type) {
@@ -641,7 +644,11 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
                 // FIXME: defined used project in represented order
                 if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
                         if alt := sn.Scope().Insert(pn); alt != nil {
-                                return errors.New(fmt.Sprintf("'%s' already defined in use scope", pn.Name()))
+                                if alt.Type().Kind() == types.ProjectNameKind {
+                                        i.parseInfo(spec.Props[0].Pos(), "'%s' already used", pn.Name())
+                                } else {
+                                        return errors.New(fmt.Sprintf("'%s' already defined in %s", pn.Name(), sn.Scope()))
+                                }
                         }
                 } else {
                         return errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
@@ -712,7 +719,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         )
         for n, depend := range i.exprs(d.Depends) {
                 if v := i.ruleDepend(depend); v == nil {
-                        i.parseFail(d.Depends[n].Pos(), "invalid depend (%T)", d.Depends[n])
+                        i.parseFail(d.Depends[n].Pos(), "invalid depend (%T %v)", d.Depends[n], depend)
                 } else if l, _ := v.(*types.ListValue); l != nil {
                         depends = append(depends, l.Elems...)
                 } else {

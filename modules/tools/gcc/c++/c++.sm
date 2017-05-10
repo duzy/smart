@@ -7,24 +7,20 @@ extensions (
   object=( o obj )
 )
 
-libs = 
-
 compiler = g++
 compile_flags = -std=c++1z
-compile = $(compiler) $(compile_flags) -c
 
 archiver = ar
 archive_flags = crus
-archive = $(archiver) $(archive_flags)
 
 linker = g++
 link_flags =
-link = $(linker) $(link_flags)
-
-sources =
 
 use:
 	compile_flags += $(compile_flags)
-	compile = $(compile) &$(compile_flags)
+	compile = $(compiler) &$(compile_flags) -c
+	archive_flags += $(archive_flags)
+	archive = $(archiver) &$(archive_flags)
 	link_flags += $(link_flags)
-	link = $(link)
+	link = $(linker) &$(link_flags)
+	libs +=

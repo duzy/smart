@@ -195,13 +195,13 @@ type (
 		S Expr // field selector, or sub-selector
 	}
 
-        // Ref expression: &$(foo)
+        // RefExpr expression: &$(foo)
         RefExpr struct {
                 Tok token.Pos  //
                 X Expr         //
         }
         
-        // Call expression
+        // CallExpr expression
         CallExpr struct {
                 Dollar token.Pos  //
                 Lparen token.Pos  //

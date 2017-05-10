@@ -331,23 +331,39 @@ func (p *PairValue) SetKey(k Value) {
 }
 
 type Definer interface {
-        Value
         Define(p *Project) (Value, error)
 }
 
-type Caller interface {
+type DefinerValue interface {
         Value
+        Definer
+}
+
+type Caller interface {
         Call(args... Value) (Value, error)
 }
 
-type Unrefer interface {
+type CallerValue interface {
         Value
+        Caller
+}
+
+type Unrefer interface {
         unref(project *Project, s string, a... Value) (Value, error)
 }
 
-type Poser interface {
+type UnreferValue interface {
         Value
+        Unrefer
+}
+
+type Poser interface {
         Pos() *token.Position
+}
+
+type PoserValue interface {
+        Value
+        Poser
 }
 
 type positional struct {
