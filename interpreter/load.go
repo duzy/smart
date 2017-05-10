@@ -24,6 +24,7 @@ import (
 
 const (
         useScopeName = "~use~scope~"
+        useListName = "~use~scope~list~"
         useRuleName = "~use~rule~"
 )
 
@@ -63,24 +64,7 @@ func saveLoadingInfo(i *Interpreter, specPath, absPath, baseName string) *Interp
         return i
 }
 
-func set(p *types.Project, op token.Token, name string, value types.Value) (def *types.Def, err error) {
-        // See https://www.gnu.org/software/make/manual/html_node/Setting.html
-        var (
-                scope = p.Scope()
-                obj = scope.Lookup(name)
-        )
-        if obj == nil {
-                var alt types.Object
-                if obj, alt = scope.InsertNewDef(p, name, value); alt != nil {
-                        // ...
-                }
-                return
-        }
-        if def, _ = obj.(*types.Def); def == nil {
-                err = errors.New(fmt.Sprintf("name '%s' already taken in '%s'", name, p.Name()))
-                return
-        }
-
+func setDef(op token.Token, def *types.Def, value types.Value) (err error) {
         switch op {
         case token.QUE_ASSIGN: // ?=
                 // noop, only set if absent (not defined)
@@ -128,37 +112,71 @@ func set(p *types.Project, op token.Token, name string, value types.Value) (def 
         return
 }
 
-type usedefine struct {
+func set(p *types.Project, op token.Token, name string, value types.Value) (def *types.Def, err error) {
+        // See https://www.gnu.org/software/make/manual/html_node/Setting.html
+        var (
+                scope = p.Scope()
+                obj = scope.Lookup(name)
+        )
+        if obj == nil {
+                var alt types.Object
+                if obj, alt = scope.InsertNewDef(p, name, value); alt != nil {
+                        // ...
+                }
+                return
+        }
+        if def, _ = obj.(*types.Def); def == nil {
+                err = errors.New(fmt.Sprintf("name '%s' already taken in '%s'", name, p.Name()))
+                return
+        }
+
+        err = setDef(op, def, value)
+        return
+}
+
+type usedefiner struct {
         op token.Token
         name string
         value types.Value
         pos *token.Position
 }
-func (p *usedefine) Pos() *token.Position { return p.pos }
-func (p *usedefine) Type() types.Type     { return p.value.Type() }
-func (p *usedefine) Lit() string          { return p.name + " = " + p.value.Lit() }
-func (p *usedefine) String() string       { return p.name + " = " + p.value.String() }
-func (p *usedefine) Integer() int64       { return 0 }
-func (p *usedefine) Float() float64       { return 0 }
-func (p *usedefine) Define(project *types.Project) (result types.Value, err error) {
-        return set(project, p.op, p.name, p.unref(project, p.value))
+func (p *usedefiner) Pos() *token.Position { return p.pos }
+func (p *usedefiner) Type() types.Type     { return p.value.Type() }
+func (p *usedefiner) Lit() string          { return p.name + " = " + p.value.Lit() }
+func (p *usedefiner) String() string       { return p.name + " = " + p.value.String() }
+func (p *usedefiner) Integer() int64       { return 0 }
+func (p *usedefiner) Float() float64       { return 0 }
+func (p *usedefiner) Define(project *types.Project) (result types.Value, err error) {
+        var value types.Value
+        if value, err = p.unref(project, p.value); err == nil {
+                return set(project, p.op, p.name, value)
+        }
+        return
 }
 
-func (p *usedefine) unref(project *types.Project, value types.Value) types.Value {
-        var elements []types.Value
+func (p *usedefiner) unref(project *types.Project, value types.Value) (result types.Value, err error) {
+        var (
+                elements []types.Value
+                list []types.Value
+                temp types.Value
+        )
         switch v := value.(type) {
         case *types.AnyValue:
                 if a, ok := v.V.(types.Value); ok {
-                        v.V = p.unref(project, a)
+                        result, err = p.unref(project, a)
                 }
         case *types.BarecompValue:
                 elements = v.Elems; goto unrefElems
         case *types.BarefileValue:
-                v.Name = p.unref(project, v.Name)
+                if temp, err = p.unref(project, v.Name); err == nil {
+                        result = values.Barefile(temp, v.Ext)
+                }
         case *types.PathValue:
                 elements = v.Segments; goto unrefElems
         case *types.FlagValue:
-                v.Name = p.unref(project, v.Name)
+                if temp, err = p.unref(project, v.Name); err == nil {
+                        result = values.Flag(temp)
+                }
         case *types.CompoundValue:
                 elements = v.Elems; goto unrefElems
         case *types.ListValue:
@@ -170,48 +188,95 @@ func (p *usedefine) unref(project *types.Project, value types.Value) types.Value
                         v.Elems[k] = p.unref(project, v)
                 } */
         case *types.PairValue:
-                v.K = p.unref(project, v.K)
-                v.V = p.unref(project, v.V)
+                var k types.Value
+                if k, err = p.unref(project, v.K); err == nil {
+                        if temp, err = p.unref(project, v.V); err == nil {
+                                result = values.Pair(k, temp)
+                        }
+                }
         case *useref:
                 var args []types.Value
-                name := p.unref(project, v.name).String()
-                for _, a := range v.args {
-                        args = append(args, p.unref(project, a))
+                switch t := v.namecaller.(type) {
+                case types.Value:
+                        if temp, err = p.unref(project, t); err != nil {
+                                goto done
+                        }
+                case types.Caller:
+                        result = v
+                        goto done
+                default:
+                        err = errors.New(fmt.Sprintf("unimplemented unref (%T)", t))
+                        goto done
                 }
-                value = v.unref(project, name)
+                
+                for _, a := range v.args {
+                        var arg types.Value
+                        if arg, err = p.unref(project, a); err != nil {
+                                goto done
+                        } else {
+                                args = append(args, arg)
+                        }
+                }
+                if v.unref(project, temp.String(), args...); v.namecaller == nil {
+                        err = errors.New(fmt.Sprintf("unimplemented unref '%s'"))
+                } else {
+                        result = v
+                }
+        default:
+                result = v
         }
         goto done
-        unrefElems: for i := 0; i < len(elements); i += 1 {
-                elements[i] = p.unref(project, elements[i])
+        
+        unrefElems: for _, elem := range elements {
+                if elem, err = p.unref(project, elem); err == nil {
+                        list = append(list, elem)
+                } else {
+                        return nil, err
+                }
         }
-        done: return value
+        result = values.List(list...)
+        done: return
 }
 
 type useref struct {
-        name types.Value
+        types.NoneValue
+        namecaller interface{} // types.Value or types.Caller
         args []types.Value
-        pos *token.Position
 }
-func (p *useref) Pos() *token.Position { return p.pos }
-func (p *useref) Type() types.Type     { return types.None }
-func (p *useref) Lit() string          { return "&" + p.name.Lit() }
-func (p *useref) String() string       { return p.Lit() }
-func (p *useref) Integer() int64       { return 0 }
-func (p *useref) Float() float64       { return 0 }
-func (p *useref) unref(project *types.Project, s string, a... types.Value) types.Value {
-        var (
-                obj = project.Scope().Lookup(s)
-        )
-        if c, ok := obj.(types.Caller); ok {
-                if v, err := c.Call(a...); err == nil {
-                        return v
+func (p *useref) Lit() (s string) {
+        switch t := p.namecaller.(type) {
+        case types.Value:
+                s = "&" + t.Lit()
+        case types.Caller:
+                s = fmt.Sprintf("&<%v>", t)
+        default:
+                s = fmt.Sprintf("&%v", t)
+        }
+        return s
+}
+func (p *useref) String() (s string) {
+        if caller, _ := p.namecaller.(types.Caller); caller != nil {
+                if v, err := caller.Call(p.args...); err == nil {
+                        s = v.String()
                 }
         }
-        return obj
+        return
+}
+func (p *useref) unref(project *types.Project, s string, args... types.Value) {
+        if caller, _ := p.namecaller.(types.Caller); caller == nil {
+                var obj = project.Scope().Lookup(s)
+                if caller, _ = obj.(types.Caller); caller != nil {
+                        p.namecaller, p.args = caller, args
+                }
+        }
 }
 
 func (i *Interpreter) parseInfo(pos token.Pos, s string, a... interface{}) {
         i.pc.ParseInfo(pos, s, a...)
+}
+
+func (i *Interpreter) parseWarn(pos token.Pos, s string, a... interface{}) {
+        i.pc.ParseWarn(pos, s, a...)
 }
 
 func (i *Interpreter) parseFail(pos token.Pos, s string, a... interface{}) {
@@ -322,10 +387,15 @@ importProject:
                                 if alt := sn.Scope().Insert(pn); alt != nil {
                                         return errors.New(fmt.Sprintf("'%s' already defined in use scope", pn.Name()))
                                 }
+                                if _, alt := sn.Scope().InsertNewDef(i.project, "*"/*useListName*/, pn); alt != nil {
+                                        if def, _ := alt.(*types.Def); def != nil {
+                                                setDef(token.ADD_ASSIGN, def, pn)
+                                        }
+                                }
                         } else {
                                 return errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
                         }
-                        err = i.useProject(loaded)
+                        err = i.useProject(spec.Props[0].Pos(), loaded)
                 } else {
                         unreachable()
                 }
@@ -442,15 +512,41 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
                 case token.STAR:
                         //i.parseInfo(s.Pos(), "%v %v", scope.Names(), scope)
                         var list = values.List()
-                        for _, name := range scope.Names() {
-                                if pn, _ := scope.Lookup(name).(*types.ProjectName); pn != nil {
-                                        if entry := pn.Project().GetDefaultEntry(); entry != nil {
-                                                if entry.Name() != useRuleName /*"use"*/ {
-                                                        list.Append(entry)
+                        if name == useScopeName {
+                                obj := scope.Lookup("*"/*useListName*/)
+                                def, _ := obj.(*types.Def)
+                                if def == nil {
+                                        i.parseFail(s.Pos(), "bad use list (%T)", obj)
+                                }
+                                
+                                l, _ := def.Value().(*types.ListValue)
+                                if l == nil {
+                                        i.parseFail(s.Pos(), "bad use list (%T)", def.Value())
+                                }
+
+                                for _, elem := range l.Elems {
+                                        if pn, _ := elem.(*types.ProjectName); pn != nil {
+                                                if entry := pn.Project().GetDefaultEntry(); entry != nil {
+                                                        if entry.Name() != useRuleName {
+                                                                //i.parseInfo(s.Pos(), "%v %v", pn.Name(), entry)
+                                                                list.Append(entry)
+                                                        }
                                                 }
+                                        } else {
+                                                i.parseFail(s.Pos(), "'%s' is not project in %s", elem)
                                         }
-                                } else {
-                                        i.parseFail(s.Pos(), "'%s' is not project in %s", name, scope)
+                                }
+                        } else {
+                                for _, name := range scope.Names() {
+                                        if pn, _ := scope.Lookup(name).(*types.ProjectName); pn != nil {
+                                                if entry := pn.Project().GetDefaultEntry(); entry != nil {
+                                                        if entry.Name() != useRuleName {
+                                                                list.Append(entry)
+                                                        }
+                                                }
+                                        } else {
+                                                i.parseFail(s.Pos(), "'%s' is not project in %s", name, scope)
+                                        }
                                 }
                         }
                         v = list
@@ -539,7 +635,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
         case nil:
                 v = values.None
         case *ast.UseDefineClause:
-                v = &usedefine{
+                v = &usedefiner{
                         op: x.Tok,
                         name: i.expr(x.Name).String(),
                         value: i.expr(x.Value),
@@ -548,15 +644,16 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
         case *ast.RefExpr:
                 if c, ok := x.X.(*ast.CallExpr); ok {
                         var name types.Value
-                        if ident, ok := c.Name.(*ast.Ident); ok {
-                                name = values.Bareword(ident.Name)
-                        } else {
+                        switch t := c.Name.(type) {
+                        case *ast.Ident:
+                                name = values.Bareword(t.Name)
+                        default:
                                 name = i.expr(c.Name)
                         }
+                        //i.parseInfo(x.X.Pos(), "%s: useref '%v' (%T)", i.project.Name(), name, name)
                         v = &useref{
-                                name: name,
+                                namecaller: name,
                                 args: i.exprs(c.Args),
-                                pos: nil, //x.Pos(),
                         }
                 } else {
                         i.parseFail(x.Pos(), "bad ref (%T)", x.X)
@@ -574,16 +671,18 @@ func (i *Interpreter) exprs(exprs []ast.Expr) (values []types.Value) {
         return
 }
 
-func (i *Interpreter) useProject(project *types.Project) error {
+func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
         use := project.Scope().Lookup(useRuleName)
         if rule, _ := use.(*types.RuleEntry); rule != nil {
                 result, err := rule.Call(values.Any(i.project))
-                //fmt.Printf("use: %v, %v (%v)\n", i.project.Name(), loaded.Name(), result)
+                //i.parseInfo(pos, "use: %v: %v\n", i.project.Name(), project.Name())
                 if err != nil {
                         return err
                 } else if result == nil {
                         // ...
                 }
+        } else if false {
+                i.parseInfo(pos, "nil use rule of '%s' (%T %v)\n", project.Name(), use, use)
         }
         return nil
 }
@@ -640,11 +739,16 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
                                         return errors.New(fmt.Sprintf("'%s' already defined in %s", pn.Name(), sn.Scope()))
                                 }
                         }
+                        if _, alt := sn.Scope().InsertNewDef(i.project, "*"/*useListName*/, pn); alt != nil {
+                                if def, _ := alt.(*types.Def); def != nil {
+                                        setDef(token.ADD_ASSIGN, def, pn)
+                                }
+                        }
                 } else {
                         return errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
                 }
         }
-        return i.useProject(project)
+        return i.useProject(spec.Props[0].Pos(), project)
 }
 
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
@@ -867,10 +971,14 @@ func (i *Interpreter) declareProject(ident *ast.Ident) (err error) {
                         p = dec.project
                         s = p.Scope()
                         use = types.NewScope(s, token.NoPos, token.NoPos, useScopeName)
+                        //uselist = values.List()
                 )
                 if _, alt := s.InsertNewScopeName(p, useScopeName, use); alt != nil {
                         i.parseFail(ident.Pos(), "name '%s' already taken in %s", useScopeName, s)
                 }
+                /*if _, alt := s.InsertNewDef(p, useListName, uselist); alt != nil {
+                        i.parseFail(ident.Pos(), "name '%s' already taken in %s", useListName, s)
+                }*/
                 if _, alt := s.InsertNewDef(p, "/", values.String(absPath)); alt != nil {
                         i.parseFail(ident.Pos(), "'$/' already defined in %s", s)
                 }

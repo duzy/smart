@@ -177,13 +177,18 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 workdir = p.AbsPath()
                 wd, _ = os.Getwd()
                 //top = prog.context.Getwd()
+                printChangeDirectory = entry.Name() != "~use~rule~"
         )
         //fmt.Printf("%s: %s, %s; %s\n", p.Name(), p.RelPath(), p.AbsPath(), wd)
         if workdir != wd {
-                fmt.Printf("smart: Entering directory '%s'\n", workdir)
+                if printChangeDirectory {
+                        fmt.Printf("smart: Entering directory '%s'\n", workdir)
+                }
                 if err = os.Chdir(workdir); err == nil {
                         defer func() {
-                                fmt.Printf("smart: Leaving directory '%s'\n", workdir)
+                                if printChangeDirectory {
+                                        fmt.Printf("smart: Leaving directory '%s'\n", workdir)
+                                }
                                 os.Chdir(wd)
                         }()
                 } else {

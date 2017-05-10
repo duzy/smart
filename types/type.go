@@ -29,8 +29,9 @@ type Kind int
 const (
         InvalidKind Kind = iota
 
+        AnyKind
+
         // basic types
-        IdentKind // scoped names
         IntKind
         FloatKind
         DateTimeKind
@@ -68,7 +69,7 @@ const (
 var (
         typeNames = [...]string{
                 InvalidKind:    "Invalid",
-                IdentKind:      "Ident",
+                AnyKind:        "Any",
                 IntKind:        "Int",
                 FloatKind:      "Float",
                 DateTimeKind:   "DateTime",
@@ -110,7 +111,7 @@ type TypeInfo int
 const (
         // Properties of basic types.
 	IsBoolean TypeInfo = 1 << iota
-        IsIdent
+        IsAny
 	IsInteger
 	IsUnsigned
 	IsFloat

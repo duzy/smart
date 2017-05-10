@@ -40,19 +40,20 @@ func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
 
 type NoneValue struct { value }
-func (p *NoneValue) Type() Type         { return None }
+func (p *NoneValue) Type() Type   { return None }
 
 type AnyValue struct {
         value
         V interface{}
 }
+func (p *AnyValue) Type() Type    { return Any }
 
 type IntValue struct {
         V int64
 }
 func (p *IntValue) Type() Type          { return Int }
 func (p *IntValue) Lit() string         { return p.String() }
-func (p *IntValue) String() string      { return strconv.FormatInt(int64(p.V),10) } // Itoa
+func (p *IntValue) String() string      { return strconv.FormatInt(int64(p.V),10) }
 func (p *IntValue) Integer() int64      { return p.V }
 func (p *IntValue) Float() float64      { return float64(p.V) }
 
