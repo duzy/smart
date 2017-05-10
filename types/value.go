@@ -349,7 +349,7 @@ type CallerValue interface {
 }
 
 type Unrefer interface {
-        unref(project *Project, s string, a... Value) (Value, error)
+        Unref(project *Project, s string, a... Value) (Value, error)
 }
 
 type UnreferValue interface {
@@ -364,6 +364,19 @@ type Poser interface {
 type PoserValue interface {
         Value
         Poser
+}
+
+type Namer interface {
+        Name() string
+}
+
+type Scoper interface {
+        Scope() *Scope
+}
+
+type NameScoper interface {
+        Namer
+        Scoper
 }
 
 type positional struct {
@@ -381,4 +394,15 @@ func Positional(v Value, pos *token.Position) Poser {
                 return p
         }
         return &positional{ v, pos }
+}
+
+type namescoper struct {
+        name string
+        scope *Scope
+}
+
+func (ns *namescoper) Name() string { return ns.name }
+func (ns *namescoper) Scope() *Scope { return ns.scope }
+func NameScope(name string, scope *Scope) NameScoper {
+        return &namescoper{ name, scope }
 }

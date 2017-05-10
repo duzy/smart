@@ -378,21 +378,11 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         return
 }
 
-type nameScoper interface {
-        Scope() *types.Scope
-        Name() string
-}
-type scopeHolder struct {
-        scope *types.Scope
-        name string
-}
-func (h *scopeHolder) Scope() *types.Scope { return h.scope }
-func (h *scopeHolder) Name() string { return h.name }
-func (i *Interpreter) selector(first nameScoper, x *ast.SelectorExpr) (v types.Value) {
+func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v types.Value) {
         var (
                 scope = first.Scope()
                 base types.Value
-                next nameScoper
+                next types.NameScoper
                 name string
         )
         switch t := x.X.(type) {
@@ -429,7 +419,7 @@ func (i *Interpreter) selector(first nameScoper, x *ast.SelectorExpr) (v types.V
                 if scope = t.Scope(); scope == nil {
                         i.parseFail(x.Pos(), "importee of %s (scope) is nil", t.Name())
                 } else {
-                        next = &scopeHolder{ scope, t.Name() }
+                        next = types.NameScope(t.Name(), scope)
                 }
         case nil:
                 i.parseFail(x.Pos(), "'%T' undefined in '%s'", x.X, first.Name())
@@ -659,16 +649,17 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
 
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
-                var (
-                        scope = i.scope //Scope()
-                        name = i.expr(spec.Props[0])
-                )
-                if _, fun := scope.LookupAt(spec.EndPos, name.String()); fun != nil {
-                        args := i.exprs(spec.Props[1:])
-                        res, _ = fun.(types.Caller).Call(args...)
-                } else {
-                        err = errors.New(fmt.Sprintf("undefined '%s'", name))
-                        //fmt.Printf("error: `%v' is invalid\n", name)
+                switch op := i.expr(spec.Props[0]).(type) {
+                case types.Caller:
+                        res, _ = op.Call(i.exprs(spec.Props[1:])...)
+                default:
+                        if _, obj := i.scope.LookupAt(spec.EndPos, op.String()); obj != nil {
+                                if f, _ := obj.(types.Caller); f != nil {
+                                        res, err = f.Call(i.exprs(spec.Props[1:])...)
+                                }
+                        } else {
+                                err = errors.New(fmt.Sprintf("undefined '%s'", op.String()))
+                        }
                 }
         }
         return
