@@ -71,6 +71,10 @@ var (
                 `shell-stdout`: modifierShellStdout,
                 `shell-stderr`: modifierShellStderr,
 
+                `status`:       modifierShellStatus,
+                `stdout`:       modifierShellStdout,
+                `stderr`:       modifierShellStderr,
+
                 `select`:       modifierSelect,
 
                 `args`:         modifierSetArgs,

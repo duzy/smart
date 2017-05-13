@@ -159,6 +159,7 @@ func (p *usedefiner) unref(project *types.Project, value types.Value) (result ty
                 elements []types.Value
                 list []types.Value
                 temp types.Value
+                typ types.Type
         )
         switch v := value.(type) {
         case *types.AnyValue:
@@ -166,23 +167,28 @@ func (p *usedefiner) unref(project *types.Project, value types.Value) (result ty
                         result, err = p.unref(project, a)
                 }
         case *types.BarecompValue:
-                elements = v.Elems; goto unrefElems
+                elements, typ = v.Elems, types.Barecomp
+                goto unrefElems
         case *types.BarefileValue:
                 if temp, err = p.unref(project, v.Name); err == nil {
                         result = values.Barefile(temp, v.Ext)
                 }
         case *types.PathValue:
-                elements = v.Segments; goto unrefElems
+                elements, typ = v.Segments, types.Path
+                goto unrefElems
         case *types.FlagValue:
                 if temp, err = p.unref(project, v.Name); err == nil {
                         result = values.Flag(temp)
                 }
         case *types.CompoundValue:
-                elements = v.Elems; goto unrefElems
+                elements, typ = v.Elems, types.Compound
+                goto unrefElems
         case *types.ListValue:
-                elements = v.Elems; goto unrefElems
+                elements, typ = v.Elems, types.List
+                goto unrefElems
         case *types.GroupValue:
-                elements = v.Elems; goto unrefElems
+                elements, typ = v.Elems, types.Group
+                goto unrefElems
         /* case *types.MapValue:
                 for k, v := range v.Elems {
                         v.Elems[k] = p.unref(project, v)
@@ -234,7 +240,14 @@ func (p *usedefiner) unref(project *types.Project, value types.Value) (result ty
                         return nil, err
                 }
         }
-        result = values.List(list...)
+        switch typ {
+        case types.Barecomp: result = values.Barecomp(list...)
+        case types.Path:     result = values.Path(list...)
+        case types.Compound: result = values.Compound(list...)
+        case types.List:     result = values.List(list...)
+        case types.Group:    result = values.Group(list...)
+        default:             unreachable();
+        }
         done: return
 }
 
@@ -363,6 +376,7 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
         }
         
         if absPath == "" {
+                i.parseWarn(spec.Pos(), "missing '%s' (in %v)", specPath, i.paths)
                 return errors.New(fmt.Sprintf("import: '%s' not found", specPath))
         }
 
