@@ -90,7 +90,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 dependSwitch: switch d := depend.(type) {
                 case *types.RuleEntry:
                         if res, err = d.Call(); err == nil {
-                                //fmt.Printf("Program.prepare: %T %v (%v) (isFileEntry:%v)\n", depend, depend, res, isFileEntry)
+                                //fmt.Printf("Program.prepare: %T %v (isFileEntry:%v) (res: %v) (err: %v)\n", depend, depend, isFileEntry, res, err)
                                 if isFileEntry {
                                         depends.Append(values.Group(targetRegularKind, d))
                                 } else if res == values.None {

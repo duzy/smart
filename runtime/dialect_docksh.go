@@ -90,7 +90,7 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                                 code int64
                         )
                         if n, e := fmt.Sscanf(s, "exit status %v", &code); n == 1 && e == nil {
-                                status, err = values.Int(code), nil
+                                status = values.Int(code)
                         } else {
                                 status = values.String(s)
                         }

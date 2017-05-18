@@ -673,7 +673,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
                         i.parseFail(x.Pos(), "bad ref (%T)", x.X)
                 }
         default:
-                i.parseFail(x.Pos(), "unimplemented expression (%T)", x)
+                i.parseFail(x.Pos(), "unimplemented expression (%T %v)", x, x)
         }
         return
 }
