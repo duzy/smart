@@ -64,7 +64,8 @@ func saveLoadingInfo(i *Interpreter, specPath, absPath, baseName string) *Interp
         return i
 }
 
-func setDef(op token.Token, def *types.Def, value types.Value) (err error) {
+func defSet(op token.Token, def *types.Def, value types.Value) (err error) {
+        //fmt.Printf("defSet: %v %v %v\n", def.Name(), op, value)
         switch op {
         case token.QUE_ASSIGN: // ?=
                 // noop, only set if absent (not defined)
@@ -97,7 +98,7 @@ func setDef(op token.Token, def *types.Def, value types.Value) (err error) {
                 )
                 sh.Stdout, sh.Stderr = &stdout, &stderr
                 if err = sh.Run(); err == nil {
-                        def.Set(values.String(stdout.String()))
+                        def.Set(values.String(strings.TrimSpace(stdout.String())))
                 } else {
                         def.Set(values.None)
                 }
@@ -120,17 +121,16 @@ func set(p *types.Project, op token.Token, name string, value types.Value) (def 
         )
         if obj == nil {
                 var alt types.Object
-                if obj, alt = scope.InsertNewDef(p, name, value); alt != nil {
-                        // ...
+                if obj, alt = scope.InsertNewDef(p, name, values.None); alt != nil {
+                        unreachable()
                 }
-                return
         }
         if def, _ = obj.(*types.Def); def == nil {
                 err = errors.New(fmt.Sprintf("name '%s' already taken in '%s'", name, p.Name()))
                 return
         }
 
-        err = setDef(op, def, value)
+        err = defSet(op, def, value)
         return
 }
 
@@ -403,7 +403,7 @@ importProject:
                                 }
                                 if _, alt := sn.Scope().InsertNewDef(i.project, "*"/*useListName*/, pn); alt != nil {
                                         if def, _ := alt.(*types.Def); def != nil {
-                                                setDef(token.ADD_ASSIGN, def, pn)
+                                                defSet(token.ADD_ASSIGN, def, pn)
                                         }
                                 }
                         } else {
@@ -755,7 +755,7 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
                         }
                         if _, alt := sn.Scope().InsertNewDef(i.project, "*"/*useListName*/, pn); alt != nil {
                                 if def, _ := alt.(*types.Def); def != nil {
-                                        setDef(token.ADD_ASSIGN, def, pn)
+                                        defSet(token.ADD_ASSIGN, def, pn)
                                 }
                         }
                 } else {
@@ -784,6 +784,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
 }
 
 func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) {
+        //fmt.Printf("Interpreter.define: %v\n", d.Name)
         if i.project == nil {
                 err = errors.New(fmt.Sprintf("define %v not in a project scope", d.Name))
                 return
