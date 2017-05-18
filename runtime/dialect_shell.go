@@ -122,7 +122,7 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                 if stderrOpt != nil && stderrOpt.Value().String() == "on" {
                         sh.Stderr = os.Stderr
                 }
-                err = sh.Run(); source = ""
+                err = sh.Run()
                 if err == nil {
                         status = values.Int(0) //values.None
                 } else {
@@ -139,6 +139,7 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                         break
                 }
         }
+        source = ""
         
         if /* TODO: using `--verbose-shell` to control this */false {
                 fmt.Printf("%v", stdout.String())

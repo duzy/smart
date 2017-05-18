@@ -82,7 +82,7 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                 if stderrOpt != nil && stderrOpt.Value().String() == "on" {
                         sh.Stderr = os.Stderr
                 }
-                err = sh.Run(); source = ""
+                err = sh.Run()
                 if err == nil {
                         status = values.Int(0) //values.None
                 } else {
@@ -92,13 +92,14 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                         )
                         if n, e := fmt.Sscanf(s, "exit status %v", &code); n == 1 && e == nil {
                                 status = values.Int(code)
-                                err = errors.New(fmt.Sprintf("%v (%s)", err, src))
+                                err = errors.New(fmt.Sprintf("%v (%s)", err, source))
                         } else {
                                 status = values.String(s)
                         }
                         break
                 }
         }
+        source = ""
         
         if /* TODO: using `--verbose-shell` to control this */false {
                 fmt.Printf("%v", stdout.String())
