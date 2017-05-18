@@ -12,6 +12,7 @@ import (
         "github.com/duzy/smart/values"
         "os/exec"
         "strings"
+        "errors"
         "bytes"
         "fmt"
         "os"
@@ -91,6 +92,7 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                         )
                         if n, e := fmt.Sscanf(s, "exit status %v", &code); n == 1 && e == nil {
                                 status = values.Int(code)
+                                err = errors.New(fmt.Sprintf("%v (%s)", err, src))
                         } else {
                                 status = values.String(s)
                         }

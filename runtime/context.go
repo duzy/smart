@@ -137,7 +137,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 if value, err = entry.Call(); err == nil {
                                         updated += 1
                                 } else {
-                                        fmt.Printf("%v", err)
+                                        //fmt.Printf("%v\n", err)
                                         break
                                 }
                         }
