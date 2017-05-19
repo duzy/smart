@@ -830,7 +830,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
         default:
                 pos := p.pos
-                p.warn(pos, "%v\n", p.tok)
+                p.warn(pos, "weird token '%v'\n", p.tok)
                 p.errorExpected(pos, "clause or expression")
                 p.next() // go to next token
                 return &ast.BadExpr{ From:pos, To:p.pos }
@@ -1554,15 +1554,6 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
 
         list := []ast.Expr{ x }
         if p.tok < token.COLON || token.CALL <= p.tok {
-                /* if p.tok == token.USE {
-                        list = append(list, &ast.Bareword{
-                                ValuePos: p.pos,
-                                Value: "use",
-                        })
-                        p.next()
-                } else {
-                        list = append(list, p.parseLhsList()...)
-                } */
                 list = append(list, p.parseLhsList()...)
         }
         if token.COLON <= p.tok && p.tok <= token.QUE {
@@ -1570,7 +1561,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         }
 
         pos := p.pos
-        p.errorExpected(pos, "'"+p.tok.String()+"'")
+        p.errorExpected(pos, "assign or colon")
         sync(p)
         return &ast.BadClause{From: pos, To: p.pos}
 }

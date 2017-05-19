@@ -161,20 +161,46 @@ func (s *Scanner) error(offs int, msg string) {
 	s.ErrorCount++
 }
 
-func (s *Scanner) isUselessWhitespace(lf bool) bool {
-        return s.ch == ' ' || s.ch == '\r' || 
-                (s.ch == '\t' && s.lineOffset < s.offset) || 
-                (s.ch == '\n' && (s.lineOffset == s.offset || s.skipPostLineFeeds /*|| s.parenDepth > 0*/ || lf)) ||
-                (s.ch == '\\' && s.readOffset < len(s.src) && s.src[s.readOffset] == '\n')
-}
+// func (s *Scanner) isUselessWhitespace(lf bool) bool {
+//         return s.ch == ' ' || s.ch == '\r' || 
+//                 (s.ch == '\t' && s.lineOffset < s.offset) || 
+//                 (s.ch == '\n' && (s.lineOffset == s.offset || s.skipPostLineFeeds /*|| s.parenDepth > 0*/ || lf)) ||
+//                 (s.ch == '\\' && s.readOffset < len(s.src) && s.src[s.readOffset] == '\n')
+// }
 
 func (s *Scanner) skipUselessWhitespace(lf bool) {
-	for s.isUselessWhitespace(lf) {
+	/*for s.isUselessWhitespace(lf) {
                 if s.ch == '\\' {
                         s.next()
                 }
 		s.next()
-	}
+	}*/
+        loopSkip: for s.readOffset < len(s.src) {
+                switch s.ch {
+                default: break loopSkip
+                case ' ', '\r': s.next()
+                case '\n':
+                        if s.lineOffset == s.offset || s.skipPostLineFeeds /*|| s.parenDepth > 0*/ || lf {
+                                s.next()
+                        } else {
+                                break loopSkip
+                        }
+                case '\t':
+                        if s.lineOffset < s.offset {
+                                s.next()
+                        } else {
+                                break loopSkip
+                        }
+                case '\\': 
+                        if s.next(); s.ch == '\n' {
+                                s.next()
+                        } else {
+                                //fmt.Printf("escape: %v\n", string(s.ch))
+                                // TODO: escape character
+                                s.next()//; break loopSkip
+                        }
+                }
+        }
         s.skipPostLineFeeds = false
 }
 
@@ -722,7 +748,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	pos = s.file.Pos(s.offset)
 
         if s.context&(isCompoundLine|isCompoundString) != 0 {
-                //fmt.Printf("context: %v %v %v\n", isCallContext, s.context&(isCallIdent|isCallParen), s.callPdepth)
+                //fmt.Printf("context: '%v' (%v)\n", string(s.ch), s.context)
                 if s.context&(isCompoundCallIdent|isCompoundCallParen) == 0 {
                         switch {
                         case s.context&isCompoundLine != 0:
@@ -730,8 +756,27 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         case s.context&isCompoundString != 0:
                                 tok, lit = s.scanCompoundString()
                         }
-                        if tok != token.CALL {
-                                return // escape from '$'
+                        
+                        switch tok {
+                        case token.CALL:
+                                // escape from '$'
+                        case token.COMPOSED:
+                                // skip spaces after composing: "..."
+                                loopSkip: for s.readOffset < len(s.src) {
+                                        switch s.ch {
+                                        default: break loopSkip
+                                        case ' ', '\t': s.next()
+                                        case '\\': 
+                                                if s.next(); s.ch == '\n' {
+                                                        s.next()
+                                                } else {
+                                                        // TODO: escape???
+                                                }
+                                        }
+                                }
+                                fallthrough
+                        default:
+                                return
                         }
                 }
         }
@@ -792,6 +837,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.MINUS
                 case '/':
                         tok = token.PCON
+                        /*
+                case '\\':
+                        fmt.Printf("escape:%s %s\n", string(ch), string(s.ch))
+                        if s.ch == '\n' {
+                                goto scanAgain
+                        } */
                 case '\'':
                         tok = token.STRING
                         if s.ch == '\'' {

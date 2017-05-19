@@ -17,6 +17,10 @@ use foo
 use foo
 
 compile_flags += -g
+compile_flags += \
+  -I'xxxx' \
+  -I"include$." \
+  -I"$//include" \
 
 run-example: [ (shell-stdout) (shell) ] : example
 	@echo $(foo.var)
