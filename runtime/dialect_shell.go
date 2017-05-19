@@ -53,34 +53,6 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                 source string
         )
 
-        /*
-        for _, a := range args {
-                switch p := a.(type) {
-                case *values.PairValue:
-                        var opt = types.Value(values.None)
-                        switch k, v := p.Key().String(), p.Value().String(); k {
-                        case "stdout":
-                                if isTrueValue(v) {
-                                        opt = values.Bareword("on")
-                                }
-                                if stdoutOpt == nil {
-                                        stdoutOpt = prog.auto("shell-stdout", opt)
-                                } else {
-                                        stdoutOpt.Set(opt)
-                                }
-                        case "stderr":
-                                if isTrueValue(v) {
-                                        opt = values.Bareword("on")
-                                }
-                                if stderrOpt == nil {
-                                        stderrOpt = prog.auto("shell-stderr", opt)
-                                } else {
-                                        stderrOpt.Set(opt)
-                                }
-                        }
-                }
-        } */
-        
         for _, recipe := range recipes {
                 source += recipe.String() // trimRightSpaces(recipe.String())
                 if strings.HasSuffix(source, "\\") {
@@ -98,10 +70,10 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                         source = source[1:]
                 } else {
                         // TODO: using `--verbose-shell` to control this
-                        var s = source
-                        s = strings.Replace(s, "\n", "\\n", -1)
-                        s = strings.Replace(s, "\\\\n", "\\\n", -1)
-                        fmt.Printf("%v\n", s)
+                        var src = source
+                        src = strings.Replace(src, "\n", "\\n", -1)
+                        src = strings.Replace(src, "\\\\n", "\\\n", -1)
+                        fmt.Printf("%v\n", src)
                 }
 
                 var sh *exec.Cmd
@@ -124,7 +96,7 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                 }
                 err = sh.Run()
                 if err == nil {
-                        status = values.Int(0) //values.None
+                        status, source = values.Int(0), ""
                 } else {
                         var (
                                 s = err.Error()
@@ -136,10 +108,10 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                         } else {
                                 status = values.String(s)
                         }
+                        source = ""
                         break
                 }
         }
-        source = ""
         
         if /* TODO: using `--verbose-shell` to control this */false {
                 fmt.Printf("%v", stdout.String())

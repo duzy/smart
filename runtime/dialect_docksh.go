@@ -84,7 +84,7 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                 }
                 err = sh.Run()
                 if err == nil {
-                        status = values.Int(0) //values.None
+                        status, source = values.Int(0), ""
                 } else {
                         var (
                                 s = err.Error()
@@ -96,10 +96,10 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                         } else {
                                 status = values.String(s)
                         }
+                        source = ""
                         break
                 }
         }
-        source = ""
         
         if /* TODO: using `--verbose-shell` to control this */false {
                 fmt.Printf("%v", stdout.String())
