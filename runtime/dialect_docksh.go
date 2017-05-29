@@ -27,6 +27,7 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
         var (
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
+                stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 _, symDxi = prog.scope.LookupAt(token.NoPos, "docker-exec-image")
                 _, symWd = prog.scope.LookupAt(token.NoPos, "/") // "."
                 stdout bytes.Buffer
@@ -73,14 +74,27 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                         }
                 }
 
+                var (
+                        args []string
+                        stdin = stdinOpt != nil && stdinOpt.Value().String() == "on"
+                )
+                if stdin {
+                        args = []string{ "exec", "-i", dxi, "sh", "-c", src }
+                } else {
+                        args = []string{ "exec", dxi, "sh", "-c", src }
+                }
+
                 var sh *exec.Cmd
-                sh = exec.Command("docker", "exec", dxi, "sh", "-c", src)
+                sh = exec.Command("docker", args...)
                 sh.Stdout, sh.Stderr = &stdout, &stderr
                 if stdoutOpt != nil && stdoutOpt.Value().String() == "on" {
                         sh.Stdout = os.Stdout
                 }
                 if stderrOpt != nil && stderrOpt.Value().String() == "on" {
                         sh.Stderr = os.Stderr
+                }
+                if stdin {
+                        sh.Stdin = os.Stdin
                 }
                 err = sh.Run()
                 if err == nil {

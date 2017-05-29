@@ -14,7 +14,7 @@ import (
         "time"
 )
 
-var None = &types.NoneValue{}
+var None = types.UniversalNone
 
 func Any(v interface{}) *types.AnyValue {
         return &types.AnyValue{ V:v }

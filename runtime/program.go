@@ -10,7 +10,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        //"path/filepath"
+        "path/filepath"
         //"strings"
         "errors"
         "fmt"
@@ -89,15 +89,29 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 )
                 dependSwitch: switch d := depend.(type) {
                 case *types.RuleEntry:
+                        var (
+                                p, _ = d.Program().(*Program)
+                                fromOther = p != nil && p.project != prog.project
+                        )
                         if res, err = d.Call(); err == nil {
-                                //fmt.Printf("Program.prepare: %T %v (isFileEntry:%v) (res: %v) (err: %v)\n", depend, depend, isFileEntry, res, err)
+                                //fmt.Printf("Program.prepare: %T %v (isFileEntry:%v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
                                 if isFileEntry {
-                                        depends.Append(values.Group(targetRegularKind, d))
+                                        if fromOther {
+                                                var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
+                                                depends.Append(values.Group(targetRegularKind, s))
+                                        } else {
+                                                depends.Append(values.Group(targetRegularKind, d))
+                                        }
                                 } else if res == values.None {
                                         //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, d, d.Kind())
                                         switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                depends.Append(values.Group(targetRegularKind, d))
+                                                if fromOther {
+                                                        var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
+                                                        depends.Append(values.Group(targetRegularKind, s))
+                                                } else {
+                                                        depends.Append(values.Group(targetRegularKind, d))
+                                                }
                                         }
                                 } else if res != nil {
                                         depends.Append(res)
@@ -167,7 +181,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         }
                 }
         }
-        //fmt.Printf("Program.prepare: %v: %v\n", entry, depends)
+        //fmt.Printf("Program.prepare: %v: %v (%v)\n", entry, depends, prog.project.Name())
         return
 }
 
@@ -235,7 +249,7 @@ pipelineLoop:
                                         if p.okay {
                                                 err = nil
                                         } else {
-                                                fmt.Printf("%s, required by '%s'\n", p.message, entry.Name())
+                                                fmt.Printf("%s, required by '%s' (from %v)\n", p.message, entry.Name(), prog.project.RelPath())
                                         }
                                 }
                                 break pipelineLoop

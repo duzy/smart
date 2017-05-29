@@ -12,6 +12,7 @@ import (
         "strconv"
         "strings"
         "os"
+        //"fmt"
 )
 
 // Value represents a value of a type.
@@ -331,6 +332,98 @@ func (p *PairValue) SetKey(k Value) {
         }
 }
 
+// Pattern
+type Pattern interface {
+        Value
+        Entry(stem string) *RuleEntry
+        Match(s string) (matched bool, stem string)
+}
+
+type pattern struct {
+        parent *Scope
+        project *Project
+        program Program
+}
+
+func (p *pattern) Type() Type        { return Invalid }
+func (p *pattern) Integer() int64    { return 0 }
+func (p *pattern) Float() float64    { return 0 }
+func (p *pattern) Program() Program  { return p.program }
+func (p *pattern) entry(name, stem string) (entry *RuleEntry) {
+        var kind = PatternRuleEntry
+        if p.project != nil && p.project.IsFile(name) {
+                kind = PatternFileRuleEntry
+        }
+        entry = p.parent.NewRuleEntry(p.project, kind, name)
+        entry.parent = p.parent
+        entry.project = p.project
+        entry.program = p.program
+        entry.stem = stem
+        return
+}
+
+type PercentPattern struct {
+        pattern
+        prefix Value
+        suffix Value
+}
+
+func NewPercentPattern(m *Project, prefix, suffix Value) Pattern {
+        return &PercentPattern{pattern:pattern{project:m}, prefix:prefix, suffix:suffix }
+}
+
+func (p *PercentPattern) Lit() string { return p.String() }
+func (p *PercentPattern) Pos() *token.Position { return nil }
+func (p *PercentPattern) String() (s string) {
+        if p.prefix != nil {
+                s = p.prefix.String()
+        }
+        s += "%"
+        if p.suffix != nil {
+                s += p.suffix.String()
+        }
+        return
+}
+func (p *PercentPattern) Match(s string) (matched bool, stem string) {
+        /*
+        if pp, _ := p.prefix.(*PercentPattern); pp != nil {
+        }
+        if pp, _ := p.suffix.(*PercentPattern); pp != nil {
+        } */
+        if prefix := p.prefix.String(); prefix == "" || strings.HasPrefix(s, prefix) {
+                if suffix := p.suffix.String(); suffix == "" || strings.HasSuffix(s, suffix) {
+                        if a, b := len(prefix), len(s)-len(suffix); a < b {
+                                matched, stem = true, s[a:b]
+                        }
+                }
+        }
+        return
+}
+
+func (p *PercentPattern) Entry(stem string) (entry *RuleEntry) {
+        name := p.prefix.String() + stem + p.suffix.String()
+        entry = p.entry(name, stem)
+        return
+}
+
+type RegexpPattern struct {
+        pattern
+}
+
+func NewRegexpPattern() Pattern {
+        return &RegexpPattern{}
+}
+
+func (p *RegexpPattern) Lit() string { return p.String() }
+func (p *RegexpPattern) Pos() *token.Position { return nil }
+func (p *RegexpPattern) String() (s string) { return "" }
+func (p *RegexpPattern) Match(s string) (matched bool, stem string) {
+        return
+}
+func (p *RegexpPattern) Entry(stem string) (entry *RuleEntry) {
+        return
+}
+
 type Definer interface {
         Define(p *Project) (Value, error)
 }
@@ -338,6 +431,10 @@ type Definer interface {
 type DefinerValue interface {
         Value
         Definer
+}
+
+type Valuer interface {
+        Value() Value
 }
 
 type Caller interface {
@@ -406,4 +503,33 @@ func (ns *namescoper) Name() string { return ns.name }
 func (ns *namescoper) Scope() *Scope { return ns.scope }
 func NameScope(name string, scope *Scope) NameScoper {
         return &namescoper{ name, scope }
+}
+
+func Eval(v Value) (res Value) {
+        switch t := v.(type) {
+        case Valuer:
+                res = Eval(t.Value())
+        case *ListValue:
+                for i, elem := range t.Elems {
+                        t.Elems[i] = Eval(elem)
+                }
+                res = t
+        default:
+                res = v
+        }
+        return
+}
+
+func EvalElems(args... Value) (elems []Value) {
+        for _, arg := range args {
+                switch t := Eval(arg).(type) {
+                case *ListValue:
+                        for _, elem := range t.Elems {
+                                elems = append(elems, EvalElems(elem)...)
+                        }
+                default:
+                        elems = append(elems, t)
+                }
+        }
+        return
 }

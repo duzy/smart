@@ -10,7 +10,7 @@ import (
         //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        //"path/filepath"
+        "path/filepath"
         "hash/crc64"
         "strings"
         //"errors"
@@ -70,10 +70,12 @@ var (
                 `shell-status`: modifierShellStatus,
                 `shell-stdout`: modifierShellStdout,
                 `shell-stderr`: modifierShellStderr,
+                `shell-stdin`:  modifierShellStdin,
 
                 `status`:       modifierShellStatus,
                 `stdout`:       modifierShellStdout,
                 `stderr`:       modifierShellStderr,
+                `stdin`:        modifierShellStdin,
 
                 `select`:       modifierSelect,
 
@@ -155,6 +157,15 @@ func modifierShellStdout(prog *Program, value types.Value, args... types.Value) 
 
 func modifierShellStderr(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         def := prog.auto("shell-stderr", "on")
+        if len(args) > 0 && args[0].String() == "off" {
+                def.Set(args[0])
+        }
+        promptShellResult(value, 3)
+        return
+}
+
+func modifierShellStdin(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        def := prog.auto("shell-stdin", "on")
         if len(args) > 0 && args[0].String() == "off" {
                 def.Set(args[0])
         }
@@ -251,14 +262,28 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
         if fi, _ := os.Stat(target); fi != nil {
                 for _, depend := range files.Slice(0) {
                         //fmt.Printf("%v: %v (%v)\n", target, depend, prog.context.outdated)
-                        var strDepend = depend.String()
+                        var strDepend string
+                        switch d := depend.(type) {
+                        case *types.RuleEntry:
+                                // using absolute path if it's in a different project
+                                if p, _ := d.Program().(*Program); p != nil && p.project != prog.project {
+                                        switch d.Class() {
+                                        case types.FileRuleEntry, types.PatternFileRuleEntry:
+                                                strDepend = filepath.Join(p.project.AbsPath(), depend.String())
+                                        }
+                                }
+                        }
+                        if strDepend == "" {
+                                strDepend = depend.String()
+                        }
+                        
                         if t, ok := prog.context.outdated[strDepend]; ok && t.After(fi.ModTime()) {
                                 goto DoneWhen // target is outdated
                         }
-                        
+
                         fi2, e := os.Stat(strDepend)
                         if fi2 == nil || e != nil { // no such file or directory
-                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend),
+                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", strDepend),
                                         false }
                                 goto DoneWhen
                         }
@@ -270,7 +295,24 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 err = &breaker{ fmt.Sprintf("%s already up to date", target), true }
         } else {
                 for _, depend := range files.Slice(0) {
-                        fi, e := os.Stat(depend.String())
+                        var strDepend string
+                        switch d := depend.(type) {
+                        case *types.RuleEntry:
+                                // using absolute path if it's in a different project
+                                if p, _ := d.Program().(*Program); p != nil && p.project != prog.project {
+                                        switch d.Class() {
+                                        case types.FileRuleEntry, types.PatternFileRuleEntry:
+                                                strDepend = filepath.Join(p.project.AbsPath(), depend.String())
+                                        }
+                                }
+                        }
+                        if strDepend == "" {
+                                strDepend = depend.String()
+                        }
+
+                        //fmt.Printf("%T %v (%v)\n", depend, depend, strDepend)
+                        
+                        fi, e := os.Stat(strDepend)
                         if fi == nil || e != nil { // no such file or directory
                                 err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend), 
                                         false }

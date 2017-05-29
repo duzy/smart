@@ -47,6 +47,7 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
         var (
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
+                //stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value

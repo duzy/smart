@@ -33,11 +33,11 @@ type delegate struct {
 
 func (p *delegate) Type() types.Type      { return p.o.Type() }
 func (p *delegate) Pos() *token.Position  { return p.p }
-func (p *delegate) Lit() string           { return p.call().Lit() }
-func (p *delegate) String() string        { return p.call().String() }
-func (p *delegate) Integer() int64        { return p.call().Integer() }
-func (p *delegate) Float() float64        { return p.call().Float() }
-func (p *delegate) call() (v types.Value) {
+func (p *delegate) Lit() string           { return p.Value().Lit() }
+func (p *delegate) String() string        { return p.Value().String() }
+func (p *delegate) Integer() int64        { return p.Value().Integer() }
+func (p *delegate) Float() float64        { return p.Value().Float() }
+func (p *delegate) Value() (v types.Value) {
         if types.IsDummy(p.o) {
                 scope := p.o.Parent()
                 if _, s := scope.LookupAt(token.NoPos, p.o.Name()); s != nil {

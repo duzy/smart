@@ -24,7 +24,6 @@ import (
 
 const (
         useScopeName = "~use~scope~"
-        useListName = "~use~scope~list~"
         useRuleName = "~use~rule~"
 )
 
@@ -101,6 +100,8 @@ func defSet(op token.Token, def *types.Def, value types.Value) (err error) {
                         def.Set(values.String(strings.TrimSpace(stdout.String())))
                 } else {
                         def.Set(values.None)
+                        //fmt.Printf("%v\n", err)
+                        //err = nil // ignore the error
                 }
         case token.SCO_ASSIGN, token.DCO_ASSIGN:
                 // TODO: 'expand' all calls?
@@ -130,7 +131,9 @@ func set(p *types.Project, op token.Token, name string, value types.Value) (def 
                 return
         }
 
-        err = defSet(op, def, value)
+        if err = defSet(op, def, value); err != nil {
+                //i.parseWarn()
+        }
         return
 }
 
@@ -396,12 +399,11 @@ importProject:
                         if pn == nil {
                                 return errors.New(fmt.Sprintf("no project name for '%s'", loaded.Name()))
                         }
-                        // FIXME: defined used project in represented order
                         if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
                                 if alt := sn.Scope().Insert(pn); alt != nil {
                                         return errors.New(fmt.Sprintf("'%s' already defined in use scope", pn.Name()))
                                 }
-                                if _, alt := sn.Scope().InsertNewDef(i.project, "*"/*useListName*/, pn); alt != nil {
+                                if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
                                         if def, _ := alt.(*types.Def); def != nil {
                                                 defSet(token.ADD_ASSIGN, def, pn)
                                         }
@@ -527,7 +529,7 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
                         //i.parseInfo(s.Pos(), "%v %v", scope.Names(), scope)
                         var list = values.List()
                         if name == useScopeName {
-                                obj := scope.Lookup("*"/*useListName*/)
+                                obj := scope.Lookup("*"/* use list */)
                                 def, _ := obj.(*types.Def)
                                 if def == nil {
                                         i.parseFail(s.Pos(), "bad use list (%T)", obj)
@@ -689,7 +691,7 @@ func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
         use := project.Scope().Lookup(useRuleName)
         if rule, _ := use.(*types.RuleEntry); rule != nil {
                 result, err := rule.Call(values.Any(i.project))
-                //i.parseInfo(pos, "use: %v: %v\n", i.project.Name(), project.Name())
+                //i.parseInfo(pos, "use: %v: %v (%v)\n", i.project.Name(), project.Name(), result)
                 if err != nil {
                         return err
                 } else if result == nil {
@@ -753,7 +755,7 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
                                         return errors.New(fmt.Sprintf("'%s' already defined in %s", pn.Name(), sn.Scope()))
                                 }
                         }
-                        if _, alt := sn.Scope().InsertNewDef(i.project, "*"/*useListName*/, pn); alt != nil {
+                        if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
                                 if def, _ := alt.(*types.Def); def != nil {
                                         defSet(token.ADD_ASSIGN, def, pn)
                                 }
@@ -793,7 +795,11 @@ func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) 
                 name = i.expr(d.Name).String()
                 v = i.expr(d.Value)
         )
-        return set(i.project, d.Tok, name, v)
+        if obj, err = set(i.project, d.Tok, name, v); err != nil {
+                i.parseWarn(d.Value.Pos(), "%v", err)
+                err = nil // ignore errors
+        }
+        return
 }
 
 func (i *Interpreter) ruleDepend(depend types.Value) (result types.Value) {
@@ -986,14 +992,10 @@ func (i *Interpreter) declareProject(ident *ast.Ident) (err error) {
                         p = dec.project
                         s = p.Scope()
                         use = types.NewScope(s, token.NoPos, token.NoPos, useScopeName)
-                        //uselist = values.List()
                 )
                 if _, alt := s.InsertNewScopeName(p, useScopeName, use); alt != nil {
                         i.parseFail(ident.Pos(), "name '%s' already taken in %s", useScopeName, s)
                 }
-                /*if _, alt := s.InsertNewDef(p, useListName, uselist); alt != nil {
-                        i.parseFail(ident.Pos(), "name '%s' already taken in %s", useListName, s)
-                }*/
                 if _, alt := s.InsertNewDef(p, "/", values.String(absPath)); alt != nil {
                         i.parseFail(ident.Pos(), "'$/' already defined in %s", s)
                 }

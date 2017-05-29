@@ -16,6 +16,8 @@ import (
 var (
 	universe *Scope
 	//unsafe   *Module
+
+        UniversalNone = &NoneValue{}
 )
 
 // Predeclared types.

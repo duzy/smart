@@ -241,7 +241,7 @@ func (p *parser) warn(pos token.Pos, s string, a... interface{}) {
         if !strings.HasSuffix(s, "\n") {
                 s += "\n"
         }
-        fmt.Printf("%s:warn: ", p.file.Position(pos))
+        fmt.Printf("%s: ", p.file.Position(pos))
         fmt.Printf(s, a...)
 }
 
@@ -838,7 +838,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 }
 
 func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
-        //fmt.Printf("expr:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
+        //fmt.Printf("composing:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
         if p.tok == token.ASSIGN && !lhs {
                 pos := p.pos
                 p.next()
@@ -891,7 +891,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         }
                 }
                 return &ast.PathExpr{ PosBeg:pos, Segments:segments, PosEnd:p.pos }
-        } else if p.tok == token.PERC {
+        } else if p.tok == token.PERC && x.End() == p.pos {
                 return &ast.PercExpr{
                         X: x,
                         OpPos: p.pos,
