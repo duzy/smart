@@ -102,7 +102,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         } else {
                                                 depends.Append(values.Group(targetRegularKind, d))
                                         }
-                                } else if res == values.None {
+                                /*} else if res == values.None {
                                         //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, d, d.Kind())
                                         switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
@@ -116,7 +116,23 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 } else if res != nil {
                                         depends.Append(res)
                                 } else {
-                                        depends.Append(d)
+                                        depends.Append(d)*/
+                                } else {
+                                        switch d.Class() {
+                                        case types.FileRuleEntry, types.PatternFileRuleEntry:
+                                                if fromOther {
+                                                        var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
+                                                        depends.Append(values.Group(targetRegularKind, s))
+                                                } else {
+                                                        depends.Append(values.Group(targetRegularKind, d))
+                                                }
+                                        default:
+                                                if res != nil && res != values.None {
+                                                        depends.Append(res)
+                                                } else {
+                                                        depends.Append(d)
+                                                }
+                                        }
                                 }
                         } else {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
@@ -211,7 +227,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 }
         }
         
-        // Calculate depends and files.
+        // Calculate and prepare depends and files.
         if err = prog.prepare(entry); err != nil {
                 //Fail("failed to update '%v' (%v)", entry, err)
                 return

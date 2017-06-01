@@ -203,18 +203,18 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
         )
         if depends != nil || depends.Len() > 0 {
                 for _, depend := range depends.Slice(0) {
-                retryDepend:
                         //fmt.Printf("modifierCompare: %T %v (from %s)\n", depend, depend, target)
+                retryDepend:
                         switch d := depend.(type) {
                         case *types.ListValue:
                                 if depend = d.Take(0); depend != nil {
                                         goto retryDepend
                                 }
                         case *types.GroupValue:
-                                switch k, _ := d.Get(0).(*types.BarewordValue); { 
-                                case k == targetRegularKind, k == targetDirectoryKind:
+                                switch d.Get(0).(*types.BarewordValue) {
+                                case targetRegularKind, targetDirectoryKind:
                                         files.Append(d.Get(1))
-                                case k == targetShellKind:
+                                case targetShellKind:
                                         if n := d.Get(1).Integer(); n != 0 {
                                                 shellFalses += 1
                                         }
@@ -287,6 +287,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                         false }
                                 goto DoneWhen
                         }
+                        
                         if t := fi2.ModTime(); t.After(fi.ModTime()) {
                                 prog.context.outdated[target] = t
                                 goto DoneWhen // target is outdated
