@@ -1,19 +1,13 @@
-module c++
+module c
 
-#extensions cpp cc CC C hh h o
-extensions (
-  unit=( cpp cc CC C )
-  header=( hh h )
-  object=( o obj )
-)
-
-compiler = g++
-compile_flags = -std=c++1z -c
+compiler = gcc
+#compile_flags = -std=c++1z -c
+compile_flags = -c
 
 archiver = ar
 archive_flags = crus
 
-linker = g++
+linker = gcc
 link_flags =
 
 use:
