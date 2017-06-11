@@ -11,5 +11,5 @@ check-status:[(status) (shell) (status-equals 123)]
 check-stdout:[(shell) (stdout-equals 'okay')]
 	echo -n "okay"
 
-check-stderr:[(shell) (stderr-equals 'okay-')]
+check-stderr:[(shell) (stderr-equals 'okay')]
 	echo -n "okay" > /dev/stderr
