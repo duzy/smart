@@ -1,6 +1,6 @@
 # Smart (Simpler Make ART) (Drafting)
 
-**Smart** is a [Semi-Functional Scripting Language]() designed to perform
+**SMArt** is a [Semi-Functional Scripting Language]() designed to perform
 recursive tasks easily. It's written in [Go](http://golang.org). It's still in drafting state, not finished for real use yet.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
@@ -53,8 +53,8 @@ It should build the `hello` example and run it, having a 'Hello World!' output.
 project example
 
 ## "posix/thread" is a predefiend module, allowing users to use pthread
-## in the project, it will append values of symbols like CFLAGS, LDFLAGS,
-## LIBS, etc.
+## in the project, it's supposed to append values of symbols like CFLAGS, LDFLAGS,
+## LIBS, etc. But at the current version, it affects only the `libs` symbol.
 import "posix/thread"
 
 LINK = g++
@@ -64,8 +64,9 @@ LIBS =
 GREETING = "hello, there"
 
 # The default rule, using `shell` dialect to interpret the recipes.
+# Note that the `libs` was introduced by the "posix/thread".
 foo:[shell]: foo.o
-	$(LINK) -o $@ $^ $(LIBS)
+	$(LINK) -o $@ $^ $(libs)
 
 # The second `shell` rule to compile the source.
 foo.o:[shell]: foo.cpp
