@@ -535,12 +535,15 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
                                         i.parseFail(s.Pos(), "bad use list (%T)", obj)
                                 }
                                 
-                                l, _ := def.Value().(*types.ListValue)
-                                if l == nil {
-                                        i.parseFail(s.Pos(), "bad use list (%T)", def.Value())
+                                v, elems := def.Value(), []types.Value{}
+                                switch t := v.(type) {
+                                case *types.ListValue: elems = t.Elems
+                                case *types.ProjectName: elems = append(elems, t)
+                                default:
+                                        i.parseFail(s.Pos(), "bad use list (%T %v)", v, v)
                                 }
 
-                                for _, elem := range l.Elems {
+                                for _, elem := range elems {
                                         if pn, _ := elem.(*types.ProjectName); pn != nil {
                                                 if entry := pn.Project().GetDefaultEntry(); entry != nil {
                                                         if entry.Name() != useRuleName {
