@@ -1,0 +1,4 @@
+project thread
+
+use:
+	libs += -lpthread

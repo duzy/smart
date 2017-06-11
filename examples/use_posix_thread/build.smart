@@ -1,0 +1,26 @@
+project use_posix_thread
+
+import (
+    'tools/gcc/c++'
+    'posix/thread'
+)
+
+files '*.o' '*.cpp' 'example'
+
+GREETING := 'Hello World!'
+
+example:[(compare) (stderr) (shell)]: example.o
+	$(link) $^ -o $@ $(libs)
+
+example.o:[(compare) (stderr) (shell)]: example.cpp
+	$(compile) $< -o $@
+
+example.cpp:[(plain) (update-file)]
+	#include <iostream>
+	#include <pthread.h>
+	int main(int argc, char** argv) {
+	    pthread_t self = pthread_self();
+	    std::cout << "$(GREETING)" << std::endl;
+	    std::cout << self << std::endl;
+	    return 0;
+	}
