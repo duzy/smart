@@ -1,5 +1,7 @@
 # Smart (Simpler Make ART) (Drafting)
 
+[![Join the chat at https://gitter.im/duzy/smart](https://badges.gitter.im/duzy/smart.svg)](https://gitter.im/duzy/smart?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 **Smart** is a [Semi-Functional Scripting Language]() designed to perform
 recursive tasks easily. It's written in [Go](http://golang.org) programming
 language. It's still in drafting state, not finished for real use yet.
