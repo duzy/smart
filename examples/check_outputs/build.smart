@@ -1,0 +1,15 @@
+project check_outputs
+
+check: \
+  check-status \
+  check-stdout \
+  check-stderr
+
+check-status:[(status) (shell) (status-equals 123)]
+	exit 123
+
+check-stdout:[(shell) (stdout-equals 'okay')]
+	echo -n "okay"
+
+check-stderr:[(shell) (stderr-equals 'okay-')]
+	echo -n "okay" > /dev/stderr

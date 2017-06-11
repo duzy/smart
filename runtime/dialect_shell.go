@@ -45,9 +45,10 @@ func isTrueValue(s string) (res bool) {
 func (s *dialectShell) dialect() string { return "shell" }
 func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
+                statusOpt, _ = prog.scope.Lookup("shell-status").(*types.Def)
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
-                //stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
+                //stdinOpt, _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value
@@ -105,7 +106,11 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                         )
                         if n, e := fmt.Sscanf(s, "exit status %v", &code); n == 1 && e == nil {
                                 status = values.Int(code)
-                                err = errors.New(fmt.Sprintf("%v (%s)", err, source))
+                                if statusOpt != nil && statusOpt.Value().String() == "on" {
+                                        err = nil
+                                } else {
+                                        err = errors.New(fmt.Sprintf("%v (%s)", err, source))
+                                }
                         } else {
                                 status = values.String(s)
                         }

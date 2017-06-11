@@ -67,15 +67,20 @@ var (
         modifiers = map[string]modifier{
                 //`pre-check`:    modifierPreCheck,
 
+                /*
                 `shell-status`: modifierShellStatus,
                 `shell-stdout`: modifierShellStdout,
                 `shell-stderr`: modifierShellStderr,
-                `shell-stdin`:  modifierShellStdin,
+                `shell-stdin`:  modifierShellStdin, */
 
                 `status`:       modifierShellStatus,
                 `stdout`:       modifierShellStdout,
                 `stderr`:       modifierShellStderr,
                 `stdin`:        modifierShellStdin,
+
+                `status-equals`: modifierStatusEquals,
+                `stdout-equals`: modifierStdoutEquals,
+                `stderr-equals`: modifierStderrEquals,
 
                 `select`:       modifierSelect,
 
@@ -118,8 +123,8 @@ func (ctx *Context) IsModifier(s string) (ok bool) {
         return
 }
 
-func getGroupElem(output types.Value, n int, v types.Value) types.Value {
-        if g, ok := output.(*types.GroupValue); ok {
+func getGroupElem(value types.Value, n int, v types.Value) types.Value {
+        if g, ok := value.(*types.GroupValue); ok {
                 if elem := g.Get(n); elem != nil {
                         v = elem
                 }
@@ -127,8 +132,8 @@ func getGroupElem(output types.Value, n int, v types.Value) types.Value {
         return v
 }
 
-func promptShellResult(output types.Value, n int) {
-        if g, ok := output.(*types.GroupValue); ok {
+func promptShellResult(value types.Value, n int) {
+        if g, ok := value.(*types.GroupValue); ok {
                 if elem := g.Get(0); elem != nil && elem.String() == "shell" {
                         if elem = g.Get(n); elem != nil {
                                 if s := elem.String(); strings.HasSuffix(s, "\n") {
@@ -142,6 +147,10 @@ func promptShellResult(output types.Value, n int) {
 }
 
 func modifierShellStatus(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        def := prog.auto("shell-status", "on")
+        if len(args) > 0 && args[0].String() == "off" {
+                def.Set(args[0])
+        }
         promptShellResult(value, 1)
         return
 }
@@ -169,7 +178,40 @@ func modifierShellStdin(prog *Program, value types.Value, args... types.Value) (
         if len(args) > 0 && args[0].String() == "off" {
                 def.Set(args[0])
         }
-        promptShellResult(value, 3)
+        //promptShellResult(value, ?)
+        return
+}
+
+func modifierStatusEquals(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        v, a := getGroupElem(value, 1, nil), ""
+        if v != nil && len(args) == 1 {
+                if a = args[0].String(); a == v.String() {
+                        result = v; return
+                }
+        }
+        err = &breaker{ fmt.Sprintf("bad status (%v, expects %v)", v, a), false }
+        return
+}
+
+func modifierStdoutEquals(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        v, a := getGroupElem(value, 2, nil), ""
+        if v != nil && len(args) == 1 {
+                if a = args[0].String(); a == v.String() {
+                        result = v; return
+                }
+        }
+        err = &breaker{ fmt.Sprintf("bad stdout (%v, expects %v)", v, a), false }
+        return
+}
+
+func modifierStderrEquals(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        v, a := getGroupElem(value, 3, nil), ""
+        if v != nil && len(args) == 1 {
+                if a = args[0].String(); a == v.String() {
+                        result = v; return
+                }
+        }
+        err = &breaker{ fmt.Sprintf("bad stderr (%v, expects %v)", v, a), false }
         return
 }
 
