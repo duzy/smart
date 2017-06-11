@@ -52,15 +52,16 @@ It should build the `hello` example and run it, having a 'Hello World!' output.
 ```makefile
 project example
 
+## "posix/thread" is a predefiend module, allowing users to use pthread
+## in the project, it will append values of symbols like CFLAGS, LDFLAGS,
+## LIBS, etc.
+import "posix/thread"
+
 LINK = g++
 COMPILE = g++ -c
 LIBS =
 
 GREETING = "hello, there"
-
-## "pthread" is a predefiend module, using it will append values
-## of symbols like CFLAGS, LDFLAGS, LIBS, etc.
-use "pthread"
 
 # The default rule, using `shell` dialect to interpret the recipes.
 foo:[shell]: foo.o
@@ -73,14 +74,14 @@ foo.o:[shell]: foo.cpp
 # The `plain` dialect simply expands the recipes into plain text,
 # and the `(as text)` tells that the symbol `text` is being used to
 # store the plain text. The `,` starts post-execution of the recipes.
-foo.cpp:[plain (as text), (update-file $(text), $@)]:
+foo.cpp:[(plain), (update-file)]:
 	#include <iostream>
 	int main(int argc, char** argv) {
 	    std::cout <<"$(GREETING)" << std::endl;
 	    return 0;
 	}
 
-check:[python (as s), (equal $s "okay")]:
+check:[(python), (stdout-equals "okay")]:
 	print "not okay"
 ```
 
