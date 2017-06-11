@@ -1,0 +1,22 @@
+project hello
+
+import (
+    'tools/gcc/c++'
+)
+
+files '*.o' '*.cpp' 'hello'
+
+GREETING := 'Hello World!'
+
+hello:[(compare) (stderr) (shell)]: hello.o
+	$(link) $^ -o $@
+
+hello.o:[(compare) (stderr) (shell)]: hello.cpp
+	$(compile) $< -o $@
+
+hello.cpp:[(plain) (update-file)]
+	#include <iostream>
+	int main(int argc, char** argv) {
+	    std::cout <<"$(GREETING)" << std::endl;
+	    return 0;
+	}

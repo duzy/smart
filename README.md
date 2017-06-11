@@ -1,11 +1,10 @@
 # Smart (Simpler Make ART) (Drafting)
 
-[![Join the chat at https://gitter.im/duzy/smart](https://badges.gitter.im/duzy/smart.svg)](https://gitter.im/duzy/smart?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-
 **Smart** is a [Semi-Functional Scripting Language]() designed to perform
 recursive tasks easily. It's written in [Go](http://golang.org). It's still in drafting state, not finished for real use yet.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
+[![Join the chat at https://gitter.im/duzy/smart](https://badges.gitter.im/duzy/smart.svg)](https://gitter.im/duzy/smart?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 ## Overview
 
@@ -23,6 +22,30 @@ rules defined in a module can only be accessed within the module scope.
 
 The `smart` language has some basic data types, this is another important difference
 comparing to macros in a makefile.
+
+## Quick Start
+
+### Install `smart` utility
+
+We use `go` to install the `smart` command line utility directly from GitHub like this:
+
+```shell
+$ go get github.com/duzy/smart/cmd/smart
+$ $GOPATH/bin/smart -help
+```
+
+### Write `smart` scripts
+
+The `smart` command will look for file `build.smart` in the working directory to
+start building. For example of doing this:
+
+```shell
+$ cd $GOPATH/src/github.com/duzy/smart/examples/hello
+$ $GOPATH/bin/smart && ./hello
+Hello World!
+```
+
+It should build the `hello` example and run it, having a 'Hello World!' output.
 
 ## Quick Example
 
