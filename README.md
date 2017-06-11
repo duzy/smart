@@ -1,16 +1,15 @@
 # Smart (Simpler Make ART) (Drafting)
 
 **Smart** is a [Semi-Functional Scripting Language]() designed to perform
-recursive tasks easily. It's written in [Go](http://golang.org) programming
-language. It's still in drafting state, not finished for real use yet.
+recursive tasks easily. It's written in [Go](http://golang.org). It's still in drafting state, not finished for real use yet.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 
 ## Overview
 
 The language is inspired by [GNU make](https://www.gnu.org/software/make/).
-It's having same similar syntax as `makefile`, but a `smart` program is highly
-modularized, multi-dialect (extensible) and data-typed. In a `makefile`, there's 
+It has a similar syntax to `Makefile`, but a `smart` program is highly
+modularized, multi-dialect (extensible) and data-typed. In a `Makefile`, there's 
 only a global namespace, macros defined can later be referenced by any other macros
 or rules. In `smart`, symbols are contained in a module, and the major modules are
 projects. A project is designed to be executed in order to update outdated targets,
@@ -20,7 +19,7 @@ A `smart` module is declared with the keyword `module` or `project`. A module ca
 imported or used by any other module using keywords `import` or `use`. Symbols and
 rules defined in a module can only be accessed within the module scope.
 
-The `smart` language has some basic data types, this is an other important difference
+The `smart` language has some basic data types, this is another important difference
 comparing to macros in a makefile.
 
 ## Quick Example
@@ -46,7 +45,7 @@ foo:[shell]: foo.o
 foo.o:[shell]: foo.cpp
 	$(COMPILE) -o $@ $<
 
-# The `plain` dialect simply expend the recipes into plain text,
+# The `plain` dialect simply expands the recipes into plain text,
 # and the `(as text)` tells that the symbol `text` is being used to
 # store the plain text. The `,` starts post-execution of the recipes.
 foo.cpp:[plain (as text), (update-file $(text), $@)]:
@@ -63,17 +62,17 @@ check:[python (as s), (equal $s "okay")]:
 History
 =======
 
-The ideas of the `smart` language is originated from the old [smart-make](https://github.com/duzy/smart-make)
-project, which is written in `makefile` to ease building projects of complex hierachy.
-The rational of `smart-make` is very similar to [the build system of Android OS](https://android.googlesource.com/platform/build/+/master).
+The ideas of the `smart` language originated from the old [smart-make](https://github.com/duzy/smart-make)
+project, which is written in `Makefile` to ease building projects having a complex hierarchy.
+The rationale of `smart-make` is very similar to [the Android build system](https://android.googlesource.com/platform/build/+/master).
 
-The goal of `smart` is to supersed makefile doing jobs like `smart-make`
-and [the Android OS build system](https://android.googlesource.com/platform/build/+/master).
+The goal of `smart` is to supersede `make`, following the rationale of `smart-make`
+and [the Android build system](https://android.googlesource.com/platform/build/+/master).
 
 Why
 ===
 
-Build projects of complex hierachy the easy way!
+Build projects with complex hierarchies the easy way!
 
 
 ## Support
