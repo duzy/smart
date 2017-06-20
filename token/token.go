@@ -54,6 +54,7 @@ const (
 	EXC       // !          exclamation
 	QUE       // ?
 
+        AT        // @
         REF       // &
         STAR      // *
 
@@ -138,6 +139,7 @@ var tokens = [...]string{
         EXC:       "!",
         QUE:       "?",
 
+        AT:        "@",
 	REF:       "&",
         STAR:      "*",
 
