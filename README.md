@@ -104,4 +104,4 @@ Build projects with complex hierarchies the easy way!
 
 ## Support
 
-https://www.bountysource.com/teams/smart -- ([Salt It Now!](https://salt.bountysource.com/checkout/amount?team=smart))
+Donations are welcomed to email "code at duzy.info".
