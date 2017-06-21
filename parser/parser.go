@@ -521,11 +521,6 @@ func (p *parser) parseBareword() *ast.Bareword {
         }
 }
 
-func (p *parser) parseIdent() *ast.Ident {
-        bw := p.parseBareword()
-        return &ast.Ident{ bw, nil }
-}
-
 func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
 	if p.trace {
 		defer un(trace(p, "Selector"))
@@ -549,10 +544,7 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
         }
 
         // Convert x into an Ident or Barefile
-        if t, ok := x.(*ast.Bareword); ok {
-                x = &ast.Ident{ t, nil }
-                p.tryResolve(x, true)
-        }
+        x = p.identify(x)
 
         res = &ast.SelectorExpr{ x, s }
         if p.tok == token.PERIOD {
@@ -1595,7 +1587,7 @@ func (p *parser) parseFile() *ast.File {
                 // Smart-lang spec:
                 //   * the project clause is not a declaration;
                 //   * the project name does not appear in any scope.
-                ident = p.parseIdent()
+                ident = &ast.Ident{ p.parseBareword(), nil }
                 if ident.Value == "_" && p.mode&DeclarationErrors != 0 {
                         p.error(p.pos, "invalid package name _")
                 }
@@ -1653,7 +1645,7 @@ func (p *parser) parseFile() *ast.File {
 		assert(ident.Sym == unresolved, "symbol already resolved")
 		ident.Sym = p.pkgScope.Lookup(ident.Value) // also removes unresolved sentinel
 		if ident.Sym == nil {
-                        //p.error(ident.Pos(), fmt.Sprintf("%s is unresolved", ident.Name))
+                        //p.error(ident.Pos(), fmt.Sprintf("%s is unresolved", ident.Value))
 			p.unresolved[i] = ident
 			i++
 		}
