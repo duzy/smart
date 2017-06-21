@@ -1397,8 +1397,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         } else {
                                 p.error(target.Pos(), fmt.Sprintf("unknown barefile name (%T)", t.Name))
                         }
-                /* case *ast.Barecomp:
-                        name, _ = p.computeCompositeEntryName(t) */
                 case *ast.PercExpr:
                         // ...
                         continue
@@ -1638,7 +1636,7 @@ func (p *parser) parseFile() *ast.File {
 	}
 	p.closeScope(); assert(p.topScope == p.universe, "unbalanced scopes")
 
-	// resolve global identifiers within the same file
+	// resolve global iers within the same file
 	i := 0
 	for _, ident := range p.unresolved {
 		// i <= index for current ident
