@@ -813,6 +813,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case '#':
                         tok, lit = token.COMMENT, s.scanComment()
                         s.next() // discard '\n'
+                case '@':
+                        tok = token.AT
                 case '!':
                         tok = token.EXC
                         if s.ch == '=' {
