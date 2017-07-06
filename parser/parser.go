@@ -321,13 +321,13 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
         
 	assert(ident.Sym == nil, "identifier already declared or resolved")
         
-	if ident.Name == "_" {
+	if ident.Value == "_" {
 		return
 	}
         
 	// try to resolve the identifier
 	for s := p.topScope; s != nil; s = s.Outer {
-		if sym := s.Lookup(ident.Name); sym != nil {
+		if sym := s.Lookup(ident.Value); sym != nil {
 			ident.Sym = sym
 			return
 		}
@@ -350,9 +350,9 @@ func (p *parser) resolve(x ast.Expr) {
 func (p *parser) identify(x ast.Expr) ast.Expr {
         switch t := x.(type) {
         case *ast.Bareword: 
-                ident := &ast.Ident{ t.ValuePos, t.Value, nil }
+                ident := &ast.Ident{ t, nil }
                 if p.resolve(ident); ident.Sym == nil {
-                        p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Name))
+                        p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Value))
                 }
                 x = ident
         case *ast.Barefile, *ast.PathExpr, *ast.SelectorExpr:
@@ -521,11 +521,6 @@ func (p *parser) parseBareword() *ast.Bareword {
         }
 }
 
-func (p *parser) parseIdent() *ast.Ident {
-        bw := p.parseBareword()
-        return &ast.Ident{ bw.ValuePos, bw.Value, nil }
-}
-
 func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
 	if p.trace {
 		defer un(trace(p, "Selector"))
@@ -545,14 +540,11 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
                 }
 
                 // convert the S operator into an Ident
-                s = &ast.Ident{ bw.ValuePos, bw.Value, nil }
+                s = &ast.Ident{ bw, nil }
         }
 
         // Convert x into an Ident or Barefile
-        if t, ok := x.(*ast.Bareword); ok {
-                x = &ast.Ident{ t.ValuePos, t.Value, nil }
-                p.tryResolve(x, true)
-        }
+        x = p.identify(x)
 
         res = &ast.SelectorExpr{ x, s }
         if p.tok == token.PERIOD {
@@ -712,9 +704,9 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
                 p.next()
 
-                var ident = &ast.Ident{ p.pos, s, nil }
+                var ident = &ast.Ident{ &ast.Bareword{ p.pos, s }, nil }
                 if p.resolve(ident); ident.Sym == nil {
-                        p.error(pos, fmt.Sprintf("undefined '%s'", ident.Name))
+                        p.error(pos, fmt.Sprintf("undefined '%s'", ident.Value))
                 }
                 return &ast.CallExpr{
                         Dollar: pos,
@@ -1405,8 +1397,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         } else {
                                 p.error(target.Pos(), fmt.Sprintf("unknown barefile name (%T)", t.Name))
                         }
-                /* case *ast.Barecomp:
-                        name, _ = p.computeCompositeEntryName(t) */
                 case *ast.PercExpr:
                         // ...
                         continue
@@ -1595,8 +1585,8 @@ func (p *parser) parseFile() *ast.File {
                 // Smart-lang spec:
                 //   * the project clause is not a declaration;
                 //   * the project name does not appear in any scope.
-                ident = p.parseIdent()
-                if ident.Name == "_" && p.mode&DeclarationErrors != 0 {
+                ident = &ast.Ident{ p.parseBareword(), nil }
+                if ident.Value == "_" && p.mode&DeclarationErrors != 0 {
                         p.error(p.pos, "invalid package name _")
                 }
                 p.expectLinend()
@@ -1646,14 +1636,14 @@ func (p *parser) parseFile() *ast.File {
 	}
 	p.closeScope(); assert(p.topScope == p.universe, "unbalanced scopes")
 
-	// resolve global identifiers within the same file
+	// resolve global iers within the same file
 	i := 0
 	for _, ident := range p.unresolved {
 		// i <= index for current ident
 		assert(ident.Sym == unresolved, "symbol already resolved")
-		ident.Sym = p.pkgScope.Lookup(ident.Name) // also removes unresolved sentinel
+		ident.Sym = p.pkgScope.Lookup(ident.Value) // also removes unresolved sentinel
 		if ident.Sym == nil {
-                        //p.error(ident.Pos(), fmt.Sprintf("%s is unresolved", ident.Name))
+                        //p.error(ident.Pos(), fmt.Sprintf("%s is unresolved", ident.Value))
 			p.unresolved[i] = ident
 			i++
 		}

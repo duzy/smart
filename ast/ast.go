@@ -120,18 +120,17 @@ type (
 		From, To token.Pos // position range of bad expression
 	}
 
-        Ident struct {
-		NamePos token.Pos // identifier position
-		Name    string    // identifier name
-		Sym     *Symbol   // denoted symbol; or nil
-        }
-
 	// A Bareword represents a word without decorations or an identifier.
 	Bareword struct {
 		ValuePos token.Pos // bareword position
 		Value    string    // bareword value
 	}
 
+        Ident struct {
+                *Bareword
+		Sym     *Symbol   // denoted symbol; or nil
+        }
+        
 	// A BasicLit node represents a literal of basic type.
 	BasicLit struct {
 		ValuePos token.Pos   // literal position
@@ -270,7 +269,7 @@ type (
 )
 
 func (d *BadExpr) Pos() token.Pos         { return d.From }
-func (d *Ident) Pos() token.Pos           { return d.NamePos }
+//func (d *Ident) Pos() token.Pos           { return d.NamePos }
 func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
@@ -293,7 +292,7 @@ func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
 func (d *ProgramExpr) Pos() token.Pos     { return d.Values[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
-func (d *Ident) End() token.Pos           { return token.Pos(int(d.NamePos) + len(d.Name)) }
+//func (d *Ident) End() token.Pos           { return token.Pos(int(d.NamePos) + len(d.Name)) }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *BasicLit) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *FlagExpr) End() token.Pos        { return d.Name.End() }
@@ -316,7 +315,7 @@ func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
 func (d *ProgramExpr) End() token.Pos     { return d.Values[len(d.Values)-1].End() }
 
 func (*BadExpr) exprNode()         {}
-func (*Ident) exprNode()           {}
+//func (*Ident) exprNode()           {}
 func (*Bareword) exprNode()        {}
 func (*BasicLit) exprNode()        {}
 func (*FlagExpr) exprNode()        {}

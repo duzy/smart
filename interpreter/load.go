@@ -451,14 +451,15 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
                 scope = i.scope
                 err error
         )
-        if _, v = scope.LookupAt(x.Pos(), x.Name); v == nil {
+        fmt.Printf("ident: %s: %T %v\n", x.Value, x.Sym.Data, x.Sym.Data)
+        if _, v = scope.LookupAt(x.Pos(), x.Value); v == nil {
                 p := i.project
                 if x.Sym != nil && x.Sym.Kind == ast.Rul {
-                        if v, err = p.Insert(x.Name, nil); err != nil {
+                        if v, err = p.Insert(x.Value, nil); err != nil {
                                 i.parseFail(x.Pos(), err.Error())
                         }
                 } else {
-                        v = scope.NewDummy(p, x.Name)
+                        v = scope.NewDummy(p, x.Value)
                 }
         }
         return
@@ -473,7 +474,7 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
         )
         switch t := x.X.(type) {
         case *ast.Ident: 
-                if name = t.Name; name == "use" {
+                if name = t.Value; name == "use" {
                         name = useScopeName // demangle use scope name
                 }
         case *ast.CallExpr:
@@ -516,8 +517,8 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
 
         switch scope = next.Scope(); s := x.S.(type) {
         case *ast.Ident:
-                if obj := scope.Lookup(s.Name); obj == nil {
-                        i.parseFail(s.Pos(), "'%s' undefined in %s (%s)", s.Name, scope, i.project.Name())
+                if obj := scope.Lookup(s.Value); obj == nil {
+                        i.parseFail(s.Pos(), "'%s' undefined in %s (%s)", s.Value, scope, i.project.Name())
                 } else {
                         v = obj
                 }
@@ -665,7 +666,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
                         var name types.Value
                         switch t := c.Name.(type) {
                         case *ast.Ident:
-                                name = values.Bareword(t.Name)
+                                name = values.Bareword(t.Value)
                         default:
                                 name = i.expr(c.Name)
                         }
@@ -962,7 +963,7 @@ func (i *Interpreter) closeScope(as *ast.Scope) (err error) {
 }
 
 func (i *Interpreter) declareProject(ident *ast.Ident) (err error) {
-        var name = ident.Name
+        var name = ident.Value
         if i.project != nil && i.project.Name() == name {
                 return nil
         }
