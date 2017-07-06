@@ -137,6 +137,7 @@ func set(p *types.Project, op token.Token, name string, value types.Value) (def 
         return
 }
 
+// TODO: move it into 'runtime' package
 type usedefiner struct {
         op token.Token
         name string
@@ -709,7 +710,6 @@ func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
 
 func (i *Interpreter) use(spec *ast.UseSpec) error {
         var (
-                scope = i.project.Scope()
                 name types.Value
                 params []types.Value
         )
@@ -728,26 +728,32 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
         }
 
         var (
+                scope = i.project.Scope()
                 project *types.Project
                 pn *types.ProjectName
-                obj types.Object
-                ok bool
         )
-        if pn, ok = name.(*types.ProjectName); ok {
-                if project = pn.Project(); project == nil {
-                        return errors.New(fmt.Sprintf("%v is nil", pn))
+        switch t := name.(type) {
+        case *types.ProjectName:
+                if project = t.Project(); project == nil {
+                        return errors.New(fmt.Sprintf("%v is nil", t))
                 } else {
-                        goto useProject
+                        pn = t; goto useProject
                 }
-        } else if obj = scope.Lookup(name.String()); obj == nil {
-                return errors.New(fmt.Sprintf("'%s' is undefined in %v", name, scope))
-        } else if pn, ok = obj.(*types.ProjectName); ok {
-                if project = pn.Project(); project == nil {
-                        return errors.New(fmt.Sprintf("project '%s' is nil", name))
+        case *types.Def:
+                if alt := scope.Insert(t); alt != nil {
+                        return errors.New(fmt.Sprintf("'%s' already defined in %s", t.Name(), scope))
+                } else {
+                        return nil // okay
                 }
-        } else {
-                return errors.New(fmt.Sprintf("'%s' is not a project (%T)", name, obj))
+        case *types.RuleEntry:
+                if alt := scope.Insert(t); alt != nil {
+                        return errors.New(fmt.Sprintf("'%s' already defined in %s", t.Name(), scope))
+                } else {
+                        return nil // okay
+                }
         }
+
+        return errors.New(fmt.Sprintf("'%s' is not a usee (%T)", name, name))
 
         useProject: if scope = i.project.Scope(); pn != nil {
                 // FIXME: defined used project in represented order
@@ -1144,11 +1150,11 @@ func (pc *parseContext) Eval(spec *ast.EvalSpec) error {
         return err
 }
         
-func (pc *parseContext) Define(clause *ast.DefineClause) (parser.RuntimeSym, error) {
+func (pc *parseContext) Define(clause *ast.DefineClause) (parser.RuntimeObj, error) {
         return pc.define(clause)
 }
 
-func (pc *parseContext) DeclareRule(clause *ast.RuleClause) (parser.RuntimeSym, error) {
+func (pc *parseContext) DeclareRule(clause *ast.RuleClause) (parser.RuntimeObj, error) {
         return nil, pc.rule(clause)
 }
 

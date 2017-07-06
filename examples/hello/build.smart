@@ -1,23 +1,25 @@
 project hello
 
 import (
-    'tools/gcc/c++'
+    'tools/gcc/c'
 )
 
-files '*.o' '*.cpp' 'hello'
-
-# TODO: ...
-#use c++.project_name
-#use c++.var_name
-#use c++.rule_name
+files '*.o' '*.c' '*.cpp' 'hello'
 
 GREETING := 'Hello World!'
 
 hello:[(compare) (stderr) (shell)]: hello.o
 	$(link) $^ -o $@
 
-hello.o:[(compare) (stderr) (shell)]: hello.cpp
+hello.o:[(compare) (stderr) (shell)]: hello.c
 	$(compile) $< -o $@
+
+hello.c:[(plain c) (update-file)]
+	#include <stdio.h>
+	int main(int argc, char** argv) {
+	    printf("$(GREETING)\\n");
+	    return 0;
+	}
 
 hello.cpp:[(plain c++) (update-file)]
 	#include <iostream>

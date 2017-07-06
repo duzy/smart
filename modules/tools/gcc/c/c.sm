@@ -10,6 +10,9 @@ archive_flags = crus
 linker = gcc
 link_flags =
 
+# TODO: traditional names
+COMPILE = todo
+
 use:
 	compile_flags += $(compile_flags)
 	compile = $(compiler) &$(compile_flags)
@@ -18,3 +21,7 @@ use:
 	link_flags += $(link_flags)
 	link = $(linker) &$(link_flags)
 	libs +=
+
+test:
+	println test
+

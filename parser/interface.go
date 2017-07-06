@@ -18,7 +18,7 @@ import (
         "github.com/duzy/smart/ast"
 )
 
-type RuntimeSym interface{
+type RuntimeObj interface{
 }
 
 type RuntimeContext interface {
@@ -38,8 +38,8 @@ type RuntimeContext interface {
         Use(spec *ast.UseSpec) error
         Eval(spec *ast.EvalSpec) error
         
-        Define(clause *ast.DefineClause) (RuntimeSym, error)
-        DeclareRule(clause *ast.RuleClause) (RuntimeSym, error)
+        Define(clause *ast.DefineClause) (RuntimeObj, error)
+        DeclareRule(clause *ast.RuleClause) (RuntimeObj, error)
         
         EvalExpr(x ast.Expr) (fmt.Stringer, error)
 }

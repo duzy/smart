@@ -136,7 +136,7 @@ type ScopeName struct {
 // containing the import statement.
 func (n *ScopeName) Scope() *Scope { return n.scope }
 func (n *ScopeName) String() string  {
-        return fmt.Sprintf("project %s %p", n.name, n.project)
+        return fmt.Sprintf("scope %s %p", n.name, n.project)
 }
 
 func (scope *Scope) NewScopeName(project *Project, name string, s *Scope) *ScopeName {
