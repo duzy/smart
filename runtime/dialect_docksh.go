@@ -79,7 +79,7 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                         stdin = stdinOpt != nil && stdinOpt.Value().String() == "on"
                 )
                 if stdin {
-                        args = []string{ "exec", "-i", dxi, "sh", "-c", src }
+                        args = []string{ "exec", "-ti", dxi, "sh", "-c", src }
                 } else {
                         args = []string{ "exec", dxi, "sh", "-c", src }
                 }
