@@ -23,8 +23,8 @@ import (
 )
 
 const (
-        useScopeName = "~use~scope~"
-        useRuleName = "~use~rule~"
+        useScopeName = "~usee~"
+        useRuleName = "~use~"
 )
 
 var parseMode = parser.DeclarationErrors //|parser.Trace
@@ -451,7 +451,7 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
                 scope = i.scope
                 err error
         )
-        fmt.Printf("ident: %s: %T %v\n", x.Value, x.Sym.Data, x.Sym.Data)
+        //fmt.Printf("ident: %s: %T %v\n", x.Value, x.Sym.Data, x.Sym.Data)
         if _, v = scope.LookupAt(x.Pos(), x.Value); v == nil {
                 p := i.project
                 if x.Sym != nil && x.Sym.Kind == ast.Rul {

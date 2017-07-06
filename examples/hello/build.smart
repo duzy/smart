@@ -7,14 +7,14 @@ import (
 files '*.o' '*.cpp' 'hello'
 
 # TODO: ...
-use c++.project_name
-use c++.var_name
-use c++.rule_name
+#use c++.project_name
+#use c++.var_name
+#use c++.rule_name
 
 GREETING := 'Hello World!'
 
 hello:[(compare) (stderr) (shell)]: hello.o
-	$(link) $^ -o $@ do exec
+	$(link) $^ -o $@
 
 hello.o:[(compare) (stderr) (shell)]: hello.cpp
 	$(compile) $< -o $@

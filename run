@@ -1,2 +1,5 @@
 #!/bin/bash
-exec -a smart go run $(dirname ${BASH_SOURCE[0]})/cmd/smart/main.go
+D=$(dirname ${BASH_SOURCE[0]})
+S=$D/cmd/smart/main.go
+#echo $GOPATH
+exec -a smart go run $S -search $D/modules "$@"
