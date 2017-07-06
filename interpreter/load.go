@@ -708,6 +708,35 @@ func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
         return nil
 }
 
+func (i *Interpreter) useProjectName(pos token.Pos, pn *types.ProjectName) error {
+        var (
+                scope = i.project.Scope()
+                project = pn.Project()
+        )
+        if project == nil {
+                return errors.New(fmt.Sprintf("%v is nil", pn))
+        }
+        
+        // FIXME: defined used project in represented order
+        if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
+                if alt := sn.Scope().Insert(pn); alt != nil {
+                        if alt.Type().Kind() == types.ProjectNameKind {
+                                i.parseInfo(pos, "'%s' already used", pn.Name())
+                        } else {
+                                return errors.New(fmt.Sprintf("'%s' already defined in %s", pn.Name(), sn.Scope()))
+                        }
+                }
+                if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
+                        if def, _ := alt.(*types.Def); def != nil {
+                                defSet(token.ADD_ASSIGN, def, pn)
+                        }
+                }
+        } else {
+                return errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
+        }
+        return i.useProject(pos, project)
+}
+
 func (i *Interpreter) use(spec *ast.UseSpec) error {
         var (
                 name types.Value
@@ -727,18 +756,10 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
                 params = append(params, i.expr(prop))
         }
 
-        var (
-                scope = i.project.Scope()
-                project *types.Project
-                pn *types.ProjectName
-        )
+        var scope = i.project.Scope()
         switch t := name.(type) {
         case *types.ProjectName:
-                if project = t.Project(); project == nil {
-                        return errors.New(fmt.Sprintf("%v is nil", t))
-                } else {
-                        pn = t; goto useProject
-                }
+                return i.useProjectName(spec.Props[0].Pos(), t)
         case *types.Def:
                 if alt := scope.Insert(t); alt != nil {
                         return errors.New(fmt.Sprintf("'%s' already defined in %s", t.Name(), scope))
@@ -754,27 +775,6 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
         }
 
         return errors.New(fmt.Sprintf("'%s' is not a usee (%T)", name, name))
-
-        useProject: if scope = i.project.Scope(); pn != nil {
-                // FIXME: defined used project in represented order
-                if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
-                        if alt := sn.Scope().Insert(pn); alt != nil {
-                                if alt.Type().Kind() == types.ProjectNameKind {
-                                        i.parseInfo(spec.Props[0].Pos(), "'%s' already used", pn.Name())
-                                } else {
-                                        return errors.New(fmt.Sprintf("'%s' already defined in %s", pn.Name(), sn.Scope()))
-                                }
-                        }
-                        if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
-                                if def, _ := alt.(*types.Def); def != nil {
-                                        defSet(token.ADD_ASSIGN, def, pn)
-                                }
-                        }
-                } else {
-                        return errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
-                }
-        }
-        return i.useProject(spec.Props[0].Pos(), project)
 }
 
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
