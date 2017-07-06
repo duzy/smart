@@ -14,14 +14,15 @@ use c++.rule_name
 GREETING := 'Hello World!'
 
 hello:[(compare) (stderr) (shell)]: hello.o
-	$(link) $^ -o $@
+	$(link) $^ -o $@ do exec
 
 hello.o:[(compare) (stderr) (shell)]: hello.cpp
 	$(compile) $< -o $@
 
-hello.cpp:[(plain) (update-file)]
+hello.cpp:[(plain c++) (update-file)]
 	#include <iostream>
 	int main(int argc, char** argv) {
 	    std::cout <<"$(GREETING)" << std::endl;
 	    return 0;
 	}
+
