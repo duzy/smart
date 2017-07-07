@@ -8,6 +8,8 @@ files '*.o' '*.c' '*.cpp' 'hello'
 
 GREETING := 'Hello World!'
 
+eval println $(@.a) $(@.b) $(@.c) $(@.d)
+
 hello:[(compare) (stderr) (shell)]: hello.o
 	$(link) $^ -o $@
 

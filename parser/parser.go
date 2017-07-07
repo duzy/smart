@@ -357,6 +357,8 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                 x = ident
         case *ast.Barefile, *ast.PathExpr, *ast.SelectorExpr:
                 // Barefile and PathExpr are a special identifier itself.
+        case *ast.Ident: 
+                // Ignore silently.
         default: 
                 p.error(t.Pos(), fmt.Sprintf("unkown identifier (%T)", t))
         }
@@ -509,10 +511,14 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 
 func (p *parser) parseBareword() *ast.Bareword {
 	pos, value := p.pos, ""
-	if p.tok == token.BAREWORD {
+        switch p.tok {
+	case token.BAREWORD:
 		value = p.lit
 		p.next()
-	} else {
+        case token.AT:
+		value = p.tok.String()
+		p.next()
+        default:
 		p.expect(token.BAREWORD) // use expect() error handling
 	}
 	return &ast.Bareword{
@@ -716,6 +722,13 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         Tok: tok,
                 }
 
+        case token.AT:
+                pos := p.pos; p.next()
+                return &ast.Ident{ &ast.Bareword{ 
+                        ValuePos: pos, 
+                        Value: "@",
+                }, nil }
+                
         case token.STAR:
                 pos, tok := p.pos, p.tok
                 p.next()

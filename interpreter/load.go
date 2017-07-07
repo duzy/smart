@@ -64,10 +64,14 @@ func saveLoadingInfo(i *Interpreter, specPath, absPath, baseName string) *Interp
 }
 
 func defSet(op token.Token, def *types.Def, value types.Value) (err error) {
-        //fmt.Printf("defSet: %v %v %v\n", def.Name(), op, value)
+        //fmt.Printf("defSet: %v %T %v %v\n", def.Name(), def.Value(), op, value)
         switch op {
         case token.QUE_ASSIGN: // ?=
-                // noop, only set if absent (not defined)
+                if def.Value() == values.None {
+                        def.Set(value)
+                } else {
+                        // noop, only set if absent (not defined)
+                }
         case token.ADD_ASSIGN: // +=
                 var (
                         l []types.Value
@@ -452,7 +456,14 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
                 scope = i.scope
                 err error
         )
+
         //fmt.Printf("ident: %s: %T %v\n", x.Value, x.Sym.Data, x.Sym.Data)
+        
+        if x.Sym.Data != nil {
+                v = x.Sym.Data.(types.Value)
+                return
+        }
+        
         if _, v = scope.LookupAt(x.Pos(), x.Value); v == nil {
                 p := i.project
                 if x.Sym != nil && x.Sym.Kind == ast.Rul {
@@ -491,8 +502,8 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
                 //i.parseInfo(t.Pos(), "selection on '%s' (%T)\n", name, t)
         }
 
-        if base = scope.Lookup(name); base == nil {
-                i.parseFail(x.X.Pos(), "selection '%s' (nil) in %s", name, first.Scope())
+        if _, base = scope.LookupAt(x.X.Pos(), name); base == nil {
+                i.parseFail(x.X.Pos(), "'%s' is nil in %s", name, scope)
         }
 
         switch t := base.(type) {
@@ -973,7 +984,7 @@ func (i *Interpreter) declareProject(ident *ast.Ident) (err error) {
         if i.project != nil && i.project.Name() == name {
                 return nil
         }
-        
+
         linfo := i.loads[len(i.loads)-1]
         dec, ok := linfo.declares[name]
         if !ok {
@@ -1122,6 +1133,12 @@ func (pc *parseContext) Files(a []string) {
 }
 
 func (pc *parseContext) DeclareProject(ident *ast.Ident) error {
+        if ident.Value == "@" {
+                at := pc.Globe().Scope().Lookup(ident.Value)
+                pc.project = at.Project()
+                pc.scope = pc.project.Scope()
+                return nil
+        }
         return pc.declareProject(ident)
 }
 

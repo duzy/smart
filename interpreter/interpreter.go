@@ -10,6 +10,7 @@ import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/parser"
         "github.com/duzy/smart/runtime"
+        "github.com/duzy/smart/values"
         "path/filepath"
         "strings"
         "errors"
@@ -124,11 +125,68 @@ func CommandLine() {
 
         flag.Parse()
 
-        i := New()
+        var (
+                base, _ = os.Getwd()
+                rel, _ = filepath.Rel(base, base)
+
+                i = New()
+                at = i.Globe().NewProject(base, rel, ".", "@")
+                as = at.Scope()
+
+                targets []string
+        )
+
+        saveLoadingInfo(i, at.Spec(), at.AbsPath(), at.Name())
+
+        linfo := i.loads[len(i.loads)-1]
+        linfo.declares[at.Name()] = &declare{ project: at }
+
+        for _, a := range flag.Args() {
+                if i := strings.Index(a, "="); 0 <= i {
+                        var (
+                                name = strings.TrimSpace(a[0:i])
+                                v = strings.TrimSpace(a[1+1:])
+                        )
+                        if name == "" {
+                                fmt.Printf("ERROR: bad argument '%v'\n", a)
+                                return
+                        }
+                        as.InsertNewDef(at, name, values.String(v))
+                } else {
+                        targets = append(targets, a)
+                }
+        }
+
+        i.Globe().Scope().InsertNewProjectName(nil, at.Name(), at)
+
+        var (
+                s1 = filepath.Join(base, "@.smart")
+                s2 = filepath.Join(base, "@")
+        )
+        if fi, err := os.Stat(s1); err == nil {
+                if m := fi.Mode(); m.IsRegular() {
+                        if err = i.Load(s1, nil); err != nil {
+                                fmt.Printf("%v\n", err)
+                                return
+                        }
+                } else {
+                        fmt.Fprintf(os.Stderr, "@.smart is not a regular")
+                }
+        } else if fi, err = os.Stat(s2); err == nil {
+                if m := fi.Mode(); m.IsDir() {
+                        if err = i.LoadDir(s2, nil); err != nil {
+                                fmt.Printf("%v\n", err)
+                                return
+                        }
+                } else {
+                        fmt.Fprintf(os.Stderr, "@ is not a directory")
+                }
+        }
+
         if err := i.Load("build.smart", nil); err != nil {
                 fmt.Printf("%v\n", err)
                 return
-        } else if err = i.Run(flag.Args()...); err != nil {
+        } else if err = i.Run(targets...); err != nil {
                 fmt.Printf("%v\n", err)
                 return
         }
