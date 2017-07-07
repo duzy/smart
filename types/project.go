@@ -83,13 +83,13 @@ func (m *Project) IsFile(s string) (v bool) {
         return
 }
 
-func (m *Project) EntryClass(name string) (kind RuleEntryClass) {
+/* func (m *Project) EntryClass(name string) (kind RuleEntryClass) {
         if kind = GeneralRuleEntry; m.IsFile(name) {
                 kind = FileRuleEntry
         }
         //fmt.Printf(": %v %v %v\n", name, kind, m.files)
         return
-}
+} */
 
 func (m *Project) AddPercentPattern(p *PercentPattern, prog Program) {
         p.parent = m.scope
@@ -117,9 +117,9 @@ func (m *Project) FindPercentPattern(s string) (res *PercentPattern) {
         return
 }
 
-func (m *Project) Insert(name string, prog Program) (entry *RuleEntry, err error) {
+func (m *Project) Insert(name string, prog Program, class RuleEntryClass) (entry *RuleEntry, err error) {
         var alt Object
-        if entry, alt = m.scope.InsertNewRuleEntry(m, m.EntryClass(name), name); alt != nil {
+        if entry, alt = m.scope.InsertNewRuleEntry(m, class, name); alt != nil {
                 if entry, _ = alt.(*RuleEntry); entry == nil {
                         err = errors.New(fmt.Sprintf("name '%v' already taken (%T)\n", name, alt))
                 }

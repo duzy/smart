@@ -54,8 +54,8 @@ func restoreLoadingInfo(i *Interpreter) {
 
 func saveLoadingInfo(i *Interpreter, specPath, absPath, baseName string) *Interpreter {
         i.loads = append(i.loads, &loadinfo{
-                specPath: specPath,
-                absPath:  absPath,
+                specPath: filepath.Clean(specPath),
+                absPath:  filepath.Clean(absPath),
                 loader:   i.project,
                 scope:    i.scope, //Scope(),
                 declares: make(map[string]*declare),
@@ -467,7 +467,11 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         if _, v = scope.LookupAt(x.Pos(), x.Value); v == nil {
                 p := i.project
                 if x.Sym != nil && x.Sym.Kind == ast.Rul {
-                        if v, err = p.Insert(x.Value, nil); err != nil {
+                        class := types.GeneralRuleEntry
+                        if p.IsFile(x.Value) {
+                                class = types.FileRuleEntry
+                        }
+                        if v, err = p.Insert(x.Value, nil, class); err != nil {
                                 i.parseFail(x.Pos(), err.Error())
                         }
                 } else {
@@ -899,14 +903,18 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 case *types.PercentPattern:
                         i.project.AddPercentPattern(entry, prog)
                 default:
+                        class := types.GeneralRuleEntry
                         if name = target.String(); name == "use" {
                                 if n == 0 && len(d.Targets) == 1 {
+                                        class = types.UseRuleEntry
                                         name = useRuleName
                                 } else {
                                         i.parseFail(d.Targets[n].Pos(), "'use' rule mixed with other targets")
                                 }
+                        } else if i.project.IsFile(name) {
+                                class = types.FileRuleEntry
                         }
-                        i.project.Insert(name, prog)
+                        i.project.Insert(name, prog, class)
                 }
         }
         return

@@ -161,6 +161,7 @@ func CommandLine() {
         var (
                 s1 = filepath.Join(base, "@.smart")
                 s2 = filepath.Join(base, "@")
+                s3 = filepath.Join(base, "build.smart")
         )
         if fi, err := os.Stat(s1); err == nil {
                 if m := fi.Mode(); m.IsRegular() {
@@ -184,10 +185,19 @@ func CommandLine() {
 
         restoreLoadingInfo(i)
 
-        if err := i.Load("build.smart", nil); err != nil {
-                fmt.Printf("%v\n", err)
-                return
-        } else if err = i.Run(targets...); err != nil {
+        if fi, err := os.Stat(s3); err == nil && fi.Mode().IsRegular() {
+                if err = i.Load(s3, nil); err != nil {
+                        fmt.Printf("%v\n", err)
+                        return
+                }
+        } else {
+                if err = i.LoadDir(base, nil); err != nil {
+                        fmt.Printf("%v\n", err)
+                        return
+                }
+        }
+
+        if err := i.Run(targets...); err != nil {
                 fmt.Printf("%v\n", err)
                 return
         }

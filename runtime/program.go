@@ -149,7 +149,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         dent = d.Entry(entry.Stem())
                                         name = dent.String()
                                 )
-                                switch prog.project.EntryClass(name) {
+                                /* switch prog.project.EntryClass(name) {
                                 case types.GeneralRuleEntry:
                                         //fmt.Printf("%v: %v -> %v (general)\n", entry, depend, dent)
                                         depend = dent; goto dependSwitch
@@ -158,6 +158,13 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         depend, file = dent, name; goto handleFileEntry
                                 default:
                                         Fail("unknown dependency (%v)", dent)
+                                } */
+                                if prog.project.IsFile(name) {
+                                        //fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
+                                        depend, file = dent, name; goto handleFileEntry
+                                } else {
+                                        //fmt.Printf("%v: %v -> %v (general)\n", entry, depend, dent)
+                                        depend = dent; goto dependSwitch
                                 }
                         } else {
                                 Fail("empty stem (%s, dependency %v)", entry, d)
@@ -205,13 +212,13 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.depends)
         var (
                 p = prog.project
-                workdir = p.AbsPath()
+                workdir = filepath.Clean(p.AbsPath())
                 wd, _ = os.Getwd()
-                //top = prog.context.Getwd()
-                printChangeDirectory = entry.Name() != "~use~rule~"
+                //wd = prog.context.Getwd()
+                printChangeDirectory = entry.Class() != types.UseRuleEntry
         )
-        //fmt.Printf("%s: %s, %s; %s\n", p.Name(), p.RelPath(), p.AbsPath(), wd)
-        if workdir != wd {
+        //fmt.Printf("%s: %s(%s), %s, %s; %s\n", p.Name(), entry.Class(), entry.Name(), p.RelPath(), p.AbsPath(), wd)
+        if workdir != filepath.Clean(wd) {
                 if printChangeDirectory {
                         fmt.Printf("smart: Entering directory '%s'\n", workdir)
                 }

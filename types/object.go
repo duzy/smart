@@ -236,6 +236,7 @@ const (
         FileRuleEntry
         PatternRuleEntry
         PatternFileRuleEntry
+        UseRuleEntry
 )
 
 var ruleEntryClassNames = []string{
@@ -243,6 +244,7 @@ var ruleEntryClassNames = []string{
         FileRuleEntry:        "FileRuleEntry",
         PatternRuleEntry:     "PatternRuleEntry",
         PatternFileRuleEntry: "PatternFileRuleEntry",
+        UseRuleEntry:         "UseRuleEntry",
 }
 
 func (c RuleEntryClass) String() string {
