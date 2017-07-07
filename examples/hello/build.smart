@@ -1,19 +1,22 @@
 project hello
 
 import (
-    'tools/gcc/c'
+    'tools/gcc/c++'
 )
 
 files '*.o' '*.c' '*.cpp' 'hello'
 
 GREETING := 'Hello World!'
 
-eval println $(@.a) $(@.b) $(@.c) $(@.d)
+#eval println $(@.a) $(@.b) $(@.c) $(@.d)
+
+run:[(stderr) (stdout) (shell)]: hello
+	./hello
 
 hello:[(compare) (stderr) (shell)]: hello.o
 	$(link) $^ -o $@
 
-hello.o:[(compare) (stderr) (shell)]: hello.c
+hello.o:[(compare) (stderr) (shell)]: hello.cpp
 	$(compile) $< -o $@
 
 hello.c:[(plain c) (update-file)]

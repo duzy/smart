@@ -137,7 +137,7 @@ func (g *Globe) NewProject(absPath, relPath, spec, name string) (m *Project) {
                 name: name,
                 scope: scope,
         }
-        if g.main == nil {
+        if name != "@" && g.main == nil {
                 g.main = m
         }
         return

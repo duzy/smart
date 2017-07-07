@@ -137,7 +137,6 @@ func CommandLine() {
         )
 
         saveLoadingInfo(i, at.Spec(), at.AbsPath(), at.Name())
-
         linfo := i.loads[len(i.loads)-1]
         linfo.declares[at.Name()] = &declare{ project: at }
 
@@ -182,6 +181,8 @@ func CommandLine() {
                         fmt.Fprintf(os.Stderr, "@ is not a directory")
                 }
         }
+
+        restoreLoadingInfo(i)
 
         if err := i.Load("build.smart", nil); err != nil {
                 fmt.Printf("%v\n", err)
