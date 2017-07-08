@@ -85,8 +85,12 @@ func (ctx *Context) Run(targets... string) (err error) {
                 mm = ctx.Globe().Main()
         )
 
+        if mm == nil {
+                Fail("no targets to update")
+        }
+
         //fmt.Printf("run: %v\n", targets)
-        
+
         if len(targets) == 0 {
                 ctx.outdated = make(map[string]time.Time)
                 if entry := mm.GetDefaultEntry(); entry != nil {

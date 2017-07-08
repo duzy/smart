@@ -136,6 +136,8 @@ func CommandLine() {
                 targets []string
         )
 
+        fmt.Printf("%v\n", base)
+        
         saveLoadingInfo(i, at.Spec(), at.AbsPath(), at.Name())
         linfo := i.loads[len(i.loads)-1]
         linfo.declares[at.Name()] = &declare{ project: at }
