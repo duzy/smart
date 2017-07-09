@@ -959,7 +959,9 @@ func isValidImport(lit string) bool {
 func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
 	spec := &ast.ImportSpec{ p.parseDirectiveSpec() }
         if err := p.runtime.Import(spec); err != nil {
-                p.error(spec.Pos(), fmt.Sprintf("%v", err))
+                //p.error(spec.Pos(), fmt.Sprintf("%v", err))
+                fmt.Printf("%v\n", err)
+                p.error(spec.Pos(), "import failed")
         } else {
                 p.imports = append(p.imports, spec)
         }
