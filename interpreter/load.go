@@ -402,13 +402,11 @@ importProject:
                         scope := i.project.Scope()
                         pn, _ := scope.Lookup(loaded.Name()).(*types.ProjectName)
                         if pn == nil {
-                                //return errors.New(fmt.Sprintf("no project name for '%s'", loaded.Name()))
                                 return errors.New(fmt.Sprintf("'%s' not found (%s)", specPath, loaded.Name()))
                         }
                         if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
                                 if alt := sn.Scope().Insert(pn); alt != nil {
-                                        //return errors.New(fmt.Sprintf("'%s' already defined in use scope", pn.Name()))
-                                        return errors.New(fmt.Sprintf("'%s' already defined (%s)", specPath, pn.Name()))
+                                        return errors.New(fmt.Sprintf("'%s' already defined in %v", specPath, sn.Scope()))
                                 }
                                 if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
                                         if def, _ := alt.(*types.Def); def != nil {
