@@ -241,6 +241,7 @@ type (
 	//
 	KeyValueExpr struct {
 		Key   Expr
+                Tok   token.Token
 		Equal token.Pos // position of "="
 		Value Expr
 	}
@@ -525,7 +526,7 @@ type File struct {
 	Imports    []*ImportSpec   // imports in this file
 	Unresolved []*Ident        // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
-        Files      []string
+        Files      map[string][]string
         Extensions map[string][]string
 }
 

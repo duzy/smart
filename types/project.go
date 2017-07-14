@@ -11,6 +11,7 @@ import (
         "strings"
         "errors"
         "fmt"
+        "os"
 )
 
 type Program interface {
@@ -27,7 +28,7 @@ type Project struct {
         uses      []*Use
 
         exts      map[string][]string
-        files     []string
+        files     map[string][]string
 
         // Rule Registry
         dedicated []*RuleEntry
@@ -50,14 +51,48 @@ func (m *Project) AddExts(exts map[string][]string) {
         }
 }
 
-func (m *Project) AddFiles(a []string) {
-outter:
-        for _, s := range a {
-                for _, f := range m.files {
-                        if s == f { continue outter }
-                }
-                m.files = append(m.files, s)
+func (m *Project) AddFiles(files map[string][]string) {
+        if m.files == nil {
+                m.files = make(map[string][]string)
         }
+        for k, a := range files {
+                m.files[k] = append(m.files[k], a...)
+        }
+}
+
+func (m *Project) SearchFile(s string) (full string) {
+        if len(s) > 0 {
+                /*
+                if m.exts != nil {
+                        if ext := filepath.Ext(s); ext != "" {
+                                if _, v = m.exts[ext[1:]]; v {
+                                        return
+                                }
+                        }
+                } */
+                var ss = filepath.Base(s)
+                for pat, paths := range m.files {
+                        matched := false
+                        if strings.ContainsAny(pat, "*?[") {
+                                matched, _ = filepath.Match(pat, ss)
+                        } else { 
+                                matched = s == pat
+                        }
+                        fmt.Printf("search: %v (%v)\n", s, pat)
+                        if matched {
+                                if filepath.IsAbs(s) {
+                                        full = s; return
+                                }
+                                for _, p := range paths {
+                                        p = filepath.Join(p, s)
+                                        if fi, err := os.Stat(p); err == nil && fi != nil {
+                                                full = p; return
+                                        }
+                                }
+                        }
+                }
+        }
+        return
 }
 
 func (m *Project) IsFile(s string) (v bool) {
@@ -70,26 +105,17 @@ func (m *Project) IsFile(s string) (v bool) {
                         }
                 }
                 var ss = filepath.Base(s)
-                for _, pat := range m.files {
+                for pat, _ := range m.files {
                         if strings.ContainsAny(pat, "*?[") {
                                 v, _ = filepath.Match(pat, ss)
-                                //fmt.Printf("IsFile: %v, %v, %v\n", s, pat, v)
                         } else { 
                                 v = s == pat
                         }
-                        if v { break }
+                        if v { return }
                 }
         }
         return
 }
-
-/* func (m *Project) EntryClass(name string) (kind RuleEntryClass) {
-        if kind = GeneralRuleEntry; m.IsFile(name) {
-                kind = FileRuleEntry
-        }
-        //fmt.Printf(": %v %v %v\n", name, kind, m.files)
-        return
-} */
 
 func (m *Project) AddPercentPattern(p *PercentPattern, prog Program) {
         p.parent = m.scope

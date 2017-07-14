@@ -1136,8 +1136,8 @@ func (pc *parseContext) Extensions(exts map[string][]string) {
         pc.project.AddExts(exts)
 }
 
-func (pc *parseContext) Files(a []string) {
-        pc.project.AddFiles(a)
+func (pc *parseContext) Files(m map[string][]string) {
+        pc.project.AddFiles(m)
 }
 
 func (pc *parseContext) DeclareProject(ident *ast.Ident) error {
@@ -1158,19 +1158,19 @@ func (pc *parseContext) CloseScope(as *ast.Scope) error {
         return pc.closeScope(as)
 }
 
-func (pc *parseContext) Import(spec *ast.ImportSpec) error {
+func (pc *parseContext) ClauseImport(spec *ast.ImportSpec) error {
         return pc.loadImportSpec(spec)
 }
 
-func (pc *parseContext) Include(spec *ast.IncludeSpec) error {
+func (pc *parseContext) ClauseInclude(spec *ast.IncludeSpec) error {
         return pc.include(spec)
 }
 
-func (pc *parseContext) Use(spec *ast.UseSpec) error {
+func (pc *parseContext) ClauseUse(spec *ast.UseSpec) error {
         return pc.use(spec)
 }
 
-func (pc *parseContext) Eval(spec *ast.EvalSpec) error {
+func (pc *parseContext) ClauseEval(spec *ast.EvalSpec) error {
         _, err := pc.eval(spec)
         return err
 }
@@ -1183,14 +1183,12 @@ func (pc *parseContext) DeclareRule(clause *ast.RuleClause) (parser.RuntimeObj, 
         return nil, pc.rule(clause)
 }
 
-func (pc *parseContext) EvalExpr(x ast.Expr) (s fmt.Stringer, err error) {
+func (pc *parseContext) Eval(x ast.Expr) (res types.Value, err error) {
 	defer func() {
 		if e := recover(); e != nil {
                         err = errors.New(fmt.Sprintf("%v", e))
 		}
         }()
-
-        s = pc.expr(x)
-        //fmt.Printf("EvalExpr: %T '%s'\n", x, s)
+        res = pc.expr(x)
         return
 }

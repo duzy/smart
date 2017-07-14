@@ -259,18 +259,26 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                         case *types.GroupValue:
                                 switch d.Get(0).(*types.BarewordValue) {
                                 case targetRegularKind, targetDirectoryKind:
-                                        files.Append(d.Get(1))
+                                        full := prog.project.SearchFile(d.Get(1).String())
+                                        files.Append(values.String(full))
+                                        fmt.Printf("file:1: %v\n", full)
                                 case targetShellKind:
                                         if n := d.Get(1).Integer(); n != 0 {
                                                 shellFalses += 1
                                         }
                                 }
                         case *types.BarefileValue:
-                                files.Append(d)
+                                full := prog.project.SearchFile(d.String())
+                                files.Append(values.String(full))
+                                fmt.Printf("file:2: %v\n", full)
                         case *types.RuleEntry:
+                                full := prog.project.SearchFile(d.String())
+                                fmt.Printf("file: %v (%v)\n", d, full)
                                 switch d.Class() {
                                 case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                        files.Append(d)
+                                        full := prog.project.SearchFile(d.String())
+                                        files.Append(values.String(full))
+                                        fmt.Printf("file:3: %v\n", full)
                                 case types.GeneralRuleEntry, types.PatternRuleEntry:
                                         nonfiles.Append(d)
                                 default:
@@ -278,7 +286,9 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                 }
                         case *types.StringValue:
                                 if prog.project.IsFile(d.String()) {
-                                        files.Append(d)
+                                        full := prog.project.SearchFile(d.String())
+                                        files.Append(values.String(full))
+                                        fmt.Printf("file:4: %v\n", full)
                                 } else {
                                         nonfiles.Append(d)
                                 }
@@ -293,7 +303,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                 missing, target), false }
                         goto DoneWhen
                 }
-                
+
                 if files.Len() > 0 {
                         prog.auto("<", files.Get(0))
                         prog.auto("^", files)

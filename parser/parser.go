@@ -9,6 +9,8 @@ import (
         "github.com/duzy/smart/ast"
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/scanner"
+        "github.com/duzy/smart/types"
+        //"github.com/duzy/smart/values"
         "path/filepath"
         "strconv"
         "unicode"
@@ -59,7 +61,7 @@ type parser struct {
 
         // Per file known extensions being used for parsing entry names.
         extensions map[string][]string // extension -> classes
-        files map[string]token.Pos // a?c.go, a*c.go or files
+        files map[string][]string // a?c.go, a*c.go or file names -> location
 }
 
 func (p *parser) init(ctx *Context, fset *token.FileSet, filename string, src []byte, mode Mode) {
@@ -844,11 +846,12 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
 func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         //fmt.Printf("composing:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
-        if p.tok == token.ASSIGN && !lhs {
-                pos := p.pos
+        if (p.tok == token.ARROW || p.tok == token.ASSIGN) && !lhs {
+                pos, tok := p.pos, p.tok
                 p.next()
                 x = &ast.KeyValueExpr{
                         Key:   x,
+                        Tok:   tok,
                         Equal: pos,
                         Value: p.parseExpr0(false),
                 }
@@ -958,7 +961,7 @@ func isValidImport(lit string) bool {
 
 func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
 	spec := &ast.ImportSpec{ p.parseDirectiveSpec() }
-        if err := p.runtime.Import(spec); err != nil {
+        if err := p.runtime.ClauseImport(spec); err != nil {
                 pos := spec.Pos()
                 if false {
                         //fmt.Printf("%v: %v\n", p.file.Position(pos), err)
@@ -975,7 +978,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.IncludeSpec{ p.parseDirectiveSpec() }
-        if err := p.runtime.Include(spec); err != nil {
+        if err := p.runtime.ClauseInclude(spec); err != nil {
                 p.error(spec.Pos(), fmt.Sprintf("%v", err))
         }
         return spec
@@ -983,7 +986,7 @@ func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) a
 
 func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.UseSpec{ p.parseDirectiveSpec() }
-        if err := p.runtime.Use(spec); err != nil {
+        if err := p.runtime.ClauseUse(spec); err != nil {
                 p.error(spec.Pos(), fmt.Sprintf("%v", err))
         }
         return spec
@@ -1064,33 +1067,44 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
 }
 
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        var files []string
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
         for _, prop := range spec.Props {
                 switch t := prop.(type) {
                 case *ast.Bareword:
-                        p.files[t.Value] = t.Pos()
-                        files = append(files, t.Value)
+                        p.files[t.Value] = append(p.files[t.Value], ".")
                 case *ast.BasicLit:
                         if t.Kind == token.STRING {
-                                p.files[t.Value] = t.Pos()
-                                files = append(files, t.Value)
+                                p.files[t.Value] = append(p.files[t.Value], ".")
                         } else {
                                 p.error(t.Pos(), fmt.Sprintf("invalid file '%s'", t.Value))
+                        }
+                case *ast.KeyValueExpr:
+                        var (
+                                k, _ = p.runtime.Eval(t.Key)
+                                v, _ = p.runtime.Eval(t.Value)
+                                s = k.String()
+                        )
+                        switch vv := v.(type) {
+                        case *types.GroupValue:
+                                for _, elem := range vv.Elems {
+                                        p.files[s] = append(p.files[s], elem.String())
+                                }
+                        default:
+                                p.files[s] = append(p.files[s], vv.String())
                         }
                 default:
                         p.error(t.Pos(), fmt.Sprintf("bad file name (%T)", t))
                         continue
                 }
         }
-        p.runtime.Files(files)
+        p.runtime.Files(p.files)
         return spec
 }
 
 func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.EvalSpec{ p.parseDirectiveSpec() }
         spec.Props[0] = p.identify(spec.Props[0])
-        if err := p.runtime.Eval(spec); err != nil {
+        if err := p.runtime.ClauseEval(spec); err != nil {
                 p.error(spec.Pos(), fmt.Sprintf("%v", err))
         }
         return spec
@@ -1329,7 +1343,7 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
                                 name, pos = n.Value, n.Pos()
                                 goto checkName
                         case *ast.CallExpr, *ast.Barecomp, *ast.BasicLit:
-                                v, e := p.runtime.EvalExpr(n)
+                                v, e := p.runtime.Eval(n)
                                 if e != nil {
                                         p.error(n.Pos(), fmt.Sprintf("%v (%v)", e, n))
                                         goto next
@@ -1623,7 +1637,7 @@ func (p *parser) parseFile() *ast.File {
         p.openScope(fmt.Sprintf(`file "%s"`, p.file.Name()))
 	p.pkgScope = p.topScope
         p.extensions = make(map[string][]string, 2 /* initial capacity */)
-        p.files = make(map[string]token.Pos, 2)
+        p.files = make(map[string][]string, 2)
         for _, s := range []string{ "/", ".", ".." } {
                 sym := ast.NewSym(ast.Def, s)
                 if alt := p.topScope.Insert(sym); alt != nil {
@@ -1669,9 +1683,11 @@ func (p *parser) parseFile() *ast.File {
 		}
 	}
 
-        var files []string
-        for s, _ := range p.files {
-                files = append(files, s)
+        var files = make(map[string][]string, len(p.files))
+        for k, a := range p.files {
+                for _, s := range a {
+                        files[k] = append(files[k], s)
+                }
         }
         
 	return &ast.File{

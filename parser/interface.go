@@ -16,9 +16,10 @@ import (
         "fmt"
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/ast"
+        "github.com/duzy/smart/types"
 )
 
-type RuntimeObj interface{
+type RuntimeObj interface {
 }
 
 type RuntimeContext interface {
@@ -26,22 +27,22 @@ type RuntimeContext interface {
         IsModifier(s string) bool
 
         Extensions(exts map[string][]string)
-        Files(a []string)
+        Files(m map[string][]string)
 
         DeclareProject(ident *ast.Ident) error
 
         OpenScope(as *ast.Scope, pos token.Pos, comment string) error
         CloseScope(as *ast.Scope) error
 
-        Import(spec *ast.ImportSpec) error
-        Include(spec *ast.IncludeSpec) error
-        Use(spec *ast.UseSpec) error
-        Eval(spec *ast.EvalSpec) error
+        ClauseImport(spec *ast.ImportSpec) error
+        ClauseInclude(spec *ast.IncludeSpec) error
+        ClauseUse(spec *ast.UseSpec) error
+        ClauseEval(spec *ast.EvalSpec) error
         
         Define(clause *ast.DefineClause) (RuntimeObj, error)
         DeclareRule(clause *ast.RuleClause) (RuntimeObj, error)
         
-        EvalExpr(x ast.Expr) (fmt.Stringer, error)
+        Eval(x ast.Expr) (types.Value, error)
 }
 
 type Context struct {

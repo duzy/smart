@@ -933,7 +933,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 }
                         }
                 case '=':
-                        tok = token.ASSIGN
+                        if s.ch == '>' {
+                                tok = token.ARROW
+                                s.next() // concume the '>'
+                        } else {
+                                tok = token.ASSIGN
+                        }
                 case '\n':
                         /* if s.parenDepth == 0 {
                                 tok = token.LINEND

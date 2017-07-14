@@ -196,7 +196,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 depend, isFileEntry = entry, true
                                 goto dependSwitch
                         }
-                        
+
                         if _, err := os.Stat(file); err == nil {
                                 depends.Append(depend)
                         } else {

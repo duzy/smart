@@ -83,6 +83,8 @@ const (
         EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
         SCO_ASSIGN //  :=       simply expanded
         DCO_ASSIGN // ::=       simply expanded (POSIX standard)
+        
+        ARROW // arrow =>
 
 	PLUS  // unary +
 	MINUS // unary -
@@ -168,6 +170,8 @@ var tokens = [...]string{
         EXC_ASSIGN: "!=",
         SCO_ASSIGN: ":=",
         DCO_ASSIGN: "::=",
+
+        ARROW:      "=>",
 
         PLUS:  "+",
         MINUS: "-",
