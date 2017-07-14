@@ -43,8 +43,9 @@ var builtins = map[string]BuiltinFunc {
         `decode-csv` */
         
         `base`:    builtinBase,
-        `dirdir`:  builtinDirDir,
         `dir`:     builtinDir,
+        `dirdir`:  builtinDirDir,
+        `ndir`:    builtinNDir,
 
         `read-file`: builtinReadFile,
 }
@@ -230,6 +231,30 @@ func builtinDir(args... Value) (Value, error) {
         )
         for _, a := range args {
                 s = filepath.Dir(a.String())
+                l = append(l, &StringValue{s})
+        }
+        if len(l) == 1 {
+                return l[0], nil
+        } else {
+                return &ListValue{Elements{l}}, nil
+        }
+}
+
+func builtinNDir(args... Value) (Value, error) {
+        var (
+                l []Value
+                s string
+                n = 0
+        )
+        if len(args) > 0 {
+                n = int(args[0].Integer())
+                args = args[1:]
+        }
+        for _, a := range args {
+                s = filepath.Dir(a.String())
+                for i := n-1; 0 < i; i -= 1 {
+                        s = filepath.Dir(s)
+                }
                 l = append(l, &StringValue{s})
         }
         if len(l) == 1 {

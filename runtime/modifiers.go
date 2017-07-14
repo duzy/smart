@@ -53,6 +53,10 @@ var (
                 `docksh`: &dialectDocksh{
                 },
 
+                /* TODO: (dock sh)
+                `dock`: &dialectDock{
+                }, */
+
                 `xml`: &dialectXml{
                         whitespace: false,
                 },

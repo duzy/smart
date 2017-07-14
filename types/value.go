@@ -128,6 +128,15 @@ func (p *BarewordValue) Float() float64 { return float64(p.Integer()) }
 type Elements struct {
         Elems []Value
 }
+func (p *Elements) Float() float64 { return float64(p.Integer()) }
+func (p *Elements) Integer() int64 {
+        var n = len(p.Elems)
+        if n == 1 {
+                // If there's only one element, treat it as a scalar.
+                return p.Elems[0].Integer()
+        }
+        return int64(n)
+}
 func (p *Elements) Len() int                    { return len(p.Elems) }
 func (p *Elements) Append(v... Value)           { p.Elems = append(p.Elems, v...) }
 func (p *Elements) Get(n int) (v Value)         { if n>=0 && n<len(p.Elems) { v = p.Elems[n] }; return }
@@ -276,8 +285,6 @@ func (p *ListValue) String() (s string) {
         }
         return
 }
-func (p *ListValue) Integer() int64     { return int64(len(p.Elems)) }
-func (p *ListValue) Float() float64     { return float64(p.Integer()) }
 func (p *ListValue) Type() Type         { return List }
 
 type GroupValue struct {
@@ -289,8 +296,6 @@ func (p *GroupValue) Lit() string {
 func (p *GroupValue) String() string {
         return "(" + p.ListValue.String() + ")"
 }
-func (p *GroupValue) Integer() int64    { return int64(len(p.ListValue.Elems)) }
-func (p *GroupValue) Float() float64    { return float64(p.Integer()) }
 func (p *GroupValue) Type() Type        { return Group }
 
 type MapValue struct {
