@@ -95,6 +95,8 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         )
                         if res, err = d.Call(); err == nil {
                                 //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
+                                dd, _ := p.scope.Lookup("@").(*types.Def)
+                                dt, _ := dd.Call()
                                 if isFileEntry {
                                         /* if fromOther {
                                                 var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
@@ -102,8 +104,6 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         } else {
                                                 depends.Append(values.Group(targetRegularKind, d))
                                         } */
-                                        dd, _ := p.scope.Lookup("@").(*types.Def)
-                                        dt, _ := dd.Call()
                                         //fmt.Printf("Program.prepare: %T %v\n", dt, dt)
                                         depends.Append(values.Group(targetRegularKind, dt))
                                 } else {
@@ -115,7 +115,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                                 } else {
                                                         depends.Append(values.Group(targetRegularKind, d))
                                                 } */
-                                                Fail("todo: solve file rule '%v'", entry)
+                                                Fail("%v: todo: solve file rule '%v' (%T %v)", entry, d, dt, dt)
                                         default:
                                                 if res != nil && res != values.None {
                                                         depends.Append(res)
