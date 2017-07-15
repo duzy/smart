@@ -26,7 +26,6 @@ type RuntimeContext interface {
         IsDialect(s string) bool
         IsModifier(s string) bool
 
-        Extensions(exts map[string][]string)
         Files(m map[string][]string)
 
         DeclareProject(ident *ast.Ident) error

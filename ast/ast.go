@@ -390,11 +390,6 @@ type (
                 DirectiveSpec
         }
 
-        // A ExtensionsSpec node represents a set of known extensions.
-        ExtensionsSpec struct {
-                DirectiveSpec
-        }
-
         FilesSpec struct {
                 DirectiveSpec
         }
@@ -438,7 +433,6 @@ type (
 	//	token.IMPORT     *ImportSpec
 	//	token.INCLUDE    *IncludeSpec
 	//	token.INSTANCE   *InstanceSpec
-	//	token.EXTENSIONS *ExtensionsSpec
 	//	token.FILES      *FilesSpec
 	//	token.EVAL       *EvalSpec
 	//	token.USE        *UseSpec
@@ -527,7 +521,6 @@ type File struct {
 	Unresolved []*Ident        // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
         Files      map[string][]string
-        Extensions map[string][]string
 }
 
 // A Project node represents a set of source files

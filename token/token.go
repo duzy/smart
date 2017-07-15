@@ -101,7 +101,6 @@ const (
         INCLUDE    // include a.smart
         IMPORT     // import a.smart
         INSTANCE   // instance
-        EXTENSIONS // extensions
         FILES      // files
 	keyword_end
 )
@@ -186,7 +185,6 @@ var tokens = [...]string{
         INCLUDE:    "include",
         IMPORT:     "import",
         INSTANCE:   "instance",
-        EXTENSIONS: "extensions",
         FILES:      "files",
 }
 

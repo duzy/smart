@@ -149,16 +149,6 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         dent = d.Entry(entry.Stem())
                                         name = dent.String()
                                 )
-                                /* switch prog.project.EntryClass(name) {
-                                case types.GeneralRuleEntry:
-                                        //fmt.Printf("%v: %v -> %v (general)\n", entry, depend, dent)
-                                        depend = dent; goto dependSwitch
-                                case types.FileRuleEntry:
-                                        //fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
-                                        depend, file = dent, name; goto handleFileEntry
-                                default:
-                                        Fail("unknown dependency (%v)", dent)
-                                } */
                                 if prog.project.IsFile(name) {
                                         //fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
                                         depend, file = dent, name; goto handleFileEntry
@@ -182,7 +172,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         }
                 }
                 
-                continue // done with RuleEntry
+                continue // done with non-file RuleEntry
                 
                 handleFileEntry: if file != "" {
                         //fmt.Printf("convert: %T %v\n", depend, depend)
@@ -197,10 +187,11 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 goto dependSwitch
                         }
 
-                        if _, err := os.Stat(file); err == nil {
-                                depends.Append(depend)
+                        fv := prog.project.SearchFile(values.File(depend, file))
+                        if fv.Info != nil {
+                                depends.Append(fv)
                         } else {
-                                Fail("no rule to make file '%v'", depend)
+                                Fail("no rule to make file '%v'", fv)
                         }
                 }
         }
@@ -213,8 +204,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         var (
                 p = prog.project
                 workdir = filepath.Clean(p.AbsPath())
-                wd, _ = os.Getwd()
-                //wd = prog.context.Getwd()
+                wd, _ = os.Getwd() //prog.context.Getwd()
                 printChangeDirectory = entry.Class() != types.UseRuleEntry
         )
         //fmt.Printf("%s: %s(%s), %s, %s; %s\n", p.Name(), entry.Class(), entry.Name(), p.RelPath(), p.AbsPath(), wd)

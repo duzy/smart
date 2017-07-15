@@ -7,6 +7,7 @@ package types
 
 import (
         "github.com/duzy/smart/token"
+        "path/filepath"
         "time"
         "net/url"
         "strconv"
@@ -222,6 +223,18 @@ func (p *PathValue) String() (s string) {
 func (p *PathValue) Integer() int64     { return 0 }
 func (p *PathValue) Float() float64     { return float64(p.Integer()) }
 func (p *PathValue) Type() Type         { return Path }
+
+type FileValue struct {
+        Value Value  // original represented name (e.g. Barefile)
+        Name string  // represented name (e.g. relative filename)
+        Dir string   // directory in which the file should be or was found
+        Info os.FileInfo // file info if exists
+}
+func (p *FileValue) Type() Type { return File }
+func (p *FileValue) Lit() (s string) { return p.Value.Lit() }
+func (p *FileValue) String() string { return filepath.Join(p.Dir, p.Name) }
+func (p *FileValue) Integer() int64 { return 0 }
+func (p *FileValue) Float() float64 { return float64(p.Integer()) }
 
 type FlagValue struct {
         Name Value

@@ -10,7 +10,7 @@ import (
         //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        "path/filepath"
+        //"path/filepath"
         "hash/crc64"
         "strings"
         //"errors"
@@ -259,41 +259,35 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                         case *types.GroupValue:
                                 switch d.Get(0).(*types.BarewordValue) {
                                 case targetRegularKind, targetDirectoryKind:
-                                        full := prog.project.SearchFile(d.Get(1).String())
-                                        files.Append(values.String(full))
-                                        fmt.Printf("file:1: %v\n", full)
+                                        //files.Append(d.Get(1))
+                                        Fail("unsupported depend %v (%T)", depend, depend)
                                 case targetShellKind:
                                         if n := d.Get(1).Integer(); n != 0 {
                                                 shellFalses += 1
                                         }
                                 }
                         case *types.BarefileValue:
-                                full := prog.project.SearchFile(d.String())
-                                files.Append(values.String(full))
-                                fmt.Printf("file:2: %v\n", full)
+                                files.Append(d)
                         case *types.RuleEntry:
-                                full := prog.project.SearchFile(d.String())
-                                fmt.Printf("file: %v (%v)\n", d, full)
                                 switch d.Class() {
                                 case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                        full := prog.project.SearchFile(d.String())
-                                        files.Append(values.String(full))
-                                        fmt.Printf("file:3: %v\n", full)
+                                        //files.Append(d)
+                                        Fail("unsupported depend %v (%T)", depend, depend)
                                 case types.GeneralRuleEntry, types.PatternRuleEntry:
                                         nonfiles.Append(d)
                                 default:
-                                        Fail("unsupported depend %v (%T)", depend, depend)
+                                        Fail("unsupported depend rule %v (%T)", depend, depend)
                                 }
                         case *types.StringValue:
                                 if prog.project.IsFile(d.String()) {
-                                        full := prog.project.SearchFile(d.String())
-                                        files.Append(values.String(full))
-                                        fmt.Printf("file:4: %v\n", full)
+                                        //files.Append(d)
+                                        Fail("unsupported depend %v (%T)", depend, depend)
                                 } else {
                                         nonfiles.Append(d)
                                 }
+                        case *types.FileValue:
+                                files.Append(d)
                         default:
-                                //fmt.Printf("modifierCompare: todo: %T %v (from %s)\n", depend, depend, target)
                                 Fail("unsupported depend %v (%T)", depend, depend)
                         }
                 }
@@ -318,6 +312,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
         if fi, _ := os.Stat(target); fi != nil {
                 for _, depend := range files.Slice(0) {
                         //fmt.Printf("%v: %v (%v)\n", target, depend, prog.context.outdated)
+                        /*
                         var strDepend string
                         switch d := depend.(type) {
                         case *types.RuleEntry:
@@ -337,21 +332,26 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                 goto DoneWhen // target is outdated
                         }
 
-                        fi2, e := os.Stat(strDepend)
+                        full := prog.project.SearchFile(strDepend)
+                        fi2, e := os.Stat(full)
                         if fi2 == nil || e != nil { // no such file or directory
                                 err = &breaker{ fmt.Sprintf("no file or directory '%v'", strDepend),
                                         false }
                                 goto DoneWhen
-                        }
-                        
+                        } */
+
+                        fmt.Printf("%v: %v (%T)\n", target, depend, depend)
+
+                        /*
                         if t := fi2.ModTime(); t.After(fi.ModTime()) {
                                 prog.context.outdated[target] = t
                                 goto DoneWhen // target is outdated
-                        }
+                        } */
                 }
                 err = &breaker{ fmt.Sprintf("%s already up to date", target), true }
         } else {
                 for _, depend := range files.Slice(0) {
+                        /*
                         var strDepend string
                         switch d := depend.(type) {
                         case *types.RuleEntry:
@@ -368,13 +368,15 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                         }
 
                         //fmt.Printf("%T %v (%v)\n", depend, depend, strDepend)
-                        
-                        fi, e := os.Stat(strDepend)
+
+                        full := prog.project.SearchFile(strDepend)
+                        fi, e := os.Stat(full)
                         if fi == nil || e != nil { // no such file or directory
                                 err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend), 
                                         false }
                                 goto DoneWhen
-                        }
+                        } */
+                        fmt.Printf("%v: %v (%T)\n", target, depend, depend)
                 }
                 goto DoneWhen // target shall be updated
         }

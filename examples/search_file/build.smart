@@ -1,0 +1,21 @@
+project hello
+
+import (
+    'tools/gcc/c++'
+)
+
+files (
+    '*.cpp' => "$./src"
+    '*.o' => "$./obj"
+    'hello'
+)
+
+run:[(stderr) (stdout) (shell)]: hello
+	./hello
+
+hello:[(compare) (stderr) (shell)]: hello.o
+	$(link) $^ -o $@
+
+hello.o:[(compare) (stderr) (shell)]: hello.cpp
+	$(compile) $< -o $@
+

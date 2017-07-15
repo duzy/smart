@@ -60,7 +60,6 @@ type parser struct {
 	imports    []*ast.ImportSpec // list of imports
 
         // Per file known extensions being used for parsing entry names.
-        extensions map[string][]string // extension -> classes
         files map[string][]string // a?c.go, a*c.go or file names -> location
 }
 
@@ -438,7 +437,7 @@ func sync(p *parser, tok token.Token) {
 func syncClause(p *parser) {
 	for {
 		switch p.tok {
-		case token.IMPORT, token.INCLUDE, token.EXTENSIONS, token.FILES, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
+		case token.IMPORT, token.INCLUDE, token.FILES, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
 			if p.pos == p.syncPos && p.syncCnt < 10 {
 				p.syncCnt++
 				return
@@ -537,11 +536,6 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
         s := p.checkExpr(p.parseExpr(lhs))
 
         if bw, ok := s.(*ast.Bareword); ok {
-                if _, ok := p.extensions[bw.Value]; ok {
-                        res = &ast.Barefile{ x, bw.Pos(), bw.Value }
-                        return
-                }
-
                 if t, ok := x.(*ast.Bareword); ok && p.isFileName(t.Value+"."+bw.Value) {
                         res = &ast.Barefile{ x, bw.Pos(), bw.Value }
                         return
@@ -823,7 +817,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 }
 
         case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, 
-             token.IMPORT, token.INSTANCE, token.EXTENSIONS, token.FILES:
+             token.IMPORT, token.INSTANCE, token.FILES:
                 if p.inRhs {
                         pos, lit := p.pos, p.lit
                         p.next()
@@ -997,7 +991,7 @@ func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) 
         return &ast.InstanceSpec{ p.parseDirectiveSpec() }
 }
 
-func (p *parser) parseExtensions(value ast.Expr) (exts []string) {
+/* func (p *parser) parseExtensions(value ast.Expr) (exts []string) {
         switch t := value.(type) {
         case *ast.Bareword: 
                 exts = append(exts, t.Value)
@@ -1064,7 +1058,7 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
         }
         p.runtime.Extensions(extensions)
         return spec
-}
+} */
 
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
@@ -1545,8 +1539,6 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseIncludeSpec)
 	case token.INSTANCE:
                 return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseInstanceSpec)
-        case token.EXTENSIONS:
-                return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseExtensionsSpec)
         case token.FILES:
                 return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseFilesSpec)
         case token.EVAL:
@@ -1636,7 +1628,6 @@ func (p *parser) parseFile() *ast.File {
 
         p.openScope(fmt.Sprintf(`file "%s"`, p.file.Name()))
 	p.pkgScope = p.topScope
-        p.extensions = make(map[string][]string, 2 /* initial capacity */)
         p.files = make(map[string][]string, 2)
         for _, s := range []string{ "/", ".", ".." } {
                 sym := ast.NewSym(ast.Def, s)
@@ -1700,7 +1691,6 @@ func (p *parser) parseFile() *ast.File {
 		Imports:    p.imports,
                 Unresolved: p.unresolved[0:i],
 		Comments:   p.comments,
-                Extensions: p.extensions,
                 Files:      files,
 	}
 }

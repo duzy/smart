@@ -963,7 +963,6 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
 
         p := i.project
         p.AddFiles(doc.Files)
-        p.AddExts(doc.Extensions)
         return i.lexing(doc.Scope)
 }
 
@@ -1130,10 +1129,6 @@ func (i *Interpreter) Load(filename string, source interface{}) error {
 
 func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
         return i.loadDir(path, path, filter)
-}
-
-func (pc *parseContext) Extensions(exts map[string][]string) {
-        pc.project.AddExts(exts)
 }
 
 func (pc *parseContext) Files(m map[string][]string) {

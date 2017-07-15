@@ -27,7 +27,6 @@ type Project struct {
         scope     *Scope
         uses      []*Use
 
-        exts      map[string][]string
         files     map[string][]string
 
         // Rule Registry
@@ -42,15 +41,6 @@ func (m *Project) Name() string { return m.name }
 func (m *Project) Scope() *Scope { return m.scope }
 func (m *Project) Uses() []*Use { return m.uses }
 
-func (m *Project) AddExts(exts map[string][]string) {
-        if m.exts == nil {
-                m.exts = make(map[string][]string)
-        }
-        for k, a := range exts {
-                m.exts[k] = append(m.exts[k], a...)
-        }
-}
-
 func (m *Project) AddFiles(files map[string][]string) {
         if m.files == nil {
                 m.files = make(map[string][]string)
@@ -60,50 +50,37 @@ func (m *Project) AddFiles(files map[string][]string) {
         }
 }
 
-func (m *Project) SearchFile(s string) (full string) {
-        if len(s) > 0 {
-                /*
-                if m.exts != nil {
-                        if ext := filepath.Ext(s); ext != "" {
-                                if _, v = m.exts[ext[1:]]; v {
-                                        return
-                                }
-                        }
-                } */
-                var ss = filepath.Base(s)
-                for pat, paths := range m.files {
-                        matched := false
-                        if strings.ContainsAny(pat, "*?[") {
-                                matched, _ = filepath.Match(pat, ss)
-                        } else { 
-                                matched = s == pat
-                        }
-                        fmt.Printf("search: %v (%v)\n", s, pat)
-                        if matched {
-                                if filepath.IsAbs(s) {
-                                        full = s; return
-                                }
-                                for _, p := range paths {
-                                        p = filepath.Join(p, s)
-                                        if fi, err := os.Stat(p); err == nil && fi != nil {
-                                                full = p; return
-                                        }
-                                }
+func (m *Project) SearchFile(fv *FileValue) *FileValue {
+        var ss = filepath.Base(fv.Name)
+        files_loop: for pat, paths := range m.files {
+                matched := false
+                if strings.ContainsAny(pat, "*?[") {
+                        matched, _ = filepath.Match(pat, ss)
+                } else { 
+                        matched = fv.Name == pat
+                }
+
+                if !matched { continue }
+                
+                if filepath.IsAbs(fv.Name) {
+                        fi, _ := os.Stat(fv.Name)
+                        fv.Info, fv.Dir = fi, ""
+                        break files_loop
+                }
+                
+                for _, p := range paths {
+                        full := filepath.Join(p, fv.Name)
+                        if fi, _ := os.Stat(full); fi != nil {
+                                fv.Info, fv.Dir = fi, p
+                                break files_loop
                         }
                 }
         }
-        return
+        return fv
 }
 
 func (m *Project) IsFile(s string) (v bool) {
         if len(s) > 0 {
-                if m.exts != nil {
-                        if ext := filepath.Ext(s); ext != "" {
-                                if _, v = m.exts[ext[1:]]; v {
-                                        return
-                                }
-                        }
-                }
                 var ss = filepath.Base(s)
                 for pat, _ := range m.files {
                         if strings.ContainsAny(pat, "*?[") {

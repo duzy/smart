@@ -42,6 +42,7 @@ const (
         BarewordKind
         BarefileKind
         PathKind
+        FileKind
         FlagKind
         
         // composite types
@@ -80,6 +81,7 @@ var (
                 BarewordKind:   "Bareword",
                 BarefileKind:   "Barefile",
                 PathKind:       "Path",
+                FileKind:       "File",
                 FlagKind:       "Flag",
                 CompoundKind:   "Compound",
                 ListKind:       "List",
@@ -122,6 +124,7 @@ const (
         IsBareword
         IsBarefile
         IsPath
+        IsFile
         IsFlag
 	IsNone
 
@@ -190,6 +193,7 @@ func (t *Basic) IsUri() bool      { return t.info&IsUri != 0 }
 func (t *Basic) IsBareword() bool { return t.info&IsBareword != 0 }
 func (t *Basic) IsBarefile() bool { return t.info&IsBarefile != 0 }
 func (t *Basic) IsPath() bool     { return t.info&IsPath != 0 }
+func (t *Basic) IsFile() bool     { return t.info&IsFile != 0 }
 func (t *Basic) IsFlag() bool     { return t.info&IsFlag != 0 }
 func (t *Basic) IsNone() bool     { return t.info&IsNone != 0 }
 

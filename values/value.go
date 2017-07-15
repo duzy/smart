@@ -104,6 +104,10 @@ func Path(segments... types.Value) (v *types.PathValue) {
         return &types.PathValue{segments}
 }
 
+func File(v types.Value, s string) (fv *types.FileValue) {
+        return &types.FileValue{ Value:v, Name:s }
+}
+
 func Flag(name types.Value) (v *types.FlagValue) {
         return &types.FlagValue{name}
 }
