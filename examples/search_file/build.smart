@@ -19,3 +19,6 @@ hello:[(compare) (stderr) (shell)]: hello.o
 hello.o:[(compare) (stderr) (shell)]: hello.cpp
 	$(compile) $< -o $@
 
+# TODO: using 'files' scheme
+clean:[shell]:
+	rm -f obj/*.o hello

@@ -346,6 +346,9 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                         //fmt.Printf("modifierCompare: (nil) %v -> %v (%T)\n", target, depend, depend)
                         if dependFile, okay := depend.(*types.FileValue); okay {
                                 if dependFile.Info == nil {
+                                        dependFile.Info, _ = os.Stat(dependFile.String())
+                                }
+                                if dependFile.Info == nil {
                                         err = &breaker{ fmt.Sprintf("no file or directory '%v'", dependFile),
                                                 false }
                                         goto DoneWhen
