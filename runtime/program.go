@@ -81,7 +81,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
         // TODO: using rules in a different project as prerequisites, e.g.
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
-        dependLoop: for _, depend := range prog.depends {
+        dependsLoop: for _, depend := range prog.depends {
                 //fmt.Printf("Program.prepare: %T %v (%p)\n", depend, depend, depend)
                 var (
                         isFileEntry = false
@@ -91,41 +91,31 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 case *types.RuleEntry:
                         var (
                                 p, _ = d.Program().(*Program)
-                                fromOther = p != nil && p.project != prog.project
+                                //fromOther = p != nil && p.project != prog.project
                         )
                         if res, err = d.Call(); err == nil {
-                                //fmt.Printf("Program.prepare: %T %v (isFileEntry:%v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
+                                //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
                                 if isFileEntry {
-                                        if fromOther {
+                                        /* if fromOther {
                                                 var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
                                                 depends.Append(values.Group(targetRegularKind, s))
                                         } else {
                                                 depends.Append(values.Group(targetRegularKind, d))
-                                        }
-                                /*} else if res == values.None {
-                                        //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, d, d.Kind())
+                                        } */
+                                        dd, _ := p.scope.Lookup("@").(*types.Def)
+                                        dt, _ := dd.Call()
+                                        //fmt.Printf("Program.prepare: %T %v\n", dt, dt)
+                                        depends.Append(values.Group(targetRegularKind, dt))
+                                } else {
                                         switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                if fromOther {
+                                                /* if fromOther {
                                                         var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
                                                         depends.Append(values.Group(targetRegularKind, s))
                                                 } else {
                                                         depends.Append(values.Group(targetRegularKind, d))
-                                                }
-                                        }
-                                } else if res != nil {
-                                        depends.Append(res)
-                                } else {
-                                        depends.Append(d)*/
-                                } else {
-                                        switch d.Class() {
-                                        case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                if fromOther {
-                                                        var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
-                                                        depends.Append(values.Group(targetRegularKind, s))
-                                                } else {
-                                                        depends.Append(values.Group(targetRegularKind, d))
-                                                }
+                                                } */
+                                                Fail("todo: solve file rule '%v'", entry)
                                         default:
                                                 if res != nil && res != values.None {
                                                         depends.Append(res)
@@ -137,7 +127,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         } else {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
                                 //Fail("failed to update '%v' (%v)", entry, err)
-                                break dependLoop
+                                break dependsLoop
                         }
                 case *types.BarefileValue:
                         file = d.String(); goto handleFileEntry
@@ -230,10 +220,14 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 return
         }
 
-        var (
-                _   = prog.auto("@", entry)
-                out = prog.auto("-", values.None)
-        )
+        if s := entry.Name(); prog.project.IsFile(s) {
+                file := prog.project.SearchFile(values.File(entry, s))
+                prog.auto("@", file)
+        } else {
+                prog.auto("@", entry)
+        }
+
+        var out = prog.auto("-", values.None)
         defer func() { result, _ = out.Call() }()
         
         // TODO: define modifiers in a project, e.g.

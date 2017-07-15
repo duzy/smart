@@ -240,8 +240,8 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 dependDef, _  = scope.Lookup("...").(*types.Def)
                 dependsVal, _ = dependDef.Call()
                 depends, _    = dependsVal.(*types.ListValue)
-                targetVal, _  = targetDef.Call()
-                target        = targetVal.String()
+                target, _     = targetDef.Call()
+                targetFile, _ = target.(*types.FileValue)
                 missing       = values.List()
                 files         = values.List()
                 nonfiles      = values.List()
@@ -249,7 +249,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
         )
         if depends != nil || depends.Len() > 0 {
                 for _, depend := range depends.Slice(0) {
-                        //fmt.Printf("modifierCompare: %T %v (from %s)\n", depend, depend, target)
+                        //fmt.Printf("modifierCompare: %T %v (from %T %v)\n", depend, depend, target, target)
                 retryDepend:
                         switch d := depend.(type) {
                         case *types.ListValue:
@@ -259,36 +259,40 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                         case *types.GroupValue:
                                 switch d.Get(0).(*types.BarewordValue) {
                                 case targetRegularKind, targetDirectoryKind:
-                                        //files.Append(d.Get(1))
-                                        Fail("unsupported depend %v (%T)", depend, depend)
+                                        if f, _ := d.Get(1).(*types.FileValue); f != nil {
+                                                files.Append(f)
+                                        } else {
+                                                Fail("%v: unknown depend %v (%T, %T)", target, depend, depend, d.Get(1))
+                                        }
                                 case targetShellKind:
                                         if n := d.Get(1).Integer(); n != 0 {
                                                 shellFalses += 1
                                         }
                                 }
                         case *types.BarefileValue:
-                                files.Append(d)
+                                //files.Append(d)
+                                Fail("%v: unknown depend %v (%T)", target, d, d)
                         case *types.RuleEntry:
                                 switch d.Class() {
                                 case types.FileRuleEntry, types.PatternFileRuleEntry:
                                         //files.Append(d)
-                                        Fail("unsupported depend %v (%T)", depend, depend)
+                                        Fail("%v: unknown depend %v (%T)", target, depend, depend)
                                 case types.GeneralRuleEntry, types.PatternRuleEntry:
                                         nonfiles.Append(d)
                                 default:
-                                        Fail("unsupported depend rule %v (%T)", depend, depend)
+                                        Fail("%v: unknown depend rule %v (%T)", target, depend, depend)
                                 }
                         case *types.StringValue:
                                 if prog.project.IsFile(d.String()) {
                                         //files.Append(d)
-                                        Fail("unsupported depend %v (%T)", depend, depend)
+                                        Fail("%v: unknown depend %v (%T)", target, depend, depend)
                                 } else {
                                         nonfiles.Append(d)
                                 }
                         case *types.FileValue:
                                 files.Append(d)
                         default:
-                                Fail("unsupported depend %v (%T)", depend, depend)
+                                Fail("%v: unknown depend %v (%T)", target, depend, depend)
                         }
                 }
 
@@ -309,74 +313,46 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 goto DoneWhen // target shall be updated
         }
 
-        if fi, _ := os.Stat(target); fi != nil {
+        if targetFile == nil {
+                err = &breaker{ fmt.Sprintf("expects file target %v", target), false }
+                goto DoneWhen
+        }
+
+        if fi := targetFile.Info; fi != nil {
                 for _, depend := range files.Slice(0) {
-                        //fmt.Printf("%v: %v (%v)\n", target, depend, prog.context.outdated)
-                        /*
-                        var strDepend string
-                        switch d := depend.(type) {
-                        case *types.RuleEntry:
-                                // using absolute path if it's in a different project
-                                if p, _ := d.Program().(*Program); p != nil && p.project != prog.project {
-                                        switch d.Class() {
-                                        case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                strDepend = filepath.Join(p.project.AbsPath(), depend.String())
-                                        }
+                        //fmt.Printf("modifierCompare: %v -> %v (%v)\n", target, depend, prog.context.outdated)
+                        //fmt.Printf("modifierCompare: %v: %v (%T)\n", target, depend, depend)
+                        if dependFile, okay := depend.(*types.FileValue); okay {
+                                if t, ok := prog.context.outdated[dependFile.String()]; ok && t.After(fi.ModTime()) {
+                                        goto DoneWhen // target is outdated
                                 }
+                                if dependFile.Info == nil {
+                                        err = &breaker{ fmt.Sprintf("no file or directory '%v'", dependFile),
+                                                false }
+                                        goto DoneWhen
+                                }
+                                if t := dependFile.Info.ModTime(); t.After(fi.ModTime()) {
+                                        prog.context.outdated[target.String()] = t
+                                        goto DoneWhen // target is outdated
+                                }
+                        } else {
+                                fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", target, depend, depend)
                         }
-                        if strDepend == "" {
-                                strDepend = depend.String()
-                        }
-                        
-                        if t, ok := prog.context.outdated[strDepend]; ok && t.After(fi.ModTime()) {
-                                goto DoneWhen // target is outdated
-                        }
-
-                        full := prog.project.SearchFile(strDepend)
-                        fi2, e := os.Stat(full)
-                        if fi2 == nil || e != nil { // no such file or directory
-                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", strDepend),
-                                        false }
-                                goto DoneWhen
-                        } */
-
-                        fmt.Printf("%v: %v (%T)\n", target, depend, depend)
-
-                        /*
-                        if t := fi2.ModTime(); t.After(fi.ModTime()) {
-                                prog.context.outdated[target] = t
-                                goto DoneWhen // target is outdated
-                        } */
                 }
                 err = &breaker{ fmt.Sprintf("%s already up to date", target), true }
         } else {
                 for _, depend := range files.Slice(0) {
-                        /*
-                        var strDepend string
-                        switch d := depend.(type) {
-                        case *types.RuleEntry:
-                                // using absolute path if it's in a different project
-                                if p, _ := d.Program().(*Program); p != nil && p.project != prog.project {
-                                        switch d.Class() {
-                                        case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                strDepend = filepath.Join(p.project.AbsPath(), depend.String())
-                                        }
+                        //fmt.Printf("modifierCompare: (nil) %v -> %v (%v)\n", target, depend, prog.context.outdated)
+                        //fmt.Printf("modifierCompare: (nil) %v -> %v (%T)\n", target, depend, depend)
+                        if dependFile, okay := depend.(*types.FileValue); okay {
+                                if dependFile.Info == nil {
+                                        err = &breaker{ fmt.Sprintf("no file or directory '%v'", dependFile),
+                                                false }
+                                        goto DoneWhen
                                 }
+                        } else {
+                                fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", target, depend, depend)
                         }
-                        if strDepend == "" {
-                                strDepend = depend.String()
-                        }
-
-                        //fmt.Printf("%T %v (%v)\n", depend, depend, strDepend)
-
-                        full := prog.project.SearchFile(strDepend)
-                        fi, e := os.Stat(full)
-                        if fi == nil || e != nil { // no such file or directory
-                                err = &breaker{ fmt.Sprintf("no file or directory '%v'", depend), 
-                                        false }
-                                goto DoneWhen
-                        } */
-                        fmt.Printf("%v: %v (%T)\n", target, depend, depend)
                 }
                 goto DoneWhen // target shall be updated
         }

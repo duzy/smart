@@ -51,7 +51,10 @@ func (m *Project) AddFiles(files map[string][]string) {
 }
 
 func (m *Project) SearchFile(fv *FileValue) *FileValue {
-        var ss = filepath.Base(fv.Name)
+        var (
+                ss = filepath.Base(fv.Name)
+                firstMatched []string
+        )
         files_loop: for pat, paths := range m.files {
                 matched := false
                 if strings.ContainsAny(pat, "*?[") {
@@ -61,20 +64,26 @@ func (m *Project) SearchFile(fv *FileValue) *FileValue {
                 }
 
                 if !matched { continue }
+                if firstMatched == nil {
+                        firstMatched = paths
+                }
                 
                 if filepath.IsAbs(fv.Name) {
                         fi, _ := os.Stat(fv.Name)
                         fv.Info, fv.Dir = fi, ""
                         break files_loop
                 }
-                
+
                 for _, p := range paths {
                         full := filepath.Join(p, fv.Name)
-                        if fi, _ := os.Stat(full); fi != nil {
+                        if fi, er := os.Stat(full); fi != nil && er == nil {
                                 fv.Info, fv.Dir = fi, p
                                 break files_loop
                         }
                 }
+        }
+        if fv.Info == nil && len(firstMatched) > 0 {
+                fv.Dir = firstMatched[0]
         }
         return fv
 }
