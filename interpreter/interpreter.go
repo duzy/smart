@@ -144,7 +144,7 @@ func CommandLine() {
                 if i := strings.Index(a, "="); 0 <= i {
                         var (
                                 name = strings.TrimSpace(a[0:i])
-                                v = strings.TrimSpace(a[1+1:])
+                                v = strings.TrimSpace(a[i+1:])
                         )
                         if name == "" {
                                 fmt.Printf("ERROR: bad argument '%v'\n", a)
