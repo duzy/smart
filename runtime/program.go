@@ -115,7 +115,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                                 } else {
                                                         depends.Append(values.Group(targetRegularKind, d))
                                                 } */
-                                                Fail("%v: todo: solve file rule '%v' (%T %v)", entry, d, dt, dt)
+                                                depends.Append(values.Group(targetRegularKind, dt))
                                         default:
                                                 if res != nil && res != values.None {
                                                         depends.Append(res)
