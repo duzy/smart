@@ -98,23 +98,10 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 dd, _ := p.scope.Lookup("@").(*types.Def)
                                 dt, _ := dd.Call()
                                 if isFileEntry {
-                                        /* if fromOther {
-                                                var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
-                                                depends.Append(values.Group(targetRegularKind, s))
-                                        } else {
-                                                depends.Append(values.Group(targetRegularKind, d))
-                                        } */
-                                        //fmt.Printf("Program.prepare: %T %v\n", dt, dt)
                                         depends.Append(values.Group(targetRegularKind, dt))
                                 } else {
                                         switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                /* if fromOther {
-                                                        var s = values.String(filepath.Join(p.project.AbsPath(), d.String()))
-                                                        depends.Append(values.Group(targetRegularKind, s))
-                                                } else {
-                                                        depends.Append(values.Group(targetRegularKind, d))
-                                                } */
                                                 depends.Append(values.Group(targetRegularKind, dt))
                                         default:
                                                 if res != nil && res != values.None {
