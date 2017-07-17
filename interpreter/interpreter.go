@@ -156,6 +156,8 @@ func CommandLine() {
                 }
         }
 
+        as.InsertNewDef(at, "/", values.String(at.AbsPath()))
+        
         i.Globe().Scope().InsertNewProjectName(nil, at.Name(), at)
 
         var (
@@ -190,11 +192,9 @@ func CommandLine() {
                         fmt.Printf("%v\n", err)
                         return
                 }
-        } else {
-                if err = i.LoadDir(base, nil); err != nil {
-                        fmt.Printf("%v\n", err)
-                        return
-                }
+        } else if err = i.LoadDir(base, nil); err != nil {
+                fmt.Printf("%v\n", err)
+                return
         }
 
         if err := i.Run(targets...); err != nil {
