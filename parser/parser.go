@@ -1425,6 +1425,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         } else {
                                 p.error(target.Pos(), fmt.Sprintf("unknown barefile name (%T)", t.Name))
                         }
+                case *ast.PathExpr:
+                        // ...
+                        continue
                 case *ast.PercExpr:
                         // ...
                         continue
