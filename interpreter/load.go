@@ -25,6 +25,7 @@ import (
 const (
         useScopeName = "~usee~"
         useRuleName = "~use~"
+        ignoreRuleName = "ignore"
 )
 
 var parseMode = parser.DeclarationErrors //|parser.Trace
@@ -563,7 +564,7 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
                                 for _, elem := range elems {
                                         if pn, _ := elem.(*types.ProjectName); pn != nil {
                                                 if entry := pn.Project().GetDefaultEntry(); entry != nil {
-                                                        if entry.Name() != useRuleName {
+                                                        if s := entry.Name(); s != useRuleName && s != ignoreRuleName {
                                                                 //i.parseInfo(s.Pos(), "%v %v", pn.Name(), entry)
                                                                 list.Append(entry)
                                                         }
@@ -576,7 +577,7 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
                                 for _, name := range scope.Names() {
                                         if pn, _ := scope.Lookup(name).(*types.ProjectName); pn != nil {
                                                 if entry := pn.Project().GetDefaultEntry(); entry != nil {
-                                                        if entry.Name() != useRuleName {
+                                                        if s := entry.Name(); s != useRuleName && s != ignoreRuleName {
                                                                 list.Append(entry)
                                                         }
                                                 }

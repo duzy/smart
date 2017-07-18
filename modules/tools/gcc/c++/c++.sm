@@ -32,6 +32,8 @@ LDLIBS =
 
 #OUTPUT_OPTION = -o $@
 
+ignore:
+
 use:
 	compile_flags += $(compile_flags)
 	compile = $(compiler) &$(compile_flags)
