@@ -875,7 +875,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         case *ast.BasicLit: // TODO: validate t.Kind...
                         default:
                                 //fmt.Printf("%T %v (%v)\n", x, x, p.tok)
-                                p.errorExpected(x.Pos(), "path segment")
+                                p.errorExpected(x.Pos(), fmt.Sprintf("path segment (%T)", x))
                                 return false
                         }
                         return true

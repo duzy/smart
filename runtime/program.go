@@ -43,7 +43,13 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) interpret(i interpreter, out *types.Def, args... types.Value) (err error) {
+func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... types.Value) (err error) {
+        if pcd {
+                workdir := filepath.Clean(prog.project.AbsPath())
+                fmt.Printf("smart: Entering directory '%s'\n", workdir)
+                defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
+        }
+        
         var value types.Value
         value, err = i.evaluate(prog, args, prog.recipes)
         if err == nil && value != nil {
@@ -52,7 +58,7 @@ func (prog *Program) interpret(i interpreter, out *types.Def, args... types.Valu
         return
 }
 
-func (prog *Program) modify(g *types.GroupValue, out *types.Def) (err error) {
+func (prog *Program) modify(pcd bool, g *types.GroupValue, out *types.Def) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -63,7 +69,7 @@ func (prog *Program) modify(g *types.GroupValue, out *types.Def) (err error) {
                         out.Set(value)
                 }
         } else if i, _ := interpreters[name]; i != nil {
-                err = prog.interpret(i, out, g.Slice(1)...)
+                err = prog.interpret(pcd, i, out, g.Slice(1)...)
         } else {
                 err = errors.New(fmt.Sprintf("no modifier or dialect '%s'", name))
         }
@@ -182,31 +188,37 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 p = prog.project
                 workdir = filepath.Clean(p.AbsPath())
                 wd, _ = os.Getwd() //prog.context.Getwd()
-                printChangeDirectory = entry.Class() != types.UseRuleEntry
+                // print-change-directory
+                pcd = entry.Class() != types.UseRuleEntry
         )
         //fmt.Printf("%s: %s(%s), %s, %s; %s\n", p.Name(), entry.Class(), entry.Name(), p.RelPath(), p.AbsPath(), wd)
         if workdir != filepath.Clean(wd) {
-                if printChangeDirectory {
+                /* if pcd {
                         fmt.Printf("smart: Entering directory '%s'\n", workdir)
-                }
+                } */
                 if err = os.Chdir(workdir); err == nil {
-                        defer func() {
-                                if printChangeDirectory {
-                                        fmt.Printf("smart: Leaving directory '%s'\n", workdir)
-                                }
-                                os.Chdir(wd)
-                        }()
+                        /* if pcd {
+                                defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
+                        } */
+                        defer os.Chdir(wd)
                 } else {
                         Fail("%v", err)
                 }
+        }  else {
+                //pcd = false
         }
-        
+
         // Calculate and prepare depends and files.
         if err = prog.prepare(entry); err != nil {
                 //Fail("failed to update '%v' (%v)", entry, err)
                 return
         }
 
+        /* if pcd {
+                fmt.Printf("smart: Entering directory '%s'\n", workdir)
+                defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
+        } */
+        
         if s := entry.Name(); prog.project.IsFile(s) {
                 file := prog.project.SearchFile(values.File(entry, s))
                 prog.auto("@", file)
@@ -228,7 +240,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 if i, _ := interpreters[``]; i == nil {
                         err = errors.New("no default dialect")
                         return
-                } else if err = prog.interpret(i, out, args...); err != nil {
+                } else if err = prog.interpret(pcd, i, out, args...); err != nil {
                         // ...
                 }
                 return
@@ -238,7 +250,7 @@ pipelineLoop:
         for _, v := range prog.pipline {
                 switch op := v.(type) {
                 case *types.GroupValue:
-                        if err = prog.modify(op, out); err != nil {
+                        if err = prog.modify(pcd, op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
                                                 err = nil
@@ -252,7 +264,7 @@ pipelineLoop:
                         if i, _ := interpreters[op.String()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
-                        } else if err = prog.interpret(i, out, args...); err != nil {
+                        } else if err = prog.interpret(pcd, i, out, args...); err != nil {
                                 //fmt.Printf("interpret: %v\n", err)
                                 break pipelineLoop
                         }
