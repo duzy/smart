@@ -619,7 +619,9 @@ func (i *Interpreter) call(x *ast.CallExpr) (v types.Value) {
 }
 
 func (i *Interpreter) recipe(x *ast.RecipeExpr) (v types.Value) {
-        if x.Dialect == "" {
+        if len(x.Elems) == 0 {
+                v = values.None
+        } else if x.Dialect == "" {
                 var elems []types.Value
                 switch t := x.Elems[0].(type) {
                 default: runtime.Fail("unimplemented recipe (%T)", t)

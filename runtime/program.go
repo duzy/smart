@@ -44,11 +44,11 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
 }
 
 func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... types.Value) (err error) {
-        if pcd {
+        /* if pcd {
                 workdir := filepath.Clean(prog.project.AbsPath())
                 fmt.Printf("smart: Entering directory '%s'\n", workdir)
                 defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
-        }
+        } */
         
         var value types.Value
         value, err = i.evaluate(prog, args, prog.recipes)
@@ -193,13 +193,13 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         )
         //fmt.Printf("%s: %s(%s), %s, %s; %s\n", p.Name(), entry.Class(), entry.Name(), p.RelPath(), p.AbsPath(), wd)
         if workdir != filepath.Clean(wd) {
-                /* if pcd {
+                if pcd {
                         fmt.Printf("smart: Entering directory '%s'\n", workdir)
-                } */
+                }
                 if err = os.Chdir(workdir); err == nil {
-                        /* if pcd {
+                        if pcd {
                                 defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
-                        } */
+                        }
                         defer os.Chdir(wd)
                 } else {
                         Fail("%v", err)

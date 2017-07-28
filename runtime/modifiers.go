@@ -53,9 +53,8 @@ var (
                 `docksh`: &dialectDocksh{
                 },
 
-                /* TODO: (dock sh)
                 `dock`: &dialectDock{
-                }, */
+                },
 
                 `xml`: &dialectXml{
                         whitespace: false,
@@ -314,7 +313,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
         }
 
         if targetFile == nil {
-                err = &breaker{ fmt.Sprintf("expects file target %v", target), false }
+                err = &breaker{ fmt.Sprintf("compare: expects file target in (%v)", target), false }
                 goto DoneWhen
         }
 

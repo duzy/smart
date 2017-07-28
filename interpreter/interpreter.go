@@ -160,33 +160,46 @@ func CommandLine() {
         
         i.Globe().Scope().InsertNewProjectName(nil, at.Name(), at)
 
-        var (
-                s1 = filepath.Join(base, "@.smart")
-                s2 = filepath.Join(base, "@")
-                s3 = filepath.Join(base, "build.smart")
-        )
-        if fi, err := os.Stat(s1); err == nil {
-                if m := fi.Mode(); m.IsRegular() {
-                        if err = i.Load(s1, nil); err != nil {
-                                fmt.Printf("%v\n", err)
-                                return
+        var ab = base
+        AtLookupLoop: for {
+                var (
+                        s1 = filepath.Join(ab, "@.smart")
+                        s2 = filepath.Join(ab, "@")
+                )
+                if fi, err := os.Stat(s1); err == nil {
+                        if m := fi.Mode(); m.IsRegular() {
+                                if err = i.Load(s1, nil); err != nil {
+                                        fmt.Printf("%v\n", err)
+                                        return
+                                } else {
+                                        break AtLookupLoop
+                                }
+                        } else {
+                                fmt.Fprintf(os.Stderr, "@.smart is not a regular")
                         }
-                } else {
-                        fmt.Fprintf(os.Stderr, "@.smart is not a regular")
+                } else if fi, err = os.Stat(s2); err == nil {
+                        if m := fi.Mode(); m.IsDir() {
+                                if err = i.LoadDir(s2, nil); err != nil {
+                                        fmt.Printf("%v\n", err)
+                                        return
+                                } else {
+                                        break AtLookupLoop
+                                }
+                        } else {
+                                fmt.Fprintf(os.Stderr, "@ is not a directory")
+                        }
                 }
-        } else if fi, err = os.Stat(s2); err == nil {
-                if m := fi.Mode(); m.IsDir() {
-                        if err = i.LoadDir(s2, nil); err != nil {
-                                fmt.Printf("%v\n", err)
-                                return
-                        }
-                } else {
-                        fmt.Fprintf(os.Stderr, "@ is not a directory")
+                if ab == "/" {
+                        break
+                }
+                if ab = filepath.Dir(ab); ab == "." {
+                        break
                 }
         }
 
         restoreLoadingInfo(i)
 
+        var s3 = filepath.Join(base, "build.smart")
         if fi, err := os.Stat(s3); err == nil && fi.Mode().IsRegular() {
                 if err = i.Load(s3, nil); err != nil {
                         fmt.Printf("%v\n", err)
