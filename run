@@ -1,5 +1,5 @@
 #!/bin/bash
-D=$(dirname ${BASH_SOURCE[0]})
-S=$D/cmd/smart/main.go
-#echo $GOPATH
-exec -a smart go run $S -search $D/modules "$@"
+if ! a=$(readlink -e ${BASH_SOURCE[0]}); then
+fi
+s=$(dirname $a)/cmd/smart/main.go
+exec -a smart go run $s -search $D/modules "$@"
