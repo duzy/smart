@@ -1,5 +1,7 @@
 #!/bin/bash
 if ! a=$(readlink -e ${BASH_SOURCE[0]}); then
+    a=${BASH_SOURCE[0]}
 fi
-s=$(dirname $a)/cmd/smart/main.go
-exec -a smart go run $s -search $D/modules "$@"
+d=$(dirname $a)
+s=$d/cmd/main.go
+exec -a smart go run $s -search $d/modules "$@"

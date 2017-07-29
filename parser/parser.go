@@ -1209,6 +1209,11 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 value = &ast.ListExpr{ elems }
         }
         
+        if tok == token.SCO_ASSIGN || tok == token.DCO_ASSIGN {
+                v, _ := p.runtime.Eval(value)
+                value = &ast.EvaluatedExpr{ v, value }
+        }
+
         clause := &ast.DefineClause{ 
                 Doc: doc,
                 TokPos: pos,

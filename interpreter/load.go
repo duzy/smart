@@ -639,6 +639,8 @@ func (i *Interpreter) recipe(x *ast.RecipeExpr) (v types.Value) {
 
 func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
         switch x := expr.(type) {
+        case *ast.EvaluatedExpr:
+                v = x.Data.(types.Value)
         case *ast.Ident:
                 v = i.ident(x)
         case *ast.SelectorExpr:

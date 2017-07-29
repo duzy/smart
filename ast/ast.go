@@ -120,6 +120,11 @@ type (
 		From, To token.Pos // position range of bad expression
 	}
 
+        EvaluatedExpr struct {
+                Data interface{}
+                Expr
+        }
+
 	// A Bareword represents a word without decorations or an identifier.
 	Bareword struct {
 		ValuePos token.Pos // bareword position

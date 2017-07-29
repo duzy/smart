@@ -32,4 +32,3 @@ hello.cpp:[(plain c++) (update-file)]
 	    std::cout <<"$(GREETING)" << std::endl;
 	    return 0;
 	}
-
