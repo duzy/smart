@@ -1616,6 +1616,7 @@ func (p *parser) parseFile() *ast.File {
                 //   * the project name does not appear in any scope.
                 if p.tok == token.LINEND {
                         basename := filepath.Base(filepath.Dir(p.file.Name()))
+                        // TODO: validate base for identifier 
                         ident = &ast.Ident{ &ast.Bareword{
                                 ValuePos: pos,
                                 Value: basename,
