@@ -1614,7 +1614,16 @@ func (p *parser) parseFile() *ast.File {
                 // Smart-lang spec:
                 //   * the project clause is not a declaration;
                 //   * the project name does not appear in any scope.
-                ident = &ast.Ident{ p.parseBareword(), nil }
+                if p.tok == token.LINEND {
+                        basename := filepath.Base(filepath.Dir(p.file.Name()))
+                        ident = &ast.Ident{ &ast.Bareword{
+                                ValuePos: pos,
+                                Value: basename,
+                        }, nil }
+                } else {
+                        ident = &ast.Ident{ p.parseBareword(), nil }
+                }
+                
                 if ident.Value == "_" && p.mode&DeclarationErrors != 0 {
                         p.error(p.pos, "invalid package name _")
                 }
@@ -1652,7 +1661,7 @@ func (p *parser) parseFile() *ast.File {
 			// rest of module body
 			for p.tok != token.EOF {
                                  switch p.tok {
-                                 case token.LINEND: 
+                                 case token.LINEND:
                                          p.next() // skip empty lines
                                  case token.IMPORT:
                                          p.errorExpected(p.pos, "'"+p.tok.String()+"'")
