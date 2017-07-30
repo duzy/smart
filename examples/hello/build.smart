@@ -1,14 +1,15 @@
-project hello
+project hello (./base)
 
 import (
     'tools/gcc/c++'
 )
 
-files '*.o' '*.c' '*.cpp' 'hello'
+files '*.o' '*.c' '*.cpp' 'hello' aaaa => '.'
 
 GREETING := 'Hello World!'
 
 #eval println $(@.a) $(@.b) $(@.c) $(@.d)
+eval println "test: " $a $b $c
 
 run:[(stderr) (stdout) (shell)]: hello
 	./hello

@@ -306,6 +306,47 @@ func (i *Interpreter) parseFail(pos token.Pos, s string, a... interface{}) {
         runtime.Fail("fail: "+s, a...)
 }
 
+func (i *Interpreter) searchSpecPath(linfo *loadinfo, specPath string) (absPath string, isDir bool, err error) {
+        var fi os.FileInfo
+        if abs := filepath.IsAbs(specPath); abs || 
+                strings.HasPrefix(specPath, "../") ||
+                strings.HasPrefix(specPath, "./") {
+                var s = specPath
+                if !abs && linfo.absPath != "" {
+                        s = filepath.Join(linfo.absPath, s)
+                        if a, e := filepath.Abs(s); e == nil {
+                                s = a
+                        } else {
+                                err = e
+                                return
+                        }
+                }
+                if fi, err = os.Stat(s); err != nil {
+                        var sx = s + ".smart"
+                        if fi, err = os.Stat(sx); fi != nil {
+                                isDir, absPath = fi.IsDir(), sx
+                                return
+                        }
+                        sx = s + ".sm"
+                        if fi, err = os.Stat(sx); fi != nil {
+                                isDir, absPath = fi.IsDir(), sx
+                                return
+                        }
+                } else {
+                        isDir, absPath = fi.IsDir(), s
+                }
+        } else {
+                for _, base := range i.paths {
+                        s := filepath.Join(base, specPath)
+                        if fi, err = os.Stat(s); err == nil && fi != nil {
+                                isDir, absPath = fi.IsDir(), s
+                                return
+                        }
+                }
+        }
+        return
+}
+
 func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
         var (
                 //scope = i.Scope()
@@ -315,26 +356,20 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
                 nouse bool
         )
         if 0 < len(spec.Props) {
-                switch lit := spec.Props[0].(type) {
-                case *ast.BasicLit:
-                        if lit.Kind == token.STRING {
-                                specPath = lit.Value
-                        }
-                case *ast.CompoundLit:
-                        if 0 < len(lit.Elems) {
-                                if lit, ok := lit.Elems[0].(*ast.BasicLit); ok {
-                                        if lit.Kind == token.STRING {
-                                                specPath = lit.Value
-                                        }
-                                }
-                        }
+                if ee, ok := spec.Props[0].(*ast.EvaluatedExpr); ok && ee.Data != nil {
+                        specPath = ee.Data.(types.Value).String()
+                } else {
+                        return ErrorIllImport
                 }
-
                 for _, prop := range spec.Props[1:] {
-                        if v := i.expr(prop); v.String() == "nouse" {
-                                nouse = true
+                        if ee, ok := prop.(*ast.EvaluatedExpr); ok && ee.Data != nil {
+                                v := ee.Data.(types.Value)
+                                switch s := v.String(); s {
+                                case "nouse": nouse = true
+                                default: params = append(params, v)
+                                }
                         } else {
-                                params = append(params, v)
+                                return ErrorIllImport
                         }
                 }
         }
@@ -348,79 +383,46 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
                 absPath string
                 isDir bool
         )
-        if abs := filepath.IsAbs(specPath); abs || 
-                strings.HasPrefix(specPath, "../") ||
-                strings.HasPrefix(specPath, "./") {
-                var s = specPath
-                if !abs && linfo.absPath != "" {
-                        s = filepath.Join(linfo.absPath, s)
-                        if a, e := filepath.Abs(s); e == nil {
-                                s = a
-                        } else {
-                                return e
-                        }
-                }
-                if fi, err := os.Stat(s); err != nil {
-                        var sx = s + ".smart"
-                        if fi, err = os.Stat(sx); fi != nil {
-                                isDir, absPath = fi.IsDir(), sx
-                                goto importProject
-                        }
-                        sx = s + ".sm"
-                        if fi, err = os.Stat(sx); fi != nil {
-                                isDir, absPath = fi.IsDir(), sx
-                                goto importProject
-                        }
-                } else {
-                        isDir, absPath = fi.IsDir(), s
-                }
-        } else {
-                for _, base := range i.paths {
-                        s := filepath.Join(base, specPath)
-                        if fi, err := os.Stat(s); err == nil && fi != nil {
-                                isDir, absPath = fi.IsDir(), s
-                                goto importProject
-                        }
-                }
-        }
-        
-        if absPath == "" {
+        if absPath, isDir, err = i.searchSpecPath(linfo, specPath); err != nil {
+                return
+        } else if absPath == "" {
                 i.parseWarn(spec.Pos(), "missing '%s' (in %v)", specPath, i.paths)
-                return errors.New(fmt.Sprintf("import: '%s' not found", specPath))
+                return errors.New(fmt.Sprintf("'%s' not found", specPath))
         }
 
-importProject:
-        //fmt.Printf("import: '%s' (%s)\n", specPath, absPath)
-        
+        //fmt.Printf("%v: import '%s' (%s dir=%v)\n", i.project.Name(), specPath, absPath, isDir)
+
         if isDir {
                 err = i.loadDir(specPath, absPath, nil)
         } else {
                 err = i.load(specPath, absPath, nil)
         }
-
-        if err == nil && !nouse {
-                if loaded, _ := i.loaded[absPath]; loaded != nil {
-                        scope := i.project.Scope()
-                        pn, _ := scope.Lookup(loaded.Name()).(*types.ProjectName)
-                        if pn == nil {
-                                return errors.New(fmt.Sprintf("'%s' not found (%s)", specPath, loaded.Name()))
-                        }
-                        if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
-                                if alt := sn.Scope().Insert(pn); alt != nil {
-                                        return errors.New(fmt.Sprintf("'%s' already defined in %v", specPath, sn.Scope()))
-                                }
-                                if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
-                                        if def, _ := alt.(*types.Def); def != nil {
-                                                defSet(token.ADD_ASSIGN, def, pn)
-                                        }
-                                }
-                        } else {
-                                return errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
-                        }
-                        err = i.useProject(spec.Props[0].Pos(), loaded)
-                } else {
-                        unreachable()
+        if err != nil || nouse {
+                return
+        }
+        
+        if loaded, _ := i.loaded[absPath]; loaded != nil {
+                scope := i.project.Scope()
+                pn, _ := scope.Lookup(loaded.Name()).(*types.ProjectName)
+                if pn == nil {
+                        i.parseWarn(spec.Pos(), "%v (%v,dir=%v) not in %v", specPath, absPath, isDir, scope)
+                        return errors.New(fmt.Sprintf("'%s' not found (%s)", specPath, loaded.Name()))
                 }
+                if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
+                        if alt := sn.Scope().Insert(pn); alt != nil {
+                                return errors.New(fmt.Sprintf("'%s' already defined in %v", specPath, sn.Scope()))
+                        }
+                        if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
+                                if def, _ := alt.(*types.Def); def != nil {
+                                        defSet(token.ADD_ASSIGN, def, pn)
+                                }
+                        }
+                } else {
+                        return errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
+                }
+                err = i.useProject(spec.Props[0].Pos(), loaded)
+        } else {
+                unreachable()
         }
         return
 }
@@ -818,7 +820,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
 func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) {
         //fmt.Printf("Interpreter.define: %v\n", d.Name)
         if i.project == nil {
-                err = errors.New(fmt.Sprintf("define %v not in a project scope", d.Name))
+                err = errors.New(fmt.Sprintf("not in a project"))
                 return
         }
         var (
@@ -972,8 +974,6 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
 }
 
 func (i *Interpreter) openScope(as *ast.Scope, pos token.Pos, comment string) (err error) {
-        //scope := types.NewScope(i.Scope(), doc.Keypos, token.NoPos, "file")
-        //defer i.SetScope(i.SetScope(scope))
         scope := types.NewScope(i.scope, pos, token.NoPos, comment)
         as.Runtime = i.scope
         i.scope = scope
@@ -991,14 +991,65 @@ func (i *Interpreter) closeScope(as *ast.Scope) (err error) {
         return
 }
 
-func (i *Interpreter) declareProject(ident *ast.Ident) (err error) {
+func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (bases []*types.Project, args []types.Value, err error) {
+        if params == nil {
+                return
+        }
+        
+        g, _ := params.(*types.GroupValue)
+        if g == nil {
+                err = errors.New(fmt.Sprintf("invalid parameters (%T)", params))
+                return
+        }
+        
+        var (
+                absPath, specPath string
+                isDir bool
+        )
+        ParamsLoop: for _, elem := range g.Elems {
+                if k := elem.Type().Kind(); k != types.InvalidKind &&
+                        k <= types.ListKind {
+                        args = append(args, elem)
+                        continue ParamsLoop
+                }
+                
+                specPath = elem.String()
+                absPath, isDir, err = i.searchSpecPath(linfo, specPath)
+                if err != nil {
+                        return
+                }
+                
+                if isDir {
+                        err = i.loadDir(specPath, absPath, nil)
+                } else {
+                        err = i.load(specPath, absPath, nil)
+                }
+                if err != nil {
+                        return
+                }
+
+                loaded, _ := i.loaded[absPath]
+                bases = append(bases, loaded)
+
+                //fmt.Printf("base: %s (%s %v)\n", specPath, loaded.Name(), absPath)
+        }
+        return
+}
+
+func (i *Interpreter) declareProject(ident *ast.Ident, params types.Value) (err error) {
         var name = ident.Value
         if i.project != nil && i.project.Name() == name {
-                return nil
+                if params != nil {
+                        err = errors.New(fmt.Sprintf("project %s already declared, %v became useless", params))
+                }
+                return
         }
-
-        linfo := i.loads[len(i.loads)-1]
-        dec, ok := linfo.declares[name]
+        
+        var (
+                linfo = i.loads[len(i.loads)-1]
+                dec, ok = linfo.declares[name]
+        )
+        //fmt.Printf("declareProject: %v (%v, %v)\n", ident.Value, linfo.absPath, i.project)
         if !ok {
                 var (
                         absPath = linfo.absPath
@@ -1057,6 +1108,20 @@ func (i *Interpreter) declareProject(ident *ast.Ident) (err error) {
         i.project = dec.project
         dec.backscope = i.scope
         i.scope = dec.project.Scope()
+
+        var (
+                bases []*types.Project
+                args []types.Value
+        )
+        if bases, args, err = i.loadProjectBases(linfo, params); err != nil {
+                 return
+        }
+        if bases != nil {
+                i.project.AddBase(bases...)
+        }
+        if args != nil {
+                // TODO: handle with args
+        }
         return
 }
 
@@ -1140,14 +1205,14 @@ func (pc *parseContext) Files(m map[string][]string) {
         pc.project.AddFiles(m)
 }
 
-func (pc *parseContext) DeclareProject(ident *ast.Ident) error {
+func (pc *parseContext) DeclareProject(ident *ast.Ident, params types.Value) error {
         if ident.Value == "@" {
                 at := pc.Globe().Scope().Lookup(ident.Value)
                 pc.project = at.Project()
                 pc.scope = pc.project.Scope()
                 return nil
         }
-        return pc.declareProject(ident)
+        return pc.declareProject(ident, params)
 }
 
 func (pc *parseContext) OpenScope(as *ast.Scope, pos token.Pos, comment string) error {

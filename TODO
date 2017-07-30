@@ -1,3 +1,4 @@
 # -*- org -*-
 * TODO Project inheritance
 * TODO Add 'env' modifier
+* TODO Using compile time evaluated expression for targets/prerequisites

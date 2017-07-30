@@ -28,7 +28,7 @@ type RuntimeContext interface {
 
         Files(m map[string][]string)
 
-        DeclareProject(ident *ast.Ident) error
+        DeclareProject(ident *ast.Ident, params types.Value) error
 
         OpenScope(as *ast.Scope, pos token.Pos, comment string) error
         CloseScope(as *ast.Scope) error

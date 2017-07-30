@@ -356,6 +356,13 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                         p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Value))
                 }
                 x = ident
+        case *ast.EvaluatedExpr:
+                s := t.Data.(types.Value).String()
+                ident := &ast.Ident{ &ast.Bareword{ t.Pos(), s }, nil }
+                if p.resolve(ident); ident.Sym == nil {
+                        p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Value))
+                }
+                x = ident
         case *ast.Barefile, *ast.PathExpr, *ast.SelectorExpr:
                 // Barefile and PathExpr are a special identifier itself.
         case *ast.Ident: 
@@ -959,7 +966,6 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
                 pos := spec.Pos()
                 if false {
                         //fmt.Printf("%v: %v\n", p.file.Position(pos), err)
-                        fmt.Printf("%v\n", err)
                         p.error(pos, "import failed")
                 } else {
                         p.warn(pos, "%v", err)
@@ -1063,7 +1069,7 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
         for _, prop := range spec.Props {
-                switch t := prop.(type) {
+                /* switch t := prop.(type) {
                 case *ast.Bareword:
                         p.files[t.Value] = append(p.files[t.Value], ".")
                 case *ast.BasicLit:
@@ -1074,8 +1080,8 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         }
                 case *ast.KeyValueExpr:
                         var (
-                                k, _ = p.runtime.Eval(t.Key)
-                                v, _ = p.runtime.Eval(t.Value)
+                                k, _ = p.runtime.Eval(t.Key)   // TODO: check errors
+                                v, _ = p.runtime.Eval(t.Value) // TODO: check errors
                                 s = k.String()
                         )
                         switch vv := v.(type) {
@@ -1089,6 +1095,27 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                 default:
                         p.error(t.Pos(), fmt.Sprintf("bad file name (%T)", t))
                         continue
+                } */
+                ee, _ := prop.(*ast.EvaluatedExpr)
+                if ee == nil || ee.Data == nil {
+                        p.error(prop.Pos(), fmt.Sprintf("bad file spec (%T)", prop))
+                        continue
+                }
+                switch v := ee.Data.(type) {
+                case *types.PairValue:
+                        switch s := v.K.String(); vv := v.V.(type) {
+                        case *types.GroupValue:
+                                for _, elem := range vv.Elems {
+                                        p.files[s] = append(p.files[s], elem.String())
+                                }
+                        default:
+                                p.files[s] = append(p.files[s], vv.String())
+                        }
+                case types.Value:
+                        s := v.String()
+                        p.files[s] = append(p.files[s], ".")
+                default:
+                        p.error(prop.Pos(), fmt.Sprintf("bad file spec (%T)", prop))
                 }
         }
         p.runtime.Files(p.files)
@@ -1113,8 +1140,13 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
                 doc = p.leadComment
                 comment *ast.CommentGroup
                 props []ast.Expr
+                x = p.parseExpr(false)
         )
-        props = append(props, p.parseExpr(false))
+        if v, e := p.runtime.Eval(x); e == nil {
+                props = append(props, &ast.EvaluatedExpr{ v, x })
+        } else {
+                p.error(p.pos, fmt.Sprintf("immediate (%s)", e))
+        }
         for p.tok != token.EOF {
                 if p.tok == token.COMMA || p.tok == token.LINEND || p.tok == token.RPAREN {
                         break
@@ -1124,7 +1156,12 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
                         comment = p.lineComment
                         break
                 }
-                props = append(props, p.parseExpr(false))
+                x = p.parseExpr(false)
+                if v, e := p.runtime.Eval(x); e == nil {
+                        props = append(props, &ast.EvaluatedExpr{ v, x })
+                } else {
+                        p.error(p.pos, fmt.Sprintf("immediate (%s)", e))
+                }
         }
         return ast.DirectiveSpec{
                 Doc: doc,
@@ -1210,8 +1247,11 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         }
         
         if tok == token.SCO_ASSIGN || tok == token.DCO_ASSIGN {
-                v, _ := p.runtime.Eval(value)
-                value = &ast.EvaluatedExpr{ v, value }
+                if v, e := p.runtime.Eval(value); e == nil {
+                        value = &ast.EvaluatedExpr{ v, value }
+                } else {
+                        p.error(pos, fmt.Sprintf("immediate (%s)", e))
+                }
         }
 
         clause := &ast.DefineClause{ 
@@ -1234,7 +1274,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         if !p.isUse && name != "" {
                 rs, err := p.runtime.Define(clause)
                 if err != nil {
-                        p.warn(pos, fmt.Sprintf("error defining '%s'", name))
+                        p.warn(pos, fmt.Sprintf("define %s (%v)", name, err))
                         p.error(pos, fmt.Sprintf("%s", err))
                 }
                 
@@ -1619,7 +1659,7 @@ func (p *parser) parseFile() *ast.File {
                 // Smart-lang spec:
                 //   * the project clause is not a declaration;
                 //   * the project name does not appear in any scope.
-                if p.tok == token.LINEND {
+                if p.tok == token.LPAREN || p.tok == token.LINEND {
                         basename := filepath.Base(filepath.Dir(p.file.Name()))
                         // TODO: validate base for identifier 
                         ident = &ast.Ident{ &ast.Bareword{
@@ -1633,6 +1673,17 @@ func (p *parser) parseFile() *ast.File {
                 if ident.Value == "_" && p.mode&DeclarationErrors != 0 {
                         p.error(p.pos, "invalid package name _")
                 }
+
+                var params types.Value
+                if p.tok == token.LPAREN {
+                        value, err := p.runtime.Eval(p.parseGroupExpr())
+                        if err == nil {
+                                params = value
+                        } else {
+                                p.error(p.pos, fmt.Sprintf("immediate (%v)", err))
+                        }
+                }
+
                 p.expectLinend()
 
                 // Don't bother parsing the rest if we had errors parsing the package clause.
@@ -1641,7 +1692,10 @@ func (p *parser) parseFile() *ast.File {
                         return nil
                 }
 
-                p.runtime.DeclareProject(ident)
+                if err := p.runtime.DeclareProject(ident, params); err != nil {
+                        p.warn(ident.Pos(), fmt.Sprintf("project %s (%v)", ident.Value, err))
+                        p.error(ident.Pos(), fmt.Sprintf("declare %s error", ident.Value))
+                }
         }
 
         p.openScope(fmt.Sprintf(`file "%s"`, p.file.Name()))

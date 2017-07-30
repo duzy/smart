@@ -24,6 +24,7 @@ type Project struct {
 	relPath   string
 	spec      string
 	name      string
+        bases     []*Project
         scope     *Scope
         uses      []*Use
 
@@ -40,6 +41,10 @@ func (m *Project) Spec() string { return m.spec }
 func (m *Project) Name() string { return m.name }
 func (m *Project) Scope() *Scope { return m.scope }
 func (m *Project) Uses() []*Use { return m.uses }
+
+func (m *Project) AddBase(bases... *Project) {
+        m.bases = append(m.bases, bases...)
+}
 
 func (m *Project) AddFiles(files map[string][]string) {
         if m.files == nil {
