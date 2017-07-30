@@ -13,14 +13,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-        "fmt"
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/ast"
         "github.com/duzy/smart/types"
+        "fmt"
 )
 
-type RuntimeObj interface {
-}
+type RuntimeObj ast.Symbol
 
 type RuntimeContext interface {
         IsDialect(s string) bool
@@ -29,10 +28,9 @@ type RuntimeContext interface {
         Files(m map[string][]string)
 
         DeclareProject(ident *ast.Ident, params types.Value) error
-        //Chain(params types.Value) error
 
-        OpenScope(as *ast.Scope, pos token.Pos, comment string) error
-        CloseScope(as *ast.Scope) error
+        OpenScope(as ast.Scope, pos token.Pos, comment string) (ast.Scope, error)
+        CloseScope(as ast.Scope) error
 
         ClauseImport(spec *ast.ImportSpec) error
         ClauseInclude(spec *ast.IncludeSpec) error
@@ -47,23 +45,14 @@ type RuntimeContext interface {
 
 type Context struct {
         runtime  RuntimeContext
-	universe *ast.Scope // builtin scope
+	universe ast.Scope // builtin scope
         p        *parser    // current parser (or nil)
 }
 
-func NewContext(runtime RuntimeContext) *Context {
+func NewContext(runtime RuntimeContext, universe ast.Scope) *Context {
         return &Context{
                 runtime:  runtime,
-                universe: ast.NewScope(nil),
-        }
-}
-
-func (c *Context) Builtin(s string, i interface{}) {
-        //fmt.Printf("builtin: %v\n", s)
-        sym := ast.NewSym(ast.Bui, s)
-        if alt := c.universe.Insert(sym); alt != nil {
-                panic(fmt.Sprintf("duplicated builtin '%s'", s))
-                // FIXME: unreachable
+                universe: universe,
         }
 }
 
@@ -172,13 +161,21 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 
 		// set result values
 		if f == nil {
+                        s := fmt.Sprintf("file %s", filename)
+                        scope, e := c.runtime.OpenScope(c.universe, token.NoPos, s)
+                        if e != nil {
+                                // TODO: errors...
+                        }
+
 			// source is not a valid source file - satisfy
 			// ParseFile API and return a valid (but) empty
 			// *ast.File
 			f = &ast.File{
 				Name:  new(ast.Ident),
-				Scope: ast.NewScope(nil),
+				Scope: scope,
 			}
+
+                        c.runtime.CloseScope(scope)
 		}
 
 		p.errors.Sort()
@@ -219,6 +216,9 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 		return nil, err
 	}
 
+        fmt.Printf("ParseDir: %v\n", path)
+
+        //var projectScopes []ast.Scope
 	mods = make(map[string]*ast.Project)
 	for _, d := range list {
                 sm := strings.HasSuffix(d.Name(), ".smart") || strings.HasSuffix(d.Name(), ".sm")
@@ -230,7 +230,7 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 				if !found {
 					mod = &ast.Project{
                                                 Name:    name,
-                                                Scope:   ast.NewScope(nil),
+                                                Scope:   nil, //ast.NewScope(nil),
                                                 Files:   make(map[string]*ast.File),
                                         }
 					mods[name] = mod
@@ -244,64 +244,3 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 
 	return
 }
-
-// ParseExprFrom is a convenience function for parsing an expression.
-// The arguments have the same meaning as for Parse, but the source must
-// be a valid Go (type or value) expression.
-//
-/*
-func ParseExprFrom(fset *token.FileSet, filename string, src interface{}, mode Mode) (ast.Expr, error) {
-	// get source
-	text, err := readSource(filename, src)
-	if err != nil {
-		return nil, err
-	}
-
-	var p parser
-	defer func() {
-		if e := recover(); e != nil {
-			// resume same panic if it's not a bailout
-			if _, ok := e.(bailout); !ok {
-				panic(e)
-			}
-		}
-		p.errors.Sort()
-		err = p.errors.Err()
-	}()
-
-	// parse expr
-	p.init(fset, filename, text, mode)
-	// Set up pkg-level scopes to avoid nil-pointer errors.
-	// This is not needed for a correct expression x as the
-	// parser will be ok with a nil topScope, but be cautious
-	// in case of an erroneous x.
-	p.openScope()
-	p.pkgScope = p.topScope
-	//e := p.parseRhsOrType()
-	p.closeScope()
-
-	assert(p.topScope == nil, "unbalanced scopes")
-
-	// If a semicolon was inserted, consume it;
-	// report an error if there's more tokens.
-	if p.tok == token.LINEND && p.lit == "\n" {
-		p.next()
-	}
-	p.expect(token.EOF)
-
-	if p.errors.Len() > 0 {
-		p.errors.Sort()
-		return nil, p.errors.Err()
-	}
-
-	return e, nil
-}
-
-// ParseExpr is a convenience function for obtaining the AST of an expression x.
-// The position information recorded in the AST is undefined. The filename used
-// in error messages is the empty string.
-//
-func ParseExpr(x string) (ast.Expr, error) {
-	return ParseExprFrom(token.NewFileSet(), "", []byte(x), 0)
-}
-*/

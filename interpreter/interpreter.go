@@ -71,14 +71,16 @@ func New() (interpreter *Interpreter) {
                 paths:    []string(globalPaths),
                 loaded:   make(map[string]*types.Project),
         }
-        interpreter.scope = interpreter.Globe().Scope()
-        interpreter.pc = parser.NewContext(&parseContext{ interpreter })
+        scope := interpreter.Globe().Scope()
+        interpreter.pc = parser.NewContext(&parseContext{ interpreter }, scope)
+        interpreter.scope = scope
+        /*
         for s, _ := range types.GetBuiltins() {
                 interpreter.pc.Builtin(s, nil)
         }
         for _, s := range runtime.GetBuiltinNames() {
                 interpreter.pc.Builtin(s, nil)
-        }
+        } */
         return
 }
 

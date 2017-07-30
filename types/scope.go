@@ -7,6 +7,7 @@ package types
 
 import (
         "github.com/duzy/smart/token"
+        "github.com/duzy/smart/ast"
         "strings"
         "bytes"
         "sort"
@@ -206,4 +207,22 @@ func (s *Scope) String() string {
 	var buf bytes.Buffer
 	s.WriteTo(&buf, 0, false)
 	return buf.String()
+}
+
+func (s *Scope) OuterScope() ast.Scope { return s.Outer() }
+
+func (s *Scope) Resolve(name string) (sym ast.Symbol) {
+        sym = s.Find(name)
+        return
+}
+
+var none = new(NoneValue)
+func (s *Scope) Symbol(name string) (sym, alt ast.Symbol) {
+        sym, alt = s.InsertNewDef(nil/* FIXME */, name, none)
+        return
+}
+
+func (s *Scope) Entry(name string) (sym, alt ast.Symbol) {
+        sym, alt = s.InsertNewRuleEntry(nil/* FIXME */, GeneralRuleEntry, name)
+        return
 }

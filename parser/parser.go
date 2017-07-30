@@ -54,8 +54,8 @@ type parser struct {
         noSel   bool
         
 	// Ordinary identifier scopes
-	pkgScope   *ast.Scope        // pkgScope.Outer == nil
-	topScope   *ast.Scope        // top-most scope; may be pkgScope
+	proScope   ast.Scope         // current project scope
+	topScope   ast.Scope         // top-most scope; may be proScope
 	unresolved []*ast.Ident      // unresolved identifiers (reference to project symbols)
 	imports    []*ast.ImportSpec // list of imports
 
@@ -306,7 +306,7 @@ func (p *parser) expectLinend() {
 // The unresolved object is a sentinel to mark identifiers that have been added
 // to the list of unresolved identifiers. The sentinel is only used for verifying
 // internal consistency.
-var unresolved = new(ast.Symbol)
+var unresolved = new(types.Named)
 
 // If x is an identifier, tryResolve attempts to resolve x by looking up
 // the symbol it denotes. If no object is found and collectUnresolved is
@@ -327,12 +327,12 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 	}
         
 	// try to resolve the identifier
-	for s := p.topScope; s != nil; s = s.Outer {
-		if sym := s.Lookup(ident.Value); sym != nil {
-			ident.Sym = sym
-			return
-		}
-	}
+        if ident.Sym = p.topScope.Resolve(ident.Value); ident.Sym != nil {
+                //fmt.Printf("resolved: %T (%v)\n", ident.Sym, ident.Sym)
+                return
+        }
+
+        fmt.Printf("unresolved: %v in %v\n", ident.Value, p.topScope)
         
 	// all local scopes are known, so any unresolved identifier
 	// must be found either in the file scope, package scope
@@ -393,17 +393,19 @@ func (p *parser) isFileName(s string) bool {
 // Scoping
 
 func (p *parser) openScope(comment string) {
-	p.topScope = ast.NewScope(p.topScope)
-        if err := p.runtime.OpenScope(p.topScope, p.pos, comment); err != nil {
+        if scope, err := p.runtime.OpenScope(p.topScope, p.pos, comment); err == nil {
+                p.topScope = scope
+        } else {
                 p.error(p.pos, fmt.Sprintf("open scope (%v)", err))
         }
 }
 
 func (p *parser) closeScope() {
-        if err := p.runtime.CloseScope(p.topScope); err != nil {
+	scope := p.topScope
+        p.topScope = scope.OuterScope()
+        if err := p.runtime.CloseScope(scope); err != nil {
                 p.error(p.pos, fmt.Sprintf("close scope (%v)", err))
         }
-	p.topScope = p.topScope.Outer
 }
 
 // ----------------------------------------------------------------------------
@@ -776,10 +778,19 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         // Parse name without compising expressions
                         name = p.checkExpr(p.parseExpr0(false))
                 }
+                
+                /*if v, e := p.runtime.Eval(name); e == nil {
+                        name = &ast.EvaluatedExpr{ v, name }
+                } else {
+                        p.error(pos, fmt.Sprintf("immediate (%s)", e))
+                }*/
+
+                ident := p.identify(name)
+                //fmt.Printf("call: %T %v -> %T %v\n", name, name, ident, ident)
                 return &ast.CallExpr{
                         Dollar: pos,
                         Lparen: lpos,
-                        Name: p.identify(name),
+                        Name: ident,
                         Args: rest,
                         Rparen: rpos,
                         TokLp: tokLp,
@@ -1267,24 +1278,18 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         switch n := clause.Name.(type) {
         case *ast.Bareword: name = n.Value
         default:
-                fmt.Printf("parseDefineClause: %T %v\n", n, n)
+                p.warn(pos, fmt.Sprintf("%T (%v)", n, n))
                 p.error(pos, "unsupported name")
         }
         
         if !p.isUse && name != "" {
-                rs, err := p.runtime.Define(clause)
-                if err != nil {
+                if sym, err := p.runtime.Define(clause); err != nil {
                         p.warn(pos, fmt.Sprintf("define %s (%v)", name, err))
                         p.error(pos, fmt.Sprintf("%s", err))
-                }
-                
-                //fmt.Printf("%p: define: %T %s\n", p.topScope, clause.Name, name)
-                sym := ast.NewSym(ast.Def, name)
-                sym.Decl = clause
-                sym.Data = rs
-                if alt := p.topScope.Insert(sym); alt != nil /*&& tok != token.ADD_ASSIGN*/ {
-                        //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
-                        //p.error(ident.Pos(), fmt.Sprintf("name '%s' already taken", name))
+                } else if sym != nil {
+                        //fmt.Printf("parseDefineClause: %T %v\n", sym, sym)
+                } else {
+                        // FIXME: ...
                 }
         }
         return clause
@@ -1446,7 +1451,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 pos = p.expect(tok)
                 modifier *ast.ModifierExpr
                 program *ast.ProgramExpr
-                symbols []*ast.Symbol
+                //symbols []ast.Symbol
                 depends []ast.Expr
                 recipes []ast.Expr
                 dialect string
@@ -1485,22 +1490,17 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         continue
                 }
                 
-                //fmt.Printf("%p: rentry: %T %v\n", p.topScope, target, name)
-                sym := ast.NewSym(ast.Rul, name)
-                if alt := p.topScope.Insert(sym); alt != nil {
+                if _, alt := p.topScope.Entry(name); alt != nil {
                         p.warn(target.Pos(), fmt.Sprintf("'%s' already taken", name))
                         p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
                         //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
-                } else {
-                        symbols = append(symbols, sym)
                 }
         }
         
 	p.openScope(fmt.Sprintf("rule")); defer p.closeScope()
         
         for _, s := range automatics {
-                sym := ast.NewSym(ast.Def, s)
-                if alt := p.topScope.Insert(sym); alt != nil {
+                if _, alt := p.topScope.Symbol(s); alt != nil {
                         p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
                         p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
                 }
@@ -1565,15 +1565,14 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Program: program,
                 Modifier: modifier,
         }
-        for _, sym := range symbols {
+        /*for _, sym := range symbols {
                 sym.Decl = clause
-        }
+        }*/
 
-        rs, err := p.runtime.DeclareRule(clause)
-        if err == nil {
-                for _, sym := range symbols {
+        if _, err := p.runtime.DeclareRule(clause); err == nil {
+                /*for _, sym := range symbols {
                         sym.Data = rs
-                }
+                }*/
         } else {
                 p.error(pos, fmt.Sprintf("%s", err))
         }
@@ -1698,14 +1697,16 @@ func (p *parser) parseFile() *ast.File {
                 }
         }
 
-        p.openScope(fmt.Sprintf(`file "%s"`, p.file.Name()))
-	p.pkgScope = p.topScope
+        scope, err := p.openScope(fmt.Sprintf(`file "%s"`, p.file.Name()))
+        if err != nil {
+                p.error(p.pos, fmt.Sprintf("new scope (%s)", err))
+        }
+        
         p.files = make(map[string][]string, 2)
         for _, s := range []string{ "/", ".", ".." } {
-                sym := ast.NewSym(ast.Def, s)
-                if alt := p.topScope.Insert(sym); alt != nil {
-                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
-                        p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
+                if _, alt := p.topScope.Symbol(s); alt != nil {
+                        //p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
+                        //p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
                 }
         }
         
@@ -1731,6 +1732,7 @@ func (p *parser) parseFile() *ast.File {
 			}
 		}
 	}
+
 	p.closeScope(); assert(p.topScope == p.universe, "unbalanced scopes")
 
 	// resolve global iers within the same file
@@ -1738,9 +1740,13 @@ func (p *parser) parseFile() *ast.File {
 	for _, ident := range p.unresolved {
 		// i <= index for current ident
 		assert(ident.Sym == unresolved, "symbol already resolved")
-		ident.Sym = p.pkgScope.Lookup(ident.Value) // also removes unresolved sentinel
-		if ident.Sym == nil {
-                        //p.error(ident.Pos(), fmt.Sprintf("%s is unresolved", ident.Value))
+                
+                // also removes unresolved sentinel
+                ident.Sym = p.proScope.Resolve(ident.Value)
+                fmt.Printf("%T %v", ident.Sym)
+
+		if ident.Sym == unresolved {
+                        p.warn(ident.Pos(), fmt.Sprintf("%s is undefined", ident.Value))
 			p.unresolved[i] = ident
 			i++
 		}
@@ -1758,7 +1764,7 @@ func (p *parser) parseFile() *ast.File {
 		Keypos:     pos,
                 Keyword:    keyword,
 		Name:       ident,
-		Scope:      p.pkgScope,
+		Scope:      scope,
 		Clauses:    clauses,
 		Imports:    p.imports,
                 Unresolved: p.unresolved[0:i],

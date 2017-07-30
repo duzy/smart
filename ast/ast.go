@@ -133,7 +133,7 @@ type (
 
         Ident struct {
                 *Bareword
-		Sym     *Symbol   // denoted symbol; or nil
+		Sym Symbol   // denoted symbol; or nil
         }
         
 	// A BasicLit node represents a literal of basic type.
@@ -270,7 +270,7 @@ type (
         ProgramExpr struct {
                 Lang    int // TODO: language definition (default is recipes)
                 Values  []Expr
-                Scope   *Scope // scope specific to the program
+                Scope   Scope // scope specific to the program
         }
 )
 
@@ -520,7 +520,7 @@ type File struct {
 	Keypos     token.Pos       // position of "module" or "project" keyword
         Keyword    token.Token     // e.g. "module", "project"
 	Name       *Ident          // project/module name
-	Scope      *Scope          // module scope (this file only)
+	Scope      Scope          // module scope (this file only)
 	Clauses    []Clause        // top-level declarations; or nil
 	Imports    []*ImportSpec   // imports in this file
 	Unresolved []*Ident        // unresolved identifiers in this file
@@ -534,8 +534,8 @@ type File struct {
 type Project struct {
 	Keypos  token.Pos          // position of "project" keyword
 	Name    string             // project name
-	Scope   *Scope             // project scope across all files
-	Imports map[string]*Symbol // map of project id -> project symbol
+	Scope   Scope             // project scope across all files
+	Imports map[string]Symbol // map of project id -> project symbol
 	Files   map[string]*File   // source files by filename
         Runtime interface{}
 }

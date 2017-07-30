@@ -216,6 +216,7 @@ func (t *Composite) IsPair() bool     { return t.info&IsPair != 0 }
 type Named struct {
         underlying Type
 	name string
+        value
 }
 
 func (t *Named) String() string   { return TypeString(t, nil) }

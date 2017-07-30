@@ -458,13 +458,12 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         var (
                 scope = i.scope
                 p = i.project
-                err error
+                //err error
         )
 
-        //fmt.Printf("ident: %s: %T %v\n", x.Value, x.Sym.Data, x.Sym.Data)
+        fmt.Printf("ident: %T (%v) -> %T (%v)\n", x.Sym, x.Sym, x.Value, x.Value)
         
-        if x.Sym.Data != nil {
-                v = x.Sym.Data.(types.Value)
+        if v = x.Sym.(types.Value); v != nil {
                 return
         }
 
@@ -473,7 +472,7 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         }
 
         if v == nil {
-                if x.Sym != nil && x.Sym.Kind == ast.Rul {
+                /*if x.Sym != nil && x.Sym.Kind == ast.Rul {
                         class := types.GeneralRuleEntry
                         if p.IsFile(x.Value) {
                                 class = types.FileRuleEntry
@@ -483,7 +482,8 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
                         }
                 } else {
                         v = scope.NewDummy(p, x.Value)
-                }
+                }*/
+                v = scope.NewDummy(p, x.Value)
         }
         return
 }
@@ -617,7 +617,7 @@ func (i *Interpreter) call(x *ast.CallExpr) (v types.Value) {
         if obj, _ := name.(types.Object); obj != nil {
                 v = i.Fold(x.Pos(), obj, i.exprs(x.Args)...)
         } else if name != nil {
-                i.parseFail(x.Pos(), "bad call '%s' (%T, %T)", name, name, x.Name)
+                i.parseFail(x.Name.Pos(), "bad call '%s' (%T, %T)", name, name, x.Name)
         } else {
                 i.parseFail(x.Pos(), "calling undefined object %v", x.Name)
         }
@@ -881,13 +881,13 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
 
         if p, ok := d.Program.(*ast.ProgramExpr); ok && p != nil {
                 // mapping lexical objects
-                for name, sym := range p.Scope.Symbols {
+                /*for name, sym := range p.Scope.Symbols {
                         if auto, alt := i.scope.InsertNewDef(i.project, name, values.None); alt != nil {
                                 i.parseFail(d.Pos(), "%s already defined", name)
                         } else {
                                 sym.Data = auto
                         }
-                }
+                }*/
                 
                 if p.Values != nil {
                         recipes = i.exprs(p.Values)
@@ -931,7 +931,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         return
 }
 
-func (i *Interpreter) lexing(lexScope *ast.Scope) (err error) {
+/*func (i *Interpreter) lexing(lexScope *ast.Scope) (err error) {
         //fmt.Printf("%p: outer = %p\n", lexScope, lexScope.Outer)
         for name, sym := range lexScope.Symbols {
                 _, s := i.scope.FindAt(sym.Pos(), name)
@@ -943,7 +943,7 @@ func (i *Interpreter) lexing(lexScope *ast.Scope) (err error) {
                 }
         }
         return
-}
+}*/
 
 func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         var (
@@ -974,23 +974,22 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
 
         p := i.project
         p.AddFiles(doc.Files)
-        return i.lexing(doc.Scope)
+        return nil //i.lexing(doc.Scope)
 }
 
-func (i *Interpreter) openScope(as *ast.Scope, pos token.Pos, comment string) (err error) {
-        scope := types.NewScope(i.scope, pos, token.NoPos, comment)
-        as.Runtime = i.scope
-        i.scope = scope
+func (i *Interpreter) openScope(as ast.Scope, pos token.Pos, comment string) (scope ast.Scope, err error) {
+        scope = i.scope
+        i.scope = types.NewScope(/*i.scope*/as.(*types.Scope), pos, token.NoPos, comment)
         //fmt.Printf("OpenScope: %s in %s\n", i.Scope(), as.Runtime)
         return
 }
 
-func (i *Interpreter) closeScope(as *ast.Scope) (err error) {
-        if scope, ok := as.Runtime.(*types.Scope); ok {
+func (i *Interpreter) closeScope(as ast.Scope) (err error) {
+        if scope, ok := as.(*types.Scope); ok {
                 //fmt.Printf("CloseScope: %s -> %s\n", i.Scope(), scope)
                 i.scope = scope
         } else {
-                err = errors.New(fmt.Sprintf("bad runtime scope (%T)", as.Runtime))
+                err = errors.New(fmt.Sprintf("bad runtime scope (%T)", as))
         }
         return
 }
@@ -1143,11 +1142,14 @@ func (i *Interpreter) load(specPath, absPath string, source interface{}) error {
         if err != nil {
                 return err
         }
+        if doc == nil {
+                // FIXME: ...
+        }
 
         i.loaded[absPath] = i.project
 
         //fmt.Printf("Load: %v %v\n", absPath, doc.Name.Name)
-        return i.lexing(doc.Scope)
+        return nil //i.lexing(doc.Scope)
 }
 
 func (i *Interpreter) loadDir(specPath, absPath string, filter func(os.FileInfo) bool) (err error) {
@@ -1172,12 +1174,13 @@ func (i *Interpreter) loadDir(specPath, absPath string, filter func(os.FileInfo)
         mods, err := i.pc.ParseDir(i.fset, absPath, filter, parseMode)
         if err == nil && mods != nil {
                 i.loaded[absPath] = i.project
-                for _, mod := range mods {
+                /*for _, mod := range mods {
                         //fmt.Printf("LoadDir: %v (%v)\n", absPath, mod)
                         if err = i.lexing(mod.Scope); err != nil {
                                 return
                         }
-                }
+                        return nil
+                }*/
         }
 
         //fmt.Printf("LoadDir: %v %v\n", absPath, mods)
@@ -1208,11 +1211,11 @@ func (pc *parseContext) DeclareProject(ident *ast.Ident, params types.Value) err
         return pc.declareProject(ident, params)
 }
 
-func (pc *parseContext) OpenScope(as *ast.Scope, pos token.Pos, comment string) error {
+func (pc *parseContext) OpenScope(as ast.Scope, pos token.Pos, comment string) (scope ast.Scope, err error) {
         return pc.openScope(as, pos, comment)
 }
 
-func (pc *parseContext) CloseScope(as *ast.Scope) error {
+func (pc *parseContext) CloseScope(as ast.Scope) error {
         return pc.closeScope(as)
 }
 
