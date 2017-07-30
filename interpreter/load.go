@@ -474,17 +474,6 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         }
 
         if v == nil {
-                /*if x.Sym != nil && x.Sym.Kind == ast.Rul {
-                        class := types.GeneralRuleEntry
-                        if p.IsFile(x.Value) {
-                                class = types.FileRuleEntry
-                        }
-                        if v, err = p.Insert(x.Value, nil, class); err != nil {
-                                i.parseFail(x.Pos(), err.Error())
-                        }
-                } else {
-                        v = scope.NewDummy(p, x.Value)
-                }*/
                 v = values.None //scope.NewDummy(p, x.Value)
         }
         return
@@ -1144,13 +1133,6 @@ func (i *Interpreter) loadDir(specPath, absPath string, filter func(os.FileInfo)
         mods, err := i.pc.ParseDir(i.fset, absPath, filter, parseMode)
         if err == nil && mods != nil {
                 i.loaded[absPath] = i.project
-                /*for _, mod := range mods {
-                        //fmt.Printf("LoadDir: %v (%v)\n", absPath, mod)
-                        if err = i.lexing(mod.Scope); err != nil {
-                                return
-                        }
-                        return nil
-                }*/
         }
 
         //fmt.Printf("LoadDir: %v %v\n", absPath, mods)
