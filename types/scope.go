@@ -20,6 +20,7 @@ import (
 // empty scope.
 type Scope struct {
         parent *Scope
+        chain []*Scope
         children []*Scope
         elems map[string]Object
         pos, end token.Pos
@@ -27,7 +28,7 @@ type Scope struct {
 }
 
 func NewScope(parent *Scope, pos, end token.Pos, comment string) *Scope {
-        scope := &Scope{ parent, nil, nil, pos, end, comment }
+        scope := &Scope{ parent, nil, nil, nil, pos, end, comment }
  	// don't add children to Universe scope!
 	if parent != nil && parent != universe {
 		parent.children = append(parent.children, scope)
@@ -67,7 +68,7 @@ func (s *Scope) Lookup(name string) Object {
 	return s.elems[name]
 }
 
-// LookupParent follows the parent chain of scopes starting with s until
+// FindChainUp follows the parent chain of scopes starting with s until
 // it finds a scope where Lookup(name) returns a non-nil object, and then
 // returns that scope and object. If a valid position pos is provided,
 // only objects that were declared at or before pos are considered.
@@ -77,21 +78,31 @@ func (s *Scope) Lookup(name string) Object {
 // object was inserted into the scope and already had a parent at that
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
-func (s *Scope) LookupParent(name string, pos token.Pos) (*Scope, Object) {
-	for ; s != nil; s = s.parent {
-		if obj := s.elems[name]; obj != nil && (!pos.IsValid() || obj.scopePos() <= pos) {
-			return s, obj
+func (s *Scope) FindChainUp(name string, pos token.Pos) (*Scope, Object) {
+        for _, p := range s.chain {
+                if p, obj := p.FindAt(pos, name); obj != nil {
+                        return p, obj
+                }
+        }
+	for p := s; p != nil; p = p.parent {
+		if obj := p.elems[name]; obj != nil && (!pos.IsValid() || obj.scopePos() <= pos) {
+			return p, obj
 		}
 	}
 	return nil, nil
 }
 
-func (s *Scope) LookupAt(pos token.Pos, name string) (*Scope, Object) {
+func (s *Scope) FindAt(pos token.Pos, name string) (*Scope, Object) {
         if obj := s.Lookup(name); obj == nil {
-                return s.LookupParent(name, pos)
+                return s.FindChainUp(name, pos)
         } else {
                 return s, obj
         }
+}
+
+func (s *Scope) Find(name string) (obj Object) {
+        _, obj = s.FindAt(token.NoPos, name)
+        return 
 }
 
 // Insert attempts to insert an object obj into scope s.

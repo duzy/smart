@@ -7,7 +7,7 @@
 package runtime
 
 import (
-        "github.com/duzy/smart/token"
+        //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "path/filepath"
@@ -146,7 +146,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         if types.IsDummy(d) {
                                 sym, _ := d.(types.Object)
                                 scope := sym.Parent()
-                                if _, s := scope.LookupAt(token.NoPos, sym.Name()); s != nil {
+                                if s := scope.Find(sym.Name()); s != nil {
                                         depend = s; goto dependSwitch
                                 }
                                 Fail("unknown dependency %s", sym.Name())
@@ -159,7 +159,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 
                 handleFileEntry: if file != "" {
                         //fmt.Printf("convert: %T %v\n", depend, depend)
-                        if _, s := prog.scope.LookupAt(token.NoPos, file); s != nil {
+                        if s := prog.scope.Find(file); s != nil {
                                 depend, isFileEntry = s, true
                                 goto dependSwitch
                         }
