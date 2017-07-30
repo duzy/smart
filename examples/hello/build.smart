@@ -4,7 +4,7 @@ import (
     'tools/gcc/c++'
 )
 
-files '*.o' '*.c' '*.cpp' 'hello' aaaa => '.'
+files '*.o' '*.c' '*.cpp' 'hello'
 
 GREETING := 'Hello World!'
 
