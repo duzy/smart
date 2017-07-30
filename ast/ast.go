@@ -525,7 +525,6 @@ type File struct {
 	Imports    []*ImportSpec   // imports in this file
 	Unresolved []*Ident        // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
-        Files      map[string][]string
 }
 
 // A Project node represents a set of source files

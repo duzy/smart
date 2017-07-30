@@ -943,13 +943,13 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         if err != nil {
                 return err
         }
+        if doc == nil {
+                // ...
+        }
 
         if len(params) > 0 {
                 // TODO: parsing parameters
         }
-
-        p := i.project
-        p.AddFiles(doc.Files)
         return nil //i.lexing(doc.Scope)
 }
 
@@ -1151,6 +1151,13 @@ func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err e
 
 func (pc *parseContext) Files(m map[string][]string) {
         pc.project.AddFiles(m)
+}
+
+func (pc *parseContext) IsFileName(s string) bool {
+        if pc.project != nil {
+                return pc.project.IsFile(s)
+        }
+        return false
 }
 
 func (pc *parseContext) DeclareProject(ident *ast.Ident, params types.Value) error {

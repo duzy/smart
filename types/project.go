@@ -92,6 +92,13 @@ func (m *Project) SearchFile(fv *FileValue) *FileValue {
         }
         if fv.Info == nil && len(firstMatched) > 0 {
                 fv.Dir = firstMatched[0]
+        } else {
+                for _, base := range m.bases {
+                        base.SearchFile(fv)
+                        if fv.Info != nil || fv.Dir != "" {
+                                return fv
+                        }
+                }
         }
         return fv
 }
@@ -106,6 +113,11 @@ func (m *Project) IsFile(s string) (v bool) {
                                 v = s == pat
                         }
                         if v { return }
+                }
+                for _, base := range m.bases {
+                        if v = base.IsFile(s); v {
+                                return
+                        }
                 }
         }
         return
@@ -122,7 +134,13 @@ func (m *Project) MatchPattern(s string) (res Pattern, stem string) {
         var found bool
         for _, p := range m.patterns {
                 if found, stem = p.Match(s); found && stem != "" {
-                        res = p
+                        res = p; return
+                }
+        }
+        for _, base := range m.bases {
+                res, stem = base.MatchPattern(s)
+                if res != nil && stem != "" {
+                        return
                 }
         }
         return
@@ -131,7 +149,12 @@ func (m *Project) MatchPattern(s string) (res Pattern, stem string) {
 func (m *Project) FindPercentPattern(s string) (res *PercentPattern) {
         for _, p := range m.patterns {
                 if pp, _ := p.(*PercentPattern); pp != nil && pp.String() == s {
-                        res = pp
+                        res = pp; return
+                }
+        }
+        for _, base := range m.bases {
+                if res = base.FindPercentPattern(s); res != nil {
+                        return
                 }
         }
         return

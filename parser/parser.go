@@ -56,9 +56,6 @@ type parser struct {
 	// Ordinary identifier scopes
 	unresolved []*ast.Ident      // unresolved identifiers (reference to project symbols)
 	imports    []*ast.ImportSpec // list of imports
-
-        // Per file known extensions being used for parsing entry names.
-        files map[string][]string // a?c.go, a*c.go or file names -> location
 }
 
 func (p *parser) init(ctx *Context, fset *token.FileSet, filename string, src []byte, mode Mode) {
@@ -372,22 +369,6 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
         return x
 }
 
-func (p *parser) isFileName(s string) bool {
-        if _, ok := p.files[s]; ok {
-                return true
-        }
-        for pat, _ := range p.files {
-                if strings.ContainsAny(pat, "*?[") {
-                        if ok, _ := filepath.Match(pat, s); ok {
-                                return true
-                        }
-                } else if s == pat {
-                        return true
-                }
-        }
-        return false
-}
-
 // ----------------------------------------------------------------------------
 // Parsing
 
@@ -525,7 +506,7 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
         s := p.checkExpr(p.parseExpr(lhs))
 
         if bw, ok := s.(*ast.Bareword); ok {
-                if t, ok := x.(*ast.Bareword); ok && p.isFileName(t.Value+"."+bw.Value) {
+                if t, ok := x.(*ast.Bareword); ok && p.runtime.IsFileName(t.Value+"."+bw.Value) {
                         res = &ast.Barefile{ x, bw.Pos(), bw.Value }
                         return
                 }
@@ -989,6 +970,7 @@ func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) 
 }
 
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        files := make(map[string][]string)
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
         for _, prop := range spec.Props {
                 ee, _ := prop.(*ast.EvaluatedExpr)
@@ -1001,19 +983,19 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         switch s := v.K.String(); vv := v.V.(type) {
                         case *types.GroupValue:
                                 for _, elem := range vv.Elems {
-                                        p.files[s] = append(p.files[s], elem.String())
+                                        files[s] = append(files[s], elem.String())
                                 }
                         default:
-                                p.files[s] = append(p.files[s], vv.String())
+                                files[s] = append(files[s], vv.String())
                         }
                 case types.Value:
                         s := v.String()
-                        p.files[s] = append(p.files[s], ".")
+                        files[s] = append(files[s], ".")
                 default:
                         p.error(prop.Pos(), fmt.Sprintf("bad file spec (%T)", prop))
                 }
         }
-        p.runtime.Files(p.files)
+        p.runtime.Files(files)
         return spec
 }
 
@@ -1411,7 +1393,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
                         if bw, _ := depend.(*ast.Bareword); bw != nil {
-                                if p.isFileName(bw.Value) {
+                                if p.runtime.IsFileName(bw.Value) {
                                         depends[i] = &ast.Barefile{ Name: bw }
                                 } else {
                                         depends[i] = p.identify(depend)
@@ -1605,8 +1587,6 @@ func (p *parser) parseFile() *ast.File {
                 // TODO: Enter previously delcared project sope!
         }
 
-        p.files = make(map[string][]string, 2)
-
 	var clauses []ast.Clause
 	if p.mode&ModuleClauseOnly == 0 {
                 if p.mode&Flat == 0 {
@@ -1646,13 +1626,6 @@ func (p *parser) parseFile() *ast.File {
 		}
 	}
 
-        var files = make(map[string][]string, len(p.files))
-        for k, a := range p.files {
-                for _, s := range a {
-                        files[k] = append(files[k], s)
-                }
-        }
-        
 	return &ast.File{
 		Doc:        doc,
 		Keypos:     pos,
@@ -1663,6 +1636,5 @@ func (p *parser) parseFile() *ast.File {
 		Imports:    p.imports,
                 Unresolved: p.unresolved[0:i],
 		Comments:   p.comments,
-                Files:      files,
 	}
 }

@@ -1,8 +1,21 @@
 project base
 
+import (
+    'tools/gcc/c++'
+)
+
+files (
+    '*.o' => obj
+    '*.cpp' => src
+    hello => bin
+)
+
 a := value a
 b := value b
 c := value c
 
-r:
-	return 'rule'
+hello:[(compare) (stderr) (shell)]: hello.o
+	$(link) $^ -o $@
+
+hello.o:[(compare) (stderr) (shell)]: hello.cpp
+	$(compile) $< -o $@

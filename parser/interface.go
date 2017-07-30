@@ -26,6 +26,7 @@ type RuntimeContext interface {
         
         IsDialect(s string) bool
         IsModifier(s string) bool
+        IsFileName(s string) bool
 
         Files(m map[string][]string)
 
