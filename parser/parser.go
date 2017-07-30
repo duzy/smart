@@ -1413,6 +1413,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 //symbols []ast.Symbol
                 depends []ast.Expr
                 recipes []ast.Expr
+                scopeComment string
                 dialect string
                 isUseRule bool
         )
@@ -1423,33 +1424,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         p.error(target.Pos(), fmt.Sprintf("immediate (%s)", e))
                         continue
                 }
-                
-                /*var name string
-                switch t := target.(type) {
-                case *ast.Bareword:
-                        if name = t.Value; name == "use" {
-                                if i == 0 && len(targets) == 1 {
-                                        isUseRule = true
-                                } else {
-                                        p.error(target.Pos(), "mixing use with normal rules")
-                                }
-                        }
-                case *ast.Barefile:
-                        if bw, ok := t.Name.(*ast.Bareword); ok {
-                                name = bw.Value + "." + t.Ext
-                        } else {
-                                p.error(target.Pos(), fmt.Sprintf("unknown barefile name (%T)", t.Name))
-                        }
-                case *ast.PathExpr:
-                        // ...
-                        continue
-                case *ast.PercExpr:
-                        // ...
-                        continue
-                default:
-                        p.error(target.Pos(), fmt.Sprintf("unknown entry type (%T)", t))
-                        continue
-                }*/
                 var name = v.String()
                 if name == "" {
                         p.error(target.Pos(), "empty entry name")
@@ -1461,16 +1435,19 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 p.error(target.Pos(), "mixing use with normal rules")
                         }
                 }
-                
                 if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
                         p.warn(target.Pos(), fmt.Sprintf("'%s' already taken", name))
                         p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
-                        //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
-                } else if sym != nil {
+                } else if sym == nil {
+                        // TODO: errors...
                 }
+                if scopeComment != "" {
+                        scopeComment += " "
+                }
+                scopeComment += name
         }
 
-        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule"))
+        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
         for _, s := range automatics {
                 if _, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
                         p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
@@ -1489,6 +1466,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 p.next()
                 // TODO: '?' modifier
         case token.LBRACK:
+                // Parse modifiers in the program scope.
                 dialect, modifier = p.parseModifierExpr()
         }
 
@@ -1498,6 +1476,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         
         // Parsing depends...
         if p.tok != token.LINEND {
+                // FIXME: parse prerequisites in project scope??
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
                         if bw, _ := depend.(*ast.Bareword); bw != nil {
@@ -1518,6 +1497,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 p.expectLinend()
         }
 
+        // Parse recipes in the program scope.
         for p.tok == token.RECIPE {
                 recipes = append(recipes, p.parseRecipeExpr(dialect, isUseRule))
         }
