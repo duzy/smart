@@ -40,7 +40,7 @@ func (p *delegate) Float() float64        { return p.Value().Float() }
 func (p *delegate) Value() (v types.Value) {
         if types.IsDummy(p.o) {
                 scope := p.o.Parent()
-                if _, s := scope.LookupAt(token.NoPos, p.o.Name()); s != nil {
+                if s := scope.Find(p.o.Name()); s != nil {
                         p.o = s
                 }
         }

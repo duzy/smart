@@ -42,8 +42,11 @@ func (m *Project) Name() string { return m.name }
 func (m *Project) Scope() *Scope { return m.scope }
 func (m *Project) Uses() []*Use { return m.uses }
 
-func (m *Project) AddBase(bases... *Project) {
+func (m *Project) Chain(bases... *Project) {
         m.bases = append(m.bases, bases...)
+        for _, base := range bases {
+                m.scope.chain = append(m.scope.chain, base.scope)
+        }
 }
 
 func (m *Project) AddFiles(files map[string][]string) {

@@ -123,7 +123,7 @@ func set(p *types.Project, op token.Token, name string, value types.Value) (def 
         // See https://www.gnu.org/software/make/manual/html_node/Setting.html
         var (
                 scope = p.Scope()
-                obj = scope.Lookup(name)
+                obj = scope.Lookup(name) // Only lookup the project's scope!
         )
         if obj == nil {
                 var alt types.Object
@@ -457,6 +457,7 @@ func (i *Interpreter) binary(x *ast.BinaryExpr) (v types.Value) {
 func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         var (
                 scope = i.scope
+                p = i.project
                 err error
         )
 
@@ -466,9 +467,12 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
                 v = x.Sym.Data.(types.Value)
                 return
         }
-        
-        if _, v = scope.LookupAt(x.Pos(), x.Value); v == nil {
-                p := i.project
+
+        if _, v = scope.FindAt(x.Pos(), x.Value); v == nil && scope != p.Scope() {
+                v = p.Scope().Find(x.Value)
+        }
+
+        if v == nil {
                 if x.Sym != nil && x.Sym.Kind == ast.Rul {
                         class := types.GeneralRuleEntry
                         if p.IsFile(x.Value) {
@@ -509,7 +513,7 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
                 //i.parseInfo(t.Pos(), "selection on '%s' (%T)\n", name, t)
         }
 
-        if _, base = scope.LookupAt(x.X.Pos(), name); base == nil {
+        if _, base = scope.FindAt(x.X.Pos(), name); base == nil {
                 i.parseFail(x.X.Pos(), "'%s' is nil in %s", name, scope)
         }
 
@@ -805,7 +809,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                 case types.Caller:
                         res, _ = op.Call(i.exprs(spec.Props[1:])...)
                 default:
-                        if _, obj := i.scope.LookupAt(spec.EndPos, op.String()); obj != nil {
+                        if _, obj := i.scope.FindAt(spec.EndPos, op.String()); obj != nil {
                                 if f, _ := obj.(types.Caller); f != nil {
                                         res, err = f.Call(i.exprs(spec.Props[1:])...)
                                 }
@@ -930,7 +934,7 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
 func (i *Interpreter) lexing(lexScope *ast.Scope) (err error) {
         //fmt.Printf("%p: outer = %p\n", lexScope, lexScope.Outer)
         for name, sym := range lexScope.Symbols {
-                _, s := i.scope.LookupAt(sym.Pos(), name)
+                _, s := i.scope.FindAt(sym.Pos(), name)
                 //fmt.Printf("lexing: %T %v (%v)\n", s, s, sym.Data)
                 if sym.Data == nil {
                         sym.Data = s
@@ -991,7 +995,7 @@ func (i *Interpreter) closeScope(as *ast.Scope) (err error) {
         return
 }
 
-func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (bases []*types.Project, args []types.Value, err error) {
+func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err error) {
         if params == nil {
                 return
         }
@@ -1001,22 +1005,23 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (bas
                 err = errors.New(fmt.Sprintf("invalid parameters (%T)", params))
                 return
         }
-        
+
         var (
+                //args []types.Value
                 absPath, specPath string
                 isDir bool
         )
         ParamsLoop: for _, elem := range g.Elems {
-                if k := elem.Type().Kind(); k != types.InvalidKind &&
+                /* if k := elem.Type().Kind(); k != types.InvalidKind &&
                         k <= types.ListKind {
                         args = append(args, elem)
                         continue ParamsLoop
-                }
+                } */
                 
                 specPath = elem.String()
                 absPath, isDir, err = i.searchSpecPath(linfo, specPath)
                 if err != nil {
-                        return
+                        break ParamsLoop
                 }
                 
                 if isDir {
@@ -1025,11 +1030,11 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (bas
                         err = i.load(specPath, absPath, nil)
                 }
                 if err != nil {
-                        return
+                        break ParamsLoop
                 }
 
                 loaded, _ := i.loaded[absPath]
-                bases = append(bases, loaded)
+                i.project.Chain(loaded)
 
                 //fmt.Printf("base: %s (%s %v)\n", specPath, loaded.Name(), absPath)
         }
@@ -1105,23 +1110,11 @@ func (i *Interpreter) declareProject(ident *ast.Ident, params types.Value) (err 
                 //fmt.Printf("DeclareProject: %v from %v\n", name, loader.Scope())
         }
 
-        i.project = dec.project
         dec.backscope = i.scope
         i.scope = dec.project.Scope()
+        i.project = dec.project
 
-        var (
-                bases []*types.Project
-                args []types.Value
-        )
-        if bases, args, err = i.loadProjectBases(linfo, params); err != nil {
-                 return
-        }
-        if bases != nil {
-                i.project.AddBase(bases...)
-        }
-        if args != nil {
-                // TODO: handle with args
-        }
+        err = i.loadProjectBases(linfo, params)
         return
 }
 

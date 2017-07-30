@@ -7,8 +7,8 @@
 package runtime
 
 import (
+        //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
-        "github.com/duzy/smart/token"
         "github.com/duzy/smart/values"
         "os/exec"
         "strings"
@@ -28,8 +28,8 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
-                _, symDxi = prog.scope.LookupAt(token.NoPos, "docker-exec-image")
-                _, symWd = prog.scope.LookupAt(token.NoPos, "/") // "."
+                symDxi = prog.scope.Find("docker-exec-image")
+                symWd = prog.scope.Find("/") // "."
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value
