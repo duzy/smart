@@ -461,10 +461,12 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
                 //err error
         )
 
-        fmt.Printf("ident: %T (%v) -> %T (%v)\n", x.Sym, x.Sym, x.Value, x.Value)
+        //fmt.Printf("ident: %T (%v) (%v)\n", x.Sym, x.Sym, x.Value)
         
-        if v = x.Sym.(types.Value); v != nil {
-                return
+        if !parser.IsUnresolved(x) {
+                if v = x.Sym.(types.Value); v != nil {
+                        return
+                }
         }
 
         if _, v = scope.FindAt(x.Pos(), x.Value); v == nil && scope != p.Scope() {
@@ -977,16 +979,14 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         return nil //i.lexing(doc.Scope)
 }
 
-func (i *Interpreter) openScope(as ast.Scope, pos token.Pos, comment string) (scope ast.Scope, err error) {
+func (i *Interpreter) openScope(pos token.Pos, comment string) (scope ast.Scope, err error) {
+        i.scope = types.NewScope(i.scope, pos, token.NoPos, comment)
         scope = i.scope
-        i.scope = types.NewScope(/*i.scope*/as.(*types.Scope), pos, token.NoPos, comment)
-        //fmt.Printf("OpenScope: %s in %s\n", i.Scope(), as.Runtime)
         return
 }
 
 func (i *Interpreter) closeScope(as ast.Scope) (err error) {
         if scope, ok := as.(*types.Scope); ok {
-                //fmt.Printf("CloseScope: %s -> %s\n", i.Scope(), scope)
                 i.scope = scope
         } else {
                 err = errors.New(fmt.Sprintf("bad runtime scope (%T)", as))
@@ -1211,8 +1211,8 @@ func (pc *parseContext) DeclareProject(ident *ast.Ident, params types.Value) err
         return pc.declareProject(ident, params)
 }
 
-func (pc *parseContext) OpenScope(as ast.Scope, pos token.Pos, comment string) (scope ast.Scope, err error) {
-        return pc.openScope(as, pos, comment)
+func (pc *parseContext) OpenScope(pos token.Pos, comment string) (scope ast.Scope, err error) {
+        return pc.openScope(pos, comment)
 }
 
 func (pc *parseContext) CloseScope(as ast.Scope) error {
@@ -1251,5 +1251,22 @@ func (pc *parseContext) Eval(x ast.Expr) (res types.Value, err error) {
 		}
         }()
         res = pc.expr(x)
+        return
+}
+
+func (pc *parseContext) Resolve(name string) (obj parser.RuntimeObj) {
+        if pc.scope != nil {
+                obj = pc.scope.Find(name)
+        }
+        return
+}
+
+func (pc *parseContext) Symbol(name string) (obj, alt parser.RuntimeObj) {
+        obj, alt = pc.scope.InsertNewDef(pc.project, name, values.None)
+        return
+}
+
+func (pc *parseContext) Entry(name string) (obj, alt parser.RuntimeObj) {
+        obj, alt = pc.scope.InsertNewRuleEntry(pc.project, types.GeneralRuleEntry, name)
         return
 }

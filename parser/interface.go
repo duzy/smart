@@ -13,10 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-        "github.com/duzy/smart/token"
-        "github.com/duzy/smart/ast"
-        "github.com/duzy/smart/types"
         "fmt"
+        "github.com/duzy/smart/ast"
+        "github.com/duzy/smart/token"
+        "github.com/duzy/smart/types"
 )
 
 type RuntimeObj ast.Symbol
@@ -29,7 +29,7 @@ type RuntimeContext interface {
 
         DeclareProject(ident *ast.Ident, params types.Value) error
 
-        OpenScope(as ast.Scope, pos token.Pos, comment string) (ast.Scope, error)
+        OpenScope(pos token.Pos, comment string) (ast.Scope, error)
         CloseScope(as ast.Scope) error
 
         ClauseImport(spec *ast.ImportSpec) error
@@ -41,6 +41,9 @@ type RuntimeContext interface {
         DeclareRule(clause *ast.RuleClause) (RuntimeObj, error)
         
         Eval(x ast.Expr) (types.Value, error)
+        Resolve(name string) (obj RuntimeObj)
+        Symbol(name string) (obj, alt RuntimeObj)
+        Entry(name string) (obj, alt RuntimeObj)
 }
 
 type Context struct {
@@ -121,25 +124,9 @@ const (
         parsingDir
 )
 
-// ParseFile parses the source code of a single Go source file and returns
+// ParseFile parses the source code of a single source file and returns
 // the corresponding ast.File node. The source code may be provided via
 // the filename of the source file, or via the src parameter.
-//
-// If src != nil, ParseFile parses the source from src and the filename is
-// only used when recording position information. The type of the argument
-// for the src parameter must be string, []byte, or io.Reader.
-// If src == nil, ParseFile parses the file specified by filename.
-//
-// The mode parameter controls the amount of source text parsed and other
-// optional parser functionality. Position information is recorded in the
-// file set fset.
-//
-// If the source couldn't be read, the returned AST is nil and the error
-// indicates the specific failure. If the source was read but syntax
-// errors were found, the result is a partial AST (with ast.Bad* nodes
-// representing the fragments of erroneous source code). Multiple errors
-// are returned via a scanner.ErrorList which is sorted by file position.
-//
 func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode) (f *ast.File, err error) {
 	// get source
 	text, err := readSource(filename, src)
@@ -147,6 +134,8 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 		return nil, err
 	}
 
+        //fmt.Printf("ParseFile: %v\n", filename)
+        
 	var (
                 oldp = c.p
                 p parser
@@ -162,7 +151,7 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 		// set result values
 		if f == nil {
                         s := fmt.Sprintf("file %s", filename)
-                        scope, e := c.runtime.OpenScope(c.universe, token.NoPos, s)
+                        scope, e := c.runtime.OpenScope(token.NoPos, s)
                         if e != nil {
                                 // TODO: errors...
                         }
@@ -216,9 +205,13 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 		return nil, err
 	}
 
-        fmt.Printf("ParseDir: %v\n", path)
+        //fmt.Printf("ParseDir: %v\n", path)
 
-        //var projectScopes []ast.Scope
+        scope, err := c.runtime.OpenScope(c.p.pos, fmt.Sprintf("dir %s", path))
+        if err != nil {
+                return nil, err
+        }
+        
 	mods = make(map[string]*ast.Project)
 	for _, d := range list {
                 sm := strings.HasSuffix(d.Name(), ".smart") || strings.HasSuffix(d.Name(), ".sm")
@@ -230,7 +223,7 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 				if !found {
 					mod = &ast.Project{
                                                 Name:    name,
-                                                Scope:   nil, //ast.NewScope(nil),
+                                                Scope:   scope,
                                                 Files:   make(map[string]*ast.File),
                                         }
 					mods[name] = mod
@@ -242,5 +235,10 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 		}
 	}
 
+        if err := c.runtime.CloseScope(scope); err != nil {
+                if first == nil {
+                        first = err
+                }
+        }
 	return
 }

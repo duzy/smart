@@ -10,11 +10,7 @@ package ast
 // scope.
 //
 type Scope interface {
-	OuterScope() Scope
         Resolve(name string) Symbol
-        Symbol(name string) (sym, alt Symbol)
-        Entry(name string) (sym, alt Symbol)
-        //String() string // Debugging support
 }
 
 type Symbol interface {

@@ -100,6 +100,10 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 //fromOther = p != nil && p.project != prog.project
                         )
                         if res, err = d.Call(); err == nil {
+                                if p == nil {
+                                        break dependSwitch
+                                }
+                                
                                 //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
                                 dd, _ := p.scope.Lookup("@").(*types.Def)
                                 dt, _ := dd.Call()

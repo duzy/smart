@@ -532,11 +532,11 @@ type File struct {
 // collectively building a Project.
 //
 type Project struct {
-	Keypos  token.Pos          // position of "project" keyword
-	Name    string             // project name
+	Keypos  token.Pos         // position of "project" keyword
+	Name    string            // project name
 	Scope   Scope             // project scope across all files
 	Imports map[string]Symbol // map of project id -> project symbol
-	Files   map[string]*File   // source files by filename
+	Files   map[string]*File  // source files by filename
         Runtime interface{}
 }
 
