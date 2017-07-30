@@ -19,7 +19,7 @@ import (
 // and looked up by name. The zero value for Scope is a ready-to-use
 // empty scope.
 type Scope struct {
-        parent *Scope
+        outer *Scope
         chain []*Scope
         children []*Scope
         elems map[string]Object
@@ -27,19 +27,19 @@ type Scope struct {
         comment string
 }
 
-func NewScope(parent *Scope, pos, end token.Pos, comment string) *Scope {
-        scope := &Scope{ parent, nil, nil, nil, pos, end, comment }
+func NewScope(outer *Scope, pos, end token.Pos, comment string) *Scope {
+        scope := &Scope{ outer, nil, nil, nil, pos, end, comment }
  	// don't add children to Universe scope!
-	if parent != nil && parent != universe {
-		parent.children = append(parent.children, scope)
+	if outer != nil && outer != universe {
+		outer.children = append(outer.children, scope)
 	}
         return scope
 }
 
 func (s *Scope) Comment() string { return s.comment }
 
-// Parent returns the scope's containing (parent) scope.
-func (s *Scope) Parent() *Scope { return s.parent }
+// Outer returns the scope's containing (outer) scope.
+func (s *Scope) Outer() *Scope { return s.outer }
 
 // Len() returns the number of scope elements.
 func (s *Scope) Len() int { return len(s.elems) }
@@ -68,14 +68,14 @@ func (s *Scope) Lookup(name string) Object {
 	return s.elems[name]
 }
 
-// FindChainUp follows the parent chain of scopes starting with s until
+// FindChainUp follows the outer chain of scopes starting with s until
 // it finds a scope where Lookup(name) returns a non-nil object, and then
 // returns that scope and object. If a valid position pos is provided,
 // only objects that were declared at or before pos are considered.
 // If no such scope and object exists, the result is (nil, nil).
 //
-// Note that obj.Parent() may be different from the returned scope if the
-// object was inserted into the scope and already had a parent at that
+// Note that obj.Outer() may be different from the returned scope if the
+// object was inserted into the scope and already had a outer at that
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
 func (s *Scope) FindChainUp(name string, pos token.Pos) (*Scope, Object) {
@@ -84,7 +84,7 @@ func (s *Scope) FindChainUp(name string, pos token.Pos) (*Scope, Object) {
                         return p, obj
                 }
         }
-	for p := s; p != nil; p = p.parent {
+	for p := s; p != nil; p = p.outer {
 		if obj := p.elems[name]; obj != nil && (!pos.IsValid() || obj.scopePos() <= pos) {
 			return p, obj
 		}
@@ -108,7 +108,7 @@ func (s *Scope) Find(name string) (obj Object) {
 // Insert attempts to insert an object obj into scope s.
 // If s already contains an alternative object alt with
 // the same name, Insert leaves s unchanged and returns alt.
-// Otherwise it inserts obj, sets the object's parent scope
+// Otherwise it inserts obj, sets the object's outer scope
 // if not already set, and returns nil.
 func (s *Scope) Insert(obj Object) Object {
 	name := obj.Name()
@@ -151,7 +151,7 @@ func (s *Scope) Contains(pos token.Pos) bool {
 func (s *Scope) Innermost(pos token.Pos) *Scope {
 	// Package scopes do not have extents since they may be
 	// discontiguous, so iterate over the package's files.
-	if s.parent == universe {
+	if s.outer == universe {
 		for _, s := range s.children {
 			if inner := s.Innermost(pos); inner != nil {
 				return inner
