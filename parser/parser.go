@@ -10,7 +10,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/scanner"
         "github.com/duzy/smart/types"
-        //"github.com/duzy/smart/values"
+        "github.com/duzy/smart/values"
         "path/filepath"
         "strconv"
         "unicode"
@@ -1060,33 +1060,6 @@ func (p *parser) parseExtensionsSpec(doc *ast.CommentGroup, _ token.Token, _ int
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
         for _, prop := range spec.Props {
-                /* switch t := prop.(type) {
-                case *ast.Bareword:
-                        p.files[t.Value] = append(p.files[t.Value], ".")
-                case *ast.BasicLit:
-                        if t.Kind == token.STRING {
-                                p.files[t.Value] = append(p.files[t.Value], ".")
-                        } else {
-                                p.error(t.Pos(), fmt.Sprintf("invalid file '%s'", t.Value))
-                        }
-                case *ast.KeyValueExpr:
-                        var (
-                                k, _ = p.runtime.Eval(t.Key)   // TODO: check errors
-                                v, _ = p.runtime.Eval(t.Value) // TODO: check errors
-                                s = k.String()
-                        )
-                        switch vv := v.(type) {
-                        case *types.GroupValue:
-                                for _, elem := range vv.Elems {
-                                        p.files[s] = append(p.files[s], elem.String())
-                                }
-                        default:
-                                p.files[s] = append(p.files[s], vv.String())
-                        }
-                default:
-                        p.error(t.Pos(), fmt.Sprintf("bad file name (%T)", t))
-                        continue
-                } */
                 ee, _ := prop.(*ast.EvaluatedExpr)
                 if ee == nil || ee.Data == nil {
                         p.error(prop.Pos(), fmt.Sprintf("bad file spec (%T)", prop))
@@ -1412,6 +1385,12 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
         }
 }
 
+func (p *parser) closeScope(scope ast.Scope) {
+        if err := p.runtime.CloseScope(scope); err != nil {
+                p.error(p.pos, fmt.Sprintf("close scope (%v)", err))
+        }
+}
+
 // https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
 var automatics = []string{
         "@",  "%",  "<",  "?",  "^",  "+",  "|",  "*",  //
@@ -1439,7 +1418,13 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         )
 
         for i, target := range targets {
-                var name string
+                v, e := p.runtime.Eval(target)
+                if e != nil {
+                        p.error(target.Pos(), fmt.Sprintf("immediate (%s)", e))
+                        continue
+                }
+                
+                /*var name string
                 switch t := target.(type) {
                 case *ast.Bareword:
                         if name = t.Value; name == "use" {
@@ -1464,26 +1449,30 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 default:
                         p.error(target.Pos(), fmt.Sprintf("unknown entry type (%T)", t))
                         continue
-                }
+                }*/
+                var name = v.String()
                 if name == "" {
                         p.error(target.Pos(), "empty entry name")
                         continue
+                } else if name == "use" {
+                        if i == 0 && len(targets) == 1 {
+                                isUseRule = true
+                        } else {
+                                p.error(target.Pos(), "mixing use with normal rules")
+                        }
                 }
                 
-                if _, alt := p.runtime.Entry(name); alt != nil {
+                if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
                         p.warn(target.Pos(), fmt.Sprintf("'%s' already taken", name))
                         p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
                         //p.error(alt.Pos(), fmt.Sprintf("previously defined '%s'", name))
+                } else if sym != nil {
                 }
         }
-        
-        scope, err := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule"))
-        if err != nil {
-                p.error(p.pos, fmt.Sprintf("open scope (%v)", err))
-        }
-        
+
+        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule"))
         for _, s := range automatics {
-                if _, alt := p.runtime.Symbol(s); alt != nil {
+                if _, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
                         p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
                         p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
                 }
@@ -1549,14 +1538,12 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Modifier: modifier,
         }
 
-        if _, err := p.runtime.DeclareRule(clause); err == nil {
-                // ...
-        } else {
-                p.error(pos, fmt.Sprintf("%s", err))
-        }
+        // Close the rule scope and go back to project scope. The current
+        // scope must be project scope befor DeclareRule.
+        p.closeScope(scope)
 
-        if err := p.runtime.CloseScope(scope); err != nil {
-                p.error(p.pos, fmt.Sprintf("close scope (%v)", err))
+        if _, err := p.runtime.DeclareRule(clause); err != nil {
+                p.error(pos, fmt.Sprintf("%s", err))
         }
         return clause
 }
@@ -1621,26 +1608,49 @@ func (p *parser) parseFile() *ast.File {
 		return nil
 	}
 
-	// package clause
-	doc := p.leadComment
-	pos := p.pos
-
         var (
                 keyword token.Token
                 ident *ast.Ident
+                filename = p.file.Name()
+                doc = p.leadComment
+                pos = p.pos
         )
-        if p.mode&Flat == 0 {
-                if keyword = p.tok; keyword == token.PROJECT || keyword == token.MODULE {
-                        p.next()
-                } else {
-                        p.errorExpected(pos, "package keyword")
+
+        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("file %s", filename))
+        if scope != nil {
+                defer p.closeScope(scope)
+                var (
+                        sym RuntimeObj
+                        abs = filepath.Dir(filename)
+                        rel, _ = filepath.Rel(p.runtime.Getwd(), abs)
+                )
+                sym, _ = p.runtime.Symbol("/", types.DefineType)
+                sym.(*types.Def).Set(values.String(abs))
+                sym, _ = p.runtime.Symbol(".", types.DefineType)
+                sym.(*types.Def).Set(values.String(rel))
+                //relParent = filepath.Dir(rel)
+                //if rel == "." && relParent == "." {
+                //        relParent = ".."
+                //}
+                //fmt.Printf("%v\n", filename)
+                //fmt.Printf("%v\n", p.runtime.Resolve("/"))
+                //fmt.Printf("%v\n", p.runtime.Resolve("."))
+        } else {
+                p.error(p.pos, fmt.Sprintf("open scope"))
+        }
+
+        if keyword = p.tok; keyword == token.PROJECT || keyword == token.MODULE {
+                if p.mode&Flat != 0 {
+                        p.error(p.pos, fmt.Sprintf("forbidden %v in flat file", p.tok))
                 }
 
+                p.next()
+                
                 // Smart-lang spec:
                 //   * the project clause is not a declaration;
                 //   * the project name does not appear in any scope.
                 if p.tok == token.LPAREN || p.tok == token.LINEND {
-                        basename := filepath.Base(filepath.Dir(p.file.Name()))
+                        basename := filepath.Base(filepath.Dir(filename))
                         // TODO: validate base for identifier 
                         ident = &ast.Ident{ &ast.Bareword{
                                 ValuePos: pos,
@@ -1672,25 +1682,20 @@ func (p *parser) parseFile() *ast.File {
                         return nil
                 }
 
-                if err := p.runtime.DeclareProject(ident, params); err != nil {
-                        p.warn(ident.Pos(), fmt.Sprintf("project %s (%v)", ident.Value, err))
-                        p.error(ident.Pos(), fmt.Sprintf("declare %s error", ident.Value))
+                if p.mode&Flat == 0 {
+                        if err := p.runtime.DeclareProject(ident, params); err != nil {
+                                p.warn(ident.Pos(), fmt.Sprintf("project %s (%v)", ident.Value, err))
+                                p.error(ident.Pos(), fmt.Sprintf("declare %s error", ident.Value))
+                        }
                 }
+        } else if p.mode&Flat == 0 {
+                p.errorExpected(pos, "package keyword")
+        } else {
+                // TODO: Enter previously delcared project sope!
         }
 
-        scope, err := p.runtime.OpenScope(p.pos, fmt.Sprintf("file %s", p.file.Name()))
-        if err != nil {
-                p.error(p.pos, fmt.Sprintf("open scope (%v)", err))
-        }
-        
         p.files = make(map[string][]string, 2)
-        for _, s := range []string{ "/", ".", ".." } {
-                if _, alt := p.runtime.Symbol(s); alt != nil {
-                        //p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
-                        //p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
-                }
-        }
-        
+
 	var clauses []ast.Clause
 	if p.mode&ModuleClauseOnly == 0 {
                 if p.mode&Flat == 0 {
@@ -1714,10 +1719,6 @@ func (p *parser) parseFile() *ast.File {
 		}
 	}
 
-        if err := p.runtime.CloseScope(scope); err != nil {
-                p.error(p.pos, fmt.Sprintf("close scope (%v)", err))
-        }
-
 	// resolve global iers within the same file
 	i := 0
 	for _, ident := range p.unresolved {
@@ -1725,6 +1726,7 @@ func (p *parser) parseFile() *ast.File {
 		assert(ident.Sym == unresolved, "symbol already resolved")
                 
                 // also removes unresolved sentinel
+                //ident.Sym = scope.Resolve(ident.Value)
                 ident.Sym = p.runtime.Resolve(ident.Value)
 		if ident.Sym == unresolved {
                         p.warn(ident.Pos(), fmt.Sprintf("%s is undefined", ident.Value))

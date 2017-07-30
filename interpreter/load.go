@@ -127,7 +127,7 @@ func set(p *types.Project, op token.Token, name string, value types.Value) (def 
         )
         if obj == nil {
                 var alt types.Object
-                if obj, alt = scope.InsertNewDef(p, name, values.None); alt != nil {
+                if obj, alt = scope.InsertDef(p, name, values.None); alt != nil {
                         unreachable()
                 }
         }
@@ -412,7 +412,7 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
                         if alt := sn.Scope().Insert(pn); alt != nil {
                                 return errors.New(fmt.Sprintf("'%s' already defined in %v", specPath, sn.Scope()))
                         }
-                        if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
+                        if _, alt := sn.Scope().InsertDef(i.project, "*"/* use list */, pn); alt != nil {
                                 if def, _ := alt.(*types.Def); def != nil {
                                         defSet(token.ADD_ASSIGN, def, pn)
                                 }
@@ -458,10 +458,10 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         var (
                 scope = i.scope
                 p = i.project
-                //err error
         )
 
         //fmt.Printf("ident: %T (%v) (%v)\n", x.Sym, x.Sym, x.Value)
+        //fmt.Printf("ident: %T (%v) (%v)\n", x.Sym, x.Sym, scope)
         
         if !parser.IsUnresolved(x) {
                 if v = x.Sym.(types.Value); v != nil {
@@ -485,7 +485,7 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
                 } else {
                         v = scope.NewDummy(p, x.Value)
                 }*/
-                v = scope.NewDummy(p, x.Value)
+                v = values.None //scope.NewDummy(p, x.Value)
         }
         return
 }
@@ -754,7 +754,7 @@ func (i *Interpreter) useProjectName(pos token.Pos, pn *types.ProjectName) error
                                 return errors.New(fmt.Sprintf("'%s' already defined in %s", pn.Name(), sn.Scope()))
                         }
                 }
-                if _, alt := sn.Scope().InsertNewDef(i.project, "*"/* use list */, pn); alt != nil {
+                if _, alt := sn.Scope().InsertDef(i.project, "*"/* use list */, pn); alt != nil {
                         if def, _ := alt.(*types.Def); def != nil {
                                 defSet(token.ADD_ASSIGN, def, pn)
                         }
@@ -866,14 +866,16 @@ func (i *Interpreter) ruleDepend(depend types.Value) (result types.Value) {
         return
 }
 
-func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
+func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
         var (
                 depends []types.Value
                 recipes []types.Value
+                progScope *types.Scope
         )
-        for n, depend := range i.exprs(d.Depends) {
+        for n, depend := range i.exprs(clause.Depends) {
+                //fmt.Printf("depend: %T %v\n", depend, depend)
                 if v := i.ruleDepend(depend); v == nil {
-                        i.parseFail(d.Depends[n].Pos(), "invalid depend (%T %v)", d.Depends[n], depend)
+                        i.parseFail(clause.Depends[n].Pos(), "invalid depend (%T %v)", clause.Depends[n], depend)
                 } else if l, _ := v.(*types.ListValue); l != nil {
                         depends = append(depends, l.Elems...)
                 } else {
@@ -881,29 +883,23 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
                 }
         }
 
-        if p, ok := d.Program.(*ast.ProgramExpr); ok && p != nil {
-                // mapping lexical objects
-                /*for name, sym := range p.Scope.Symbols {
-                        if auto, alt := i.scope.InsertNewDef(i.project, name, values.None); alt != nil {
-                                i.parseFail(d.Pos(), "%s already defined", name)
-                        } else {
-                                sym.Data = auto
-                        }
-                }*/
-                
+        if p, ok := clause.Program.(*ast.ProgramExpr); ok && p != nil {
+                if progScope, _ = p.Scope.(*types.Scope); progScope == nil {
+                        return errors.New(fmt.Sprintf("undefined program scope (%T)", p.Scope))
+                }
                 if p.Values != nil {
                         recipes = i.exprs(p.Values)
                 }
         } else {
-                return errors.New(fmt.Sprintf("unsupported program type"))
+                return errors.New(fmt.Sprintf("unsupported program type (%T)", clause.Program))
         }
         
         var modifiers []types.Value
-        if d.Modifier != nil {
-                modifiers = i.exprs(d.Modifier.Elems)
+        if clause.Modifier != nil {
+                modifiers = i.exprs(clause.Modifier.Elems)
         }
-
-        var prog = i.NewProgram(i.project, i.scope, depends, recipes...)
+        
+        var prog = i.NewProgram(i.project, progScope, depends, recipes...)
         if len(modifiers) > 0 {
                 if err = prog.SetModifiers(modifiers...); err != nil {
                         return
@@ -911,45 +907,34 @@ func (i *Interpreter) rule(d *ast.RuleClause) (err error) {
         }
         
         var name string
-        for n, target := range i.exprs(d.Targets) {
+        for n, target := range i.exprs(clause.Targets) {
                 switch entry := target.(type) {
                 case *types.PercentPattern:
                         i.project.AddPercentPattern(entry, prog)
                 default:
                         class := types.GeneralRuleEntry
                         if name = target.String(); name == "use" {
-                                if n == 0 && len(d.Targets) == 1 {
+                                if n == 0 && len(clause.Targets) == 1 {
                                         class = types.UseRuleEntry
                                         name = useRuleName
                                 } else {
-                                        i.parseFail(d.Targets[n].Pos(), "'use' rule mixed with other targets")
+                                        i.parseFail(clause.Targets[n].Pos(), "'use' rule mixed with other targets")
                                 }
                         } else if i.project.IsFile(name) {
                                 class = types.FileRuleEntry
                         }
-                        i.project.Insert(name, prog, class)
+
+                        _, err = i.project.SetProgram(name, prog, class)
+                        if err != nil {
+                                break
+                        }
                 }
         }
         return
 }
 
-/*func (i *Interpreter) lexing(lexScope *ast.Scope) (err error) {
-        //fmt.Printf("%p: outer = %p\n", lexScope, lexScope.Outer)
-        for name, sym := range lexScope.Symbols {
-                _, s := i.scope.FindAt(sym.Pos(), name)
-                //fmt.Printf("lexing: %T %v (%v)\n", s, s, sym.Data)
-                if sym.Data == nil {
-                        sym.Data = s
-                } else if sym.Data != s {
-                        // FIXME: complain errors
-                }
-        }
-        return
-}*/
-
 func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         var (
-                //scope = i.Scope()
                 linfo = i.loads[len(i.loads)-1]
                 specPath = i.expr(spec.Props[0]).String()
                 params []types.Value
@@ -979,15 +964,14 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         return nil //i.lexing(doc.Scope)
 }
 
-func (i *Interpreter) openScope(pos token.Pos, comment string) (scope ast.Scope, err error) {
+func (i *Interpreter) openScope(pos token.Pos, comment string) ast.Scope {
         i.scope = types.NewScope(i.scope, pos, token.NoPos, comment)
-        scope = i.scope
-        return
+        return i.scope
 }
 
 func (i *Interpreter) closeScope(as ast.Scope) (err error) {
         if scope, ok := as.(*types.Scope); ok {
-                i.scope = scope
+                i.scope = scope.Outer()
         } else {
                 err = errors.New(fmt.Sprintf("bad runtime scope (%T)", as))
         }
@@ -1057,21 +1041,16 @@ func (i *Interpreter) declareProject(ident *ast.Ident, params types.Value) (err 
         if !ok {
                 var (
                         absPath = linfo.absPath
-                        relPath, relPathParent string
+                        relPath string
                 )
                 if !filepath.IsAbs(absPath) {
                         //absPath = filepath.Join(i.Getwd(), absPath)
                         absPath, _ = filepath.Abs(absPath)
                 }
-
                 relPath, _ = filepath.Rel(i.Getwd(), absPath)
-                relPathParent = filepath.Dir(relPath)
-                if relPath == "." && relPathParent == "." {
-                        relPathParent = ".."
-                }
 
                 dec = &declare{
-                        project: i.Globe().NewProject(absPath, relPath, linfo.specPath, name),
+                        project: i.Globe().NewProject(i.scope, absPath, relPath, linfo.specPath, name),
                 }
                 
                 linfo.declares[name] = dec
@@ -1081,17 +1060,8 @@ func (i *Interpreter) declareProject(ident *ast.Ident, params types.Value) (err 
                         s = p.Scope()
                         use = types.NewScope(s, token.NoPos, token.NoPos, useScopeName)
                 )
-                if _, alt := s.InsertNewScopeName(p, useScopeName, use); alt != nil {
+                if _, alt := s.InsertScopeName(p, useScopeName, use); alt != nil {
                         i.parseFail(ident.Pos(), "name '%s' already taken in %s", useScopeName, s)
-                }
-                if _, alt := s.InsertNewDef(p, "/", values.String(absPath)); alt != nil {
-                        i.parseFail(ident.Pos(), "'$/' already defined in %s", s)
-                }
-                if _, alt := s.InsertNewDef(p, ".", values.String(relPath)); alt != nil {
-                        i.parseFail(ident.Pos(), "'$.' already defined in %s", s)
-                }
-                if _, alt := s.InsertNewDef(p, "..", values.String(relPathParent)); alt != nil {
-                        i.parseFail(ident.Pos(), "'$..' already defined in %s", s)
                 }
         }
 
@@ -1099,7 +1069,7 @@ func (i *Interpreter) declareProject(ident *ast.Ident, params types.Value) (err 
                 //fmt.Printf("DeclareProject: %s -> %s, %v\n", loader.Name(), dec.project.Name(), dec.s)
 
                 var s = loader.Scope()
-                if _, a := s.InsertNewProjectName(loader, name, dec.project); a != nil {
+                if _, a := s.InsertProjectName(loader, name, dec.project); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
                                 i.parseFail(ident.Pos(), "name '%s' already taken (%T)", name, a)
                                 err = errors.New(fmt.Sprintf("name '%s' already taken (%T)", name, a))
@@ -1124,7 +1094,7 @@ func (i *Interpreter) load(specPath, absPath string, source interface{}) error {
                         s = i.project.Scope()
                         name = loaded.Name()
                 )
-                if _, a := s.InsertNewProjectName(i.project, name, loaded); a != nil {
+                if _, a := s.InsertProjectName(i.project, name, loaded); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
                                 return errors.New(fmt.Sprintf("name '%s' already taken (%T)", name, a))
                         }
@@ -1158,7 +1128,7 @@ func (i *Interpreter) loadDir(specPath, absPath string, filter func(os.FileInfo)
                         s = i.project.Scope()
                         name = loaded.Name()
                 )
-                if _, a := s.InsertNewProjectName(i.project, name, loaded); a != nil {
+                if _, a := s.InsertProjectName(i.project, name, loaded); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
                                 err = errors.New(fmt.Sprintf("name '%s' already taken (%T)", name, a))
                         }
@@ -1211,7 +1181,7 @@ func (pc *parseContext) DeclareProject(ident *ast.Ident, params types.Value) err
         return pc.declareProject(ident, params)
 }
 
-func (pc *parseContext) OpenScope(pos token.Pos, comment string) (scope ast.Scope, err error) {
+func (pc *parseContext) OpenScope(pos token.Pos, comment string) ast.Scope {
         return pc.openScope(pos, comment)
 }
 
@@ -1261,12 +1231,12 @@ func (pc *parseContext) Resolve(name string) (obj parser.RuntimeObj) {
         return
 }
 
-func (pc *parseContext) Symbol(name string) (obj, alt parser.RuntimeObj) {
-        obj, alt = pc.scope.InsertNewDef(pc.project, name, values.None)
-        return
-}
-
-func (pc *parseContext) Entry(name string) (obj, alt parser.RuntimeObj) {
-        obj, alt = pc.scope.InsertNewRuleEntry(pc.project, types.GeneralRuleEntry, name)
+func (pc *parseContext) Symbol(name string, t types.Type) (obj, alt parser.RuntimeObj) {
+        switch t {
+        case types.DefineType:
+                obj, alt = pc.scope.InsertDef(pc.project, name, values.None)
+        case types.RuleEntryType:
+                obj, alt = pc.scope.InsertEntry(pc.project, types.GeneralRuleEntry, name)
+        }
         return
 }

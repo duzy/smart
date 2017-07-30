@@ -64,7 +64,7 @@ func (ctx *Context) Fold(pos token.Pos, obj types.Object, args... types.Value) t
 
 func (ctx *Context) defineBuiltin(name string, f builtin) {
         scope := ctx.globe.Scope()
-        _, alt := scope.InsertNewBuiltin(name, func(args... types.Value) (types.Value, error) {
+        _, alt := scope.InsertBuiltin(name, func(args... types.Value) (types.Value, error) {
                 return f(ctx, args...)
         })
         if alt != nil {

@@ -132,7 +132,7 @@ func CommandLine() {
                 rel, _ = filepath.Rel(base, base)
 
                 i = New()
-                at = i.Globe().NewProject(base, rel, ".", "@")
+                at = i.Globe().NewProject(nil, base, rel, ".", "@")
                 as = at.Scope()
 
                 targets []string
@@ -152,18 +152,18 @@ func CommandLine() {
                                 fmt.Printf("ERROR: bad argument '%v'\n", a)
                                 return
                         }
-                        as.InsertNewDef(at, name, values.String(v))
+                        as.InsertDef(at, name, values.String(v))
                 } else {
                         targets = append(targets, a)
                 }
         }
 
-        i.Globe().Scope().InsertNewProjectName(nil, at.Name(), at)
+        i.Globe().Scope().InsertProjectName(nil, at.Name(), at)
 
         var (
                 ab = base
-                defS, _ = as.InsertNewDef(at, "/", values.String(at.AbsPath()))
-                defD, _ = as.InsertNewDef(at, ".", values.None)
+                defS, _ = as.InsertDef(at, "/", values.String(at.AbsPath()))
+                defD, _ = as.InsertDef(at, ".", values.None)
         )
         AtLookupLoop: for {
                 var (

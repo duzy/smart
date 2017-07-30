@@ -90,7 +90,7 @@ var (
 
 func defUniverseBuiltins() {
         for name, f := range builtins {
-                if _, alt := universe.InsertNewBuiltin(name, f); alt != nil {
+                if _, alt := universe.InsertBuiltin(name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined", name))
                 }
         }
@@ -130,8 +130,12 @@ func (g *Globe) Main() *Project { return g.main }
 // NewProject returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (g *Globe) NewProject(absPath, relPath, spec, name string) (m *Project) {
-	scope := NewScope(g.scope, token.NoPos, token.NoPos, fmt.Sprintf("project %q", name/*specPath*/))
+func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m *Project) {
+        if outer == nil {
+                outer = g.scope
+        }
+        
+	scope := NewScope(outer, token.NoPos, token.NoPos, fmt.Sprintf("project %q", name/*specPath*/))
 	m = &Project{
                 absPath: absPath,
                 relPath: relPath, 

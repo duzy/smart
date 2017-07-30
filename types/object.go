@@ -78,7 +78,7 @@ func (scope *Scope) NewDummy(project *Project, name string) Object {
         }
 }
 
-func (scope *Scope) InsertNewDummy(project *Project, name string) (obj, alt Object) {
+func (scope *Scope) InsertDummy(project *Project, name string) (obj, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 obj = scope.NewDummy(project, name)
                 scope.replace(name, obj)
@@ -118,7 +118,7 @@ func (scope *Scope) NewProjectName(container *Project, name string, project *Pro
         }
 }
 
-func (scope *Scope) InsertNewProjectName(container *Project, name string, project *Project) (pn *ProjectName, alt Object) {
+func (scope *Scope) InsertProjectName(container *Project, name string, project *Project) (pn *ProjectName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 pn = scope.NewProjectName(container, name, project)
                 scope.replace(name, pn)
@@ -153,7 +153,7 @@ func (scope *Scope) NewScopeName(project *Project, name string, s *Scope) *Scope
         }
 }
 
-func (scope *Scope) InsertNewScopeName(project *Project, name string, s *Scope) (pn *ScopeName, alt Object) {
+func (scope *Scope) InsertScopeName(project *Project, name string, s *Scope) (pn *ScopeName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 pn = scope.NewScopeName(project, name, s)
                 scope.replace(name, pn)
@@ -189,10 +189,12 @@ func (scope *Scope) NewDef(project *Project, name string, value Value) *Def {
         }
 }
 
-func (scope *Scope) InsertNewDef(project *Project, name string, value Value) (def *Def, alt Object) {
+func (scope *Scope) InsertDef(project *Project, name string, value Value) (def *Def, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 def = scope.NewDef(project, name, value)
                 scope.replace(name, def)
+        } else if d,b := alt.(*Def); d != nil && b {
+                //d.Set(value)
         }
         return
 }
@@ -221,7 +223,7 @@ func (scope *Scope) NewBuiltin(name string, f BuiltinFunc) *Builtin {
         }
 }
 
-func (scope *Scope) InsertNewBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
+func (scope *Scope) InsertBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 bui = scope.NewBuiltin(name, f)
                 scope.replace(name, bui)
@@ -297,7 +299,7 @@ func (scope *Scope) NewRuleEntry(project *Project, kind RuleEntryClass, name str
         }
 }
 
-func (scope *Scope) InsertNewRuleEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry, alt Object) {
+func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 entry = scope.NewRuleEntry(project, kind, name)
                 scope.replace(name, entry)

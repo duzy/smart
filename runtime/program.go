@@ -31,7 +31,7 @@ func (prog *Program) Scope() *types.Scope { return prog.scope }
 
 func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         var alt types.Object
-        if auto, alt = prog.scope.InsertNewDef(prog.project, name, values.Make(value)); alt != nil {
+        if auto, alt = prog.scope.InsertDef(prog.project, name, values.Make(value)); alt != nil {
                 //fmt.Printf("auto: %p %T %v\n", prog, sym, sym.Name())
                 var found = false
                 if auto, found = alt.(*types.Def); found {
@@ -101,6 +101,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         )
                         if res, err = d.Call(); err == nil {
                                 if p == nil {
+                                        //fmt.Printf("nil: %T %v\n", d, d)
                                         break dependSwitch
                                 }
                                 

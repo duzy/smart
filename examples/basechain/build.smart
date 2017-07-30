@@ -12,7 +12,9 @@ files (
 
 GREETING := 'Hello World!'
 
-eval println "test:" $a $b $c
+eval println "test:" $a $b $c 
+eval println "test:" $/ 
+eval println "test:" $. 
 
 run:[(stderr) (stdout) (shell)]: hello
 	./bin/hello

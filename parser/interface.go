@@ -22,6 +22,8 @@ import (
 type RuntimeObj ast.Symbol
 
 type RuntimeContext interface {
+        Getwd() string
+        
         IsDialect(s string) bool
         IsModifier(s string) bool
 
@@ -29,8 +31,8 @@ type RuntimeContext interface {
 
         DeclareProject(ident *ast.Ident, params types.Value) error
 
-        OpenScope(pos token.Pos, comment string) (ast.Scope, error)
-        CloseScope(as ast.Scope) error
+        OpenScope(pos token.Pos, comment string) ast.Scope
+        CloseScope(scope ast.Scope) error
 
         ClauseImport(spec *ast.ImportSpec) error
         ClauseInclude(spec *ast.IncludeSpec) error
@@ -41,9 +43,9 @@ type RuntimeContext interface {
         DeclareRule(clause *ast.RuleClause) (RuntimeObj, error)
         
         Eval(x ast.Expr) (types.Value, error)
+
         Resolve(name string) (obj RuntimeObj)
-        Symbol(name string) (obj, alt RuntimeObj)
-        Entry(name string) (obj, alt RuntimeObj)
+        Symbol(name string, t types.Type) (obj, alt RuntimeObj)
 }
 
 type Context struct {
@@ -151,20 +153,15 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 		// set result values
 		if f == nil {
                         s := fmt.Sprintf("file %s", filename)
-                        scope, e := c.runtime.OpenScope(token.NoPos, s)
-                        if e != nil {
-                                // TODO: errors...
-                        }
 
 			// source is not a valid source file - satisfy
 			// ParseFile API and return a valid (but) empty
 			// *ast.File
 			f = &ast.File{
 				Name:  new(ast.Ident),
-				Scope: scope,
+				Scope: c.runtime.OpenScope(token.NoPos, s),
 			}
-
-                        c.runtime.CloseScope(scope)
+                        c.runtime.CloseScope(f.Scope)
 		}
 
 		p.errors.Sort()
@@ -207,10 +204,7 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 
         //fmt.Printf("ParseDir: %v\n", path)
 
-        scope, err := c.runtime.OpenScope(c.p.pos, fmt.Sprintf("dir %s", path))
-        if err != nil {
-                return nil, err
-        }
+        scope := c.runtime.OpenScope(c.p.pos, fmt.Sprintf("dir %s", path))
         
 	mods = make(map[string]*ast.Project)
 	for _, d := range list {
