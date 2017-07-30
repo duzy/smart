@@ -9,7 +9,7 @@ files '*.o' '*.c' '*.cpp' 'hello' aaaa => '.'
 GREETING := 'Hello World!'
 
 #eval println $(@.a) $(@.b) $(@.c) $(@.d)
-eval println "test:" $a $b $c $r
+eval println "test:" $a $b $c
 
 run:[(stderr) (stdout) (shell)]: hello
 	./hello
