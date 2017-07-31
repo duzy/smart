@@ -20,7 +20,7 @@ type Type interface {
         Kind() Kind
 
         // Type classification info
-        Info() TypeInfo
+        Bits() TypeBits
 }
 
 type Kind int
@@ -109,10 +109,10 @@ func (t Kind) String() (s string) {
 }
 
 // TypeInfo is a set of flags describing properties of a basic type.
-type TypeInfo int
+type TypeBits int
 const (
         // Properties of basic types.
-	IsBoolean TypeInfo = 1 << iota
+	IsBoolean TypeBits = 1 << iota
         IsAny
 	IsInteger
 	IsUnsigned
@@ -160,26 +160,26 @@ const (
 
 type Core struct {
 	kind Kind
-	info TypeInfo
+	info TypeBits
 	name string
 }
 
 func (t *Core) String() string   { return TypeString(t, nil) }
 func (t *Core) Underlying() Type { return t }
 func (t *Core) Kind() Kind       { return t.kind }
-func (t *Core) Info() TypeInfo   { return t.info }
+func (t *Core) Bits() TypeBits   { return t.info }
 
 // A Basic represents a basic type.
 type Basic struct {
 	kind Kind
-	info TypeInfo
+	info TypeBits
 	name string
 }
 
 func (t *Basic) String() string   { return TypeString(t, nil) }
 func (t *Basic) Underlying() Type { return t }
 func (t *Basic) Kind() Kind       { return t.kind }
-func (t *Basic) Info() TypeInfo   { return t.info }
+func (t *Basic) Bits() TypeBits   { return t.info }
 func (t *Basic) IsBoolean() bool  { return t.info&IsBoolean != 0 }
 func (t *Basic) IsInteger() bool  { return t.info&IsInteger != 0 }
 func (t *Basic) IsUnsigned() bool { return t.info&IsUnsigned != 0 }
@@ -199,14 +199,14 @@ func (t *Basic) IsNone() bool     { return t.info&IsNone != 0 }
 
 type Composite struct {
 	kind Kind
-	info TypeInfo
+	info TypeBits
 	name string
 }
 
 func (t *Composite) String() string   { return TypeString(t, nil) }
 func (t *Composite) Underlying() Type { return t }
 func (t *Composite) Kind() Kind       { return t.kind }
-func (t *Composite) Info() TypeInfo   { return t.info }
+func (t *Composite) Bits() TypeBits   { return t.info }
 func (t *Composite) IsCompound() bool { return t.info&IsCompound != 0 }
 func (t *Composite) IsList() bool     { return t.info&IsList != 0 }
 func (t *Composite) IsGroup() bool    { return t.info&IsGroup != 0 }
@@ -223,4 +223,4 @@ func (t *Named) String() string   { return TypeString(t, nil) }
 func (t *Named) Name() string     { return t.name }
 func (t *Named) Underlying() Type { return t.underlying }
 func (t *Named) Kind() Kind       { return NamedKind }
-func (t *Named) Info() TypeInfo   { return IsNamed }
+func (t *Named) Bits() TypeBits   { return IsNamed }

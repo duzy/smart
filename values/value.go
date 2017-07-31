@@ -16,117 +16,117 @@ import (
 
 var None = types.UniversalNone
 
-func Any(v interface{}) *types.AnyValue {
-        return &types.AnyValue{ V:v }
+func Any(v interface{}) *types.Any {
+        return &types.Any{ V:v }
 }
 
-func IntLit(s string) (v *types.IntValue) {
+func IntLit(s string) (v *types.Int) {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-                v = &types.IntValue{i}
+                v = &types.Int{i}
         }
         return
 }
-func Int(s int64) (v *types.IntValue) {
-        return &types.IntValue{s}
+func Int(s int64) (v *types.Int) {
+        return &types.Int{s}
 }
 
-func FloatLit(s string) (v *types.FloatValue) {
+func FloatLit(s string) (v *types.Float) {
         if f, e := strconv.ParseFloat(s, 64); e == nil {
-                v = &types.FloatValue{f}
+                v = &types.Float{f}
         }
         return
 }
-func Float(s float64) (v *types.FloatValue) {
-        return &types.FloatValue{s}
+func Float(s float64) (v *types.Float) {
+        return &types.Float{s}
 }
 
-func DateTimeLit(s string) (v *types.DateTimeValue) {
+func DateTimeLit(s string) (v *types.DateTime) {
         // time.RFC3339Nano
         if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
-                v = &types.DateTimeValue{t}
+                v = &types.DateTime{t}
         }
         return
 }
-func DateTime(s time.Time) (v *types.DateTimeValue) {
-        return &types.DateTimeValue{s}
+func DateTime(s time.Time) (v *types.DateTime) {
+        return &types.DateTime{s}
 }
 
-func DateLit(s string) (v *types.DateValue) {
+func DateLit(s string) (v *types.Date) {
         if t, e := time.Parse("2006-01-02", s); e == nil {
-                v = &types.DateValue{types.DateTimeValue{t}}
+                v = &types.Date{types.DateTime{t}}
         }
         return
 }
-func Date(s time.Time) (v *types.DateValue) {
-        return &types.DateValue{types.DateTimeValue{s}}
+func Date(s time.Time) (v *types.Date) {
+        return &types.Date{types.DateTime{s}}
 }
 
-func TimeLit(s string) (v *types.TimeValue) {
+func TimeLit(s string) (v *types.Time) {
         if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
-                v = &types.TimeValue{types.DateTimeValue{t}}
+                v = &types.Time{types.DateTime{t}}
         }
         return
 }
-func Time(t time.Time) (v *types.TimeValue) {
-        return &types.TimeValue{types.DateTimeValue{t}}
+func Time(t time.Time) (v *types.Time) {
+        return &types.Time{types.DateTime{t}}
 }
 
-func UriLit(s string) (v *types.UriValue) {
+func UriLit(s string) (v *types.Uri) {
         if u, e := url.Parse(s); e == nil {
-                v = &types.UriValue{u}
+                v = &types.Uri{u}
         }
         return
 }
-func Uri(s *url.URL) (v *types.UriValue) {
-        return &types.UriValue{s}
+func Uri(s *url.URL) (v *types.Uri) {
+        return &types.Uri{s}
 }
 
-func StringLit(s string) (v *types.StringValue) {
-        return &types.StringValue{s}
+func StringLit(s string) (v *types.String) {
+        return &types.String{s}
 }
-func String(s string) (v *types.StringValue) {
-        return &types.StringValue{s}
-}
-
-func Bareword(s string) (v *types.BarewordValue) {
-        return &types.BarewordValue{s}
+func String(s string) (v *types.String) {
+        return &types.String{s}
 }
 
-func Barecomp(elems... types.Value) (v *types.BarecompValue) {
-        return &types.BarecompValue{types.Elements{elems}}
+func Bareword(s string) (v *types.Bareword) {
+        return &types.Bareword{s}
 }
 
-func Barefile(name types.Value, ext string) (v *types.BarefileValue) {
-        return &types.BarefileValue{name, ext}
+func Barecomp(elems... types.Value) (v *types.Barecomp) {
+        return &types.Barecomp{types.Elements{elems}}
 }
 
-func Path(segments... types.Value) (v *types.PathValue) {
-        return &types.PathValue{segments}
+func Barefile(name types.Value, ext string) (v *types.Barefile) {
+        return &types.Barefile{name, ext}
 }
 
-func File(v types.Value, s string) (fv *types.FileValue) {
-        return &types.FileValue{ Value:v, Name:s }
+func Path(segments... types.Value) (v *types.Path) {
+        return &types.Path{segments}
 }
 
-func Flag(name types.Value) (v *types.FlagValue) {
-        return &types.FlagValue{name}
+func File(v types.Value, s string) (fv *types.File) {
+        return &types.File{ Value:v, Name:s }
 }
 
-func Compound(elems... types.Value) (v *types.CompoundValue) {
-        return &types.CompoundValue{types.Elements{elems}}
+func Flag(name types.Value) (v *types.Flag) {
+        return &types.Flag{name}
 }
 
-func List(elems... types.Value) (v *types.ListValue) {
-        return &types.ListValue{types.Elements{elems}}
+func Compound(elems... types.Value) (v *types.Compound) {
+        return &types.Compound{types.Elements{elems}}
 }
 
-func Group(elems... types.Value) (v *types.GroupValue) {
-        return &types.GroupValue{types.ListValue{types.Elements{elems}}}
+func List(elems... types.Value) (v *types.List) {
+        return &types.List{types.Elements{elems}}
 }
 
-func Pair(k, v types.Value) (p *types.PairValue) {
-        if k.Type().Info()&types.IsKeyName != 0 {
-                p = &types.PairValue{nil, nil}
+func Group(elems... types.Value) (v *types.Group) {
+        return &types.Group{types.List{types.Elements{elems}}}
+}
+
+func Pair(k, v types.Value) (p *types.Pair) {
+        if k.Type().Bits()&types.IsKeyName != 0 {
+                p = &types.Pair{nil, nil}
                 p.SetKey(k)
                 p.SetValue(v)
         }

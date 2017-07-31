@@ -72,7 +72,7 @@ func (scope *Scope) NewDummy(project *Project, name string) Object {
                 parent:  scope,
                 project: project,
                 name:    name,
-                typ:     Invalid,
+                typ:     InvalidType,
                 ord:     0,
                 scopos:  token.NoPos,
         }
@@ -145,7 +145,7 @@ func (scope *Scope) NewScopeName(project *Project, name string, s *Scope) *Scope
                         parent:  scope,
                         project: project,
                         name:    name,
-                        typ:     Invalid, //ScopeNameType,
+                        typ:     InvalidType, //ScopeNameType,
                         ord:     0,
                         scopos:  token.NoPos,
                 },

@@ -28,7 +28,7 @@ func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []t
 evaluationLoop:
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {
-                case *types.ListValue:
+                case *types.List:
                         if stmt.Len() == 0 {
                                 continue
                         }
@@ -42,7 +42,7 @@ evaluationLoop:
                                         err = errors.New(fmt.Sprintf("wrong define arguments (%v)", n))
                                         break evaluationLoop
                                 }
-                                if a, _ := args[0].(*types.AnyValue); a != nil {
+                                if a, _ := args[0].(*types.Any); a != nil {
                                         if p, ok := a.V.(*types.Project); ok {
                                                 v, e = t.Define(p); break
                                         }
@@ -61,7 +61,7 @@ evaluationLoop:
                         }
                         if e == nil && v != nil {
                                 list.Append(v)
-                                if g, _ := v.(*types.GroupValue); g != nil {
+                                if g, _ := v.(*types.Group); g != nil {
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil &&
                                                 s.String() == "shell" && c.Integer() != 0 {
                                                 //fmt.Printf("evaluate: %v\n", v)

@@ -78,12 +78,12 @@ func defSet(op token.Token, def *types.Def, value types.Value) (err error) {
                         l []types.Value
                         v = def.Value()
                 )
-                if a, ok := v.(*types.ListValue); ok {
+                if a, ok := v.(*types.List); ok {
                         l = append(l, a.Slice(0)...)
                 } else {
                         l = append(l, v)
                 }
-                if a, ok := value.(*types.ListValue); ok {
+                if a, ok := value.(*types.List); ok {
                         l = append(l, a.Slice(0)...)
                 } else {
                         l = append(l, value)
@@ -171,38 +171,38 @@ func (p *usedefiner) unref(project *types.Project, value types.Value) (result ty
                 typ types.Type
         )
         switch v := value.(type) {
-        case *types.AnyValue:
+        case *types.Any:
                 if a, ok := v.V.(types.Value); ok {
                         result, err = p.unref(project, a)
                 }
-        case *types.BarecompValue:
-                elements, typ = v.Elems, types.Barecomp
+        case *types.Barecomp:
+                elements, typ = v.Elems, types.BarecompType
                 goto unrefElems
-        case *types.BarefileValue:
+        case *types.Barefile:
                 if temp, err = p.unref(project, v.Name); err == nil {
                         result = values.Barefile(temp, v.Ext)
                 }
-        case *types.PathValue:
-                elements, typ = v.Segments, types.Path
+        case *types.Path:
+                elements, typ = v.Segments, types.PathType
                 goto unrefElems
-        case *types.FlagValue:
+        case *types.Flag:
                 if temp, err = p.unref(project, v.Name); err == nil {
                         result = values.Flag(temp)
                 }
-        case *types.CompoundValue:
-                elements, typ = v.Elems, types.Compound
+        case *types.Compound:
+                elements, typ = v.Elems, types.CompoundType
                 goto unrefElems
-        case *types.ListValue:
-                elements, typ = v.Elems, types.List
+        case *types.List:
+                elements, typ = v.Elems, types.ListType
                 goto unrefElems
-        case *types.GroupValue:
-                elements, typ = v.Elems, types.Group
+        case *types.Group:
+                elements, typ = v.Elems, types.GroupType
                 goto unrefElems
-        /* case *types.MapValue:
+        /* case *types.Map:
                 for k, v := range v.Elems {
                         v.Elems[k] = p.unref(project, v)
                 } */
-        case *types.PairValue:
+        case *types.Pair:
                 var k types.Value
                 if k, err = p.unref(project, v.K); err == nil {
                         if temp, err = p.unref(project, v.V); err == nil {
@@ -250,12 +250,12 @@ func (p *usedefiner) unref(project *types.Project, value types.Value) (result ty
                 }
         }
         switch typ {
-        case types.Barecomp: result = values.Barecomp(list...)
-        case types.Path:     result = values.Path(list...)
-        case types.Compound: result = values.Compound(list...)
-        case types.List:     result = values.List(list...)
-        case types.Group:    result = values.Group(list...)
-        default:             unreachable();
+        case types.BarecompType: result = values.Barecomp(list...)
+        case types.PathType:     result = values.Path(list...)
+        case types.CompoundType: result = values.Compound(list...)
+        case types.ListType:     result = values.List(list...)
+        case types.GroupType:    result = values.Group(list...)
+        default:                 unreachable();
         }
         done: return
 }
@@ -552,7 +552,7 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
                                 
                                 v, elems := def.Value(), []types.Value{}
                                 switch t := v.(type) {
-                                case *types.ListValue: elems = t.Elems
+                                case *types.List: elems = t.Elems
                                 case *types.ProjectName: elems = append(elems, t)
                                 default:
                                         i.parseFail(s.Pos(), "bad use list (%T %v)", v, v)
@@ -832,14 +832,14 @@ func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) 
 func (i *Interpreter) depend(depend types.Value) (result types.Value) {
         //fmt.Printf("rule: %T %v (%v)\n", depend, depend, depend.String())
         switch entry := depend.(type) {
-        case *types.RuleEntry, *types.BarefileValue, *types.PathValue, *types.PercentPattern:
+        case *types.RuleEntry, *types.Barefile, *types.Path, *types.PercentPattern:
                 result = depend
-        case *types.ListValue:
+        case *types.List:
                 var list []types.Value
                 for _, elem := range entry.Elems {
                         if v := i.depend(elem); v == nil {
                                 return
-                        } else if l, _ := v.(*types.ListValue); l != nil {
+                        } else if l, _ := v.(*types.List); l != nil {
                                 list = append(list, l.Elems...)
                         } else {
                                 list = append(list, v)
@@ -867,7 +867,7 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 if v := i.depend(depval); v == nil {
                         i.parseWarn(depend.Pos(), "depend (%T %v -> %T %v)", depend, depend, depval, depval)
                         return errors.New(fmt.Sprintf("invalid depend"))
-                } else if l, _ := v.(*types.ListValue); l != nil {
+                } else if l, _ := v.(*types.List); l != nil {
                         depends = append(depends, l.Elems...)
                 } else {
                         depends = append(depends, v)
@@ -974,7 +974,7 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
                 return
         }
         
-        g, _ := params.(*types.GroupValue)
+        g, _ := params.(*types.Group)
         if g == nil {
                 err = errors.New(fmt.Sprintf("invalid parameters (%T)", params))
                 return

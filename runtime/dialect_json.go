@@ -17,8 +17,8 @@ import (
 
 type jsonDecodeState struct {
         dec *json.Decoder
-        stack []*types.GroupValue
-        nodes []*types.GroupValue
+        stack []*types.Group
+        nodes []*types.Group
 }
 
 func (ds *jsonDecodeState) decode() {
@@ -32,9 +32,9 @@ const (
 func DecodeJSON(source string) (result types.Value, err error) {
         //fmt.Printf("json: %v\n", source)
         var (
-                stack []*types.GroupValue
+                stack []*types.Group
                 nodes []types.Value
-                node *types.GroupValue
+                node *types.Group
                 value types.Value
                 t, v json.Token
         )
@@ -114,7 +114,7 @@ loop:
                         
                         switch vd := v.(type) {
                         case json.Delim:
-                                var vn *types.GroupValue
+                                var vn *types.Group
                                 switch vd {
                                 case '[': vn = values.Group(values.Bareword(JsonArray))
                                 case '{': vn = values.Group(values.Bareword(JsonObject))

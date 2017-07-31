@@ -979,9 +979,9 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         continue
                 }
                 switch v := ee.Data.(type) {
-                case *types.PairValue:
+                case *types.Pair:
                         switch s := v.K.String(); vv := v.V.(type) {
-                        case *types.GroupValue:
+                        case *types.Group:
                                 for _, elem := range vv.Elems {
                                         files[s] = append(files[s], elem.String())
                                 }

@@ -44,8 +44,8 @@ Converted into:
 ) */
 func DecodeXML(source string, ws bool) (result types.Value, err error) {
         var (
-                stack []*types.GroupValue
-                nodes []*types.GroupValue
+                stack []*types.Group
+                nodes []*types.Group
         )
         xd := xml.NewDecoder(strings.NewReader(source))
         var tok xml.Token

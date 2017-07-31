@@ -55,7 +55,7 @@ func GetBuiltins() map[string]BuiltinFunc {
 }
 
 func EscapedString(v Value) (s string) {
-        if v.Type() == String {
+        if v.Type() == StringType {
                 s = strings.Replace(v.String(), "\\'", "'", -1)
         } else {
                 s = v.String()
@@ -100,14 +100,14 @@ func builtinLit(args... Value) (result Value, err error) {
         for _, a := range args {
                 s += a.Lit()
         }
-        return &StringValue{s}, nil
+        return &String{s}, nil
 }
 
 func builtinFilterValues(neg bool, args... Value) (res Value, err error) {
         if len(args) > 1 {
                 var pats []Value
                 switch pat := args[0].(type) {
-                case *ListValue:
+                case *List:
                         for _, elem := range pat.Elems {
                                 pats = append(pats, elem)
                         }
@@ -136,7 +136,7 @@ func builtinFilterValues(neg bool, args... Value) (res Value, err error) {
                                 if okay { elems = append(elems, v) }
                         }
                         if len(elems) > 0 {
-                                res = &ListValue{Elements{elems}}
+                                res = &List{Elements{elems}}
                         }
                 }
         }
@@ -164,7 +164,7 @@ func builtinEncodeBase64(args... Value) (res Value, err error) {
                         enc.Write([]byte(a.String()))
                 }
                 enc.Close()
-                res = &StringValue{buf.String()}
+                res = &String{buf.String()}
         }
         return
 }
@@ -176,7 +176,7 @@ func builtinDecodeBase64(args... Value) (res Value, err error) {
                         var dat []byte
                         dat, err = base64.StdEncoding.DecodeString(a.String())
                         if err == nil {
-                                list = append(list, &StringValue{string(dat)})
+                                list = append(list, &String{string(dat)})
                         } else {
                                 return
                         }
@@ -186,7 +186,7 @@ func builtinDecodeBase64(args... Value) (res Value, err error) {
                 } else if x == 1 {
                         res = list[0]
                 } else {
-                        res = &ListValue{Elements{list}}
+                        res = &List{Elements{list}}
                 }
         }
         return
@@ -199,12 +199,12 @@ func builtinBase(args... Value) (Value, error) {
         )
         for _, a := range args {
                 s = filepath.Base(a.String())
-                l = append(l, &StringValue{s})
+                l = append(l, &String{s})
         }
         if len(l) == 1 {
                 return l[0], nil
         } else {
-                return &ListValue{Elements{l}}, nil
+                return &List{Elements{l}}, nil
         }
 }
 
@@ -215,12 +215,12 @@ func builtinDirDir(args... Value) (Value, error) {
         )
         for _, a := range args {
                 s = filepath.Dir(filepath.Dir(a.String()))
-                l = append(l, &StringValue{s})
+                l = append(l, &String{s})
         }
         if len(l) == 1 {
                 return l[0], nil
         } else {
-                return &ListValue{Elements{l}}, nil
+                return &List{Elements{l}}, nil
         }
 }
 
@@ -231,12 +231,12 @@ func builtinDir(args... Value) (Value, error) {
         )
         for _, a := range args {
                 s = filepath.Dir(a.String())
-                l = append(l, &StringValue{s})
+                l = append(l, &String{s})
         }
         if len(l) == 1 {
                 return l[0], nil
         } else {
-                return &ListValue{Elements{l}}, nil
+                return &List{Elements{l}}, nil
         }
 }
 
@@ -255,12 +255,12 @@ func builtinNDir(args... Value) (Value, error) {
                 for i := n-1; 0 < i; i -= 1 {
                         s = filepath.Dir(s)
                 }
-                l = append(l, &StringValue{s})
+                l = append(l, &String{s})
         }
         if len(l) == 1 {
                 return l[0], nil
         } else {
-                return &ListValue{Elements{l}}, nil
+                return &List{Elements{l}}, nil
         }
 }
 
@@ -269,7 +269,7 @@ func builtinReadFile(args... Value) (res Value, err error) {
         for _, a := range args {
                 var s []byte
                 if s, err = ioutil.ReadFile(a.String()); err == nil {
-                        l = append(l, &StringValue{string(s)})
+                        l = append(l, &String{string(s)})
                 } else {
                         l = append(l, UniversalNone)
                 }
@@ -279,7 +279,7 @@ func builtinReadFile(args... Value) (res Value, err error) {
         } else if x == 1 {
                 res = l[0]
         } else {
-                res = &ListValue{Elements{l}}
+                res = &List{Elements{l}}
         }
         return
 }

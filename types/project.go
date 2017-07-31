@@ -58,7 +58,7 @@ func (m *Project) AddFiles(files map[string][]string) {
         }
 }
 
-func (m *Project) SearchFile(fv *FileValue) *FileValue {
+func (m *Project) SearchFile(fv *File) *File {
         var (
                 ss = filepath.Base(fv.Name)
                 firstMatched []string

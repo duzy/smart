@@ -35,7 +35,7 @@ type Value interface {
 }
 
 type value struct {}
-func (*value) Type() Type         { return Invalid }
+func (*value) Type() Type         { return InvalidType }
 func (*value) Lit() string        { return "" }
 func (*value) String() string     { return "" }
 func (*value) Integer() int64     { return 0 }
@@ -44,85 +44,85 @@ func (*value) Float() float64     { return 0 }
 type None struct { value }
 func (p *None) Type() Type { return NoneType }
 
-type AnyValue struct {
+type Any struct {
         value
         V interface{}
 }
-func (p *AnyValue) Type() Type    { return Any }
+func (p *Any) Type() Type    { return AnyType }
 
-type IntValue struct {
+type Int struct {
         V int64
 }
-func (p *IntValue) Type() Type          { return Int }
-func (p *IntValue) Lit() string         { return p.String() }
-func (p *IntValue) String() string      { return strconv.FormatInt(int64(p.V),10) }
-func (p *IntValue) Integer() int64      { return p.V }
-func (p *IntValue) Float() float64      { return float64(p.V) }
+func (p *Int) Type() Type          { return IntType }
+func (p *Int) Lit() string         { return p.String() }
+func (p *Int) String() string      { return strconv.FormatInt(int64(p.V),10) }
+func (p *Int) Integer() int64      { return p.V }
+func (p *Int) Float() float64      { return float64(p.V) }
 
-type FloatValue struct {
+type Float struct {
         V float64
 }
-func (p *FloatValue) Type() Type        { return Float }
-func (p *FloatValue) Lit() string       { return p.String() }
-func (p *FloatValue) String() string    { return strconv.FormatFloat(float64(p.V),'g', -1, 64) }
-func (p *FloatValue) Integer() int64    { return int64(p.V) }
-func (p *FloatValue) Float() float64    { return p.V }
+func (p *Float) Type() Type        { return FloatType }
+func (p *Float) Lit() string       { return p.String() }
+func (p *Float) String() string    { return strconv.FormatFloat(float64(p.V),'g', -1, 64) }
+func (p *Float) Integer() int64    { return int64(p.V) }
+func (p *Float) Float() float64    { return p.V }
 
-type DateTimeValue struct {
+type DateTime struct {
         V time.Time 
 }
-func (p *DateTimeValue) Type() Type     { return DateTime }
-func (p *DateTimeValue) Lit() string    { return p.String() }
-func (p *DateTimeValue) String() string { return time.Time(p.V).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
-func (p *DateTimeValue) Integer() int64 { return p.V.Unix() }
-func (p *DateTimeValue) Float() float64 { return float64(p.Integer()) }
+func (p *DateTime) Type() Type     { return DateTimeType }
+func (p *DateTime) Lit() string    { return p.String() }
+func (p *DateTime) String() string { return time.Time(p.V).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
+func (p *DateTime) Integer() int64 { return p.V.Unix() }
+func (p *DateTime) Float() float64 { return float64(p.Integer()) }
 
-type DateValue struct { DateTimeValue }
-func (p *DateValue) Type() Type         { return Date }
-func (p *DateValue) Lit() string        { return p.String() }
-func (p *DateValue) String() string     { return time.Time(p.V).Format("2006-01-02") }
-func (p *DateValue) Integer() int64     { return p.V.Unix() }
-func (p *DateValue) Float() float64     { return float64(p.Integer()) }
+type Date struct { DateTime }
+func (p *Date) Type() Type         { return DateType }
+func (p *Date) Lit() string        { return p.String() }
+func (p *Date) String() string     { return time.Time(p.V).Format("2006-01-02") }
+func (p *Date) Integer() int64     { return p.V.Unix() }
+func (p *Date) Float() float64     { return float64(p.Integer()) }
 
-type TimeValue struct { DateTimeValue }
-func (p *TimeValue) Type() Type         { return Time }
-func (p *TimeValue) Lit() string        { return p.String() }
-func (p *TimeValue) String() string     { return time.Time(p.V).Format("15:04:05.999999999Z07:00") }
-func (p *TimeValue) Integer() int64     { return p.V.Unix() }
-func (p *TimeValue) Float() float64     { return float64(p.Integer()) }
+type Time struct { DateTime }
+func (p *Time) Type() Type         { return TimeType }
+func (p *Time) Lit() string        { return p.String() }
+func (p *Time) String() string     { return time.Time(p.V).Format("15:04:05.999999999Z07:00") }
+func (p *Time) Integer() int64     { return p.V.Unix() }
+func (p *Time) Float() float64     { return float64(p.Integer()) }
 
-type UriValue struct {
+type Uri struct {
         V *url.URL
 }
-func (p *UriValue) Type() Type          { return Uri }
-func (p *UriValue) Lit() string         { return p.String() }
-func (p *UriValue) String() string      { return p.V.String() }
-func (p *UriValue) Integer() int64      { return int64(len(p.V.String())) }
-func (p *UriValue) Float() float64      { return float64(p.Integer()) }
+func (p *Uri) Type() Type          { return UriType }
+func (p *Uri) Lit() string         { return p.String() }
+func (p *Uri) String() string      { return p.V.String() }
+func (p *Uri) Integer() int64      { return int64(len(p.V.String())) }
+func (p *Uri) Float() float64      { return float64(p.Integer()) }
 
-type StringValue struct {
+type String struct {
         V string
 }
-func (p *StringValue) Type() Type  { return String }
-func (p *StringValue) Lit() string {
+func (p *String) Type() Type  { return StringType }
+func (p *String) Lit() string {
         if strings.ContainsRune(p.V, '\n') {
                 return "\"" + strings.Replace(p.V, "\n", "\\n", -1) + "\"" 
         } else {
                 return "'" + p.V + "'" 
         }
 }
-func (p *StringValue) String() string   { return p.V }
-func (p *StringValue) Integer() int64   { i, _ := strconv.ParseInt(p.V, 10, 64); return i }
-func (p *StringValue) Float() float64   { return float64(p.Integer()) }
+func (p *String) String() string   { return p.V }
+func (p *String) Integer() int64   { i, _ := strconv.ParseInt(p.V, 10, 64); return i }
+func (p *String) Float() float64   { return float64(p.Integer()) }
 
-type BarewordValue struct {
+type Bareword struct {
         V string
 }
-func (p *BarewordValue) Type() Type     { return Bareword }
-func (p *BarewordValue) Lit() string    { return p.String() }
-func (p *BarewordValue) String() string { return p.V }
-func (p *BarewordValue) Integer() int64 { return 0 }
-func (p *BarewordValue) Float() float64 { return float64(p.Integer()) }
+func (p *Bareword) Type() Type     { return BarewordType }
+func (p *Bareword) Lit() string    { return p.String() }
+func (p *Bareword) String() string { return p.V }
+func (p *Bareword) Integer() int64 { return 0 }
+func (p *Bareword) Float() float64 { return float64(p.Integer()) }
 
 
         
@@ -154,55 +154,55 @@ func (p *Elements) Take(n int) (v Value) {
         }
         return 
 }
-func (p *Elements) ToBarecomp() *BarecompValue { return &BarecompValue{*p} }
-func (p *Elements) ToCompound() *CompoundValue { return &CompoundValue{*p} }
-func (p *Elements) ToList() *ListValue         { return &ListValue{*p} }
+func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
+func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
+func (p *Elements) ToList() *List         { return &List{*p} }
 
-type BarecompValue struct {
+type Barecomp struct {
         Elements
 }
-func (p *BarecompValue) Lit() (s string) {
+func (p *Barecomp) Lit() (s string) {
         for _, e := range p.Elems {
                 s += e.Lit()
         }
         return
 }
-func (p *BarecompValue) String() (s string) {
+func (p *Barecomp) String() (s string) {
         for _, e := range p.Elems {
                 s += e.String()
         }
         return
 }
-func (p *BarecompValue) Type() Type     { return Barecomp }
-func (p *BarecompValue) Integer() int64 { return int64(len(p.Elems)) }
-func (p *BarecompValue) Float() float64 { return float64(p.Integer()) }
+func (p *Barecomp) Type() Type     { return BarecompType }
+func (p *Barecomp) Integer() int64 { return int64(len(p.Elems)) }
+func (p *Barecomp) Float() float64 { return float64(p.Integer()) }
 
-type BarefileValue struct {
+type Barefile struct {
         Name Value
         Ext string
 }
-func (p *BarefileValue) Type() Type { return Barefile }
-func (p *BarefileValue) Lit() (s string) {
+func (p *Barefile) Type() Type { return BarefileType }
+func (p *Barefile) Lit() (s string) {
         s += p.Name.Lit()
         if p.Ext != "" {
                 s += "." + p.Ext
         }
         return
 }
-func (p *BarefileValue) String() string {
+func (p *Barefile) String() string {
         s := p.Name.String()
         if p.Ext != "" {
                 s += "." + p.Ext
         }
         return s
 }
-func (p *BarefileValue) Integer() int64 { return 0 }
-func (p *BarefileValue) Float() float64 { return float64(p.Integer()) }
+func (p *Barefile) Integer() int64 { return 0 }
+func (p *Barefile) Float() float64 { return float64(p.Integer()) }
 
-type PathValue struct {
+type Path struct {
         Segments []Value
 }
-func (p *PathValue) Lit() (s string) {
+func (p *Path) Lit() (s string) {
         // TODO: add '/' for root dir
         for i, seg := range p.Segments {
                 if i > 0 { s += string(os.PathSeparator) }
@@ -211,7 +211,7 @@ func (p *PathValue) Lit() (s string) {
         // TODO: add '/' if there's such a suffix
         return
 }
-func (p *PathValue) String() (s string) {
+func (p *Path) String() (s string) {
         // TODO: add '/' for root dir
         for i, seg := range p.Segments {
                 if i > 0 { s += string(os.PathSeparator) }
@@ -220,37 +220,37 @@ func (p *PathValue) String() (s string) {
         // TODO: add '/' if there's such a suffix
         return
 }
-func (p *PathValue) Integer() int64     { return 0 }
-func (p *PathValue) Float() float64     { return float64(p.Integer()) }
-func (p *PathValue) Type() Type         { return Path }
+func (p *Path) Integer() int64     { return 0 }
+func (p *Path) Float() float64     { return float64(p.Integer()) }
+func (p *Path) Type() Type         { return PathType }
 
-type FileValue struct {
+type File struct {
         Value  // original represented name (e.g. Barefile)
         Name string  // represented name (e.g. relative filename)
         Dir string   // directory in which the file should be or was found
         Info os.FileInfo // file info if exists
 }
-func (p *FileValue) Type() Type { return File }
-func (p *FileValue) String() string { return filepath.Join(p.Dir, p.Name) }
+func (p *File) Type() Type { return FileType }
+func (p *File) String() string { return filepath.Join(p.Dir, p.Name) }
 
-type FlagValue struct {
+type Flag struct {
         Name Value
 }
-func (p *FlagValue) Lit() (s string) {
+func (p *Flag) Lit() (s string) {
         s = "-" + p.Name.Lit()
         return
 }
-func (p *FlagValue) String() string {
+func (p *Flag) String() string {
         return "-" + p.Name.String()
 }
-func (p *FlagValue) Integer() int64     { return 0 }
-func (p *FlagValue) Float() float64     { return float64(p.Integer()) }
-func (p *FlagValue) Type() Type         { return Flag }
+func (p *Flag) Integer() int64     { return 0 }
+func (p *Flag) Float() float64     { return float64(p.Integer()) }
+func (p *Flag) Type() Type         { return FlagType }
         
-type CompoundValue struct {
+type Compound struct {
         Elements
 }
-func (p *CompoundValue) Lit() (s string) {
+func (p *Compound) Lit() (s string) {
         s = "\""
         for _, e := range p.Elems {
                 s += e.Lit()
@@ -258,7 +258,7 @@ func (p *CompoundValue) Lit() (s string) {
         s += "\""
         return
 }
-func (p *CompoundValue) String() (s string) {
+func (p *Compound) String() (s string) {
         //s = "\""
         for _, e := range p.Elems {
                 s += e.String()
@@ -266,14 +266,14 @@ func (p *CompoundValue) String() (s string) {
         //s += "\""
         return
 }
-func (p *CompoundValue) Integer() int64 { return int64(len(p.Elems)) }
-func (p *CompoundValue) Float() float64 { return float64(p.Integer()) }
-func (p *CompoundValue) Type() Type     { return Compound }
+func (p *Compound) Integer() int64 { return int64(len(p.Elems)) }
+func (p *Compound) Float() float64 { return float64(p.Integer()) }
+func (p *Compound) Type() Type     { return CompoundType }
 
-type ListValue struct {
+type List struct {
         Elements
 }
-func (p *ListValue) Lit() (s string) {
+func (p *List) Lit() (s string) {
         for i, e := range p.Elems {
                 if 0 < i {
                         s += " "
@@ -282,7 +282,7 @@ func (p *ListValue) Lit() (s string) {
         }
         return
 }
-func (p *ListValue) String() (s string) {
+func (p *List) String() (s string) {
         var x = 0
         for _, e := range p.Elems {
                 if v := e.String(); v != "" {
@@ -295,52 +295,52 @@ func (p *ListValue) String() (s string) {
         }
         return
 }
-func (p *ListValue) Type() Type         { return List }
+func (p *List) Type() Type         { return ListType }
 
-type GroupValue struct {
-        ListValue
+type Group struct {
+        List
 }
-func (p *GroupValue) Lit() string {
-        return "(" + p.ListValue.Lit() + ")"
+func (p *Group) Lit() string {
+        return "(" + p.List.Lit() + ")"
 }
-func (p *GroupValue) String() string {
-        return "(" + p.ListValue.String() + ")"
+func (p *Group) String() string {
+        return "(" + p.List.String() + ")"
 }
-func (p *GroupValue) Type() Type        { return Group }
+func (p *Group) Type() Type        { return GroupType }
 
-type MapValue struct {
+type Map struct {
         Elems map[string]Value
 }
-/* func (p *MapValue) Lit() string {
-        return "(" + p.ListValue.Lit() + ")"
+/* func (p *Map) Lit() string {
+        return "(" + p.List.Lit() + ")"
 }
 func (p *Map) String() string {
         return "(" + p.List.String() + ")"
 } */
 
-type PairValue struct { // key=value
+type Pair struct { // key=value
         K Value
         V Value
 }
-func (p *PairValue) Lit() string {
+func (p *Pair) Lit() string {
         return p.K.Lit() + "=" + p.V.Lit()
 }
-func (p *PairValue) String() string {
+func (p *Pair) String() string {
         return p.K.String() + "=" + p.V.String()
 }
-func (p *PairValue) Integer() int64     { return p.V.Integer() }
-func (p *PairValue) Float() float64     { return p.V.Float() }
-func (p *PairValue) Type() Type         { return Pair }
+func (p *Pair) Integer() int64     { return p.V.Integer() }
+func (p *Pair) Float() float64     { return p.V.Float() }
+func (p *Pair) Type() Type         { return PairType }
 
-func (p *PairValue) Key() Value         { return p.K }
-func (p *PairValue) Value() Value       { return p.V }
-func (p *PairValue) SetValue(v Value)   { p.V = v }
-func (p *PairValue) SetKey(k Value) {
+func (p *Pair) Key() Value         { return p.K }
+func (p *Pair) Value() Value       { return p.V }
+func (p *Pair) SetValue(v Value)   { p.V = v }
+func (p *Pair) SetKey(k Value) {
         switch o := k.(type) {
-        case *PairValue:   k = o.K
+        case *Pair:   k = o.K
         //case *PairLiteral: k = o.K
         }
-        if k.Type().Info()&IsKeyName != 0 {
+        if k.Type().Bits()&IsKeyName != 0 {
                 p.K = k
         } else {
                 p.K = nil
@@ -360,7 +360,7 @@ type pattern struct {
         program Program
 }
 
-func (p *pattern) Type() Type        { return Invalid }
+func (p *pattern) Type() Type        { return InvalidType }
 func (p *pattern) Integer() int64    { return 0 }
 func (p *pattern) Float() float64    { return 0 }
 func (p *pattern) Program() Program  { return p.program }
@@ -443,10 +443,10 @@ type Definer interface {
         Define(p *Project) (Value, error)
 }
 
-type DefinerValue interface {
-        Value
-        Definer
-}
+//type DefinerValue interface {
+//        Value
+//        Definer
+//}
 
 type Valuer interface {
         Value() Value
@@ -456,28 +456,28 @@ type Caller interface {
         Call(args... Value) (Value, error)
 }
 
-type CallerValue interface {
-        Value
-        Caller
-}
+//type CallerValue interface {
+//        Value
+//        Caller
+//}
 
 type Unrefer interface {
         Unref(project *Project, s string, a... Value) (Value, error)
 }
 
-type UnreferValue interface {
-        Value
-        Unrefer
-}
+//type UnreferValue interface {
+//        Value
+//        Unrefer
+//}
 
 type Poser interface {
         Pos() *token.Position
 }
 
-type PoserValue interface {
-        Value
-        Poser
-}
+//type PoserValue interface {
+//        Value
+//        Poser
+//}
 
 type Namer interface {
         Name() string
@@ -524,7 +524,7 @@ func Eval(v Value) (res Value) {
         switch t := v.(type) {
         case Valuer:
                 res = Eval(t.Value())
-        case *ListValue:
+        case *List:
                 for i, elem := range t.Elems {
                         t.Elems[i] = Eval(elem)
                 }
@@ -538,7 +538,7 @@ func Eval(v Value) (res Value) {
 func EvalElems(args... Value) (elems []Value) {
         for _, arg := range args {
                 switch t := Eval(arg).(type) {
-                case *ListValue:
+                case *List:
                         for _, elem := range t.Elems {
                                 elems = append(elems, EvalElems(elem)...)
                         }

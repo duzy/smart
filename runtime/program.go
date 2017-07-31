@@ -58,7 +58,7 @@ func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... 
         return
 }
 
-func (prog *Program) modify(pcd bool, g *types.GroupValue, out *types.Def) (err error) {
+func (prog *Program) modify(pcd bool, g *types.Group, out *types.Def) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -126,9 +126,9 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 //Fail("failed to update '%v' (%v)", entry, err)
                                 break dependsLoop
                         }
-                case *types.BarefileValue:
+                case *types.Barefile:
                         file = d.String(); goto handleFileEntry
-                case *types.PathValue:
+                case *types.Path:
                         file = d.String(); goto handleFileEntry
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
@@ -253,7 +253,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
 pipelineLoop:
         for _, v := range prog.pipline {
                 switch op := v.(type) {
-                case *types.GroupValue:
+                case *types.Group:
                         if err = prog.modify(pcd, op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
@@ -264,7 +264,7 @@ pipelineLoop:
                                 }
                                 break pipelineLoop
                         }
-                case *types.BarewordValue:
+                case *types.Bareword:
                         if i, _ := interpreters[op.String()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
@@ -290,7 +290,7 @@ func (context *Context) NewProgram(project *types.Project, scope *types.Scope, d
                 context:     context,
                 project:     project,
                 scope:       scope,
-                depends:     depends, // *types.RuleEntry, *types.BarefileValue
+                depends:     depends, // *types.RuleEntry, *types.Barefile
                 recipes:     recipes,
         }
 }
