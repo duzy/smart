@@ -1420,7 +1420,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         }
                         
                         var name = depval.String()
-                        // FIXME: passes rule class
                         if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
                                 if true {
                                         depval = alt.(types.Value)
@@ -1428,17 +1427,21 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                         p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%v)", name, alt))
                                         p.error(depend.Pos(), fmt.Sprintf("name '%s' already taken", name))
                                 }
-                        } else if sym != nil {
+                        } else if sym != nil { // New entry (not previously defined)!
                                 depval = sym.(types.Value)
-                                
-                                //entry := depval.(*types.RuleEntry)
-                                //fmt.Printf("depend: %v\n", entry)
+                                depent := depval.(*types.RuleEntry)
+                                class := depent.Class()
+                                switch depend.(type) {
+                                case *ast.Barefile, *ast.PathExpr:
+                                        class = types.FileRuleEntry
+                                case *ast.Bareword:
+                                        if p.runtime.IsFileName(name) {
+                                                class = types.FileRuleEntry
+                                        }
+                                }
+                                depent.SetClass(class)
 
-                                //class := types.GeneralRuleEntry
-                                //if pc.project.IsFile(name) {
-                                //        class = types.FileRuleEntry
-                                //}
-                                
+                                //fmt.Printf("depend: %v %v\n", depent, class)
                         } else {
                                 // TODO: errors...
                         }
