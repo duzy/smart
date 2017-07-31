@@ -1392,7 +1392,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 // FIXME: parse prerequisites in project scope??
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
-                        if bw, _ := depend.(*ast.Bareword); bw != nil {
+                        /*if bw, _ := depend.(*ast.Bareword); bw != nil {
                                 if p.runtime.IsFileName(bw.Value) {
                                         depends[i] = &ast.Barefile{ Name: bw }
                                 } else {
@@ -1402,6 +1402,18 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 // untouched
                         } else {
                                 depends[i] = p.identify(depend)
+                        }*/
+                        dv, err := p.runtime.Eval(depend)
+                        if err != nil {
+                                p.error(depend.Pos(), fmt.Sprintf("%s", err))
+                                continue
+                        }
+
+                        sym := p.runtime.Resolve(dv.String())
+                        if sym == nil {
+                                depends[i] = &ast.EvaluatedExpr{ dv, depend }
+                        } else {
+                                depends[i] = &ast.EvaluatedExpr{ sym, depend }
                         }
                 }
         }

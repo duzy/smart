@@ -862,14 +862,22 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 progScope *types.Scope
         )
         for n, depend := range i.exprs(clause.Depends) {
-                //fmt.Printf("depend: %T %v\n", depend, depend)
-                if v := i.ruleDepend(depend); v == nil {
-                        i.parseFail(clause.Depends[n].Pos(), "invalid depend (%T %v)", clause.Depends[n], depend)
+                dep := clause.Depends[n]
+                ee, ok := dep.(*ast.EvaluatedExpr)
+                if !ok {
+                        fmt.Printf("depend: %T %v (%T %v)\n", depend, depend, ee.Data, ee.Data)
+                        continue
+                }
+                depval := ee.Data.(types.Value)
+                /*if v := i.ruleDepend(depval); v == nil {
+                        i.parseWarn(dep.Pos(), "depend (%T %v -> %T %v)", dep, dep, depval, depval)
+                        return errors.New(fmt.Sprintf("invalid depend"))
                 } else if l, _ := v.(*types.ListValue); l != nil {
                         depends = append(depends, l.Elems...)
                 } else {
                         depends = append(depends, v)
-                }
+                }*/
+                depends = append(depends, depval)
         }
 
         if p, ok := clause.Program.(*ast.ProgramExpr); ok && p != nil {
