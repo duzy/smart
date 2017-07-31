@@ -1516,7 +1516,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 continue
                         }
 
-                        fmt.Printf("depend: %v %v\n", depent, args)
+                        //fmt.Printf("depend: %v %v\n", depent, args)
                         depval = &types.ArgumentedEntry{ depent, args }
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                 }
