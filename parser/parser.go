@@ -363,6 +363,16 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                 // Barefile and PathExpr are a special identifier itself.
         case *ast.Ident: 
                 // Ignore silently.
+        case *ast.BasicLit:
+                if t.Kind == token.INT && len(t.Value) == 1 {
+                        ident := &ast.Ident{ &ast.Bareword{ t.Pos(), t.Value }, nil }
+                        if p.resolve(ident); ident.Sym == nil {
+                                p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Value))
+                        }
+                        x = ident
+                } else {
+                        p.error(t.Pos(), fmt.Sprintf("bad identifier (%v)", t.Value))
+                }
         default: 
                 p.error(t.Pos(), fmt.Sprintf("unkown identifier (%T)", t))
         }
@@ -1502,6 +1512,13 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         for _, s := range params {
                 if sym, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
                         p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
+                } else if sym == nil {
+                        // TODO: errors
+                }
+        }
+        for i := 1; i < 10; i += 1 {
+                if sym, alt := p.runtime.Symbol(strconv.Itoa(i), types.DefineType); alt != nil {
+                        p.warn(p.pos, fmt.Sprintf("'%v' already taken", i))
                 } else if sym == nil {
                         // TODO: errors
                 }

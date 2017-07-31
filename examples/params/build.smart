@@ -6,5 +6,4 @@ run: \
     foo(ccc)
 
 foo:[((arg)) (shell)]
-	echo 'arg' $arg
-
+	echo 'arg' $arg $(1)

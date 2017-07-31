@@ -224,7 +224,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         for i, a := range args {
                 // TODO: handle with Pair, map 'key => value' into
                 // parameters.
-                prog.auto(strconv.Itoa(i), a)
+                prog.auto(strconv.Itoa(i+1), a)
                 if i < len(prog.params) {
                         name := prog.params[i]
                         prog.auto(name, a)

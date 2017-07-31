@@ -605,12 +605,13 @@ func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v t
 
 func (i *Interpreter) call(x *ast.CallExpr) (v types.Value) {
         var name = i.expr(x.Name)
-        if obj, _ := name.(types.Object); obj != nil {
-                v = i.Fold(x.Pos(), obj, i.exprs(x.Args)...)
-        } else if name != nil {
-                i.parseFail(x.Name.Pos(), "bad call '%s' (%T, %T)", name, name, x.Name)
-        } else {
+        switch t := name.(type) {
+        case types.Object:
+                v = i.Fold(x.Pos(), t, i.exprs(x.Args)...)
+        case nil:
                 i.parseFail(x.Pos(), "calling undefined object %v", x.Name)
+        default:
+                i.parseFail(x.Name.Pos(), "bad call '%s' (%T -> %T)", name, x.Name, name)
         }
         return
 }
