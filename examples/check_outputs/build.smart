@@ -1,14 +1,6 @@
 project check_outputs
 
-check: check-pass check-fail
-
-check-pass: \
-  check-status \
-  check-stdout \
-  check-stderr
-	println done "$@ ($^)"
-
-check-fail: \
+check: \
   check-status \
   check-stdout \
   check-stderr
