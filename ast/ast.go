@@ -269,6 +269,7 @@ type (
 
         ProgramExpr struct {
                 Lang    int // TODO: language definition (default is recipes)
+                Params  []string
                 Values  []Expr
                 Scope   Scope // scope specific to the program
         }

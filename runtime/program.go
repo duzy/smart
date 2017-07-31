@@ -12,6 +12,7 @@ import (
         "github.com/duzy/smart/values"
         "path/filepath"
         //"strings"
+        "strconv"
         "errors"
         "fmt"
         "os"
@@ -22,6 +23,7 @@ type Program struct {
         context *Context
         project  *types.Project
         scope   *types.Scope
+        params  []string // named parameters
         depends []types.Value // *types.RuleEntry, *values.BarefileValue
         recipes []types.Value
         pipline []types.Value
@@ -92,10 +94,14 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 var (
                         isFileEntry = false
                         file string
+                        args []types.Value
                 )
                 dependSwitch: switch d := depend.(type) {
+                case *types.ArgumentedEntry:
+                        depend, args = d.RuleEntry, d.Args
+                        goto dependSwitch
                 case *types.RuleEntry:
-                        if res, err = d.Call(); err == nil {
+                        if res, err = d.Call(args...); err == nil {
                                 var p, _ = d.Program().(*Program)
                                 if p == nil {
                                         switch d.Class() {
@@ -199,7 +205,6 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 // print-change-directory
                 pcd = entry.Class() != types.UseRuleEntry
         )
-        //fmt.Printf("%s: %s(%s), %s, %s; %s\n", p.Name(), entry.Class(), entry.Name(), p.RelPath(), p.AbsPath(), wd)
         if workdir != filepath.Clean(wd) {
                 if pcd {
                         fmt.Printf("smart: Entering directory '%s'\n", workdir)
@@ -214,6 +219,16 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                 }
         }  else {
                 //pcd = false
+        }
+
+        for i, a := range args {
+                // TODO: handle with Pair, map 'key => value' into
+                // parameters.
+                prog.auto(strconv.Itoa(i), a)
+                if i < len(prog.params) {
+                        name := prog.params[i]
+                        prog.auto(name, a)
+                }
         }
 
         // Calculate and prepare depends and files.
@@ -289,11 +304,12 @@ func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
         return
 }
 
-func (context *Context) NewProgram(project *types.Project, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
+func (context *Context) NewProgram(project *types.Project, params []string, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
         return &Program{
                 context:     context,
                 project:     project,
                 scope:       scope,
+                params:      params,
                 depends:     depends, // *types.RuleEntry, *types.Barefile
                 recipes:     recipes,
         }

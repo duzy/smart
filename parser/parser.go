@@ -1230,11 +1230,12 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
         }
 }
 
-func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
+func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
         var (
                 lpos = p.expect(token.LBRACK)
                 elems   []ast.Expr
                 dialect string
+                params []string
         )
         for p.tok != token.RBRACK && p.tok != token.EOF {
                 var (
@@ -1252,6 +1253,21 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
                         case *ast.Bareword:
                                 name, pos = n.Value, n.Pos()
                                 goto checkName
+                        case *ast.GroupExpr:
+                                for _, elem := range n.Elems {
+                                        //fmt.Printf("param: %T\n", elem)
+                                        switch elem.(type) {
+                                        case *ast.Bareword, *ast.Barecomp:
+                                                if v, e := p.runtime.Eval(elem); e == nil {
+                                                        params = append(params, v.String())
+                                                } else {
+                                                        p.error(elem.Pos(), fmt.Sprintf("bad parameter (%T, %v)", elem, e))
+                                                }
+                                        default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
+                                                p.error(elem.Pos(), fmt.Sprintf("bad parameter form (%T)", elem))
+                                        }
+                                }
+                                goto next
                         case *ast.CallExpr, *ast.Barecomp, *ast.BasicLit:
                                 v, e := p.runtime.Eval(n)
                                 if e != nil {
@@ -1271,15 +1287,15 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
                 }
                 goto addModifier
 
-                checkName: if p.runtime.IsDialect(name) { //if _, ok := p.dialects[name]; ok {
+                checkName: if p.runtime.IsDialect(name) {
                         if dialect == "" {
                                 dialect = name
                         } else {
                                 p.error(pos, fmt.Sprintf("multi-dialect unsupported, already defined '%s'", dialect))
                                 goto next
                         }
-                } else if p.runtime.IsModifier(name) { //if _, ok := p.modifiers[name]; ok {
-                        // ...
+                } else if p.runtime.IsModifier(name) {
+                        goto addModifier
                 } else {
                         p.error(pos, fmt.Sprintf("no dialect or modifier '%s'", name))
                         goto next
@@ -1291,7 +1307,7 @@ func (p *parser) parseModifierExpr() (string, *ast.ModifierExpr) {
                 }
         }
         rpos := p.expect(token.RBRACK)
-        return dialect, &ast.ModifierExpr{
+        return dialect, params, &ast.ModifierExpr{
                 Lbrack: lpos,
                 Elems: elems,
                 Rbrack: rpos,
@@ -1323,11 +1339,11 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 pos = p.expect(tok)
                 modifier *ast.ModifierExpr
                 program *ast.ProgramExpr
-                //symbols []ast.Symbol
                 depends []ast.Expr
                 recipes []ast.Expr
                 scopeComment string
                 dialect string
+                params []string
                 isUseRule bool
         )
 
@@ -1401,7 +1417,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 // TODO: '?' modifier
         case token.LBRACK:
                 // Parse modifiers in the program scope.
-                dialect, modifier = p.parseModifierExpr()
+                dialect, params, modifier = p.parseModifierExpr()
         }
 
         if p.tok == token.COLON {
@@ -1413,23 +1429,42 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 // FIXME: parse prerequisites in project scope??
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
+                        var args []types.Value
+                        if comp := depend.(*ast.Barecomp); comp != nil {
+                                if g := comp.Elems[len(comp.Elems)-1].(*ast.GroupExpr); g != nil {
+                                        comp.Elems = comp.Elems[:len(comp.Elems)-1]
+                                        for _, elem := range g.Elems {
+                                                v, e := p.runtime.Eval(elem)
+                                                if e != nil {
+                                                        p.error(depend.Pos(), fmt.Sprintf("bad arg (%s)", e))
+                                                        continue
+                                                }
+                                                args = append(args, v)
+                                        }
+                                }
+                        }
+                        
                         depval, err := p.runtime.Eval(depend)
                         if err != nil {
                                 p.error(depend.Pos(), fmt.Sprintf("%s", err))
                                 continue
                         }
-                        
-                        var name = depval.String()
+
+                        var (
+                                name = depval.String()
+                                depent *types.RuleEntry
+                        )
                         if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
                                 if true {
                                         depval = alt.(types.Value)
+                                        depent = depval.(*types.RuleEntry)
                                 } else {
                                         p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%v)", name, alt))
                                         p.error(depend.Pos(), fmt.Sprintf("name '%s' already taken", name))
                                 }
                         } else if sym != nil { // New entry (not previously defined)!
                                 depval = sym.(types.Value)
-                                depent := depval.(*types.RuleEntry)
+                                depent = depval.(*types.RuleEntry)
                                 class := depent.Class()
                                 switch depend.(type) {
                                 case *ast.Barefile, *ast.PathExpr:
@@ -1440,12 +1475,13 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                         }
                                 }
                                 depent.SetClass(class)
-
-                                //fmt.Printf("depend: %v %v\n", depent, class)
                         } else {
-                                // TODO: errors...
+                                p.error(depend.Pos(), fmt.Sprintf("bad depend (%v %v)", depval, args))
+                                continue
                         }
-                        
+
+                        //fmt.Printf("depend: %v %v\n", depent, args)
+                        depval = &types.ArgumentedEntry{ depent, args }
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                 }
         }
@@ -1456,9 +1492,18 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
 
         scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
         for _, s := range automatics {
-                if _, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
+                if sym, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
                         p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
                         p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
+                } else if sym == nil {
+                        // TODO: errors
+                }
+        }
+        for _, s := range params {
+                if sym, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
+                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
+                } else if sym == nil {
+                        // TODO: errors
                 }
         }
         
@@ -1469,6 +1514,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
 
         program = &ast.ProgramExpr{
                 Lang: 0, // FIXME: language definition
+                Params: params,
                 Values: recipes,
                 Scope: scope,
         }

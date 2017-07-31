@@ -283,10 +283,9 @@ func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
         return
 }
 
-// TODO: 
-type EntryCaller struct {
-        entry *RuleEntry
-        params []Value
+type ArgumentedEntry struct {
+        *RuleEntry
+        Args []Value
 }
 
 func (scope *Scope) NewRuleEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry) {

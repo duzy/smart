@@ -832,7 +832,7 @@ func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) 
 func (i *Interpreter) depend(depend types.Value) (result types.Value) {
         //fmt.Printf("rule: %T %v (%v)\n", depend, depend, depend.String())
         switch entry := depend.(type) {
-        case *types.RuleEntry, *types.Barefile, *types.Path, *types.PercentPattern:
+        case *types.RuleEntry, *types.ArgumentedEntry, *types.Barefile, *types.Path, *types.PercentPattern:
                 result = depend
         case *types.List:
                 var list []types.Value
@@ -860,6 +860,7 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 depends []types.Value
                 recipes []types.Value
                 progScope *types.Scope
+                params []string
         )
         for _, depend := range clause.Depends {
                 depval := i.expr(depend)
@@ -881,6 +882,7 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 if p.Values != nil {
                         recipes = i.exprs(p.Values)
                 }
+                params = p.Params
         } else {
                 return errors.New(fmt.Sprintf("unsupported program type (%T)", clause.Program))
         }
@@ -890,7 +892,7 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 modifiers = i.exprs(clause.Modifier.Elems)
         }
         
-        var prog = i.NewProgram(i.project, progScope, depends, recipes...)
+        var prog = i.NewProgram(i.project, params, progScope, depends, recipes...)
         if len(modifiers) > 0 {
                 if err = prog.SetModifiers(modifiers...); err != nil {
                         return

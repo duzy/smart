@@ -1,0 +1,10 @@
+project
+
+run: \
+    foo(aaa) \
+    foo(bbb) \
+    foo(ccc)
+
+foo:[((arg)) (shell)]
+	echo 'arg' $arg
+
