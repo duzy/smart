@@ -261,7 +261,7 @@ func (p *usedefiner) unref(project *types.Project, value types.Value) (result ty
 }
 
 type useref struct {
-        types.NoneValue
+        types.None
         namecaller interface{} // types.Value or types.Caller
         args []types.Value
 }
@@ -829,7 +829,7 @@ func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) 
         return
 }
 
-func (i *Interpreter) ruleDepend(depend types.Value) (result types.Value) {
+func (i *Interpreter) depend(depend types.Value) (result types.Value) {
         //fmt.Printf("rule: %T %v (%v)\n", depend, depend, depend.String())
         switch entry := depend.(type) {
         case *types.RuleEntry, *types.BarefileValue, *types.PathValue, *types.PercentPattern:
@@ -837,7 +837,7 @@ func (i *Interpreter) ruleDepend(depend types.Value) (result types.Value) {
         case *types.ListValue:
                 var list []types.Value
                 for _, elem := range entry.Elems {
-                        if v := i.ruleDepend(elem); v == nil {
+                        if v := i.depend(elem); v == nil {
                                 return
                         } else if l, _ := v.(*types.ListValue); l != nil {
                                 list = append(list, l.Elems...)
@@ -861,23 +861,17 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 recipes []types.Value
                 progScope *types.Scope
         )
-        for n, depend := range i.exprs(clause.Depends) {
-                dep := clause.Depends[n]
-                ee, ok := dep.(*ast.EvaluatedExpr)
-                if !ok {
-                        fmt.Printf("depend: %T %v (%T %v)\n", depend, depend, ee.Data, ee.Data)
-                        continue
-                }
-                depval := ee.Data.(types.Value)
-                /*if v := i.ruleDepend(depval); v == nil {
-                        i.parseWarn(dep.Pos(), "depend (%T %v -> %T %v)", dep, dep, depval, depval)
+        for _, depend := range clause.Depends {
+                depval := i.expr(depend)
+                //fmt.Printf("depend: %T %v\n", depval, depval)
+                if v := i.depend(depval); v == nil {
+                        i.parseWarn(depend.Pos(), "depend (%T %v -> %T %v)", depend, depend, depval, depval)
                         return errors.New(fmt.Sprintf("invalid depend"))
                 } else if l, _ := v.(*types.ListValue); l != nil {
                         depends = append(depends, l.Elems...)
                 } else {
                         depends = append(depends, v)
-                }*/
-                depends = append(depends, depval)
+                }
         }
 
         if p, ok := clause.Program.(*ast.ProgramExpr); ok && p != nil {
@@ -1184,6 +1178,15 @@ func (pc *parseContext) OpenScope(pos token.Pos, comment string) ast.Scope {
 
 func (pc *parseContext) CloseScope(as ast.Scope) error {
         return pc.closeScope(as)
+}
+
+func (pc *parseContext) WithScope(scope ast.Scope, f func() error) error {
+        restore := pc.scope
+        pc.scope = scope.(*types.Scope)
+        defer func() {
+                pc.scope = restore
+        }()
+        return f()
 }
 
 func (pc *parseContext) ClauseImport(spec *ast.ImportSpec) error {

@@ -35,6 +35,8 @@ type RuntimeContext interface {
         OpenScope(pos token.Pos, comment string) ast.Scope
         CloseScope(scope ast.Scope) error
 
+        WithScope(scope ast.Scope, f func() error) error
+
         ClauseImport(spec *ast.ImportSpec) error
         ClauseInclude(spec *ast.IncludeSpec) error
         ClauseUse(spec *ast.UseSpec) error
@@ -52,7 +54,7 @@ type RuntimeContext interface {
 type Context struct {
         runtime  RuntimeContext
 	universe ast.Scope // builtin scope
-        p        *parser    // current parser (or nil)
+        p        *parser   // current parser (or nil)
 }
 
 func NewContext(runtime RuntimeContext, universe ast.Scope) *Context {
@@ -204,8 +206,17 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 	}
 
         //fmt.Printf("ParseDir: %v\n", path)
+        //fmt.Printf("ParseDir: runtime: %p\n", c.runtime)
+        //fmt.Printf("ParseDir: parser: %p\n", c.p)
 
-        scope := c.runtime.OpenScope(c.p.pos, fmt.Sprintf("dir %s", path))
+        scope := c.runtime.OpenScope(token.NoPos, fmt.Sprintf("dir %s", path))
+        defer func() {
+                if err := c.runtime.CloseScope(scope); err != nil {
+                        if first == nil {
+                                first = err
+                        }
+                }
+        }()
         
 	mods = make(map[string]*ast.Project)
 	for _, d := range list {
@@ -229,11 +240,5 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 			}
 		}
 	}
-
-        if err := c.runtime.CloseScope(scope); err != nil {
-                if first == nil {
-                        first = err
-                }
-        }
 	return
 }

@@ -17,7 +17,7 @@ var (
 	universe *Scope
 	//unsafe   *Module
 
-        UniversalNone = &NoneValue{}
+        UniversalNone = &None{}
 )
 
 // Predeclared types.
@@ -77,7 +77,7 @@ var (
         Path     = BasicTypes[PathKind]
         File     = BasicTypes[FileKind]
         Flag     = BasicTypes[FlagKind]
-        None     = BasicTypes[NoneKind]
+        NoneType = BasicTypes[NoneKind]
 
         // Shortcuts for composite types.
         Compound = CompositeTypes[CompoundKind]

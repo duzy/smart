@@ -1337,6 +1337,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         p.error(target.Pos(), fmt.Sprintf("immediate (%s)", e))
                         continue
                 }
+
                 var name = v.String()
                 if name == "" {
                         p.error(target.Pos(), "empty entry name")
@@ -1348,24 +1349,44 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 p.error(target.Pos(), "mixing use with normal rules")
                         }
                 }
+
+                var tarent *types.RuleEntry
                 if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
-                        p.warn(target.Pos(), fmt.Sprintf("'%s' already taken", name))
-                        p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
-                } else if sym == nil {
-                        // TODO: errors...
+                        if entry := alt.(*types.RuleEntry); entry == nil {
+                                p.warn(target.Pos(), fmt.Sprintf("'%s' already taken (%T)", name, alt))
+                                p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
+                        } else if entry.Program() != nil {
+                                p.warn(target.Pos(), fmt.Sprintf("rule entry already defined (%s)", name))
+                                p.error(target.Pos(), fmt.Sprintf("rule already defined (%s)", name))
+                        } else {
+                                tarent = entry
+                        }
+                } else if sym != nil {
+                        tarent = sym.(*types.RuleEntry)
+                } else {
+                        p.warn(target.Pos(), fmt.Sprintf("target entry (%s)", name))
+                        p.error(target.Pos(), fmt.Sprintf("bad entry name (%s)", name))
+                        continue
                 }
+
+                //p.warn(target.Pos(), fmt.Sprintf("%v: %v (%T %v)", tarent, tarent.Class(), target, p.runtime.IsFileName(name)))
+
+                // Guessing target entry class, e.g. general, file, etc.
+                var class = tarent.Class()
+                switch target.(type) {
+                case *ast.Barefile, *ast.PathExpr:
+                        class = types.FileRuleEntry
+                case *ast.Bareword:
+                        if p.runtime.IsFileName(name) {
+                                class = types.FileRuleEntry
+                        }
+                }
+                tarent.SetClass(class)
+
                 if scopeComment != "" {
                         scopeComment += " "
                 }
                 scopeComment += name
-        }
-
-        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
-        for _, s := range automatics {
-                if _, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
-                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
-                        p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
-                }
         }
 
         switch p.tok {
@@ -1392,29 +1413,37 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 // FIXME: parse prerequisites in project scope??
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
-                        /*if bw, _ := depend.(*ast.Bareword); bw != nil {
-                                if p.runtime.IsFileName(bw.Value) {
-                                        depends[i] = &ast.Barefile{ Name: bw }
-                                } else {
-                                        depends[i] = p.identify(depend)
-                                }
-                        } else if per, _ := depend.(*ast.PercExpr); per != nil {
-                                // untouched
-                        } else {
-                                depends[i] = p.identify(depend)
-                        }*/
-                        dv, err := p.runtime.Eval(depend)
+                        depval, err := p.runtime.Eval(depend)
                         if err != nil {
                                 p.error(depend.Pos(), fmt.Sprintf("%s", err))
                                 continue
                         }
+                        
+                        var name = depval.String()
+                        // FIXME: passes rule class
+                        if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
+                                if true {
+                                        depval = alt.(types.Value)
+                                } else {
+                                        p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%v)", name, alt))
+                                        p.error(depend.Pos(), fmt.Sprintf("name '%s' already taken", name))
+                                }
+                        } else if sym != nil {
+                                depval = sym.(types.Value)
+                                
+                                //entry := depval.(*types.RuleEntry)
+                                //fmt.Printf("depend: %v\n", entry)
 
-                        sym := p.runtime.Resolve(dv.String())
-                        if sym == nil {
-                                depends[i] = &ast.EvaluatedExpr{ dv, depend }
+                                //class := types.GeneralRuleEntry
+                                //if pc.project.IsFile(name) {
+                                //        class = types.FileRuleEntry
+                                //}
+                                
                         } else {
-                                depends[i] = &ast.EvaluatedExpr{ sym, depend }
+                                // TODO: errors...
                         }
+                        
+                        depends[i] = &ast.EvaluatedExpr{ depval, depend }
                 }
         }
 
@@ -1422,6 +1451,14 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 p.expectLinend()
         }
 
+        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
+        for _, s := range automatics {
+                if _, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
+                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
+                        p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
+                }
+        }
+        
         // Parse recipes in the program scope.
         for p.tok == token.RECIPE {
                 recipes = append(recipes, p.parseRecipeExpr(dialect, isUseRule))

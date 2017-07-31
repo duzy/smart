@@ -95,16 +95,15 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 )
                 dependSwitch: switch d := depend.(type) {
                 case *types.RuleEntry:
-                        var (
-                                p, _ = d.Program().(*Program)
-                                //fromOther = p != nil && p.project != prog.project
-                        )
+                        if d.Program() == nil {
+                                Fail("%v: nil program for '%v' (%T)\n", entry, d, d)
+                                break dependSwitch
+                        }
                         if res, err = d.Call(); err == nil {
-                                if p == nil {
-                                        //fmt.Printf("nil: %T %v\n", d, d)
-                                        break dependSwitch
-                                }
-                                
+                                var (
+                                        p, _ = d.Program().(*Program)
+                                        //fromOther = p != nil && p.project != prog.project
+                                )
                                 //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
                                 dd, _ := p.scope.Lookup("@").(*types.Def)
                                 dt, _ := dd.Call()

@@ -1,11 +1,20 @@
 project check_outputs
 
-check: \
+check: check-pass check-fail
+
+check-pass: \
   check-status \
   check-stdout \
   check-stderr
+	println done "$@ ($^)"
 
-check-status:[(status) (shell) (status-equals 123)]
+check-fail: \
+  check-status \
+  check-stdout \
+  check-stderr
+	println done "$@ ($^)"
+
+check-status:[(stdout) (stderr) (status) (shell) (status-equals 123)]
 	exit 123
 
 check-stdout:[(shell) (stdout-equals 'okay')]

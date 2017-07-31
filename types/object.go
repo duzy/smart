@@ -269,20 +269,24 @@ func (entry *RuleEntry) String() string { return entry.name }
 func (entry *RuleEntry) Stem() string { return entry.stem }
 
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
+func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 
 // RuleEntry.Program returns the rule program.
 func (entry *RuleEntry) Program() Program { return entry.program }
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
-//
-// TODO: merge Execute and Call, make RuleEntry behaves like a Def
-// 
 func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
         if entry.program != nil {
                 result, err = entry.program.Execute(entry, a, false)
         }
         return
+}
+
+// TODO: 
+type EntryCaller struct {
+        entry *RuleEntry
+        params []Value
 }
 
 func (scope *Scope) NewRuleEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry) {

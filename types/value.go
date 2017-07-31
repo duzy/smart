@@ -41,8 +41,8 @@ func (*value) String() string     { return "" }
 func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
 
-type NoneValue struct { value }
-func (p *NoneValue) Type() Type   { return None }
+type None struct { value }
+func (p *None) Type() Type { return NoneType }
 
 type AnyValue struct {
         value
