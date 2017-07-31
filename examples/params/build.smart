@@ -1,9 +1,17 @@
 project
 
+files (
+    '*.o'
+    '*.c'
+)
+
 run: \
     foo(aaa) \
     foo(bbb) \
     foo(ccc)
 
-foo:[((arg)) (shell)]
+foo:[((arg)) (shell)]: foobar.o(test)
 	echo 'arg' $arg $(1)
+
+foobar.o:[((arg)) (shell)]
+	echo $arg

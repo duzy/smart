@@ -515,15 +515,42 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
 
         s := p.checkExpr(p.parseExpr(lhs))
 
-        if bw, ok := s.(*ast.Bareword); ok {
-                if t, ok := x.(*ast.Bareword); ok && p.runtime.IsFileName(t.Value+"."+bw.Value) {
-                        res = &ast.Barefile{ x, bw.Pos(), bw.Value }
-                        return
+        switch t := s.(type) {
+        case *ast.Bareword:
+                if bw, ok := x.(*ast.Bareword); ok && p.runtime.IsFileName(bw.Value+"."+t.Value) {
+                        return &ast.Barefile{ x, t.Pos(), t.Value }
                 }
 
                 // convert the S operator into an Ident
-                s = &ast.Ident{ bw, nil }
+                s = &ast.Ident{ t, nil }
+
+        case *ast.Barecomp:
+                // Dealing with barecomps like 'foobar.o(arg)', this
+                // algorithm converts splitting 'foobar', '.o(arg)' into
+                // 'foobar.o' and '(arg)' (suppose '*.o' are files).
+                bw1, b1 := x.(*ast.Bareword)
+                bw2, b2 := t.Elems[0].(*ast.Bareword)
+                if b1 && b2 {
+                        if p.runtime.IsFileName(bw1.Value+"."+bw2.Value) {
+                                t.Elems[0] = &ast.Barefile{
+                                        x, t.Pos(), bw2.Value,
+                                }
+                                return t
+                        }
+
+                        // convert the S operator into Ident
+                        s = &ast.Ident{ bw2, nil }
+
+                        // Compose again at the end
+                        defer func() {
+                                t.Elems[0] = res
+                                res = t
+                        }()
+                }
         }
+
+        // TODO: eliminate SelectorExpr, evaluate selection
+        // immediately.
 
         // Convert x into an Ident or Barefile
         x = p.identify(x)
@@ -1436,7 +1463,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         
         // Parsing depends...
         if p.tok != token.LINEND {
-                // FIXME: parse prerequisites in project scope??
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
                         var args []types.Value
@@ -1490,7 +1516,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 continue
                         }
 
-                        //fmt.Printf("depend: %v %v\n", depent, args)
+                        fmt.Printf("depend: %v %v\n", depent, args)
                         depval = &types.ArgumentedEntry{ depent, args }
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                 }
