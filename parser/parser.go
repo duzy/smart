@@ -1440,7 +1440,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 depends = p.parseRhsList(true)
                 for i, depend := range depends {
                         var args []types.Value
-                        if comp := depend.(*ast.Barecomp); comp != nil {
+                        if comp, _ := depend.(*ast.Barecomp); comp != nil {
                                 if g := comp.Elems[len(comp.Elems)-1].(*ast.GroupExpr); g != nil {
                                         comp.Elems = comp.Elems[:len(comp.Elems)-1]
                                         for _, elem := range g.Elems {
