@@ -12,8 +12,9 @@ import (
         "net/url"
         "strconv"
         "strings"
+        "errors"
+        "fmt"
         "os"
-        //"fmt"
 )
 
 // Value represents a value of a type.
@@ -347,6 +348,45 @@ func (p *Pair) SetKey(k Value) {
         }
 }
 
+type Closure struct {
+        Value
+}
+
+func (r *Closure) Type() Type { return ClosureType }
+func (r *Closure) Lit() string { return "&" + r.Value.Lit() }
+func (r *Closure) String() string { return "&" + r.Value.String() }
+
+func (r *Closure) Call(scope *Scope, a... Value) (res Value, err error) {
+        var (
+                obj Object
+                args []Value
+        )
+        switch t := r.Value.(type) {
+        case *Bareword, *Barecomp: 
+                obj = scope.Find(t.String())
+        case *Group:
+                if len(t.Elems) > 0 {
+                        obj = scope.Find(t.Elems[0].String())
+                        args = t.Elems[1:]
+                }
+        case *List:
+                if len(t.Elems) > 0 {
+                        obj = scope.Find(t.Elems[0].String())
+                        args = t.Elems[1:]
+                }
+        default:
+        }
+        if obj == nil {
+                err = errors.New(fmt.Sprintf("ref to nil (%v)", r.Value))
+        } else if c, ok := obj.(Caller); ok && c != nil {
+                args = append(args, a...)
+                res, err = c.Call(args...)
+        } else {
+                res = obj
+        }
+        return
+}
+
 // Pattern
 type Pattern interface {
         Value
@@ -439,6 +479,8 @@ func (p *RegexpPattern) Entry(stem string) (entry *RuleEntry) {
         return
 }
 
+
+
 type Definer interface {
         Define(p *Project) (Value, error)
 }
@@ -461,9 +503,9 @@ type Caller interface {
 //        Caller
 //}
 
-type Unrefer interface {
-        Unref(project *Project, s string, a... Value) (Value, error)
-}
+//type Unrefer interface {
+//        Unref(project *Project, s string, a... Value) (Value, error)
+//}
 
 //type UnreferValue interface {
 //        Value

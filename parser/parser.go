@@ -466,7 +466,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.BasicLit:
 	case *ast.CompoundLit:
 	case *ast.GlobExpr:
-	case *ast.RefExpr:
+	case *ast.ClosureExpr:
 	case *ast.CallExpr:
 	case *ast.GroupExpr:
 	case *ast.ListExpr: panic("unreachable")
@@ -737,11 +737,19 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 p.next()
                 return &ast.GlobExpr{ TokPos:pos, Tok:tok }
 
-        case token.REF:
+        case token.AND:
                 pos := p.pos
                 p.next()
                 x := p.checkExpr(p.parseExpr(false))
-                return &ast.RefExpr{ Tok: pos, X: x }
+                if _, ok := x.(*ast.CallExpr); ok {
+                        p.warn(x.Pos(), fmt.Sprintf("closure of call"))
+                }
+                if v, e := p.runtime.Eval(x); e == nil {
+                        x = &ast.EvaluatedExpr{ v, x }
+                } else {
+                        p.error(x.Pos(), fmt.Sprintf("immediate (%s)", e))
+                }
+                return &ast.ClosureExpr{ Tok: pos, X: x }
                 
         case token.CALL:
                 var (
@@ -1144,11 +1152,11 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         doc := p.leadComment
         pos := p.expect(tok)
 
-        oldSel := p.noSel
-        p.noSel = true
+        //oldSel := p.noSel
+        //p.noSel = true
         elems := p.parseRhsList(false)
         comment := p.lineComment
-        p.noSel = oldSel
+        //p.noSel = oldSel
 
         // Take it from parser, since the line comment is assigned
         // to the DefineClause.
@@ -1363,7 +1371,7 @@ var automatics = []string{
         "@D", "%D", "<D", "?D", "^D", "+D", "|D", "*D", //
         "@F", "%F", "<F", "?F", "^F", "+F", "|F", "*F", //
         "@'", "%'", "<'", "?'", "^'", "+'", "|'", "*'", //
-        "...", "-",
+        "-",
 }
 
 func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause {
@@ -1405,19 +1413,26 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
 
                 var tarent *types.RuleEntry
                 if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
-                        if entry := alt.(*types.RuleEntry); entry == nil {
+                        if entry, ok := alt.(*types.RuleEntry); entry == nil {
                                 p.warn(target.Pos(), fmt.Sprintf("'%s' already taken (%T)", name, alt))
                                 p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
                         } else if entry.Program() != nil {
                                 p.warn(target.Pos(), fmt.Sprintf("rule entry already defined (%s)", name))
                                 p.error(target.Pos(), fmt.Sprintf("rule already defined (%s)", name))
-                        } else {
+                        } else if ok {
                                 tarent = entry
+                        } else {
+                                p.error(target.Pos(), fmt.Sprintf("invalid rule (%s)", name))
                         }
                 } else if sym != nil {
                         tarent = sym.(*types.RuleEntry)
                 } else {
                         p.warn(target.Pos(), fmt.Sprintf("target entry (%s)", name))
+                        p.error(target.Pos(), fmt.Sprintf("bad entry name (%s)", name))
+                        continue
+                }
+
+                if tarent == nil {
                         p.error(target.Pos(), fmt.Sprintf("bad entry name (%s)", name))
                         continue
                 }
@@ -1464,7 +1479,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         // Parsing depends...
         if p.tok != token.LINEND {
                 depends = p.parseRhsList(true)
-                for i, depend := range depends {
+                dependsLoop: for i, depend := range depends {
                         var args []types.Value
                         if comp, _ := depend.(*ast.Barecomp); comp != nil {
                                 if g := comp.Elems[len(comp.Elems)-1].(*ast.GroupExpr); g != nil {
@@ -1479,23 +1494,39 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                         }
                                 }
                         }
-                        
+
                         depval, err := p.runtime.Eval(depend)
                         if err != nil {
                                 p.error(depend.Pos(), fmt.Sprintf("%s", err))
                                 continue
                         }
 
+                        //fmt.Printf("depend: %T %v -> %T %v\n", depend, depend, depval, depval)
+
+                        switch depval.(type) {
+                        case *types.PercentPattern, *types.Closure:
+                                depends[i] = &ast.EvaluatedExpr{ depval, depend }
+                                continue dependsLoop
+                        }
+                        
                         var (
                                 name = depval.String()
                                 depent *types.RuleEntry
                         )
-                        if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
+                        // Resolve the name first (this will look into the bases too),
+                        if sym := p.runtime.Resolve(name); sym != nil {
+                                if entry, ok := sym.(*types.RuleEntry); ok && entry != nil {
+                                        depent = entry
+                                } else {
+                                        p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%T)", name, sym))
+                                        p.error(depend.Pos(), fmt.Sprintf("name '%s' already taken", name))
+                                }
+                        } else if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
                                 if true {
                                         depval = alt.(types.Value)
                                         depent = depval.(*types.RuleEntry)
                                 } else {
-                                        p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%v)", name, alt))
+                                        p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%T)", name, alt))
                                         p.error(depend.Pos(), fmt.Sprintf("name '%s' already taken", name))
                                 }
                         } else if sym != nil { // New entry (not previously defined)!
@@ -1509,6 +1540,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                         if p.runtime.IsFileName(name) {
                                                 class = types.FileRuleEntry
                                         }
+                                default:
+                                        p.error(depend.Pos(), fmt.Sprintf("bad depend %v (%T %T)", depval, depval, depend))
                                 }
                                 depent.SetClass(class)
                         } else {
@@ -1516,8 +1549,10 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 continue
                         }
 
-                        //fmt.Printf("depend: %v %v\n", depent, args)
-                        depval = &types.ArgumentedEntry{ depent, args }
+                        if len(args) > 0 {
+                                //fmt.Printf("depend: %v %v\n", depent, args)
+                                depval = &types.ArgumentedEntry{ depent, args }
+                        }
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                 }
         }

@@ -1,11 +1,14 @@
 module c++
 
-# extensions cpp cc CC C hh h o
-# extensions (
-#   unit=( cpp cc CC C )
-#   header=( hh h )
-#   object=( o obj )
-# )
+files (
+    '*.cpp' '*.cc' '*.C'
+    '*.hpp' '*.hh' '*.H'
+    '*.c' '*.h'
+    '*.o' '*.obj'
+)
+
+program ?= a.out
+objects ?=
 
 compiler = g++
 compile_flags = -std=c++1z -c
@@ -34,6 +37,10 @@ LDLIBS =
 
 ignore:
 
+$(program):[(compare) (stdout) (stderr) (shell)]:$(objects)
+
+
+
 use:
 	compile_flags += $(compile_flags)
 	compile = $(compiler) &$(compile_flags)
@@ -42,3 +49,4 @@ use:
 	link_flags += $(link_flags)
 	link = $(linker) &$(link_flags)
 	libs +=
+

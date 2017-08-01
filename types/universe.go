@@ -54,6 +54,7 @@ var (
                 GroupKind:    {GroupKind, IsGroup, "group"},
                 MapKind:      {MapKind, IsMap, "map"},
                 PairKind:     {PairKind, IsPair, "pair"},
+                ClosureKind:  {ClosureKind, IsClosure, "closure"},
         }
 
         // Shortcuts of core types
@@ -86,6 +87,7 @@ var (
         GroupType    = CompositeTypes[GroupKind]
         MapType      = CompositeTypes[MapKind]
         PairType     = CompositeTypes[PairKind]
+        ClosureType  = CompositeTypes[ClosureKind]
 )
 
 func defUniverseBuiltins() {

@@ -81,16 +81,30 @@ func (prog *Program) modify(pcd bool, g *types.Group, out *types.Def) (err error
 func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
         var (
                 res types.Value
-                depends = values.List()
+                dependList = values.List()
+                depends []types.Value
         )
 
-        prog.auto("...", depends)
+        prog.auto("^", dependList)
+
+        for _, depend := range prog.depends {
+                if closure, ok := depend.(*types.Closure); ok {
+                        a, e := closure.Call(prog.scope)
+                        if e != nil {
+                                err = e
+                                return
+                        }
+                        depends = append(depends, types.EvalElems(a)...)
+                } else {
+                        depends = append(depends, depend)
+                }
+        }
 
         // TODO: using rules in a different project as prerequisites, e.g.
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
-        dependsLoop: for _, depend := range prog.depends {
-                //fmt.Printf("Program.prepare: %T %v (%p)\n", depend, depend, depend)
+        dependsLoop: for _, depend := range depends {
+                //fmt.Printf("Program.prepare: %T %v\n", depend, depend)
                 var (
                         isFileEntry = false
                         file string
@@ -101,14 +115,15 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         depend, args = d.RuleEntry, d.Args
                         goto dependSwitch
                 case *types.RuleEntry:
+                        //fmt.Printf("Program.prepare: %v %v\n", d, d.Class())
                         if res, err = d.Call(args...); err == nil {
                                 var p, _ = d.Program().(*Program)
                                 if p == nil {
                                         switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                depends.Append(values.Group(targetRegularKind, d))
+                                                dependList.Append(values.Group(targetRegularKind, d))
                                         default:
-                                                Fail("%v: no program for '%v' (%T)\n", entry, d, d)
+                                                Fail("%v: '%v' requies update actions (%v)\n", entry, d, d.Class())
                                         }
                                         break dependSwitch
                                 }
@@ -118,16 +133,16 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 dd, _ := p.scope.Lookup("@").(*types.Def)
                                 dt, _ := dd.Call()
                                 if isFileEntry {
-                                        depends.Append(values.Group(targetRegularKind, dt))
+                                        dependList.Append(values.Group(targetRegularKind, dt))
                                 } else {
                                         switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                depends.Append(values.Group(targetRegularKind, dt))
+                                                dependList.Append(values.Group(targetRegularKind, dt))
                                         default:
                                                 if res != nil && res != values.None {
-                                                        depends.Append(res)
+                                                        dependList.Append(res)
                                                 } else {
-                                                        depends.Append(d)
+                                                        dependList.Append(d)
                                                 }
                                         }
                                 }
@@ -165,7 +180,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 }
                                 Fail("unknown dependency %s", sym.Name())
                         } else {
-                                Fail("unknown dependency (%T)", d)
+                                Fail("unknown dependency (%T %v)", d, d)
                         }
                 }
                 
@@ -186,13 +201,13 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
 
                         fv := prog.project.SearchFile(values.File(depend, file))
                         if fv.Info != nil {
-                                depends.Append(fv)
+                                dependList.Append(fv)
                         } else {
                                 Fail("no rule to make file '%v'", fv)
                         }
                 }
         }
-        //fmt.Printf("Program.prepare: %v: %v (%v)\n", entry, depends, prog.project.Name())
+        //fmt.Printf("Program.prepare: %v: %v (%v)\n", entry, dependList, prog.project.Name())
         return
 }
 

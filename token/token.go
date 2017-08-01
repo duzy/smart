@@ -55,7 +55,7 @@ const (
 	QUE       // ?
 
         AT        // @
-        REF       // &
+        AND       // &
         STAR      // *
 
         CALL      // $
@@ -141,7 +141,7 @@ var tokens = [...]string{
         QUE:       "?",
 
         AT:        "@",
-	REF:       "&",
+	AND:       "&",
         STAR:      "*",
 
 	CALL:      "$",

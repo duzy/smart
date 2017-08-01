@@ -52,6 +52,7 @@ const (
         GroupKind
         MapKind
         PairKind
+        ClosureKind
 
         // named types
         NamedKind
@@ -88,6 +89,7 @@ var (
                 GroupKind:      "Group",
                 MapKind:        "Map",
                 PairKind:       "Pair",
+                ClosureKind:    "Closure",
                 NamedKind:      "Named",
                 DefineKind:     "Define",
                 BuiltinKind:    "Builtin",
@@ -135,6 +137,7 @@ const (
         IsGroup
         IsMap
         IsPair // key-value pair
+        IsClosure
 
         // Custom type
         IsNamed

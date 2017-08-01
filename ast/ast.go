@@ -199,8 +199,8 @@ type (
 		S Expr // field selector, or sub-selector
 	}
 
-        // RefExpr expression: &$(foo)
-        RefExpr struct {
+        // ClosureExpr expression: &(foo a1,a2,a3) &$(foo)
+        ClosureExpr struct {
                 Tok token.Pos  //
                 X Expr         //
         }
@@ -284,7 +284,7 @@ func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
 func (d *PathExpr) Pos() token.Pos        { return d.PosBeg }
 func (d *SelectorExpr) Pos() token.Pos    { return d.X.Pos() }
 func (d *GlobExpr) Pos() token.Pos        { return d.TokPos }
-func (d *RefExpr) Pos() token.Pos         { return d.Tok }
+func (d *ClosureExpr) Pos() token.Pos     { return d.Tok }
 func (d *CallExpr) Pos() token.Pos        { return d.Dollar }
 func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
@@ -310,7 +310,7 @@ func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End()
 func (d *PathExpr) End() token.Pos        { return d.PosEnd }
 func (d *SelectorExpr) End() token.Pos    { return d.S.End() }
 func (d *GlobExpr) End() token.Pos        { return d.TokPos + 1 }
-func (d *RefExpr) End() token.Pos         { return d.X.End() }
+func (d *ClosureExpr) End() token.Pos     { return d.X.End() }
 func (d *CallExpr) End() token.Pos        { return d.Rparen + 1 }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }
@@ -333,7 +333,7 @@ func (*ListExpr) exprNode()        {}
 func (*PathExpr) exprNode()        {}
 func (*SelectorExpr) exprNode()    {}
 func (*GlobExpr) exprNode()        {}
-func (*RefExpr) exprNode()         {}
+func (*ClosureExpr) exprNode()     {}
 func (*CallExpr) exprNode()        {}
 func (*GroupExpr) exprNode()       {}
 func (*PercExpr) exprNode()        {}

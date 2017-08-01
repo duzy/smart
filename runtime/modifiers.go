@@ -70,12 +70,6 @@ var (
         modifiers = map[string]modifier{
                 //`pre-check`:    modifierPreCheck,
 
-                /*
-                `shell-status`: modifierShellStatus,
-                `shell-stdout`: modifierShellStdout,
-                `shell-stderr`: modifierShellStderr,
-                `shell-stdin`:  modifierShellStdin, */
-
                 `status`:       modifierShellStatus,
                 `stdout`:       modifierShellStdout,
                 `stderr`:       modifierShellStderr,
@@ -87,7 +81,8 @@ var (
 
                 `select`:       modifierSelect,
 
-                `args`:         modifierSetArgs,
+                `args`:         modifierSetArgs, // interpreter args
+                `env`:          modifierSetEnv,  // interpreter environments
 
                 `compare`:      modifierCompare,
                 
@@ -232,22 +227,40 @@ func modifierSetArgs(prog *Program, value types.Value, args... types.Value) (res
         return
 }
 
+func modifierSetEnv(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        // TODO: preserve env for interpreter
+        return
+}
+
 func modifierCompare(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
-                scope         = prog.scope //context.Scope()
-                targetDef, _  = scope.Lookup("@").(*types.Def)
-                dependDef, _  = scope.Lookup("...").(*types.Def)
-                dependsVal, _ = dependDef.Call()
-                depends, _    = dependsVal.(*types.List)
-                target, _     = targetDef.Call()
-                targetFile, _ = target.(*types.File)
+                nargs = len(args)
+                targetName = "@" // default target name
+                dependName = "^" // default depend name
+        )
+        if nargs > 0 { targetName = args[0].String() }
+        if nargs > 1 { } // TODO: warnings
+
+        var (
+                targetDef, _  = prog.scope.Lookup(targetName).(*types.Def)
+                targetVal, _  = targetDef.Call()
+                targetFile, _ = targetVal.(*types.File)
+
+                dependDef, _  = prog.scope.Lookup(dependName).(*types.Def)
+                dependVal, _  = dependDef.Call()
+                dependList, _ = dependVal.(*types.List)
+
                 missing       = values.List()
                 files         = values.List()
                 nonfiles      = values.List()
                 shellFalses  int
         )
-        if depends != nil || depends.Len() > 0 {
-                for _, depend := range depends.Slice(0) {
+        if targetFile == nil {
+                err = &breaker{ fmt.Sprintf("compare expects File (%T %v)", targetVal, targetVal), false }
+                goto DoneWhen
+        }
+        if dependList != nil && dependList.Len() > 0 {
+                for _, depend := range dependList.Slice(0) {
                         //fmt.Printf("modifierCompare: %T %v (from %T %v)\n", depend, depend, target, target)
                 retryDepend:
                         switch d := depend.(type) {
@@ -258,46 +271,44 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                         case *types.Group:
                                 switch d.Get(0).(*types.Bareword) {
                                 case targetRegularKind, targetDirectoryKind:
-                                        if f, _ := d.Get(1).(*types.File); f != nil {
-                                                files.Append(f)
-                                        } else {
-                                                Fail("%v: unknown depend %v (%T, %T)", target, depend, depend, d.Get(1))
+                                        switch d1 := d.Get(1).(type) {
+                                        case *types.File: files.Append(d1)
+                                        default: Fail("%v: unknown group depend %v (%T)", targetVal, d, d1)
                                         }
                                 case targetShellKind:
-                                        if n := d.Get(1).Integer(); n != 0 {
+                                        if d1 := d.Get(1); d1.Integer() != 0 {
                                                 shellFalses += 1
                                         }
                                 }
                         case *types.Barefile:
                                 //files.Append(d)
-                                Fail("%v: unknown depend %v (%T)", target, d, d)
+                                Fail("%v: unknown depend %v (%T)", targetVal, d, d)
                         case *types.RuleEntry:
                                 switch d.Class() {
                                 case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                        //files.Append(d)
-                                        Fail("%v: unknown depend %v (%T)", target, depend, depend)
+                                        Fail("%v: unknown entry depend %v (%v)", targetVal, d.Class())
                                 case types.GeneralRuleEntry, types.PatternRuleEntry:
                                         nonfiles.Append(d)
                                 default:
-                                        Fail("%v: unknown depend rule %v (%T)", target, depend, depend)
+                                        Fail("%v: unknown entry depend %v (%v)", targetVal, d.Class())
                                 }
                         case *types.String:
                                 if prog.project.IsFile(d.String()) {
                                         //files.Append(d)
-                                        Fail("%v: unknown depend %v (%T)", target, depend, depend)
+                                        Fail("%v: unknown depend %v (%T)", targetVal, depend, depend)
                                 } else {
                                         nonfiles.Append(d)
                                 }
                         case *types.File:
                                 files.Append(d)
                         default:
-                                Fail("%v: unknown depend %v (%T)", target, depend, depend)
+                                Fail("%v: unknown depend %v (%T)", targetVal, depend, depend)
                         }
                 }
 
                 if x := missing.Len(); x > 0 {
                         err = &breaker{ fmt.Sprintf("missing %v, required by %s", 
-                                missing, target), false }
+                                missing, targetVal), false }
                         goto DoneWhen
                 }
 
@@ -312,15 +323,10 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 goto DoneWhen // target shall be updated
         }
 
-        if targetFile == nil {
-                err = &breaker{ fmt.Sprintf("compare: expects file target in (%v)", target), false }
-                goto DoneWhen
-        }
-
         if fi := targetFile.Info; fi != nil {
                 for _, depend := range files.Slice(0) {
-                        //fmt.Printf("modifierCompare: %v -> %v (%v)\n", target, depend, prog.context.outdated)
-                        //fmt.Printf("modifierCompare: %v: %v (%T)\n", target, depend, depend)
+                        //fmt.Printf("modifierCompare: %v -> %v (%v)\n", targetVal, depend, prog.context.outdated)
+                        //fmt.Printf("modifierCompare: %v: %v (%T)\n", targetVal, depend, depend)
                         if dependFile, okay := depend.(*types.File); okay {
                                 if t, ok := prog.context.outdated[dependFile.String()]; ok && t.After(fi.ModTime()) {
                                         goto DoneWhen // target is outdated
@@ -331,18 +337,18 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                         goto DoneWhen
                                 }
                                 if t := dependFile.Info.ModTime(); t.After(fi.ModTime()) {
-                                        prog.context.outdated[target.String()] = t
+                                        prog.context.outdated[targetVal.String()] = t
                                         goto DoneWhen // target is outdated
                                 }
                         } else {
-                                fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", target, depend, depend)
+                                fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", targetVal, depend, depend)
                         }
                 }
-                err = &breaker{ fmt.Sprintf("%s already up to date", target), true }
+                err = &breaker{ fmt.Sprintf("%s already up to date", targetVal), true }
         } else {
                 for _, depend := range files.Slice(0) {
-                        //fmt.Printf("modifierCompare: (nil) %v -> %v (%v)\n", target, depend, prog.context.outdated)
-                        //fmt.Printf("modifierCompare: (nil) %v -> %v (%T)\n", target, depend, depend)
+                        //fmt.Printf("modifierCompare: (nil) %v -> %v (%v)\n", targetVal, depend, prog.context.outdated)
+                        //fmt.Printf("modifierCompare: (nil) %v -> %v (%T)\n", targetVal, depend, depend)
                         if dependFile, okay := depend.(*types.File); okay {
                                 if dependFile.Info == nil {
                                         dependFile.Info, _ = os.Stat(dependFile.String())
@@ -353,7 +359,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                         goto DoneWhen
                                 }
                         } else {
-                                fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", target, depend, depend)
+                                fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", targetVal, depend, depend)
                         }
                 }
                 goto DoneWhen // target shall be updated
@@ -364,11 +370,11 @@ DoneWhen:
 }
 
 func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        var target, _ = prog.scope.Lookup("@").(types.Caller).Call()
-        if fi, _ := os.Stat(target.String()); fi != nil && fi.Mode().IsDir() {
-                result = values.Group(targetDirectoryKind, target)
+        var targetVal, _ = prog.scope.Lookup("@").(types.Caller).Call()
+        if fi, _ := os.Stat(targetVal.String()); fi != nil && fi.Mode().IsDir() {
+                result = values.Group(targetDirectoryKind, targetVal)
         } else {
-                err = &breaker{ fmt.Sprintf("directory %s not exists", target),
+                err = &breaker{ fmt.Sprintf("directory %s not exists", targetVal),
                         false }
         }
         return
@@ -377,13 +383,13 @@ func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (re
 func modifierCheckFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                target, _ = targetDef.Call()
-                filename = target.String()
+                targetVal, _ = targetDef.Call()
+                filename = targetVal.String()
         )
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
-                result = values.Group(targetRegularKind, target)
+                result = values.Group(targetRegularKind, targetVal)
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not exists", target), 
+                err = &breaker{ fmt.Sprintf("file %s not exists", targetVal), 
                         false }
         }
         return
@@ -392,8 +398,8 @@ func modifierCheckFile(prog *Program, value types.Value, args... types.Value) (r
 func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                target, _ = targetDef.Call()
-                filename = target.String()
+                targetVal, _ = targetDef.Call()
+                filename = targetVal.String()
         )
         if f, err := os.Create(filename); err == nil {
                 defer f.Close()
@@ -417,12 +423,12 @@ func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (r
                         content = v.String()
                 }
                 if _, err = f.WriteString(content); err == nil {
-                        result = values.Group(targetRegularKind, target)
+                        result = values.Group(targetRegularKind, targetVal)
                 } else {
                         os.Remove(filename)
                 }
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not generated", target), 
+                err = &breaker{ fmt.Sprintf("file %s not generated", targetVal), 
                         false }
         }
         return
@@ -431,8 +437,8 @@ func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (r
 func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                target, _ = targetDef.Call()
-                filename = target.String()
+                targetVal, _ = targetDef.Call()
+                filename = targetVal.String()
                 content string
         )
 
@@ -471,9 +477,14 @@ func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (
                         if false {
                                 fmt.Printf("%s already up to date\n", filename)
                         }
-                        result = values.Group(targetRegularKind, target)
+                        result = values.Group(targetRegularKind, targetVal)
                         return
                 }
+        }
+
+        var slient = len(args) > 0 && args[0].String() == "slient"
+        if !slient {
+                fmt.Printf("update %v ..", filename)
         }
 
         // Create or update the file with new content
@@ -481,12 +492,21 @@ func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (
         if err == nil && f != nil {
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
-                        result = values.Group(targetRegularKind, target)
+                        result = values.Group(targetRegularKind, targetVal)
+                        if !slient {
+                                fmt.Printf(". (ok)\n")
+                        }
                 } else {
                         os.Remove(filename)
+                        if !slient {
+                                fmt.Printf(". (%s)\n", err)
+                        }
                 }
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not updated", target), 
+                if !slient {
+                        fmt.Printf(". (%s)\n", err)
+                }
+                err = &breaker{ fmt.Sprintf("file %s not updated", targetVal), 
                         false }
         }
         return

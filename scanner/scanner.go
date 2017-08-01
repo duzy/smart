@@ -191,9 +191,12 @@ func (s *Scanner) skipUselessWhitespace(lf bool) {
                         } else {
                                 break loopSkip
                         }
-                case '\\': 
+                case '\\':
                         if s.next(); s.ch == '\n' {
-                                s.next()
+                                for s.next(); s.ch == '\t'; {
+                                        // Eat \t afert a continual
+                                        s.next()
+                                }
                         } else {
                                 //fmt.Printf("escape: %v\n", string(s.ch))
                                 // TODO: escape character
@@ -872,7 +875,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case '*':
                         tok = token.STAR
                 case '&':
-                        tok = token.REF
+                        tok = token.AND
                 case '$':
                         switch tok, ch = token.CALL, rune(s.src[s.readOffset-1]); {
                         case ch == '/': tok = token.CALL_R

@@ -133,6 +133,10 @@ func Pair(k, v types.Value) (p *types.Pair) {
         return
 }
 
+func Closure(/*scoper types.Scoper,*/ x types.Value) *types.Closure {
+        return &types.Closure{ /*scoper,*/ x }
+}
+
 func EscapeChar(s string) string {
         switch s {
         case "a":  s = "\a"

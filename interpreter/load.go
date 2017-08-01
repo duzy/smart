@@ -680,8 +680,8 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
                         value: i.expr(x.Value),
                         pos: nil,
                 }
-        case *ast.RefExpr:
-                if c, ok := x.X.(*ast.CallExpr); ok {
+        case *ast.ClosureExpr:
+                /*if c, ok := x.X.(*ast.CallExpr); ok {
                         var name types.Value
                         switch t := c.Name.(type) {
                         case *ast.Ident:
@@ -696,7 +696,13 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
                         }
                 } else {
                         i.parseFail(x.Pos(), "bad ref (%T)", x.X)
+                }*/
+                ee, ok := x.X.(*ast.EvaluatedExpr)
+                if !ok || ee == nil {
+                        i.parseFail(x.X.Pos(), "invalid ref operan (%T)", x.X)
+                        break
                 }
+                v = values.Closure(ee.Data.(types.Value))
         default:
                 i.parseFail(x.Pos(), "unimplemented expression (%T %v)", x, x)
         }
@@ -833,7 +839,7 @@ func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) 
 func (i *Interpreter) depend(depend types.Value) (result types.Value) {
         //fmt.Printf("rule: %T %v (%v)\n", depend, depend, depend.String())
         switch entry := depend.(type) {
-        case *types.RuleEntry, *types.ArgumentedEntry, *types.Barefile, *types.Path, *types.PercentPattern:
+        case *types.RuleEntry, *types.ArgumentedEntry, *types.Closure, *types.Barefile, *types.Path, *types.PercentPattern:
                 result = depend
         case *types.List:
                 var list []types.Value
@@ -867,7 +873,7 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 depval := i.expr(depend)
                 //fmt.Printf("depend: %T %v\n", depval, depval)
                 if v := i.depend(depval); v == nil {
-                        i.parseWarn(depend.Pos(), "depend (%T %v -> %T %v)", depend, depend, depval, depval)
+                        i.parseWarn(depend.Pos(), "invalid depend (%T %v -> %T %v)", depend, depend, depval, depval)
                         return errors.New(fmt.Sprintf("invalid depend"))
                 } else if l, _ := v.(*types.List); l != nil {
                         depends = append(depends, l.Elems...)
