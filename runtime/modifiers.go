@@ -68,8 +68,6 @@ var (
         }
 
         modifiers = map[string]modifier{
-                //`pre-check`:    modifierPreCheck,
-
                 `status`:       modifierShellStatus,
                 `stdout`:       modifierShellStdout,
                 `stderr`:       modifierShellStderr,
@@ -83,6 +81,8 @@ var (
 
                 `args`:         modifierSetArgs, // interpreter args
                 `env`:          modifierSetEnv,  // interpreter environments
+
+                `cd`:           modifierCD,
 
                 `compare`:      modifierCompare,
                 
@@ -229,6 +229,11 @@ func modifierSetArgs(prog *Program, value types.Value, args... types.Value) (res
 
 func modifierSetEnv(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         // TODO: preserve env for interpreter
+        return
+}
+
+func modifierCD(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        // does nothing
         return
 }
 

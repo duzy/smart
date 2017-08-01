@@ -23,14 +23,14 @@ libs =
 
 ignore:
 
-program:[((bin objects)) (compare bin) (stdout) (stderr) (shell)]: &objects
+program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: &objects
 	$(link) -o $(bin) $(objects) $(libs)
-lib.so:[((lib objects)) (compare lib) (stdout) (stderr) (shell)]
+lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
 	$(link) -shared -o $(lib) $(objects) $(libs)
-lib.a:[((lib objects)) (compare lib) (stdout) (stderr) (shell)]
+lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]:  &objects
 	$(archive) $(lib) $(objects)
 
-%.o:[(compare) (stdout) (stderr) (shell)]: %.c
+%.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.c
 	$(compile) -o $@ $<
 
 use:

@@ -19,6 +19,14 @@ import (
 type BuiltinFunc func(args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
+        /* TODO:
+        `or`:    builtinLogicalOr,
+        `and`:   builtinLogicalAnd,
+        `xor`:   builtinLogicalXor,
+        `not`:   builtinLogicalNot,
+
+        `if`:    builtinBranchIf, */
+        
         `print`:   builtinPrint,
         `printl`:  builtinPrintl,
         `println`: builtinPrintln,
@@ -26,7 +34,7 @@ var builtins = map[string]BuiltinFunc {
         `lit`:        builtinLit,
         `filter`:     builtinFilter,
         `filter-out`: builtinFilterOut,
-        
+
         `encode-base64`:  builtinEncodeBase64,
         `decode-base64`:  builtinDecodeBase64,
 

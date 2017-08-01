@@ -608,10 +608,10 @@ func (i *Interpreter) call(x *ast.CallExpr) (v types.Value) {
         switch t := name.(type) {
         case types.Object:
                 v = i.Fold(x.Pos(), t, i.exprs(x.Args)...)
-        case nil:
-                i.parseFail(x.Pos(), "calling undefined object %v", x.Name)
+        case *types.None, nil:
+                i.parseFail(x.Name.Pos(), "undefined callable (%T %v)", x.Name, x.Name)
         default:
-                i.parseFail(x.Name.Pos(), "bad call '%s' (%T -> %T)", name, x.Name, name)
+                i.parseFail(x.Name.Pos(), "uncallable '%s' (%T -> %T)", x.Name, x.Name, name)
         }
         return
 }

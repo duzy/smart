@@ -65,7 +65,9 @@ func (prog *Program) modify(pcd bool, g *types.Group, out *types.Def) (err error
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
         var name = g.Get(0).String()
-        if f, ok := modifiers[name]; ok {
+        if name == "cd" {
+                // does nothing
+        } else if f, ok := modifiers[name]; ok {
                 var value, _ = out.Call()
                 if value, err = f(prog, value, g.Slice(1)...); err == nil && value !=  nil {
                         out.Set(value)
@@ -211,29 +213,41 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
         return
 }
 
+func (prog *Program) Getwd() string {
+        for _, m := range prog.pipline {
+                if g, ok := m.(*types.Group); ok && g != nil {
+                        if n := len(g.Elems); n > 0 && g.Elems[0].String() == "cd" {
+                                var s string
+                                if n > 1 {
+                                        s = filepath.Clean(g.Elems[1].String())
+                                        if s == "-" { s = "" }
+                                }
+                                return s
+                        }
+                }
+        }
+        return filepath.Clean(prog.project.AbsPath())
+}
+
 func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
         //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.depends)
-        var (
-                p = prog.project
-                workdir = filepath.Clean(p.AbsPath())
-                wd, _ = os.Getwd() //prog.context.Getwd()
-                // print-change-directory
-                pcd = entry.Class() != types.UseRuleEntry
-        )
-        if workdir != filepath.Clean(wd) {
-                if pcd {
-                        fmt.Printf("smart: Entering directory '%s'\n", workdir)
-                }
-                if err = os.Chdir(workdir); err == nil {
+        //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.pipline)
+        var pcd = entry.Class() != types.UseRuleEntry
+        if workdir := prog.Getwd(); workdir != "" {
+                if wd, _ := os.Getwd(); workdir != filepath.Clean(wd) {
+                        // print-change-directory
                         if pcd {
-                                defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
+                                fmt.Printf("smart: Entering directory '%s'\n", workdir)
                         }
-                        defer os.Chdir(wd)
-                } else {
-                        Fail("%v", err)
+                        if err = os.Chdir(workdir); err == nil {
+                                if pcd {
+                                        defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
+                                }
+                                defer os.Chdir(wd)
+                        } else {
+                                Fail("%v", err)
+                        }
                 }
-        }  else {
-                //pcd = false
         }
 
         for i, a := range args {
