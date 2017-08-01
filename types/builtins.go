@@ -32,6 +32,11 @@ var builtins = map[string]BuiltinFunc {
         `println`: builtinPrintln,
 
         `lit`:        builtinLit,
+
+        // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
+        `subst`:      builtinSubst,
+        `patsubst`:   builtinPatsubst,
+
         `filter`:     builtinFilter,
         `filter-out`: builtinFilterOut,
 
@@ -154,13 +159,125 @@ func builtinFilterValues(neg bool, args... Value) (res Value, err error) {
         return
 }
 
+func builtinSubst(args... Value) (res Value, err error) {
+        // $(subst from,to,text)
+        return
+}
+
+// TODO:
+//   $(var:pattern=replacement)
+//   $(var:suffix=replacement)
+func builtinPatsubst(args... Value) (res Value, err error) {
+        // $(patsubst pattern,replacement,text)
+        var list []Value
+        if nargs := len(args); nargs > 2 {
+                for _, arg := range EvalElems(args[2:]...) {
+                        var (
+                                s string // stemp
+                                m bool // matched
+                        )
+                        if pat, _ := args[0].(*PercentPattern); pat != nil {
+                                m, s = pat.Match(arg.String())
+                        } else if l, _ := args[0].(*List); l != nil {
+                                for _, elem := range l.Elems {
+                                        if pat, _ := elem.(*PercentPattern); pat != nil {
+                                                m, s = pat.Match(arg.String())
+                                                if m && s != "" {
+                                                        break
+                                                }
+                                        }
+                                }
+                        }
+
+                        if m && s != "" {
+                                if rep, ok := args[1].(*PercentPattern); ok {
+                                        s = rep.prefix.String() + s + rep.suffix.String()
+                                } else if l, _ := args[1].(*List); l != nil {
+                                        var str = s
+                                        for _, elem := range l.Elems {
+                                                if rep, _ := elem.(*PercentPattern); rep != nil {
+                                                        str = rep.prefix.String() + str + rep.suffix.String()
+                                                        break
+                                                }
+                                        }
+                                        s = str
+                                } else {
+                                        s = args[1].String()
+                                }
+                                
+                                switch arg.(type) {
+                                case *Barefile:
+                                        ext := filepath.Ext(s)
+                                        if len(ext) > 0 {
+                                                s = s[:len(s)-len(ext)]
+                                                ext = ext[1:]
+                                        }
+                                        list = append(list, &Barefile{
+                                                Name: &Bareword{s},
+                                                Ext: ext,
+                                        })
+                                default:
+                                        list = append(list, &String{s})
+                                }
+                        } else if arg.Type().Kind() != NoneKind {
+                                fmt.Printf("%T %p %v %v\n", arg, arg, m, s)
+                                list = append(list, arg)
+                        }
+                }
+        }
+        res = &List{Elements{list}}
+        return
+}
+
+func builtinStrip(args... Value) (res Value, err error) {
+        // $(strip string)
+        return
+}
+
+func builtinFindstring(args... Value) (res Value, err error) {
+        // $(findstring find,text)
+        return
+}
+
 func builtinFilter(args... Value) (res Value, err error) {
+        // $(filter pattern…,text)
         res, err = builtinFilterValues(false, args...)
         return
 }
 
 func builtinFilterOut(args... Value) (res Value, err error) {
+        // $(filter-out pattern…,text)
         res, err = builtinFilterValues(true, args...)
+        return
+}
+
+func builtinSort(args... Value) (res Value, err error) {
+        // $(sort list)
+        return
+}
+
+func builtinWord(args... Value) (res Value, err error) {
+        // $(word n,text)
+        return
+}
+
+func builtinWordList(args... Value) (res Value, err error) {
+        // $(wordlist s,e,text)
+        return
+}
+
+func builtinWords(args... Value) (res Value, err error) {
+        // $(words n,text)
+        return
+}
+
+func builtinFirstWord(args... Value) (res Value, err error) {
+        // $(firstword names...)
+        return
+}
+
+func builtinLastWord(args... Value) (res Value, err error) {
+        // $(lastword names...)
         return
 }
 
