@@ -1493,6 +1493,11 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                                 args = append(args, v)
                                         }
                                 }
+                                if nelems := len(comp.Elems); nelems == 1 {
+                                        depend = comp.Elems[0]
+                                } else if nelems == 0 {
+                                        p.error(depend.Pos(), fmt.Sprintf("bad depend"))
+                                }
                         }
 
                         depval, err := p.runtime.Eval(depend)
@@ -1516,7 +1521,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         // Resolve the name first (this will look into the bases too),
                         if sym := p.runtime.Resolve(name); sym != nil {
                                 if entry, ok := sym.(*types.RuleEntry); ok && entry != nil {
-                                        depent = entry
+                                        depval = sym.(types.Value)
+                                        depent = entry // depval.(*types.RuleEntry)
                                 } else {
                                         p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%T)", name, sym))
                                         p.error(depend.Pos(), fmt.Sprintf("name '%s' already taken", name))
@@ -1541,7 +1547,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                                 class = types.FileRuleEntry
                                         }
                                 default:
-                                        p.error(depend.Pos(), fmt.Sprintf("bad depend %v (%T %T)", depval, depval, depend))
+                                        p.error(depend.Pos(), fmt.Sprintf("bad depend %v (%T) (%T)", depval, depval, depend))
                                 }
                                 depent.SetClass(class)
                         } else {
@@ -1549,9 +1555,16 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 continue
                         }
 
+                        //fmt.Printf("depend: %T %v -> %T %v\n", depend, depend, depval, depval)
+                        
                         if len(args) > 0 {
                                 //fmt.Printf("depend: %v %v\n", depent, args)
-                                depval = &types.ArgumentedEntry{ depent, args }
+                                if depent != nil {
+                                        depval = &types.ArgumentedEntry{ depent, args }
+                                } else {
+                                        //depval = &types.Argumented{ depval, args }
+                                        p.error(depend.Pos(), fmt.Sprintf("argumented depend (%v %v)", depval, args))
+                                }
                         }
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                 }

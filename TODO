@@ -1,4 +1,4 @@
 # -*- org -*-
-* TODO Project inheritance
+* TODO Fix immediate expension (e.g. :=)
 * TODO Add 'env' modifier
 * TODO Using compile time evaluated expression for targets/prerequisites

@@ -34,7 +34,7 @@ var builtins = map[string]BuiltinFunc {
         `lit`:        builtinLit,
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-        `subst`:      builtinSubst,
+        //`subst`:      builtinSubst,
         `patsubst`:   builtinPatsubst,
 
         `filter`:     builtinFilter,
