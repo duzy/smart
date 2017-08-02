@@ -14,18 +14,16 @@ import (
 var (
         ErrorIllImport  = errors.New("illegal import spec")
         ErrorIllName    = errors.New("illegal name")
+        ErrorUnreachable = errors.New("unreachable")
+        ErrorAssertion   = errors.New("assertion failed")
 )
 
 func assert(p bool) {
 	if !p {
-		panic("assertion failed")
+		panic(ErrorAssertion)
 	}
 }
 
 func unreachable() {
-	panic("unreachable")
+	panic(ErrorUnreachable)
 }
-
-//func fail(s string, a... interface{}) {
-//        runtime.Fail(s, a...)
-//}

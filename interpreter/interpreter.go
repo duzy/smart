@@ -38,14 +38,21 @@ func init() {
 
 type declare struct {
         project *types.Project
+        backproj *types.Project
         backscope *types.Scope
 }
 
 type loadinfo struct {
-        specPath, absPath, baseName string
+        absDir string // absPath = filepath.Join(absDir, baseName)
+        baseName string
+        specName string
         loader *types.Project
         scope *types.Scope
         declares map[string]*declare // all project declares in the loaded dir
+}
+
+func (li *loadinfo) absPath() string {
+        return filepath.Join(li.absDir, li.baseName)
 }
 
 type Interpreter struct {
@@ -54,7 +61,7 @@ type Interpreter struct {
         fset     *token.FileSet
         paths    searchlist
         loads    []*loadinfo
-        loaded   map[string]*types.Project
+        loaded   map[string]*types.Project // loaded projects
         project  *types.Project // the current project
         scope    *types.Scope   // the current scope
 }
@@ -74,13 +81,6 @@ func New() (interpreter *Interpreter) {
         scope := interpreter.Globe().Scope()
         interpreter.pc = parser.NewContext(&parseContext{ interpreter }, scope)
         interpreter.scope = scope
-        /*
-        for s, _ := range types.GetBuiltins() {
-                interpreter.pc.Builtin(s, nil)
-        }
-        for _, s := range runtime.GetBuiltinNames() {
-                interpreter.pc.Builtin(s, nil)
-        } */
         return
 }
 
@@ -138,7 +138,8 @@ func CommandLine() {
                 targets []string
         )
 
-        saveLoadingInfo(i, at.Spec(), at.AbsPath(), at.Name())
+        //absDir, baseName := filepath.Split(at.AbsPath())
+        saveLoadingInfo(i, at.Spec(), at.AbsPath(), "")
         linfo := i.loads[len(i.loads)-1]
         linfo.declares[at.Name()] = &declare{ project: at }
 

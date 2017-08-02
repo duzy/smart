@@ -33,6 +33,8 @@ type Project struct {
         // Rule Registry
         dedicated []*RuleEntry
         patterns  []Pattern
+
+        filescopes []*Scope
 }
 
 func (m *Project) AbsPath() string { return m.absPath }
@@ -41,6 +43,7 @@ func (m *Project) Spec() string { return m.spec }
 func (m *Project) Name() string { return m.name }
 func (m *Project) Scope() *Scope { return m.scope }
 func (m *Project) Uses() []*Use { return m.uses }
+func (m *Project) Bases() []*Project { return m.bases }
 
 func (m *Project) Chain(bases... *Project) {
         m.bases = append(m.bases, bases...)

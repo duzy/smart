@@ -1,14 +1,11 @@
-module c++
+project c++ (tools/gcc/c)
 
 files (
     '*.cpp' '*.cc' '*.C'
     '*.hpp' '*.hh' '*.H'
-    '*.c' '*.h'
-    '*.o' '*.obj'
+    #'*.c' '*.h'
+    #'*.o' '*.obj'
 )
-
-program ?= a.out
-objects ?=
 
 compiler = g++
 compile_flags = -std=c++1z -c
@@ -33,20 +30,21 @@ LINK = $(linker) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(TARGET_ARCH)
 LOADLIBES =
 LDLIBS =
 
-#OUTPUT_OPTION = -o $@
-
 ignore:
 
-$(program):[(compare) (stdout) (stderr) (shell)]:$(objects)
-
-
+program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: &objects
+	$(link) -o $(bin) $(objects) $(libs)
+lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
+	$(link) -shared -o $(lib) $(objects) $(libs)
+%.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cpp
+	$(compile) $^ -o $@
 
 use:
 	compile_flags += $(compile_flags)
-	compile = $(compiler) &$(compile_flags)
+	compile = $(compiler) &compile_flags
 	archive_flags += $(archive_flags)
-	archive = $(archiver) &$(archive_flags)
+	archive = $(archiver) &archive_flags
 	link_flags += $(link_flags)
-	link = $(linker) &$(link_flags)
+	link = $(linker) &link_flags
 	libs +=
 

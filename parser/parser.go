@@ -328,6 +328,8 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
         if ident.Sym = p.runtime.Resolve(ident.Value); ident.Sym != nil {
                 //fmt.Printf("resolved: %T (%v)\n", ident.Sym, ident.Sym)
                 return
+        } else {
+		ident.Sym = unresolved
         }
 
 	// all local scopes are known, so any unresolved identifier
@@ -335,7 +337,6 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 	// (perhaps in another file), or universe scope --- collect
 	// them so that they can be resolved later
 	if collectUnresolved {
-		ident.Sym = unresolved
 		p.unresolved = append(p.unresolved, ident)
 	}
 }
@@ -348,16 +349,18 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
         switch t := x.(type) {
         case *ast.Bareword: 
                 ident := &ast.Ident{ t, nil }
-                if p.resolve(ident); ident.Sym == nil {
-                        p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Value))
+                if p.resolve(ident); ident.Sym == nil || ident.Sym == unresolved {
+                        p.error(t.Pos(), fmt.Sprintf("identifier '%s' undefined", ident.Value))
                 }
+                //fmt.Printf("identify: %T %v %p %p\n", ident.Sym, ident.Sym, ident.Sym, unresolved)
                 x = ident
         case *ast.EvaluatedExpr:
                 s := t.Data.(types.Value).String()
                 ident := &ast.Ident{ &ast.Bareword{ t.Pos(), s }, nil }
-                if p.resolve(ident); ident.Sym == nil {
-                        p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Value))
+                if p.resolve(ident); ident.Sym == nil || ident.Sym == unresolved {
+                        p.error(t.Pos(), fmt.Sprintf("identifier '%s' undefined", ident.Value))
                 }
+                //fmt.Printf("identify: %T %v\n", ident.Sym, ident.Sym)
                 x = ident
         case *ast.Barefile, *ast.PathExpr, *ast.SelectorExpr:
                 // Barefile and PathExpr are a special identifier itself.
@@ -367,7 +370,7 @@ func (p *parser) identify(x ast.Expr) ast.Expr {
                 if t.Kind == token.INT && len(t.Value) == 1 {
                         ident := &ast.Ident{ &ast.Bareword{ t.Pos(), t.Value }, nil }
                         if p.resolve(ident); ident.Sym == nil {
-                                p.error(t.Pos(), fmt.Sprintf("undefined '%s'", ident.Value))
+                                p.error(t.Pos(), fmt.Sprintf("identifier '%s' undefined", ident.Value))
                         }
                         x = ident
                 } else {
@@ -553,7 +556,11 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
         // immediately.
 
         // Convert x into an Ident or Barefile
-        x = p.identify(x)
+        //x = p.identify(x)
+        switch t := x.(type) {
+        case *ast.Bareword: 
+                x = &ast.Ident{ t, nil }
+        }
 
         res = &ast.SelectorExpr{ x, s }
         if p.tok == token.PERIOD {
@@ -980,12 +987,11 @@ func isValidImport(lit string) bool {
 func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
 	spec := &ast.ImportSpec{ p.parseDirectiveSpec() }
         if err := p.runtime.ClauseImport(spec); err != nil {
-                pos := spec.Pos()
-                if false {
-                        //fmt.Printf("%v: %v\n", p.file.Position(pos), err)
-                        p.error(pos, "import failed")
+                if _, ok := err.(scanner.Errors); ok {
+                        fmt.Printf("%v\n", err)
+                        p.error(spec.Pos(), "import error")
                 } else {
-                        p.warn(pos, "%v", err)
+                        p.warn(spec.Pos(), "%v", err)
                 }
         } else {
                 p.imports = append(p.imports, spec)
@@ -996,7 +1002,12 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.IncludeSpec{ p.parseDirectiveSpec() }
         if err := p.runtime.ClauseInclude(spec); err != nil {
-                p.error(spec.Pos(), fmt.Sprintf("%v", err))
+                if _, ok := err.(scanner.Errors); ok {
+                        fmt.Printf("%v\n", err)
+                        p.error(spec.Pos(), fmt.Sprintf("include error"))
+                } else {
+                        p.error(spec.Pos(), fmt.Sprintf("%v", err))
+                }
         }
         return spec
 }
@@ -1004,7 +1015,12 @@ func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) a
 func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.UseSpec{ p.parseDirectiveSpec() }
         if err := p.runtime.ClauseUse(spec); err != nil {
-                p.error(spec.Pos(), fmt.Sprintf("%v", err))
+                if _, ok := err.(scanner.Errors); ok { // TODO: impossible
+                        fmt.Printf("%v\n", err)
+                        p.error(spec.Pos(), fmt.Sprintf("use error"))
+                } else {
+                        p.error(spec.Pos(), fmt.Sprintf("%v", err))
+                }
         }
         return spec
 
@@ -1048,7 +1064,12 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
         spec := &ast.EvalSpec{ p.parseDirectiveSpec() }
         spec.Props[0] = p.identify(spec.Props[0])
         if err := p.runtime.ClauseEval(spec); err != nil {
-                p.error(spec.Pos(), fmt.Sprintf("%v", err))
+                if _, ok := err.(scanner.Errors); ok { // TODO: impossible
+                        fmt.Printf("%v\n", err)
+                        p.error(spec.Pos(), fmt.Sprintf("eval error"))
+                } else {
+                        p.error(spec.Pos(), fmt.Sprintf("%v", err))
+                }
         }
         return spec
 }
@@ -1195,8 +1216,13 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         
         if !p.isUse && name != "" {
                 if sym, err := p.runtime.Define(clause); err != nil {
-                        p.warn(pos, fmt.Sprintf("define %s (%v)", name, err))
-                        p.error(pos, fmt.Sprintf("%s", err))
+                        if _, ok := err.(scanner.Errors); ok { // TODO: impossible
+                                fmt.Printf("%v\n", err)
+                                p.error(pos, fmt.Sprintf("define %s error", name))
+                        } else {
+                                p.warn(pos, fmt.Sprintf("define %s (%v)", name, err))
+                                p.error(pos, fmt.Sprintf("%s", err))
+                        }
                 } else if sym != nil {
                         //fmt.Printf("parseDefineClause: %T %v\n", sym, sym)
                 } else {
@@ -1480,10 +1506,13 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         if p.tok != token.LINEND {
                 depends = p.parseRhsList(true)
                 dependsLoop: for i, depend := range depends {
-                        var args []types.Value
-                        if comp, _ := depend.(*ast.Barecomp); comp != nil {
-                                if g := comp.Elems[len(comp.Elems)-1].(*ast.GroupExpr); g != nil {
-                                        comp.Elems = comp.Elems[:len(comp.Elems)-1]
+                        var (
+                                args []types.Value
+                        )
+                        switch dep := depend.(type) {
+                        case *ast.Barecomp:
+                                if g := dep.Elems[len(dep.Elems)-1].(*ast.GroupExpr); g != nil {
+                                        dep.Elems = dep.Elems[:len(dep.Elems)-1]
                                         for _, elem := range g.Elems {
                                                 v, e := p.runtime.Eval(elem)
                                                 if e != nil {
@@ -1493,11 +1522,15 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                                 args = append(args, v)
                                         }
                                 }
-                                if nelems := len(comp.Elems); nelems == 1 {
-                                        depend = comp.Elems[0]
+                                if nelems := len(dep.Elems); nelems == 1 {
+                                        depend = dep.Elems[0]
                                 } else if nelems == 0 {
                                         p.error(depend.Pos(), fmt.Sprintf("bad depend"))
                                 }
+
+                        case *ast.SelectorExpr:
+                                //p.error(depend.Pos(), fmt.Sprintf("bad depend (%T)", depend))
+                                //continue dependsLoop
                         }
 
                         depval, err := p.runtime.Eval(depend)
@@ -1506,10 +1539,10 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 continue
                         }
 
-                        //fmt.Printf("depend: %T %v -> %T %v\n", depend, depend, depval, depval)
+                        //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
 
                         switch depval.(type) {
-                        case *types.PercentPattern, *types.Closure:
+                        case *types.RuleEntry, *types.PercentPattern, *types.Closure, *types.List:
                                 depends[i] = &ast.EvaluatedExpr{ depval, depend }
                                 continue dependsLoop
                         }
@@ -1547,7 +1580,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                                 class = types.FileRuleEntry
                                         }
                                 default:
-                                        p.error(depend.Pos(), fmt.Sprintf("bad depend %v (%T) (%T)", depval, depval, depend))
+                                        p.error(depend.Pos(), fmt.Sprintf("unknown depend class '%v' (%T) (%T)", depval, depval, depend))
                                 }
                                 depent.SetClass(class)
                         } else {
@@ -1766,8 +1799,14 @@ func (p *parser) parseFile() *ast.File {
 
                 if p.mode&Flat == 0 {
                         if err := p.runtime.DeclareProject(ident, params); err != nil {
-                                p.warn(ident.Pos(), fmt.Sprintf("project %s (%v)", ident.Value, err))
+                                if _, ok := err.(scanner.Errors); ok {
+                                        fmt.Printf("%v\n", err)
+                                } else {
+                                        p.warn(ident.Pos(), fmt.Sprintf("project %s (%v)", ident.Value, err))
+                                }
                                 p.error(ident.Pos(), fmt.Sprintf("declare %s error", ident.Value))
+                        } else {
+                                defer p.runtime.CloseCurrentProject(ident)
                         }
                 }
         } else if p.mode&Flat == 0 {

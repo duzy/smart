@@ -31,6 +31,7 @@ type RuntimeContext interface {
         Files(m map[string][]string)
 
         DeclareProject(ident *ast.Ident, params types.Value) error
+        CloseCurrentProject(ident *ast.Ident) error
 
         OpenScope(pos token.Pos, comment string) ast.Scope
         CloseScope(scope ast.Scope) error
@@ -206,8 +207,18 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 	}
 
         //fmt.Printf("ParseDir: %v\n", path)
+        //fmt.Printf("ParseDir: %v %v\n", path, list)
         //fmt.Printf("ParseDir: runtime: %p\n", c.runtime)
         //fmt.Printf("ParseDir: parser: %p\n", c.p)
+        for i, a := range list {
+                if i > 0 && a.Name() == "build.smart" {
+                        first := list[0]
+                        list[0] = a
+                        list[i] = first
+                        //fmt.Printf("ParseDir: %v <-> %v\n", a.Name(), first.Name())
+                }
+        }
+        //fmt.Printf("ParseDir: %v %v %v\n", path, len(list), list[0].Name())
 
         scope := c.runtime.OpenScope(token.NoPos, fmt.Sprintf("dir %s", path))
         defer func() {

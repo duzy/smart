@@ -41,6 +41,7 @@ func (s *Scope) Comment() string { return s.comment }
 
 // Outer returns the scope's containing (outer) scope.
 func (s *Scope) Outer() *Scope { return s.outer }
+func (s *Scope) Chain() []*Scope { return s.chain }
 
 // Len() returns the number of scope elements.
 func (s *Scope) Len() int { return len(s.elems) }

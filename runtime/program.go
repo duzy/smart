@@ -89,15 +89,17 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
 
         prog.auto("^", dependList)
 
+        // Convert the original depends
         for _, depend := range prog.depends {
-                if closure, ok := depend.(*types.Closure); ok {
-                        a, e := closure.Call(prog.scope)
-                        if e != nil {
+                switch d := depend.(type) {
+                case *types.Closure:
+                        if a, e := d.Call(prog.scope); e == nil {
+                                depends = append(depends, types.EvalElems(a)...)
+                        } else {
                                 err = e
                                 return
                         }
-                        depends = append(depends, types.EvalElems(a)...)
-                } else {
+                default:
                         depends = append(depends, depend)
                 }
         }
@@ -105,29 +107,33 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
         // TODO: using rules in a different project as prerequisites, e.g.
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
-        dependsLoop: for _, depend := range depends {
+        DependsLoop: for _, depend := range depends {
                 //fmt.Printf("Program.prepare: %T %v\n", depend, depend)
                 var (
                         isFileEntry = false
                         file string
                         args []types.Value
                 )
-                dependSwitch: switch d := depend.(type) {
+                DependSwitch: switch d := depend.(type) {
                 case *types.ArgumentedEntry:
                         depend, args = d.RuleEntry, d.Args
-                        goto dependSwitch
+                        goto DependSwitch
                 case *types.RuleEntry:
                         //fmt.Printf("Program.prepare: %v %v\n", d, d.Class())
                         if res, err = d.Call(args...); err == nil {
                                 var p, _ = d.Program().(*Program)
                                 if p == nil {
                                         switch d.Class() {
-                                        case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                dependList.Append(values.Group(targetRegularKind, d))
+                                        case types.FileRuleEntry:
+                                                file = d.String(); goto SearchFile
+                                        case types.PatternFileRuleEntry:
+                                                // A pattern entry without program can't
+                                                // help to update the file.
+                                                Fail("no rule to make file '%v'", d)
                                         default:
                                                 Fail("%v: '%v' requies update actions (%v)\n", entry, d, d.Class())
                                         }
-                                        break dependSwitch
+                                        break DependSwitch
                                 }
                                 
                                 //var fromOther = p != nil && p.project != prog.project
@@ -151,12 +157,12 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         } else {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
                                 //Fail("failed to update '%v' (%v)", entry, err)
-                                break dependsLoop
+                                break DependsLoop
                         }
                 case *types.Barefile:
-                        file = d.String(); goto handleFileEntry
+                        file = d.String(); goto HandleFile
                 case *types.Path:
-                        file = d.String(); goto handleFileEntry
+                        file = d.String(); goto HandleFile
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
                                 var (
@@ -165,20 +171,21 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 )
                                 if prog.project.IsFile(name) {
                                         //fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
-                                        depend, file = dent, name; goto handleFileEntry
+                                        depend, file = dent, name; goto HandleFile
                                 } else {
                                         //fmt.Printf("%v: %v -> %v (general)\n", entry, depend, dent)
-                                        depend = dent; goto dependSwitch
+                                        depend = dent; goto DependSwitch
                                 }
                         } else {
                                 Fail("empty stem (%s, dependency %v)", entry, d)
                         }
                 default:
                         if types.IsDummy(d) {
+                                //fmt.Printf("dummy: %v\n", d)
                                 sym, _ := d.(types.Object)
                                 scope := sym.Parent()
                                 if s := scope.Find(sym.Name()); s != nil {
-                                        depend = s; goto dependSwitch
+                                        depend = s; goto DependSwitch
                                 }
                                 Fail("unknown dependency %s", sym.Name())
                         } else {
@@ -188,19 +195,23 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 
                 continue // done with non-file RuleEntry
                 
-                handleFileEntry: if file != "" {
-                        //fmt.Printf("convert: %T %v\n", depend, depend)
+                HandleFile: if file != "" {
+                        //fmt.Printf("Program.prepare: %s (%T %v)\n", file, depend, depend)
                         if s := prog.scope.Find(file); s != nil {
                                 depend, isFileEntry = s, true
-                                goto dependSwitch
+                                goto DependSwitch
                         }
                         if p, stem := prog.project.MatchPattern(file); p != nil {
                                 entry := p.Entry(stem)
-                                //fmt.Printf("pattern: %T %T %v (%v, %v)\n", depend, p, p, stem, entry)
+                                //fmt.Printf("Program.prepare: pattern: %T %T %v (%v, %v)\n", depend, p, p, stem, entry)
                                 depend, isFileEntry = entry, true
-                                goto dependSwitch
+                                goto DependSwitch
                         }
 
+                        goto SearchFile
+                }
+
+                SearchFile: if file != "" {
                         fv := prog.project.SearchFile(values.File(depend, file))
                         if fv.Info != nil {
                                 dependList.Append(fv)

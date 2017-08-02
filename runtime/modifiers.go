@@ -262,23 +262,25 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
         )
         if targetFile == nil {
                 err = &breaker{ fmt.Sprintf("compare expects File (%T %v)", targetVal, targetVal), false }
-                goto DoneWhen
+                goto DoneCompare
         }
         if dependList != nil && dependList.Len() > 0 {
                 for _, depend := range dependList.Slice(0) {
                         //fmt.Printf("modifierCompare: %T %v (from %T %v)\n", depend, depend, target, target)
-                retryDepend:
-                        switch d := depend.(type) {
+                        DependSwitch: switch d := depend.(type) {
                         case *types.List:
                                 if depend = d.Take(0); depend != nil {
-                                        goto retryDepend
+                                        goto DependSwitch
                                 }
                         case *types.Group:
                                 switch d.Get(0).(*types.Bareword) {
                                 case targetRegularKind, targetDirectoryKind:
                                         switch d1 := d.Get(1).(type) {
                                         case *types.File: files.Append(d1)
-                                        default: Fail("%v: unknown group depend %v (%T)", targetVal, d, d1)
+                                        case *types.RuleEntry:
+                                                // Retry switching
+                                                depend = d1; goto DependSwitch
+                                        default: Fail("compare: %v: unsupported group depend %v (%T)", targetVal, d, d1)
                                         }
                                 case targetShellKind:
                                         if d1 := d.Get(1); d1.Integer() != 0 {
@@ -286,35 +288,33 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                         }
                                 }
                         case *types.Barefile:
-                                //files.Append(d)
-                                Fail("%v: unknown depend %v (%T)", targetVal, d, d)
+                                Fail("compare: %v: unsupported depend %v (%T)", targetVal, d, d)
                         case *types.RuleEntry:
                                 switch d.Class() {
                                 case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                        Fail("%v: unknown entry depend %v (%v)", targetVal, d.Class())
+                                        Fail("compare: %v: unhandled file depend %v (%v)", targetVal, d, d.Class())
                                 case types.GeneralRuleEntry, types.PatternRuleEntry:
                                         nonfiles.Append(d)
                                 default:
-                                        Fail("%v: unknown entry depend %v (%v)", targetVal, d.Class())
+                                        Fail("compare: %v: unsupported entry depend %v (%v)", targetVal, d.Class())
                                 }
                         case *types.String:
                                 if prog.project.IsFile(d.String()) {
-                                        //files.Append(d)
-                                        Fail("%v: unknown depend %v (%T)", targetVal, depend, depend)
+                                        Fail("compare: %v: unhandled file depend %v (%T)", targetVal, depend, depend)
                                 } else {
                                         nonfiles.Append(d)
                                 }
                         case *types.File:
                                 files.Append(d)
                         default:
-                                Fail("%v: unknown depend %v (%T)", targetVal, depend, depend)
+                                Fail("compare: %v: unsupported depend %v (%T)", targetVal, depend, depend)
                         }
                 }
 
                 if x := missing.Len(); x > 0 {
                         err = &breaker{ fmt.Sprintf("missing %v, required by %s", 
                                 missing, targetVal), false }
-                        goto DoneWhen
+                        goto DoneCompare
                 }
 
                 if files.Len() > 0 {
@@ -325,7 +325,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
 
         if shellFalses > 0 {
                 err = &breaker{ fmt.Sprintf("got %v failures", shellFalses), false }
-                goto DoneWhen // target shall be updated
+                goto DoneCompare // target shall be updated
         }
 
         if fi := targetFile.Info; fi != nil {
@@ -334,16 +334,16 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                         //fmt.Printf("modifierCompare: %v: %v (%T)\n", targetVal, depend, depend)
                         if dependFile, okay := depend.(*types.File); okay {
                                 if t, ok := prog.context.outdated[dependFile.String()]; ok && t.After(fi.ModTime()) {
-                                        goto DoneWhen // target is outdated
+                                        goto DoneCompare // target is outdated
                                 }
                                 if dependFile.Info == nil {
                                         err = &breaker{ fmt.Sprintf("no file or directory '%v'", dependFile),
                                                 false }
-                                        goto DoneWhen
+                                        goto DoneCompare
                                 }
                                 if t := dependFile.Info.ModTime(); t.After(fi.ModTime()) {
                                         prog.context.outdated[targetVal.String()] = t
-                                        goto DoneWhen // target is outdated
+                                        goto DoneCompare // target is outdated
                                 }
                         } else {
                                 fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", targetVal, depend, depend)
@@ -361,17 +361,16 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                 if dependFile.Info == nil {
                                         err = &breaker{ fmt.Sprintf("no file or directory '%v'", dependFile),
                                                 false }
-                                        goto DoneWhen
+                                        goto DoneCompare
                                 }
                         } else {
                                 fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", targetVal, depend, depend)
                         }
                 }
-                goto DoneWhen // target shall be updated
+                goto DoneCompare // target shall be updated
         }
 
-DoneWhen:
-        return
+        DoneCompare: return
 }
 
 func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
