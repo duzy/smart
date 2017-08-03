@@ -33,9 +33,14 @@ type Value interface {
 
         // Float returns the float form of the value.
         Float() float64
+
+        // disclosure method, also prevents creating new Value type from
+        // other packages.
+        disclosure(scope *Scope, args []Value) (Value, error)
 }
 
 type value struct {}
+func (*value) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (*value) Type() Type         { return InvalidType }
 func (*value) Lit() string        { return "" }
 func (*value) String() string     { return "" }
@@ -46,14 +51,15 @@ type None struct { value }
 func (p *None) Type() Type { return NoneType }
 
 type Any struct {
-        value
         V interface{}
+        value
 }
 func (p *Any) Type() Type    { return AnyType }
 
 type Int struct {
         V int64
 }
+func (*Int) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (p *Int) Type() Type          { return IntType }
 func (p *Int) Lit() string         { return p.String() }
 func (p *Int) String() string      { return strconv.FormatInt(int64(p.V),10) }
@@ -63,6 +69,7 @@ func (p *Int) Float() float64      { return float64(p.V) }
 type Float struct {
         V float64
 }
+func (*Float) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (p *Float) Type() Type        { return FloatType }
 func (p *Float) Lit() string       { return p.String() }
 func (p *Float) String() string    { return strconv.FormatFloat(float64(p.V),'g', -1, 64) }
@@ -72,6 +79,7 @@ func (p *Float) Float() float64    { return p.V }
 type DateTime struct {
         V time.Time 
 }
+func (*DateTime) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (p *DateTime) Type() Type     { return DateTimeType }
 func (p *DateTime) Lit() string    { return p.String() }
 func (p *DateTime) String() string { return time.Time(p.V).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
@@ -79,6 +87,7 @@ func (p *DateTime) Integer() int64 { return p.V.Unix() }
 func (p *DateTime) Float() float64 { return float64(p.Integer()) }
 
 type Date struct { DateTime }
+func (*Date) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (p *Date) Type() Type         { return DateType }
 func (p *Date) Lit() string        { return p.String() }
 func (p *Date) String() string     { return time.Time(p.V).Format("2006-01-02") }
@@ -86,6 +95,7 @@ func (p *Date) Integer() int64     { return p.V.Unix() }
 func (p *Date) Float() float64     { return float64(p.Integer()) }
 
 type Time struct { DateTime }
+func (*Time) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (p *Time) Type() Type         { return TimeType }
 func (p *Time) Lit() string        { return p.String() }
 func (p *Time) String() string     { return time.Time(p.V).Format("15:04:05.999999999Z07:00") }
@@ -95,6 +105,7 @@ func (p *Time) Float() float64     { return float64(p.Integer()) }
 type Uri struct {
         V *url.URL
 }
+func (*Uri) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (p *Uri) Type() Type          { return UriType }
 func (p *Uri) Lit() string         { return p.String() }
 func (p *Uri) String() string      { return p.V.String() }
@@ -112,6 +123,7 @@ func (p *String) Lit() string {
                 return "'" + p.V + "'" 
         }
 }
+func (*String) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (p *String) String() string   { return p.V }
 func (p *String) Integer() int64   { i, _ := strconv.ParseInt(p.V, 10, 64); return i }
 func (p *String) Float() float64   { return float64(p.Integer()) }
@@ -119,13 +131,12 @@ func (p *String) Float() float64   { return float64(p.Integer()) }
 type Bareword struct {
         V string
 }
+func (*Bareword) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 func (p *Bareword) Type() Type     { return BarewordType }
 func (p *Bareword) Lit() string    { return p.String() }
 func (p *Bareword) String() string { return p.V }
 func (p *Bareword) Integer() int64 { return 0 }
 func (p *Bareword) Float() float64 { return float64(p.Integer()) }
-
-
         
 type Elements struct {
         Elems []Value
@@ -159,6 +170,22 @@ func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *Elements) ToList() *List         { return &List{*p} }
 
+func (p *Elements) disclosureElems(scope *Scope, args []Value) ([]Value, int, error) {
+        var elems []Value
+        var num = 0 
+        for _, elem := range p.Elems {
+                //fmt.Printf("disclosureElems: %T %v\n", elem, elem)
+                if v, e := elem.disclosure(scope, args); e != nil {
+                        return nil, 0, e
+                } else if v != nil {
+                        elem = v
+                        num += 1
+                }
+                elems = append(elems, elem)
+        }
+        return elems, num, nil
+}
+
 type Barecomp struct {
         Elements
 }
@@ -177,6 +204,15 @@ func (p *Barecomp) String() (s string) {
 func (p *Barecomp) Type() Type     { return BarecompType }
 func (p *Barecomp) Integer() int64 { return int64(len(p.Elems)) }
 func (p *Barecomp) Float() float64 { return float64(p.Integer()) }
+
+func (p *Barecomp) disclosure(scope *Scope, args []Value) (Value, error) {
+        if elems, num, err := p.disclosureElems(scope, args); err != nil {
+                return nil, err
+        } else if num > 0 {
+                return &Barecomp{ Elements{ elems } }, nil
+        }
+        return nil, nil
+}
 
 type Barefile struct {
         Name Value
@@ -200,12 +236,21 @@ func (p *Barefile) String() string {
 func (p *Barefile) Integer() int64 { return 0 }
 func (p *Barefile) Float() float64 { return float64(p.Integer()) }
 
+func (p *Barefile) disclosure(scope *Scope, args []Value) (Value, error) {
+        if name, err := p.Name.disclosure(scope, args); err != nil {
+                return nil, err
+        } else if name != nil {
+                return &Barefile{ name, p.Ext }, nil
+        }
+        return nil, nil
+}
+
 type Path struct {
-        Segments []Value
+        Elements
 }
 func (p *Path) Lit() (s string) {
         // TODO: add '/' for root dir
-        for i, seg := range p.Segments {
+        for i, seg := range p.Elems {
                 if i > 0 { s += string(os.PathSeparator) }
                 s += seg.Lit()
         }
@@ -214,7 +259,7 @@ func (p *Path) Lit() (s string) {
 }
 func (p *Path) String() (s string) {
         // TODO: add '/' for root dir
-        for i, seg := range p.Segments {
+        for i, seg := range p.Elems {
                 if i > 0 { s += string(os.PathSeparator) }
                 s += seg.String()
         }
@@ -225,6 +270,15 @@ func (p *Path) Integer() int64     { return 0 }
 func (p *Path) Float() float64     { return float64(p.Integer()) }
 func (p *Path) Type() Type         { return PathType }
 
+func (p *Path) disclosure(scope *Scope, args []Value) (Value, error) {
+        if elems, num, err := p.disclosureElems(scope, args); err != nil {
+                return nil, err
+        } else if num > 0 {
+                return &Path{ Elements{ elems } }, nil
+        }
+        return nil, nil
+}
+
 type File struct {
         Value  // original represented name (e.g. Barefile)
         Name string  // represented name (e.g. relative filename)
@@ -233,6 +287,15 @@ type File struct {
 }
 func (p *File) Type() Type { return FileType }
 func (p *File) String() string { return filepath.Join(p.Dir, p.Name) }
+
+func (p *File) disclosure(scope *Scope, args []Value) (Value, error) {
+        if v, err := p.Value.disclosure(scope, args); err != nil {
+                return nil, err
+        } else if v != nil {
+                return &File{ v, p.Name, p.Dir, p.Info }, nil
+        }
+        return nil, nil
+}
 
 type Flag struct {
         Name Value
@@ -247,6 +310,15 @@ func (p *Flag) String() string {
 func (p *Flag) Integer() int64     { return 0 }
 func (p *Flag) Float() float64     { return float64(p.Integer()) }
 func (p *Flag) Type() Type         { return FlagType }
+
+func (p *Flag) disclosure(scope *Scope, args []Value) (Value, error) {
+        if name, err := p.Name.disclosure(scope, args); err != nil {
+                return nil, err
+        } else if name != nil {
+                return &Flag{ name }, nil
+        }
+        return nil, nil
+}
         
 type Compound struct {
         Elements
@@ -270,6 +342,15 @@ func (p *Compound) String() (s string) {
 func (p *Compound) Integer() int64 { return int64(len(p.Elems)) }
 func (p *Compound) Float() float64 { return float64(p.Integer()) }
 func (p *Compound) Type() Type     { return CompoundType }
+
+func (p *Compound) disclosure(scope *Scope, args []Value) (Value, error) {
+        if elems, num, err := p.disclosureElems(scope, args); err != nil {
+                return nil, err
+        } else if num > 0 {
+                return &Compound{ Elements{ elems } }, nil
+        }
+        return nil, nil
+}
 
 type List struct {
         Elements
@@ -298,6 +379,15 @@ func (p *List) String() (s string) {
 }
 func (p *List) Type() Type         { return ListType }
 
+func (p *List) disclosure(scope *Scope, args []Value) (Value, error) {
+        if elems, num, err := p.disclosureElems(scope, args); err != nil {
+                return nil, err
+        } else if num > 0 {
+                return &List{ Elements{ elems } }, nil
+        }
+        return nil, nil
+}
+
 type Group struct {
         List
 }
@@ -309,9 +399,18 @@ func (p *Group) String() string {
 }
 func (p *Group) Type() Type        { return GroupType }
 
-type Map struct {
-        Elems map[string]Value
+func (p *Group) disclosure(scope *Scope, args []Value) (Value, error) {
+        if elems, num, err := p.disclosureElems(scope, args); err != nil {
+                return nil, err
+        } else if num > 0 {
+                return &Group{ List{ Elements{ elems } } }, nil
+        }
+        return nil, nil
 }
+
+//type Map struct {
+//        Elems map[string]Value
+//}
 /* func (p *Map) Lit() string {
         return "(" + p.List.Lit() + ")"
 }
@@ -348,6 +447,19 @@ func (p *Pair) SetKey(k Value) {
         }
 }
 
+func (p *Pair) disclosure(scope *Scope, args []Value) (Value, error) {
+        if k, err := p.K.disclosure(scope, args); err != nil {
+                return nil, err
+        } else if v, err := p.V.disclosure(scope, args); err != nil {
+                return nil, err
+        } else if k != nil || v != nil {
+                if k == nil { k = p.K }
+                if v == nil { v = p.V }
+                return &Pair{ k, v }, nil
+        }
+        return nil, nil
+}
+
 type Closure struct {
         Value
 }
@@ -356,41 +468,52 @@ func (r *Closure) Type() Type { return ClosureType }
 func (r *Closure) Lit() string { return "&" + r.Value.Lit() }
 func (r *Closure) String() string { return "&" + r.Value.String() }
 
-func (r *Closure) Call(scope *Scope, a... Value) (res Value, err error) {
+func (r *Closure) disclosure(scope *Scope, args []Value) (Value, error) {
+        //fmt.Printf("disclosure: Closure: %v\n", r.Value)
         var (
+                v, err = r.Value.disclosure(scope, args)
                 obj Object
-                args []Value
+                a []Value
         )
-        switch t := r.Value.(type) {
+        if err != nil {
+                return nil, err
+        } else if v == nil {
+                v = r.Value
+        }
+
+        switch t := v.(type) {
         case *Bareword, *Barecomp: 
                 obj = scope.Find(t.String())
         case *Group:
                 if len(t.Elems) > 0 {
                         obj = scope.Find(t.Elems[0].String())
-                        args = t.Elems[1:]
+                        a = t.Elems[1:]
                 }
         case *List:
                 if len(t.Elems) > 0 {
                         obj = scope.Find(t.Elems[0].String())
-                        args = t.Elems[1:]
+                        a = t.Elems[1:]
                 }
         default:
         }
+
         if obj == nil {
-                err = errors.New(fmt.Sprintf("ref to nil (%v)", r.Value))
+                return nil, errors.New(fmt.Sprintf("ref to nil (%v)", v))
         } else if c, ok := obj.(Caller); ok && c != nil {
-                args = append(args, a...)
-                res, err = c.Call(args...)
+                a = append(a, args...)
+                return c.Call(a...)
         } else {
-                res = obj
+                return obj, nil
         }
-        return
+
+        return nil, nil
 }
 
 // Pattern
 type Pattern interface {
         Value
-        Entry(stem string) *RuleEntry
+        Program() Program
+        NewEntry(stem string) *RuleEntry
         Match(s string) (matched bool, stem string)
 }
 
@@ -416,6 +539,8 @@ func (p *pattern) entry(name, stem string) (entry *RuleEntry) {
         entry.stem = stem
         return
 }
+
+func (*pattern) disclosure(_ *Scope, _ []Value) (Value, error) { return nil, nil }
 
 type PercentPattern struct {
         pattern
@@ -455,7 +580,7 @@ func (p *PercentPattern) Match(s string) (matched bool, stem string) {
         return
 }
 
-func (p *PercentPattern) Entry(stem string) (entry *RuleEntry) {
+func (p *PercentPattern) NewEntry(stem string) (entry *RuleEntry) {
         name := p.prefix.String() + stem + p.suffix.String()
         entry = p.entry(name, stem)
         return
@@ -473,13 +598,13 @@ func (p *RegexpPattern) Lit() string { return p.String() }
 func (p *RegexpPattern) Pos() *token.Position { return nil }
 func (p *RegexpPattern) String() (s string) { return "" }
 func (p *RegexpPattern) Match(s string) (matched bool, stem string) {
+        // TODO: regexp matching...
         return
 }
-func (p *RegexpPattern) Entry(stem string) (entry *RuleEntry) {
+func (p *RegexpPattern) NewEntry(stem string) (entry *RuleEntry) {
+        // TODO: creating new match entry
         return
 }
-
-
 
 type Definer interface {
         Define(p *Project) (Value, error)
@@ -589,4 +714,74 @@ func EvalElems(args... Value) (elems []Value) {
                 }
         }
         return
+}
+
+func disclosure(scope *Scope, value Value, args []Value) (Value, error) {
+        //fmt.Printf("disclosure: %T %v\n", value, value)
+        if v, err := value.disclosure(scope, args); err != nil {
+                return nil, err
+        } else if v != nil {
+                value = v
+        }
+        return value, nil
+}
+
+func Disclosure(scope *Scope, value Value, args... Value) (Value, error) {
+        return disclosure(scope, value, args)
+}
+
+type delegate struct {
+        o Object // TODO: use Caller instead
+        a []Value
+}
+
+func (p *delegate) Type() Type          { return p.o.Type() }
+func (p *delegate) Lit() string         { return p.Value().Lit() }
+func (p *delegate) String() string      { return p.Value().String() }
+func (p *delegate) Integer() int64      { return p.Value().Integer() }
+func (p *delegate) Float() float64      { return p.Value().Float() }
+func (p *delegate) Value() (v Value) {
+        scope := p.o.Parent()
+        if IsDummy(p.o) {
+                if s := scope.Find(p.o.Name()); s != nil {
+                        p.o = s
+                }
+        }
+        //fmt.Printf("delegate: %T %v\n", p.o, p.o)
+        if c, ok := p.o.(Caller); ok {
+                var args []Value
+                for _, a := range p.a {
+                        if v, e := Disclosure(scope, a); e != nil {
+                                // TODO: errors...
+                                return UniversalNone
+                        } else if v != nil {
+                                //fmt.Printf("delegate.value: %v -> %v\n", a, v)
+                                a = v
+                        }
+                        args = append(args, a)
+                }
+                v, _ = c.Call(args...)
+        }
+        if v == nil {
+                v = UniversalNone
+        }
+        return v 
+}
+
+func (p *delegate) disclosure(scope *Scope, args []Value) (Value, error) {
+        value := p.Value()
+        if v, e := value.disclosure(scope, args); e != nil {
+                return nil, e
+        } else if v != nil {
+                //fmt.Printf("delegate.disclosure: %T %v -> %T %v -> %T %v\n", p.o, p.o, value, value, v, v)
+                value = v
+        }
+        return value, nil
+}
+
+func Delegate(obj Object, args... Value) Value {
+        //if d, ok := obj.(*delegate); ok {
+        //        return d
+        //} else {
+        return &delegate{ obj, args }
 }

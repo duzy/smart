@@ -29,7 +29,6 @@ lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
 	$(link) -shared -o $(lib) $(objects) $(libs)
 lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]:  &objects
 	$(archive) $(lib) $(objects)
-
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.c
 	$(compile) -o $@ $<
 

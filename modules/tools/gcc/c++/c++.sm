@@ -9,12 +9,15 @@ files (
 
 compiler = g++
 compile_flags = -std=c++1z -c
+compile = $(compiler) &compile_flags
 
 archiver = ar
 archive_flags = crus
+archive = $(archiver) &archive_flags
 
 linker = g++
 link_flags =
+link = $(linker) &link_flags
 
 ## Using Tradictional Names
 
@@ -36,15 +39,14 @@ program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: &objects
 	$(link) -o $(bin) $(objects) $(libs)
 lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
 	$(link) -shared -o $(lib) $(objects) $(libs)
+lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]:  &objects
+	$(archive) $(lib) $(objects)
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cpp
 	$(compile) $^ -o $@
 
 use:
 	compile_flags += $(compile_flags)
-	compile = $(compiler) &compile_flags
 	archive_flags += $(archive_flags)
-	archive = $(archiver) &archive_flags
 	link_flags += $(link_flags)
-	link = $(linker) &link_flags
 	libs +=
 

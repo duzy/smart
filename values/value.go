@@ -101,7 +101,7 @@ func Barefile(name types.Value, ext string) (v *types.Barefile) {
 }
 
 func Path(segments... types.Value) (v *types.Path) {
-        return &types.Path{segments}
+        return &types.Path{types.Elements{segments}}
 }
 
 func File(v types.Value, s string) (fv *types.File) {

@@ -11,8 +11,8 @@ import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "path/filepath"
-        //"strings"
         "strconv"
+        "strings"
         "errors"
         "fmt"
         "os"
@@ -52,8 +52,21 @@ func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... 
                 defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
         } */
         
-        var value types.Value
-        value, err = i.evaluate(prog, args, prog.recipes)
+        var (
+                value types.Value
+                recipes []types.Value
+        )
+        for _, recipe := range prog.recipes {
+                if v, e := types.Disclosure(prog.scope, recipe); e != nil {
+                        return e
+                } else if v != nil {
+                        //fmt.Printf("recipe: %v -> %v\n", recipe, v)
+                        recipe = v
+                }
+                recipes = append(recipes, recipe)
+        }
+        
+        value, err = i.evaluate(prog, args, recipes)
         if err == nil && value != nil {
                 out.Set(value)
         }
@@ -91,24 +104,22 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
 
         // Convert the original depends
         for _, depend := range prog.depends {
-                switch d := depend.(type) {
-                case *types.Closure:
-                        if a, e := d.Call(prog.scope); e == nil {
-                                depends = append(depends, types.EvalElems(a)...)
-                        } else {
-                                err = e
-                                return
-                        }
-                default:
-                        depends = append(depends, depend)
+                if v, e := types.Disclosure(prog.scope, depend); e != nil {
+                        return e
+                } else if v != nil {
+                        depend = v
                 }
+                //if vr, ok := depend.(types.Valuer); ok {
+                //        depend = vr.Value()
+                //}
+                depends = append(depends, types.EvalElems(depend)...)
         }
 
         // TODO: using rules in a different project as prerequisites, e.g.
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
         DependsLoop: for _, depend := range depends {
-                //fmt.Printf("Program.prepare: %T %v\n", depend, depend)
+                //fmt.Printf("Program.prepare: %T %v\n", depend, depend)               
                 var (
                         isFileEntry = false
                         file string
@@ -125,13 +136,15 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 if p == nil {
                                         switch d.Class() {
                                         case types.FileRuleEntry:
-                                                file = d.String(); goto SearchFile
+                                                file = d.String(); goto FindPatterns
                                         case types.PatternFileRuleEntry:
                                                 // A pattern entry without program can't
                                                 // help to update the file.
-                                                Fail("no rule to make file '%v'", d)
+                                                //Fail("no rule to make file '%v'", d)
+                                                return errors.New(fmt.Sprintf("no rule to make file '%v'", d))
                                         default:
-                                                Fail("%v: '%v' requies update actions (%v)\n", entry, d, d.Class())
+                                                //Fail("%v: '%v' requies update actions (%v)\n", entry, d, d.Class())
+                                                return errors.New(fmt.Sprintf("%v: '%v' requies update actions (%v)\n", entry, d, d.Class()))
                                         }
                                         break DependSwitch
                                 }
@@ -156,7 +169,13 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 }
                         } else {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
-                                //Fail("failed to update '%v' (%v)", entry, err)
+                                var s = err.Error()
+                                if strings.HasPrefix(s, "updating ") {
+                                        s = "->" + strings.TrimPrefix(s, "updating ")
+                                } else {
+                                        s = ", " + s
+                                }
+                                err = errors.New(fmt.Sprintf("updating %v%v", entry, s))
                                 break DependsLoop
                         }
                 case *types.Barefile:
@@ -166,7 +185,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
                                 var (
-                                        dent = d.Entry(entry.Stem())
+                                        dent = d.NewEntry(entry.Stem())
                                         name = dent.String()
                                 )
                                 if prog.project.IsFile(name) {
@@ -177,7 +196,8 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         depend = dent; goto DependSwitch
                                 }
                         } else {
-                                Fail("empty stem (%s, dependency %v)", entry, d)
+                                //Fail("empty stem (%s, dependency %v)", entry, d)
+                                return errors.New(fmt.Sprintf("empty stem (%s, dependency %v)", entry, d))
                         }
                 default:
                         if types.IsDummy(d) {
@@ -187,9 +207,11 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 if s := scope.Find(sym.Name()); s != nil {
                                         depend = s; goto DependSwitch
                                 }
-                                Fail("unknown dependency %s", sym.Name())
+                                //Fail("unknown dependency %s", sym.Name())
+                                return errors.New(fmt.Sprintf("unknown dependency %s", sym.Name()))
                         } else {
-                                Fail("unknown dependency (%T %v)", d, d)
+                                //Fail("unknown dependency (%T %v)", d, d)
+                                return errors.New(fmt.Sprintf("unknown dependency (%T %v)", d, d))
                         }
                 }
                 
@@ -201,22 +223,33 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 depend, isFileEntry = s, true
                                 goto DependSwitch
                         }
-                        if p, stem := prog.project.MatchPattern(file); p != nil {
-                                entry := p.Entry(stem)
-                                //fmt.Printf("Program.prepare: pattern: %T %T %v (%v, %v)\n", depend, p, p, stem, entry)
-                                depend, isFileEntry = entry, true
-                                goto DependSwitch
-                        }
-
-                        goto SearchFile
                 }
+                FindPatterns: if file != "" {
+                        // TODO: Improves patter searching on base chain. 
+                        //fmt.Printf("Program.prepare: FindPatterns: %v: %v\n", prog.project.Name(), file)
+                        if pss := prog.project.FindPatterns(file); pss != nil {
+                                //fmt.Printf("Program.prepare: FoundPatterns: %v %v\n", file, len(pss))
+                                for _, ps := range pss {
+                                        p := ps.Pattern.Program().(*Program)
+                                        if p == nil {
+                                                // goto SearchFile
+                                        }
 
-                SearchFile: if file != "" {
+                                        //fmt.Printf("Program.prepare: %v -> %v (%v)\n", ps.Pattern, p.depends, ps.Stem)
+                                        entry := ps.NewEntry()
+                                        //fmt.Printf("Program.prepare: pattern: %T %T %v (%v, %v)\n", depend, ps.Pattern, ps.Pattern, ps.Stem, entry)
+                                        depend, isFileEntry = entry, true
+                                        goto DependSwitch
+                                }
+                        }
+                }
+                /*SearchFile:*/ if file != "" {
                         fv := prog.project.SearchFile(values.File(depend, file))
                         if fv.Info != nil {
                                 dependList.Append(fv)
                         } else {
-                                Fail("no rule to make file '%v'", fv)
+                                //Fail("no such file '%v' (required by %v)", fv, entry)
+                                return errors.New(fmt.Sprintf("no such file '%v' (required by %v)", fv, entry))
                         }
                 }
         }
@@ -256,7 +289,8 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                                 }
                                 defer os.Chdir(wd)
                         } else {
-                                Fail("%v", err)
+                                //Fail("%v", err)
+                                return
                         }
                 }
         }

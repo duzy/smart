@@ -150,6 +150,7 @@ type usedefiner struct {
         name string
         value types.Value
         pos *token.Position
+        types.None
 }
 func (p *usedefiner) Pos() *token.Position { return p.pos }
 func (p *usedefiner) Type() types.Type     { return p.value.Type() }
@@ -159,13 +160,19 @@ func (p *usedefiner) Integer() int64       { return 0 }
 func (p *usedefiner) Float() float64       { return 0 }
 func (p *usedefiner) Define(project *types.Project) (result types.Value, err error) {
         var value types.Value
-        if value, err = p.unref(project, p.value); err == nil {
+        /*if value, err = p.unref(project, p.value); err == nil {
                 return set(project, p.op, p.name, value)
+        }*/
+        // FIXME: use caller scope
+        if value, err = types.Disclosure(project.Scope(), p.value); err != nil {
+                return
+        } else if value == nil {
+                value = p.value
         }
-        return
+        return set(project, p.op, p.name, value)
 }
 
-func (p *usedefiner) unref(project *types.Project, value types.Value) (result types.Value, err error) {
+/*func (p *usedefiner) unref(project *types.Project, value types.Value) (result types.Value, err error) {
         var (
                 elements []types.Value
                 list []types.Value
@@ -185,7 +192,7 @@ func (p *usedefiner) unref(project *types.Project, value types.Value) (result ty
                         result = values.Barefile(temp, v.Ext)
                 }
         case *types.Path:
-                elements, typ = v.Segments, types.PathType
+                elements, typ = v.Elems, types.PathType
                 goto unrefElems
         case *types.Flag:
                 if temp, err = p.unref(project, v.Name); err == nil {
@@ -200,10 +207,10 @@ func (p *usedefiner) unref(project *types.Project, value types.Value) (result ty
         case *types.Group:
                 elements, typ = v.Elems, types.GroupType
                 goto unrefElems
-        /* case *types.Map:
-                for k, v := range v.Elems {
-                        v.Elems[k] = p.unref(project, v)
-                } */
+        //case *types.Map:
+        //        for k, v := range v.Elems {
+        //                v.Elems[k] = p.unref(project, v)
+        //        }
         case *types.Pair:
                 var k types.Value
                 if k, err = p.unref(project, v.K); err == nil {
@@ -293,7 +300,7 @@ func (p *useref) unref(project *types.Project, s string, args... types.Value) {
                         p.namecaller, p.args = caller, args
                 }
         }
-}
+} */
 
 func (i *Interpreter) parseInfo(pos token.Pos, s string, a... interface{}) {
         i.pc.ParseInfo(pos, s, a...)
@@ -616,7 +623,7 @@ func (i *Interpreter) call(x *ast.CallExpr) (v types.Value) {
         var name = i.expr(x.Name)
         switch t := name.(type) {
         case types.Object:
-                v = i.Fold(x.Pos(), t, i.exprs(x.Args)...)
+                v = types.Delegate(t, i.exprs(x.Args)...)
         case *types.None, nil:
                 if ident, _ := x.Name.(*ast.Ident); ident != nil {
                         i.parseFail(ident.Pos(), "'%s' undefined (%T %v)", ident.Value, x.Name, x.Name)
@@ -850,7 +857,7 @@ func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) 
 }
 
 func (i *Interpreter) depend(depend types.Value) (result types.Value) {
-        //fmt.Printf("rule: %T %v (%v)\n", depend, depend, depend.String())
+        //fmt.Printf("rule: %T %v (%v)\n", depend, depend, depend.String())       
         switch entry := depend.(type) {
         case *types.RuleEntry, *types.ArgumentedEntry, *types.Closure, *types.Barefile, *types.Path, *types.PercentPattern:
                 result = depend

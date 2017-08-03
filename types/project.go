@@ -133,23 +133,29 @@ func (m *Project) AddPercentPattern(p *PercentPattern, prog Program) {
         m.patterns = append(m.patterns, p)
 }
 
-func (m *Project) MatchPattern(s string) (res Pattern, stem string) {
-        var found bool
+type PatternStem struct {
+        Pattern Pattern
+        Stem string
+}
+
+func (ps *PatternStem) NewEntry() *RuleEntry {
+        return ps.Pattern.NewEntry(ps.Stem)
+}
+
+func (m *Project) FindPatterns(s string) (res []*PatternStem) {
+        //fmt.Printf("FindPatterns: %v (%v %v %v)\n", s, m.Name(), m.patterns, m.bases)
         for _, p := range m.patterns {
-                if found, stem = p.Match(s); found && stem != "" {
-                        res = p; return
+                if found, stem := p.Match(s); found && stem != "" {
+                        res = append(res, &PatternStem{ p, stem })
                 }
         }
         for _, base := range m.bases {
-                res, stem = base.MatchPattern(s)
-                if res != nil && stem != "" {
-                        return
-                }
+                res = append(res, base.FindPatterns(s)...)
         }
         return
 }
 
-func (m *Project) FindPercentPattern(s string) (res *PercentPattern) {
+/*func (m *Project) FindPercentPattern(s string) (res *PercentPattern) {
         for _, p := range m.patterns {
                 if pp, _ := p.(*PercentPattern); pp != nil && pp.String() == s {
                         res = pp; return
@@ -161,7 +167,7 @@ func (m *Project) FindPercentPattern(s string) (res *PercentPattern) {
                 }
         }
         return
-}
+}*/
 
 func (m *Project) SetProgram(name string, prog Program, class RuleEntryClass) (entry *RuleEntry, err error) {
         var alt Object
