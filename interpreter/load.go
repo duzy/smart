@@ -160,9 +160,6 @@ func (p *usedefiner) Integer() int64       { return 0 }
 func (p *usedefiner) Float() float64       { return 0 }
 func (p *usedefiner) Define(project *types.Project) (result types.Value, err error) {
         var value types.Value
-        /*if value, err = p.unref(project, p.value); err == nil {
-                return set(project, p.op, p.name, value)
-        }*/
         // FIXME: use caller scope
         if value, err = types.Disclosure(project.Scope(), p.value); err != nil {
                 return
@@ -171,136 +168,6 @@ func (p *usedefiner) Define(project *types.Project) (result types.Value, err err
         }
         return set(project, p.op, p.name, value)
 }
-
-/*func (p *usedefiner) unref(project *types.Project, value types.Value) (result types.Value, err error) {
-        var (
-                elements []types.Value
-                list []types.Value
-                temp types.Value
-                typ types.Type
-        )
-        switch v := value.(type) {
-        case *types.Any:
-                if a, ok := v.V.(types.Value); ok {
-                        result, err = p.unref(project, a)
-                }
-        case *types.Barecomp:
-                elements, typ = v.Elems, types.BarecompType
-                goto unrefElems
-        case *types.Barefile:
-                if temp, err = p.unref(project, v.Name); err == nil {
-                        result = values.Barefile(temp, v.Ext)
-                }
-        case *types.Path:
-                elements, typ = v.Elems, types.PathType
-                goto unrefElems
-        case *types.Flag:
-                if temp, err = p.unref(project, v.Name); err == nil {
-                        result = values.Flag(temp)
-                }
-        case *types.Compound:
-                elements, typ = v.Elems, types.CompoundType
-                goto unrefElems
-        case *types.List:
-                elements, typ = v.Elems, types.ListType
-                goto unrefElems
-        case *types.Group:
-                elements, typ = v.Elems, types.GroupType
-                goto unrefElems
-        //case *types.Map:
-        //        for k, v := range v.Elems {
-        //                v.Elems[k] = p.unref(project, v)
-        //        }
-        case *types.Pair:
-                var k types.Value
-                if k, err = p.unref(project, v.K); err == nil {
-                        if temp, err = p.unref(project, v.V); err == nil {
-                                result = values.Pair(k, temp)
-                        }
-                }
-        case *useref:
-                var args []types.Value
-                switch t := v.namecaller.(type) {
-                case types.Value:
-                        if temp, err = p.unref(project, t); err != nil {
-                                goto done
-                        }
-                case types.Caller:
-                        result = v
-                        goto done
-                default:
-                        err = errors.New(fmt.Sprintf("unimplemented unref (%T)", t))
-                        goto done
-                }
-                
-                for _, a := range v.args {
-                        var arg types.Value
-                        if arg, err = p.unref(project, a); err != nil {
-                                goto done
-                        } else {
-                                args = append(args, arg)
-                        }
-                }
-                if v.unref(project, temp.String(), args...); v.namecaller == nil {
-                        err = errors.New(fmt.Sprintf("unimplemented unref '%s'"))
-                } else {
-                        result = v
-                }
-        default:
-                result = v
-        }
-        goto done
-        
-        unrefElems: for _, elem := range elements {
-                if elem, err = p.unref(project, elem); err == nil {
-                        list = append(list, elem)
-                } else {
-                        return nil, err
-                }
-        }
-        switch typ {
-        case types.BarecompType: result = values.Barecomp(list...)
-        case types.PathType:     result = values.Path(list...)
-        case types.CompoundType: result = values.Compound(list...)
-        case types.ListType:     result = values.List(list...)
-        case types.GroupType:    result = values.Group(list...)
-        default:                 unreachable();
-        }
-        done: return
-}
-
-type useref struct {
-        types.None
-        namecaller interface{} // types.Value or types.Caller
-        args []types.Value
-}
-func (p *useref) Lit() (s string) {
-        switch t := p.namecaller.(type) {
-        case types.Value:
-                s = "&" + t.Lit()
-        case types.Caller:
-                s = fmt.Sprintf("&<%v>", t)
-        default:
-                s = fmt.Sprintf("&%v", t)
-        }
-        return s
-}
-func (p *useref) String() (s string) {
-        if caller, _ := p.namecaller.(types.Caller); caller != nil {
-                if v, err := caller.Call(p.args...); err == nil {
-                        s = v.String()
-                }
-        }
-        return
-}
-func (p *useref) unref(project *types.Project, s string, args... types.Value) {
-        if caller, _ := p.namecaller.(types.Caller); caller == nil {
-                var obj = project.Scope().Lookup(s)
-                if caller, _ = obj.(types.Caller); caller != nil {
-                        p.namecaller, p.args = caller, args
-                }
-        }
-} */
 
 func (i *Interpreter) parseInfo(pos token.Pos, s string, a... interface{}) {
         i.pc.ParseInfo(pos, s, a...)
@@ -701,28 +568,17 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
                         pos: nil,
                 }
         case *ast.ClosureExpr:
-                /*if c, ok := x.X.(*ast.CallExpr); ok {
-                        var name types.Value
-                        switch t := c.Name.(type) {
-                        case *ast.Ident:
-                                name = values.Bareword(t.Value)
-                        default:
-                                name = i.expr(c.Name)
-                        }
-                        //i.parseInfo(x.X.Pos(), "%s: useref '%v' (%T)", i.project.Name(), name, name)
-                        v = &useref{
-                                namecaller: name,
-                                args: i.exprs(c.Args),
-                        }
-                } else {
-                        i.parseFail(x.Pos(), "bad ref (%T)", x.X)
-                }*/
                 ee, ok := x.X.(*ast.EvaluatedExpr)
                 if !ok || ee == nil {
                         i.parseFail(x.X.Pos(), "invalid ref operan (%T)", x.X)
                         break
                 }
-                v = values.Closure(ee.Data.(types.Value))
+                name := ee.Data.(types.Value)
+                if obj := i.scope.Find(name.String()); obj != nil {
+                        v = values.Closure(obj, name)
+                } else {
+                        i.parseFail(x.X.Pos(), "'%v' undefined", name)
+                }
         default:
                 i.parseFail(x.Pos(), "unimplemented expression (%T %v)", x, x)
         }
@@ -1321,9 +1177,11 @@ func (pc *parseContext) Resolve(name string) (obj parser.RuntimeObj) {
 func (pc *parseContext) Symbol(name string, t types.Type) (obj, alt parser.RuntimeObj) {
         switch t {
         case types.DefineType:
-                obj, alt = pc.scope.InsertDef(pc.project, name, values.None)
+                scope := pc.scope // always in the current scope
+                obj, alt = scope.InsertDef(pc.project, name, values.None)
         case types.RuleEntryType:
-                obj, alt = pc.scope.InsertEntry(pc.project, types.GeneralRuleEntry, name)
+                scope := pc.project.Scope() // always in the project
+                obj, alt = scope.InsertEntry(pc.project, types.GeneralRuleEntry, name)
         }
         return
 }

@@ -28,6 +28,7 @@ func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []t
 evaluationLoop:
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {
+                case *types.None:
                 case *types.List:
                         if stmt.Len() == 0 {
                                 continue
@@ -77,6 +78,7 @@ evaluationLoop:
                                 err = e; break evaluationLoop
                         }
                 default:
+                        fmt.Printf("recipe: %v (%T)\n", recipe, recipe)
                         panic("unreachable")
                 }
         }

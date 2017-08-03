@@ -1,52 +1,46 @@
-project c++ (tools/gcc/c)
+project (tools/gcc/c)
 
 files (
     '*.cpp' '*.cc' '*.C'
     '*.hpp' '*.hh' '*.H'
-    #'*.c' '*.h'
-    #'*.o' '*.obj'
 )
 
-compiler = g++
-compile_flags = -std=c++1z -c
-compile = $(compiler) &compile_flags
+CXX = g++
 
-archiver = ar
-archive_flags = crus
-archive = $(archiver) &archive_flags
-
-linker = g++
-link_flags =
-link = $(linker) &link_flags
-
-## Using Tradictional Names
-
-TARGET_ARCH =
-
-CPPFLAGS =
+CPPFLAGS += -std=c++1z
 CXXFLAGS =
-COMPILE = $(compiler) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH)
+
+# FIXME: naming COMPILE.cc, COMPILE.cpp, COMPILE.C
+COMPILE-cc = &CXX &CXXFLAGS &CPPFLAGS &TARGET_ARCH -c
+COMPILE-cpp = $(COMPILE-cc)
+COMPILE-C = $(COMPILE-cc)
+COMPILE = $(COMPILE-cc)
 
 LDFLAGS =
-LINK = $(linker) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(TARGET_ARCH)
 
-LOADLIBES =
-LDLIBS =
+LINK-cc = &CXX &CXXFLAGS &CPPFLAGS &LDFLAGS &TARGET_ARCH
+LINK-o = &CXX &LDFLAGS &TARGET_ARCH
+LINK = $(LINK-cc)
 
 ignore:
 
 program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: &objects
-	$(link) -o $(bin) $(objects) $(libs)
+	$LINK $^ &LOADLIBES &LDLIBS -o $@
 lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
-	$(link) -shared -o $(lib) $(objects) $(libs)
+	$LINK -shared $^ &LOADLIBES &LDLIBS -o $@
 lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]:  &objects
-	$(archive) $(lib) $(objects)
+	$ARCHIVE $@ $<
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cpp
-	$(compile) $^ -o $@
+	$COMPILE $^ -o $@
+
+# TODO:
+#.cc:
+#	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 use:
-	compile_flags += $(compile_flags)
-	archive_flags += $(archive_flags)
-	link_flags += $(link_flags)
-	libs +=
-
+	LINK = $(LINK)
+	COMPILE = $(COMPILE)
+	ARCHIVE = $(ARCHIVE)
+	
+	LOADLIBES = $(LOADLIBES)
+	LDLIBS = $(LDLIBS)

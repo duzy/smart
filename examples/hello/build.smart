@@ -1,10 +1,15 @@
-project hello
+project
 
 import (
     'tools/gcc/c++'
 )
 
-files '*.o' '*.c' '*.cpp' 'hello'
+files (
+    '*.o'
+    '*.c'
+    '*.cpp'
+    'hello'
+)
 
 GREETING := 'Hello World!'
 
@@ -12,10 +17,10 @@ run:[(stderr) (stdout) (shell)]: hello
 	./hello
 
 hello:[(compare) (stderr) (shell)]: hello.o
-	$(link) $^ -o $@
+	$(LINK) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 hello.o:[(compare) (stderr) (shell)]: hello.cpp
-	$(compile) $< -o $@
+	$(COMPILE) $^ -o $@
 
 hello.c:[(plain c) (update-file)]
 	#include <stdio.h>

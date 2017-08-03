@@ -1,42 +1,52 @@
-module c
+project (tools/gcc/generic)
 
 files (
+    '*.s'
     '*.c' '*.h'
     '*.o' '*.obj'
     '*.a' '*.so'
     'a.out'
 )
 
-compiler = gcc
-compile_flags = -c
-compile = $(compiler) $(compile_flags)
+AS = as
+ASFLAGS =
 
-archiver = ar
-archive_flags = crus
-archive = $(archiver) $(archive_flags)
+CC = gcc
+CFLAGS =
+CPPFLAGS =
 
-linker = gcc
-link_flags =
-link = $(linker) $(link_flags)
+COMPILE-c = &CC &CFLAGS &CPPFLAGS &TARGET_ARCH -c
+COMPILE-s = &AS &ASFLAGS &TARGET_MACH
+COMPILE = $(COMPILE-c)
 
-libs =
+LINK-s = &CC &LDFLAGS &TARGET_ARCH
+LINK-o = &CC &LDFLAGS &TARGET_ARCH
+LINK-c = &CC &CFLAGS &CPPFLAGS &LDFLAGS &TARGET_ARCH
+LINK = $(LINK-c)
+
+AR = ar
+ARFLAGS = rv #crus
+ARCHIVE = &AR &ARFLAGS
 
 ignore:
 
 program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: &objects
-	$(link) -o $(bin) $(objects) $(libs)
+	$LINK $^ &LOADLIBES &LDLIBS -o $@
 lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
-	$(link) -shared -o $(lib) $(objects) $(libs)
+	$LINK -shared $^ &LOADLIBES &LDLIBS -o $@
 lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]:  &objects
-	$(archive) $(lib) $(objects)
+	$ARCHIVE $@ $<
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.c
-	$(compile) -o $@ $<
+	$COMPILE -o $@ $<
+
+# TODO:
+#.c:
+#	$(LINK.c) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 use:
-	compile_flags += $(compile_flags)
-	compile = $(compiler) &compile_flags
-	archive_flags += $(archive_flags)
-	archive = $(archiver) &archive_flags
-	link_flags += $(link_flags)
-	link = $(linker) &link_flags
-	libs +=
+	LINK = $(LINK)
+	COMPILE = $(COMPILE)
+	ARCHIVE = $(ARCHIVE)
+	
+	LOADLIBES = $(LOADLIBES)
+	LDLIBS = $(LDLIBS)

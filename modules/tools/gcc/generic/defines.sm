@@ -1,0 +1,21 @@
+project gcc
+
+# .LIBPATTERNS = lib%.so lib%.a
+
+TARGET_ARCH =
+TARGET_MACH =
+
+# General LINK form:
+# 
+#   $(LINK.x) $^ $(LOADLIBES) $(LDLIBS) -o $@
+#
+# Where LINK.x may be:
+#
+#   LINK.x = $(CC) $(LDFLAGS) $(TARGET_ARCH)
+#
+
+LDFLAGS =
+LOADLIBES =
+LDLIBS =
+
+#OUTPUT_OPTION = -o &@

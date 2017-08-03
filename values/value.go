@@ -133,8 +133,8 @@ func Pair(k, v types.Value) (p *types.Pair) {
         return
 }
 
-func Closure(/*scoper types.Scoper,*/ x types.Value) *types.Closure {
-        return &types.Closure{ /*scoper,*/ x }
+func Closure(obj types.Object, name types.Value) *types.Closure {
+        return &types.Closure{ obj, name }
 }
 
 func EscapeChar(s string) string {

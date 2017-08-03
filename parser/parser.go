@@ -1501,8 +1501,33 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         if p.tok == token.COLON {
                 p.next()
         }
-        
-        // Parsing depends...
+
+        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
+        for _, s := range automatics {
+                if sym, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
+                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
+                        p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
+                } else if sym == nil {
+                        // TODO: errors
+                }
+        }
+        for _, s := range params {
+                if sym, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
+                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
+                } else if sym == nil {
+                        // TODO: errors
+                }
+        }
+        for i := 1; i < 10; i += 1 {
+                if sym, alt := p.runtime.Symbol(strconv.Itoa(i), types.DefineType); alt != nil {
+                        p.warn(p.pos, fmt.Sprintf("'%v' already taken", i))
+                } else if sym == nil {
+                        // TODO: errors
+                }
+        }
+
+        // Parsing depends after automatics and parameters are defined, so that
+        // the depend list can refer to automatics and parameters.
         if p.tok != token.LINEND {
                 depends = p.parseRhsList(true)
                 dependsLoop: for i, depend := range depends {
@@ -1602,33 +1627,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                 }
         }
-
         if p.tok != token.EOF {
                 p.expectLinend()
-        }
-
-        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
-        for _, s := range automatics {
-                if sym, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
-                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
-                        p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
-                } else if sym == nil {
-                        // TODO: errors
-                }
-        }
-        for _, s := range params {
-                if sym, alt := p.runtime.Symbol(s, types.DefineType); alt != nil {
-                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
-                } else if sym == nil {
-                        // TODO: errors
-                }
-        }
-        for i := 1; i < 10; i += 1 {
-                if sym, alt := p.runtime.Symbol(strconv.Itoa(i), types.DefineType); alt != nil {
-                        p.warn(p.pos, fmt.Sprintf("'%v' already taken", i))
-                } else if sym == nil {
-                        // TODO: errors
-                }
         }
         
         // Parse recipes in the program scope.

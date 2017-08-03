@@ -461,27 +461,28 @@ func (p *Pair) disclosure(scope *Scope, args []Value) (Value, error) {
 }
 
 type Closure struct {
-        Value
+        Object
+        Name Value
 }
 
 func (r *Closure) Type() Type { return ClosureType }
-func (r *Closure) Lit() string { return "&" + r.Value.Lit() }
-func (r *Closure) String() string { return "&" + r.Value.String() }
+func (r *Closure) Lit() string { return "&" + r.Name.Lit() }
+func (r *Closure) String() string { return "&" + r.Name.String() }
 
 func (r *Closure) disclosure(scope *Scope, args []Value) (Value, error) {
-        //fmt.Printf("disclosure: Closure: %v\n", r.Value)
+        //fmt.Printf("disclosure: Closure: %T %v\n", r.Name, r.Name)
         var (
-                v, err = r.Value.disclosure(scope, args)
+                name, err = r.Name.disclosure(scope, args)
                 obj Object
                 a []Value
         )
         if err != nil {
                 return nil, err
-        } else if v == nil {
-                v = r.Value
+        } else if name == nil {
+                name = r.Name
         }
 
-        switch t := v.(type) {
+        switch t := name.(type) {
         case *Bareword, *Barecomp: 
                 obj = scope.Find(t.String())
         case *Group:
@@ -494,11 +495,16 @@ func (r *Closure) disclosure(scope *Scope, args []Value) (Value, error) {
                         obj = scope.Find(t.Elems[0].String())
                         a = t.Elems[1:]
                 }
-        default:
+        }
+        if obj == nil {
+                obj = r.Object
         }
 
+        //fmt.Printf("%v -> %v (%v)\n", name, obj, r.Object)
+
         if obj == nil {
-                return nil, errors.New(fmt.Sprintf("ref to nil (%v)", v))
+                s := fmt.Sprintf("nil closure (%T %v)", r.Name, r.Name)
+                return nil, errors.New(s)
         } else if c, ok := obj.(Caller); ok && c != nil {
                 a = append(a, args...)
                 return c.Call(a...)
