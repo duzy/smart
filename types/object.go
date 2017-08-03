@@ -207,7 +207,9 @@ type Builtin struct {
 }
 
 func (p *Builtin) String() string { return fmt.Sprintf("builtin %v", p.name) }
-func (p *Builtin) Call(a... Value) (Value, error) { return p.f(a...) }
+func (p *Builtin) Call(context *Scope, a... Value) (Value, error) {
+        return p.f(context, a...) 
+}
 
 func (scope *Scope) NewBuiltin(name string, f BuiltinFunc) *Builtin {
         return &Builtin{
@@ -276,9 +278,9 @@ func (entry *RuleEntry) Program() Program { return entry.program }
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
-func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
+func (entry *RuleEntry) Call(context *Scope, a... Value) (result Value, err error) {
         if entry.program != nil {
-                result, err = entry.program.Execute(entry, a, false)
+                result, err = entry.program.Execute(context, entry, a, false)
         }
         return
 }

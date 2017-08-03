@@ -14,8 +14,8 @@ a := value a
 b := value b
 c := value c
 
-hello:[(compare) (stderr) (shell)]: hello.o
-	$(link) $^ -o $@
+hello:[(cd) (compare) (stderr) (shell)]: hello.o
+	$(LINK) $^ -o $@
 
-hello.o:[(compare) (stderr) (shell)]: hello.cpp
-	$(compile) $< -o $@
+hello.o:[(cd) (compare) (stderr) (shell)]: hello.cpp
+	$(COMPILE) $< -o $@

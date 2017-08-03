@@ -219,7 +219,7 @@ func CommandLine() {
                 return
         }
 
-        if err := i.Run(targets...); err != nil {
+        if err := i.Run(i.scope, targets...); err != nil {
                 fmt.Printf("%v\n", err)
                 return
         }

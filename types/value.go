@@ -468,7 +468,6 @@ type Closure struct {
 func (r *Closure) Type() Type { return ClosureType }
 func (r *Closure) Lit() string { return "&" + r.Name.Lit() }
 func (r *Closure) String() string { return "&" + r.Name.String() }
-
 func (r *Closure) disclosure(scope *Scope, args []Value) (Value, error) {
         //fmt.Printf("disclosure: Closure: %T %v\n", r.Name, r.Name)
         var (
@@ -507,7 +506,7 @@ func (r *Closure) disclosure(scope *Scope, args []Value) (Value, error) {
                 return nil, errors.New(s)
         } else if c, ok := obj.(Caller); ok && c != nil {
                 a = append(a, args...)
-                return c.Call(a...)
+                return c.Call(scope, a...)
         } else {
                 return obj, nil
         }
@@ -622,11 +621,11 @@ type Definer interface {
 //}
 
 type Valuer interface {
-        Value() Value
+        Value(context *Scope) Value
 }
 
 type Caller interface {
-        Call(args... Value) (Value, error)
+        Call(context *Scope, args... Value) (Value, error)
 }
 
 //type CallerValue interface {
@@ -693,13 +692,13 @@ func NameScope(name string, scope *Scope) NameScoper {
         return &namescoper{ name, scope }
 }
 
-func Eval(v Value) (res Value) {
+func Eval(context *Scope, v Value) (res Value) {
         switch t := v.(type) {
         case Valuer:
-                res = Eval(t.Value())
+                res = Eval(context, t.Value(context))
         case *List:
                 for i, elem := range t.Elems {
-                        t.Elems[i] = Eval(elem)
+                        t.Elems[i] = Eval(context, elem)
                 }
                 res = t
         default:
@@ -708,12 +707,12 @@ func Eval(v Value) (res Value) {
         return
 }
 
-func EvalElems(args... Value) (elems []Value) {
+func EvalElems(context *Scope, args... Value) (elems []Value) {
         for _, arg := range args {
-                switch t := Eval(arg).(type) {
+                switch t := Eval(context, arg).(type) {
                 case *List:
                         for _, elem := range t.Elems {
-                                elems = append(elems, EvalElems(elem)...)
+                                elems = append(elems, EvalElems(context, elem)...)
                         }
                 default:
                         elems = append(elems, t)
@@ -742,11 +741,11 @@ type delegate struct {
 }
 
 func (p *delegate) Type() Type          { return p.o.Type() }
-func (p *delegate) Lit() string         { return p.Value().Lit() }
-func (p *delegate) String() string      { return p.Value().String() }
-func (p *delegate) Integer() int64      { return p.Value().Integer() }
-func (p *delegate) Float() float64      { return p.Value().Float() }
-func (p *delegate) Value() (v Value) {
+func (p *delegate) Lit() string         { return p.o.Lit() }
+func (p *delegate) String() string      { return p.o.String() }
+func (p *delegate) Integer() int64      { return p.o.Integer() }
+func (p *delegate) Float() float64      { return p.o.Float() }
+func (p *delegate) Value(context *Scope) (v Value) {
         scope := p.o.Parent()
         if IsDummy(p.o) {
                 if s := scope.Find(p.o.Name()); s != nil {
@@ -766,7 +765,7 @@ func (p *delegate) Value() (v Value) {
                         }
                         args = append(args, a)
                 }
-                v, _ = c.Call(args...)
+                v, _ = c.Call(context, args...)
         }
         if v == nil {
                 v = UniversalNone
@@ -775,7 +774,7 @@ func (p *delegate) Value() (v Value) {
 }
 
 func (p *delegate) disclosure(scope *Scope, args []Value) (Value, error) {
-        value := p.Value()
+        value := p.Value(scope)
         if v, e := value.disclosure(scope, args); e != nil {
                 return nil, e
         } else if v != nil {

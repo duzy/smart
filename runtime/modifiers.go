@@ -374,7 +374,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
 }
 
 func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        var targetVal, _ = prog.scope.Lookup("@").(types.Caller).Call()
+        var targetVal, _ = prog.scope.Lookup("@").(types.Caller).Call(prog.scope)
         if fi, _ := os.Stat(targetVal.String()); fi != nil && fi.Mode().IsDir() {
                 result = values.Group(targetDirectoryKind, targetVal)
         } else {
