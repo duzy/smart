@@ -93,7 +93,7 @@ func (prog *Program) modify(pcd bool, g *types.Group, out *types.Def) (err error
         return
 }
 
-func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
+func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err error) {
         var (
                 res types.Value
                 dependList = values.List()
@@ -112,7 +112,7 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 //if vr, ok := depend.(types.Valuer); ok {
                 //        depend = vr.Value()
                 //}
-                depends = append(depends, types.EvalElems(depend)...)
+                depends = append(depends, types.EvalElems(context, depend)...)
         }
 
         // TODO: using rules in a different project as prerequisites, e.g.
@@ -131,24 +131,22 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         goto DependSwitch
                 case *types.RuleEntry:
                         //fmt.Printf("Program.prepare: %v %v\n", d, d.Class())
-                        if res, err = d.Call(args...); err == nil {
-                                var p, _ = d.Program().(*Program)
-                                if p == nil {
-                                        switch d.Class() {
-                                        case types.FileRuleEntry:
-                                                file = d.String(); goto FindPatterns
-                                        case types.PatternFileRuleEntry:
-                                                // A pattern entry without program can't
-                                                // help to update the file.
-                                                //Fail("no rule to make file '%v'", d)
-                                                return errors.New(fmt.Sprintf("no rule to make file '%v'", d))
-                                        default:
-                                                //Fail("%v: '%v' requies update actions (%v)\n", entry, d, d.Class())
-                                                return errors.New(fmt.Sprintf("%v: '%v' requies update actions (%v)\n", entry, d, d.Class()))
-                                        }
-                                        break DependSwitch
+                        var p, _ = d.Program().(*Program)
+                        if p == nil {
+                                switch d.Class() {
+                                case types.FileRuleEntry:
+                                        file = d.String(); goto HandleFile
+                                        goto FindPatterns
+                                case types.PatternFileRuleEntry:
+                                        // A pattern entry without program can't
+                                        // help to update the file.
+                                        return errors.New(fmt.Sprintf("no rule to make file '%v'", d))
+                                default:
+                                        return errors.New(fmt.Sprintf("%v: '%v' requies update actions (%v)\n", entry, d, d.Class()))
                                 }
-                                
+                                break DependSwitch
+                        }
+                        if res, err = d.Call(context, args...); err == nil {
                                 //var fromOther = p != nil && p.project != prog.project
                                 //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
                                 dd, _ := p.scope.Lookup("@").(*types.Def)
@@ -170,6 +168,8 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         } else {
                                 //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
                                 var s = err.Error()
+                                //fmt.Printf("%s\n", s)
+                                
                                 if strings.HasPrefix(s, "updating ") {
                                         s = "->" + strings.TrimPrefix(s, "updating ")
                                 } else {
@@ -196,7 +196,6 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                         depend = dent; goto DependSwitch
                                 }
                         } else {
-                                //Fail("empty stem (%s, dependency %v)", entry, d)
                                 return errors.New(fmt.Sprintf("empty stem (%s, dependency %v)", entry, d))
                         }
                 default:
@@ -207,10 +206,8 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                                 if s := scope.Find(sym.Name()); s != nil {
                                         depend = s; goto DependSwitch
                                 }
-                                //Fail("unknown dependency %s", sym.Name())
                                 return errors.New(fmt.Sprintf("unknown dependency %s", sym.Name()))
                         } else {
-                                //Fail("unknown dependency (%T %v)", d, d)
                                 return errors.New(fmt.Sprintf("unknown dependency (%T %v)", d, d))
                         }
                 }
@@ -218,8 +215,8 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                 continue // done with non-file RuleEntry
                 
                 HandleFile: if file != "" {
-                        //fmt.Printf("Program.prepare: %s (%T %v)\n", file, depend, depend)
-                        if s := prog.scope.Find(file); s != nil {
+                        fmt.Printf("Program.prepare: %s (%T %v) (%v)\n", file, depend, depend, context)
+                        if s := context/*prog.scope*/.Find(file); s != nil {
                                 depend, isFileEntry = s, true
                                 goto DependSwitch
                         }
@@ -248,7 +245,6 @@ func (prog *Program) prepare(entry *types.RuleEntry) (err error) {
                         if fv.Info != nil {
                                 dependList.Append(fv)
                         } else {
-                                //Fail("no such file '%v' (required by %v)", fv, entry)
                                 return errors.New(fmt.Sprintf("no such file '%v' (required by %v)", fv, entry))
                         }
                 }
@@ -273,7 +269,7 @@ func (prog *Program) Getwd() string {
         return filepath.Clean(prog.project.AbsPath())
 }
 
-func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
+func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
         //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.depends)
         //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.pipline)
         var pcd = entry.Class() != types.UseRuleEntry
@@ -289,7 +285,6 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
                                 }
                                 defer os.Chdir(wd)
                         } else {
-                                //Fail("%v", err)
                                 return
                         }
                 }
@@ -306,8 +301,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value, forced 
         }
 
         // Calculate and prepare depends and files.
-        if err = prog.prepare(entry); err != nil {
-                //Fail("failed to update '%v' (%v)", entry, err)
+        if err = prog.prepare(context, entry); err != nil {
                 return
         }
 

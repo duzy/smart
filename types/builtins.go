@@ -16,7 +16,7 @@ import (
         "fmt"
 )
 
-type BuiltinFunc func(args... Value) (Value, error)
+type BuiltinFunc func(context *Scope, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
         /* TODO:
@@ -76,7 +76,7 @@ func EscapedString(v Value) (s string) {
         return
 }
 
-func builtinPrint(args... Value) (Value, error) {
+func builtinPrint(context *Scope, args... Value) (Value, error) {
         var x = len(args)
         for i, a := range args {
                 if 0 < i && i < x {
@@ -87,7 +87,7 @@ func builtinPrint(args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinPrintl(args... Value) (Value, error) {
+func builtinPrintl(context *Scope, args... Value) (Value, error) {
         var x = len(args)
         for i, a := range args {
                 if 0 < i && i < x {
@@ -102,13 +102,13 @@ func builtinPrintl(args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinPrintln(args... Value) (Value, error) {
-        builtinPrint(args...)
+func builtinPrintln(context *Scope, args... Value) (Value, error) {
+        builtinPrint(context, args...)
         fmt.Printf("\n")
         return nil, nil
 }
 
-func builtinLit(args... Value) (result Value, err error) {
+func builtinLit(context *Scope, args... Value) (result Value, err error) {
         var s string
         for _, a := range args {
                 s += a.Lit()
@@ -116,7 +116,7 @@ func builtinLit(args... Value) (result Value, err error) {
         return &String{s}, nil
 }
 
-func builtinFilterValues(neg bool, args... Value) (res Value, err error) {
+func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, err error) {
         if len(args) > 1 {
                 var pats []Value
                 switch pat := args[0].(type) {
@@ -143,7 +143,7 @@ func builtinFilterValues(neg bool, args... Value) (res Value, err error) {
                 }
                 if len(pats) > 0 {
                         var elems []Value
-                        for _, v := range EvalElems(args[1:]...) {
+                        for _, v := range EvalElems(context, args[1:]...) {
                                 var okay = f(v)
                                 if neg { okay = !okay }
                                 if okay { elems = append(elems, v) }
@@ -159,7 +159,7 @@ func builtinFilterValues(neg bool, args... Value) (res Value, err error) {
         return
 }
 
-func builtinSubst(args... Value) (res Value, err error) {
+func builtinSubst(context *Scope, args... Value) (res Value, err error) {
         // $(subst from,to,text)
         return
 }
@@ -167,11 +167,11 @@ func builtinSubst(args... Value) (res Value, err error) {
 // TODO:
 //   $(var:pattern=replacement)
 //   $(var:suffix=replacement)
-func builtinPatsubst(args... Value) (res Value, err error) {
+func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
         // $(patsubst pattern,replacement,text)
         var list []Value
         if nargs := len(args); nargs > 2 {
-                for _, arg := range EvalElems(args[2:]...) {
+                for _, arg := range EvalElems(context, args[2:]...) {
                         var (
                                 s string // stemp
                                 m bool // matched
@@ -229,59 +229,59 @@ func builtinPatsubst(args... Value) (res Value, err error) {
         return
 }
 
-func builtinStrip(args... Value) (res Value, err error) {
+func builtinStrip(context *Scope, args... Value) (res Value, err error) {
         // $(strip string)
         return
 }
 
-func builtinFindstring(args... Value) (res Value, err error) {
+func builtinFindstring(context *Scope, args... Value) (res Value, err error) {
         // $(findstring find,text)
         return
 }
 
-func builtinFilter(args... Value) (res Value, err error) {
+func builtinFilter(context *Scope, args... Value) (res Value, err error) {
         // $(filter pattern…,text)
-        res, err = builtinFilterValues(false, args...)
+        res, err = builtinFilterValues(context, false, args...)
         return
 }
 
-func builtinFilterOut(args... Value) (res Value, err error) {
+func builtinFilterOut(context *Scope, args... Value) (res Value, err error) {
         // $(filter-out pattern…,text)
-        res, err = builtinFilterValues(true, args...)
+        res, err = builtinFilterValues(context, true, args...)
         return
 }
 
-func builtinSort(args... Value) (res Value, err error) {
+func builtinSort(context *Scope, args... Value) (res Value, err error) {
         // $(sort list)
         return
 }
 
-func builtinWord(args... Value) (res Value, err error) {
+func builtinWord(context *Scope, args... Value) (res Value, err error) {
         // $(word n,text)
         return
 }
 
-func builtinWordList(args... Value) (res Value, err error) {
+func builtinWordList(context *Scope, args... Value) (res Value, err error) {
         // $(wordlist s,e,text)
         return
 }
 
-func builtinWords(args... Value) (res Value, err error) {
+func builtinWords(context *Scope, args... Value) (res Value, err error) {
         // $(words n,text)
         return
 }
 
-func builtinFirstWord(args... Value) (res Value, err error) {
+func builtinFirstWord(context *Scope, args... Value) (res Value, err error) {
         // $(firstword names...)
         return
 }
 
-func builtinLastWord(args... Value) (res Value, err error) {
+func builtinLastWord(context *Scope, args... Value) (res Value, err error) {
         // $(lastword names...)
         return
 }
 
-func builtinEncodeBase64(args... Value) (res Value, err error) {
+func builtinEncodeBase64(context *Scope, args... Value) (res Value, err error) {
         if len(args) > 0 {
                 buf := new(bytes.Buffer)
                 enc := base64.NewEncoder(base64.StdEncoding, buf)
@@ -294,7 +294,7 @@ func builtinEncodeBase64(args... Value) (res Value, err error) {
         return
 }
 
-func builtinDecodeBase64(args... Value) (res Value, err error) {
+func builtinDecodeBase64(context *Scope, args... Value) (res Value, err error) {
         if len(args) > 0 {
                 var list []Value
                 for _, a := range args {
@@ -317,7 +317,7 @@ func builtinDecodeBase64(args... Value) (res Value, err error) {
         return
 }
 
-func builtinBase(args... Value) (Value, error) {
+func builtinBase(context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
@@ -333,7 +333,7 @@ func builtinBase(args... Value) (Value, error) {
         }
 }
 
-func builtinDirDir(args... Value) (Value, error) {
+func builtinDirDir(context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
@@ -349,7 +349,7 @@ func builtinDirDir(args... Value) (Value, error) {
         }
 }
 
-func builtinDir(args... Value) (Value, error) {
+func builtinDir(context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
@@ -365,7 +365,7 @@ func builtinDir(args... Value) (Value, error) {
         }
 }
 
-func builtinNDir(args... Value) (Value, error) {
+func builtinNDir(context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
@@ -389,7 +389,7 @@ func builtinNDir(args... Value) (Value, error) {
         }
 }
 
-func builtinReadFile(args... Value) (res Value, err error) {
+func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
         var l []Value
         for _, a := range args {
                 var s []byte

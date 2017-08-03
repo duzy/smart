@@ -595,7 +595,7 @@ func (i *Interpreter) exprs(exprs []ast.Expr) (values []types.Value) {
 func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
         use := project.Scope().Lookup(useRuleName)
         if rule, _ := use.(*types.RuleEntry); rule != nil {
-                result, err := rule.Call(values.Any(i.project))
+                result, err := rule.Call(i.scope, values.Any(i.project))
                 //i.parseInfo(pos, "use: %v: %v (%v)\n", i.project.Name(), project.Name(), result)
                 if err != nil {
                         return err
@@ -681,11 +681,11 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
                 switch op := i.expr(spec.Props[0]).(type) {
                 case types.Caller:
-                        res, _ = op.Call(i.exprs(spec.Props[1:])...)
+                        res, _ = op.Call(i.scope, i.exprs(spec.Props[1:])...)
                 default:
                         if _, obj := i.scope.FindAt(spec.EndPos, op.String()); obj != nil {
                                 if f, _ := obj.(types.Caller); f != nil {
-                                        res, err = f.Call(i.exprs(spec.Props[1:])...)
+                                        res, err = f.Call(i.scope, i.exprs(spec.Props[1:])...)
                                 }
                         } else {
                                 err = errors.New(fmt.Sprintf("undefined '%s'", op.String()))

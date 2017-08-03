@@ -17,7 +17,7 @@ import (
         //"fmt"
 )
 
-type builtin func(ctx *Context, args... types.Value) (types.Value, error)
+type builtin func(ctx *Context, scope *types.Scope, args... types.Value) (types.Value, error)
 
 var (
         builtins = map[string]builtin {
@@ -41,7 +41,7 @@ func (p *returner) Error() string {
         return "evaluation return"
 }
 
-func builtinReturn(ctx *Context, args... types.Value) (result types.Value, err error) {
+func builtinReturn(ctx *Context, scope *types.Scope, args... types.Value) (result types.Value, err error) {
         var value types.Value
         if x := len(args); x == 0 {
                 value = args[x]

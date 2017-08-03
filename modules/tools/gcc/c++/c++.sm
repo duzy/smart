@@ -12,15 +12,15 @@ CXXFLAGS =
 
 # FIXME: naming COMPILE.cc, COMPILE.cpp, COMPILE.C
 COMPILE-cc = &CXX &CXXFLAGS &CPPFLAGS &TARGET_ARCH -c
-COMPILE-cpp = $(COMPILE-cc)
-COMPILE-C = $(COMPILE-cc)
-COMPILE = $(COMPILE-cc)
+COMPILE-cpp = $COMPILE-cc
+COMPILE-C = $COMPILE-cc
+COMPILE = $COMPILE-cc
 
 LDFLAGS =
 
 LINK-cc = &CXX &CXXFLAGS &CPPFLAGS &LDFLAGS &TARGET_ARCH
 LINK-o = &CXX &LDFLAGS &TARGET_ARCH
-LINK = $(LINK-cc)
+LINK = $LINK-cc
 
 ignore:
 
@@ -38,9 +38,9 @@ lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]:  &objects
 #	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 use:
-	LINK = $(LINK)
-	COMPILE = $(COMPILE)
-	ARCHIVE = $(ARCHIVE)
+	LINK = $LINK
+	COMPILE = $COMPILE
+	ARCHIVE = $ARCHIVE
 	
-	LOADLIBES = $(LOADLIBES)
-	LDLIBS = $(LDLIBS)
+	LOADLIBES = $LOADLIBES
+	LDLIBS = $LDLIBS

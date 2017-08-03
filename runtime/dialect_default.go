@@ -52,7 +52,7 @@ evaluationLoop:
                                 break evaluationLoop
 
                         case types.Caller:
-                                v, e = t.Call(stmt.Slice(1)...)
+                                v, e = t.Call(prog.scope, stmt.Slice(1)...)
                         default:
                                 if stmt.Len() == 1 {
                                         list.Append(v)
