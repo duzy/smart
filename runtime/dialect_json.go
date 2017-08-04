@@ -72,7 +72,7 @@ loop:
                                 if x == 0 {
                                         err = ErrorIllJson; break loop
                                 }
-                                if k := stack[x-1].Get(0); k == nil || k.String() != JsonObject {
+                                if k := stack[x-1].Get(0); k == nil || k.Strval() != JsonObject {
                                         err = ErrorIllJson; break loop
                                 }
                                 stack = stack[0:x-1] // POP
@@ -81,7 +81,7 @@ loop:
                                 if x == 0 {
                                         err = ErrorIllJson; break loop
                                 }
-                                if k := stack[x-1].Get(0); k == nil || k.String() != JsonArray {
+                                if k := stack[x-1].Get(0); k == nil || k.Strval() != JsonArray {
                                         err = ErrorIllJson; break loop
                                 }
                                 stack = stack[0:x-1] // POP
@@ -98,7 +98,7 @@ loop:
                         
                         node = stack[x-1]
                         if k := node.Get(0); k != nil {
-                                if kind := k.String(); kind == JsonArray {
+                                if kind := k.Strval(); kind == JsonArray {
                                         node.Append(s); continue
                                 } else if kind != JsonObject {
                                         err = ErrorIllJson; break loop
@@ -148,7 +148,7 @@ loop:
                         err = ErrorIllJson; break loop
                 }
                 if node != nil && value != nil {
-                        if k := node.Get(0); k != nil && k.String() != JsonArray {
+                        if k := node.Get(0); k != nil && k.Strval() != JsonArray {
                                 err = ErrorIllJson; break loop
                         }
                         node.Append(value)

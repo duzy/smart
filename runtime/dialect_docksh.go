@@ -37,7 +37,7 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
         )
 
         for _, recipe := range recipes {
-                source += recipe.String()
+                source += recipe.Strval()
                 if strings.HasSuffix(source, "\\") {
                         source += "\n" // give back the line feed
                         continue
@@ -65,18 +65,18 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                 )
                 if symDxi != nil {
                         v, _ := symDxi.(types.Caller).Call()
-                        dxi = v.String()
+                        dxi = v.Strval()
                 }
                 if symWd != nil {
                         v, _ := symWd.(types.Caller).Call()
-                        if s := v.String(); s != "" {
+                        if s := v.Strval(); s != "" {
                                 src = fmt.Sprintf("cd '%s' && %s", s, source)
                         }
                 }
 
                 var (
                         args []string
-                        stdin = stdinOpt != nil && stdinOpt.Value().String() == "on"
+                        stdin = stdinOpt != nil && stdinOpt.Value.Strval() == "on"
                 )
                 if stdin {
                         args = []string{ "exec", "-ti", dxi, "sh", "-c", src }
@@ -87,10 +87,10 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                 var sh *exec.Cmd
                 sh = exec.Command("docker", args...)
                 sh.Stdout, sh.Stderr = &stdout, &stderr
-                if stdoutOpt != nil && stdoutOpt.Value().String() == "on" {
+                if stdoutOpt != nil && stdoutOpt.Value.Strval() == "on" {
                         sh.Stdout = os.Stdout
                 }
-                if stderrOpt != nil && stderrOpt.Value().String() == "on" {
+                if stderrOpt != nil && stderrOpt.Value.Strval() == "on" {
                         sh.Stderr = os.Stderr
                 }
                 if stdin {

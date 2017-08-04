@@ -8,6 +8,7 @@ package types
 
 import (
         "github.com/duzy/smart/token"
+        "errors"
         "fmt"
 )
 
@@ -23,6 +24,9 @@ type Object interface {
         Parent() *Scope
         Project() *Project
         Name() string
+
+        // Get object's named property.
+        Get(name string) (Value, error)
         
 	// order reflects a package-level object's source order: if object
 	// a is before object b in the source, then a.order() < b.order().
@@ -57,8 +61,12 @@ func (obj *object) Name() string          { return obj.name }
 func (obj *object) Pos() *token.Position  { return nil /*obj.scopos*/ }
 
 func (obj *object) Type() Type            { return obj.typ }
-func (obj *object) String() string        { return obj.Lit() }
-func (obj *object) Lit() string           { return fmt.Sprintf("object %v", obj.name) }
+func (obj *object) Strval() string        { return obj.String() }
+func (obj *object) String() string        { return fmt.Sprintf("object %v", obj.name) }
+
+func (obj *object) Get(name string) (Value, error) {
+        return nil, errors.New(fmt.Sprintf("no such property (%s)", name))
+}
 
 func (obj *object) order() uint32         { return obj.ord }
 func (obj *object) scopePos() token.Pos   { return obj.scopos }
@@ -66,30 +74,6 @@ func (obj *object) scopePos() token.Pos   { return obj.scopos }
 func (obj *object) setParent(parent *Scope)   { obj.parent = parent }
 func (obj *object) setOrder(order uint32)     { /*assert(order > 0);*/ obj.ord = order }
 func (obj *object) setScopePos(pos token.Pos) { obj.scopos = pos }
-
-func (scope *Scope) NewDummy(project *Project, name string) Object {
-	return &object{
-                parent:  scope,
-                project: project,
-                name:    name,
-                typ:     InvalidType,
-                ord:     0,
-                scopos:  token.NoPos,
-        }
-}
-
-func (scope *Scope) InsertDummy(project *Project, name string) (obj, alt Object) {
-        if alt = scope.elems[name]; alt == nil {
-                obj = scope.NewDummy(project, name)
-                scope.replace(name, obj)
-        }
-        return
-}
-
-func IsDummy(s interface{}) bool {
-        _, ok := s.(*object)
-        return ok
-}
 
 type ProjectName struct {
         object
@@ -100,8 +84,16 @@ type ProjectName struct {
 // It is distinct from Project(), which is the project
 // containing the import statement.
 func (n *ProjectName) Project() *Project { return n.project }
-func (n *ProjectName) String() string  {
+func (n *ProjectName) Strval() string  {
         return fmt.Sprintf("project %s %p", n.name, n.project)
+}
+
+func (n *ProjectName) Get(name string) (Value, error) {
+        if sym := n.project.Scope().Resolve(name); sym != nil {
+                value, _ := sym.(Value)
+                return value, nil
+        }
+        return nil, errors.New(fmt.Sprintf("undefined %s in project %s", name, n.project.Name()))
 }
 
 func (scope *Scope) NewProjectName(container *Project, name string, project *Project) *ProjectName {
@@ -135,8 +127,16 @@ type ScopeName struct {
 // It is distinct from Project(), which is the project
 // containing the import statement.
 func (n *ScopeName) Scope() *Scope { return n.scope }
-func (n *ScopeName) String() string  {
+func (n *ScopeName) Strval() string  {
         return fmt.Sprintf("scope %s %p", n.name, n.project)
+}
+
+func (n *ScopeName) Get(name string) (Value, error) {
+        if sym := n.scope.Resolve(name); sym != nil {
+                value, _ := sym.(Value)
+                return value, nil
+        }
+        return nil, errors.New(fmt.Sprintf("undefined %s in scope %s", name, n.Name()))
 }
 
 func (scope *Scope) NewScopeName(project *Project, name string, s *Scope) *ScopeName {
@@ -161,18 +161,26 @@ func (scope *Scope) InsertScopeName(project *Project, name string, s *Scope) (pn
         return
 }
 
-// A Def represents a definition.
+// A Def represents a definition, it's a Caller but mustn't be a Valuer.
 type Def struct {
         object
-        value Value
+        Value Value
 }
 
-func (d *Def) Value() Value    { return d.value }
-func (d *Def) String() string  { return d.name+" = "+d.value.String() }
-func (d *Def) Set(v Value)     { d.value = v }
+func (d *Def) String() string  { return d.name+" = "+d.Value.String() }
+func (d *Def) Strval() string  { return d.name+" = "+d.Value.Strval() }
+func (d *Def) Set(v Value)     { d.Value = v }
 func (d *Def) Call(a... Value) (Value, error) {
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
-        return d.value, nil 
+        return d.Value, nil 
+}
+
+func (d *Def) Get(name string) (Value, error) {
+        switch name {
+        case "name": return &String{d.name}, nil
+        case "value": return d.Value, nil
+        }
+        return nil, errors.New(fmt.Sprintf("no such property (%s)", name))
 }
 
 func (scope *Scope) NewDef(project *Project, name string, value Value) *Def {
@@ -206,7 +214,7 @@ type Builtin struct {
         f BuiltinFunc
 }
 
-func (p *Builtin) String() string { return fmt.Sprintf("builtin %v", p.name) }
+func (p *Builtin) Strval() string { return fmt.Sprintf("builtin %v", p.name) }
 func (p *Builtin) Call(a... Value) (Value, error) {
         return p.f(p.parent, a...)
 }
@@ -251,7 +259,7 @@ var ruleEntryClassNames = []string{
         UseRuleEntry:         "UseRuleEntry",
 }
 
-func (c RuleEntryClass) String() string {
+func (c RuleEntryClass) Strval() string {
         var i = int(c)
         if 0 < i && i < len(ruleEntryClassNames) {
                 return ruleEntryClassNames[i]
@@ -267,7 +275,7 @@ type RuleEntry struct {
         stem string // only applied for PatternRuleEntry
 }
 
-func (entry *RuleEntry) String() string { return entry.name }
+func (entry *RuleEntry) Strval() string { return entry.name }
 func (entry *RuleEntry) Stem() string { return entry.stem }
 
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
@@ -284,6 +292,15 @@ func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
                 result, err = entry.program.Execute(context, entry, a, false)
         }
         return
+}
+
+func (entry *RuleEntry) Get(name string) (Value, error) {
+        switch name {
+        case "name": return &String{entry.Name()}, nil
+        case "class": return &String{entry.class.Strval()}, nil
+        //case "stem": return &String{entry.stem}, nil
+        }
+        return nil, errors.New(fmt.Sprintf("no such entry property (%s)", name))
 }
 
 type ArgumentedEntry struct {

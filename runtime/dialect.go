@@ -40,7 +40,7 @@ func joinRecipesString(recipes... types.Value) string {
                 s = new(bytes.Buffer)
         )
         for n, recipe := range recipes {
-                if fmt.Fprintf(s, recipe.String()); n < x {
+                if fmt.Fprintf(s, recipe.Strval()); n < x {
                         fmt.Fprintf(s, "\n")
                 }
         }

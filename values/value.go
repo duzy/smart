@@ -133,10 +133,6 @@ func Pair(k, v types.Value) (p *types.Pair) {
         return
 }
 
-func Closure(obj types.Object, name types.Value) *types.Closure {
-        return &types.Closure{ obj, name }
-}
-
 func EscapeChar(s string) string {
         switch s {
         case "a":  s = "\a"

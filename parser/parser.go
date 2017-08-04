@@ -51,7 +51,7 @@ type parser struct {
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
         isUse   bool // parsing use recipe
-        noSel   bool
+        //noSel   bool
         
 	// Ordinary identifier scopes
 	unresolved []*ast.Ident      // unresolved identifiers (reference to project symbols)
@@ -325,8 +325,9 @@ func (p *parser) tryResolve(x ast.Expr, collectUnresolved bool) {
 	}
         
 	// try to resolve the identifier
-        if ident.Sym = p.runtime.Resolve(ident.Value); ident.Sym != nil {
-                //fmt.Printf("resolved: %T (%v)\n", ident.Sym, ident.Sym)
+        if obj := p.runtime.Resolve(ident.Value); obj != nil {
+                //fmt.Printf("resolved: %T (%v)\n", obj, obj)
+                ident.Sym = obj.(ast.Symbol)
                 return
         } else {
 		ident.Sym = unresolved
@@ -348,27 +349,44 @@ func (p *parser) resolve(x ast.Expr) {
 func (p *parser) identify(x ast.Expr) ast.Expr {
         switch t := x.(type) {
         case *ast.Bareword: 
-                ident := &ast.Ident{ t, nil }
+                ident := &ast.Ident{ *t, nil }
                 if p.resolve(ident); ident.Sym == nil || ident.Sym == unresolved {
-                        p.error(t.Pos(), fmt.Sprintf("identifier '%s' undefined", ident.Value))
+                        p.warn(t.Pos(), fmt.Sprintf("%s undefined", ident.Value))
+                        p.error(t.Pos(), fmt.Sprintf("identifier undefined (%s)", ident.Value))
                 }
-                //fmt.Printf("identify: %T %v %p %p\n", ident.Sym, ident.Sym, ident.Sym, unresolved)
+                //fmt.Printf("identify: %T %v (%p %p)\n", ident.Sym, ident.Sym, ident.Sym, unresolved)
                 x = ident
         case *ast.EvaluatedExpr:
-                s := t.Data.(types.Value).String()
-                ident := &ast.Ident{ &ast.Bareword{ t.Pos(), s }, nil }
-                if p.resolve(ident); ident.Sym == nil || ident.Sym == unresolved {
-                        p.error(t.Pos(), fmt.Sprintf("identifier '%s' undefined", ident.Value))
+                ident := &ast.Ident{ ast.Bareword{ ValuePos:t.Pos() }, nil }
+                switch data := t.Data.(type) {
+                case types.Caller:
+                        ident.Sym = t.Data.(ast.Symbol)
+                        if o, _ := data.(types.Object); o != nil {
+                                ident.Value = o.Name()
+                        }
+                default:
+                        //fmt.Printf("identify: %T %T %v\n", t.Expr, t.Data, t.Data)
+                        ident.Value = data.(types.Value).Strval()
+                        if p.resolve(ident); ident.Sym == nil || ident.Sym == unresolved {
+                                p.error(t.Pos(), fmt.Sprintf("identifier '%s' undefined", ident.Value))
+                        }
+                }
+                if ident.Value == "" {
+                        switch tx := t.Expr.(type) {
+                        case *ast.Bareword: ident.Value = tx.Value
+                        default:
+                                p.error(t.Pos(), fmt.Sprintf("unsupported identifier expression (%T)", t.Expr))
+                        }
                 }
                 //fmt.Printf("identify: %T %v\n", ident.Sym, ident.Sym)
                 x = ident
-        case *ast.Barefile, *ast.PathExpr, *ast.SelectorExpr:
+        case *ast.Barefile, *ast.PathExpr:
                 // Barefile and PathExpr are a special identifier itself.
         case *ast.Ident: 
                 // Ignore silently.
         case *ast.BasicLit:
                 if t.Kind == token.INT && len(t.Value) == 1 {
-                        ident := &ast.Ident{ &ast.Bareword{ t.Pos(), t.Value }, nil }
+                        ident := &ast.Ident{ ast.Bareword{ t.Pos(), t.Value }, nil }
                         if p.resolve(ident); ident.Sym == nil {
                                 p.error(t.Pos(), fmt.Sprintf("identifier '%s' undefined", ident.Value))
                         }
@@ -470,17 +488,21 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.CompoundLit:
 	case *ast.GlobExpr:
 	case *ast.ClosureExpr:
-	case *ast.CallExpr:
+	case *ast.DelegateExpr:
 	case *ast.GroupExpr:
 	case *ast.ListExpr: panic("unreachable")
 	case *ast.UnaryExpr:
 	case *ast.BinaryExpr:
         case *ast.KeyValueExpr:
-        case *ast.SelectorExpr:
         case *ast.PathExpr:
         case *ast.PercExpr:
         case *ast.FlagExpr:
         case *ast.Ident:
+        case *ast.EvaluatedExpr:
+        case nil:
+                p.warn(p.pos, "nil expression")
+		p.errorExpected(p.pos, "nil expression")
+		x = &ast.BadExpr{From:token.NoPos, To:token.NoPos}
 	default:
 		// all other nodes are not proper expressions
                 p.warn(x.Pos(), "bad expression (%T)\n", x)
@@ -511,21 +533,18 @@ func (p *parser) parseBareword() *ast.Bareword {
         }
 }
 
-func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
+func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
 	if p.trace {
 		defer un(trace(p, "Selector"))
 	}
 
+        // Parse rhs of '.'...
         s := p.checkExpr(p.parseExpr(lhs))
-
         switch t := s.(type) {
         case *ast.Bareword:
                 if bw, ok := x.(*ast.Bareword); ok && p.runtime.IsFileName(bw.Value+"."+t.Value) {
                         return &ast.Barefile{ x, t.Pos(), t.Value }
                 }
-
-                // convert the S operator into an Ident
-                s = &ast.Ident{ t, nil }
 
         case *ast.Barecomp:
                 // Dealing with barecomps like 'foobar.o(arg)', this
@@ -541,8 +560,8 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
                                 return t
                         }
 
-                        // convert the S operator into Ident
-                        s = &ast.Ident{ bw2, nil }
+                        // Reset the select operand
+                        s = bw2
 
                         // Compose again at the end
                         defer func() {
@@ -552,19 +571,80 @@ func (p *parser) parseSelector(lhs bool, x ast.Expr) (res ast.Expr) {
                 }
         }
 
-        // TODO: eliminate SelectorExpr, evaluate selection
-        // immediately.
-
-        // Convert x into an Ident or Barefile
-        //x = p.identify(x)
+        // Deal with lhs of '.', convert x into an Ident or Barefile
+        var (
+                operand types.Value
+                value types.Value
+                operandName string
+                valueName string
+        )
         switch t := x.(type) {
-        case *ast.Bareword: 
-                x = &ast.Ident{ t, nil }
+        case *ast.Bareword: operandName = t.Value
+        case *ast.EvaluatedExpr:
+                if operand = t.Data.(types.Value); operand != nil {
+                        goto ComputeValueName
+                } else {
+                        p.error(t.Pos(), fmt.Sprintf("nil select operand %T (%v)", t.Data, t.Data))
+                        goto DoneSelect
+                }
+        default:
+                if v, e := p.runtime.Eval(x); e == nil {
+                        operandName = v.Strval()
+                } else {
+                        p.error(t.Pos(), fmt.Sprintf("invalid select operand %T (%v)", t, e))
+                }
+        }
+        if sym := p.runtime.Resolve(operandName); sym != nil {
+                operand = sym.(types.Value)
+        } else {
+                p.error(x.Pos(), fmt.Sprintf("undefiend select operand '%s'", operandName))
         }
 
-        res = &ast.SelectorExpr{ x, s }
+        ComputeValueName: switch t := s.(type) {
+        case *ast.Bareword: valueName = t.Value
+        case *ast.EvaluatedExpr:
+                if v, _ := t.Data.(types.Value); v != nil {
+                        valueName = v.Strval()
+                } else {
+                        p.error(t.Pos(), fmt.Sprintf("nil select operand %T (%v)", t.Data, t.Data))
+                }
+                goto DoneSelect
+        default:
+                if v, e := p.runtime.Eval(s); e == nil && v != nil {
+                        valueName = v.Strval()
+                } else if v == nil {
+                        goto DoneSelect
+                } else {
+                        p.error(t.Pos(), fmt.Sprintf("invalid select operand %T (%v)", t, e))
+                }
+        }
+
+        switch o := operand.(type) {
+        case types.Object:
+                var err error
+                if value, err = o.Get(valueName); err != nil {
+                        p.warn(s.Pos(), err.Error())
+                } else if value == nil {
+                        p.warn(s.Pos(), fmt.Sprintf("no such property (%s)", valueName))
+                } else {
+                        goto DoneSelect
+                }
+                p.error(s.Pos(), "select property failed")
+        default:
+                goto DoneSelect
+        }
+        
+        DoneSelect: if value == nil {
+                p.error(s.Pos(), fmt.Sprintf("symbol undefined (in %s)", operandName))
+        }
+
+        //fmt.Printf("select: %T . %T -> %s.%s\n", x, s, operandName, valueName)
+        //fmt.Printf("select: %T %v . %T %v\n", operand, operand, value, value)
+        
+        res = &ast.EvaluatedExpr{ value, s }
         if p.tok == token.PERIOD {
-                res = p.parseSelector(lhs, res)
+                // Continue the selection recursivly
+                res = p.parseSelect(lhs, res)
         }
         return
 }
@@ -713,7 +793,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         Rquote: rpos,
                 }
                 
-         case token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S, token.CALL_M,
+         /*case token.CALL_A, token.CALL_L, token.CALL_U, token.CALL_S, token.CALL_M,
               token.CALL_1, token.CALL_2, token.CALL_3, token.CALL_4, 
               token.CALL_5, token.CALL_6, token.CALL_7, token.CALL_8, 
               token.CALL_9, token.CALL_R, token.CALL_D, token.CALL_DD:
@@ -724,17 +804,19 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 if p.resolve(ident); ident.Sym == nil {
                         p.error(pos, fmt.Sprintf("undefined '%s'", ident.Value))
                 }
-                return &ast.CallExpr{
-                        Dollar: pos,
-                        Lparen: token.NoPos,
-                        Name: ident,
-                        Rparen: token.NoPos,
-                        Tok: tok,
-                }
+                return &ast.DelegateExpr{
+                        ast.ClosureDelegate{
+                                TokPos: pos,
+                                Lparen: token.NoPos,
+                                Name: ident,
+                                Rparen: token.NoPos,
+                                Tok: tok,
+                        },
+                }*/
 
         case token.AT:
                 pos := p.pos; p.next()
-                return &ast.Ident{ &ast.Bareword{ 
+                return &ast.Ident{ ast.Bareword{ 
                         ValuePos: pos, 
                         Value: "@",
                 }, nil }
@@ -744,7 +826,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 p.next()
                 return &ast.GlobExpr{ TokPos:pos, Tok:tok }
 
-        case token.AND:
+        /*case token.AND:
                 pos := p.pos
                 p.next()
                 x := p.checkExpr(p.parseExpr(false))
@@ -756,9 +838,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 } else {
                         p.error(x.Pos(), fmt.Sprintf("immediate (%s)", e))
                 }
-                return &ast.ClosureExpr{ Tok: pos, X: x }
-                
-        case token.CALL:
+                return &ast.ClosureExpr{ Tok: pos, X: x } */
+        case token.DOLLAR, token.AND: // delegate, closure
                 var (
                         lpos = token.NoPos
                         rpos = token.NoPos
@@ -772,23 +853,23 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 case token.LPAREN:
                         lpos, tokLp = p.pos, p.tok
                         p.next()
-                        oldSel := p.noSel
-                        p.noSel = false
+                        /*oldSel := p.noSel
+                        p.noSel = false*/
                         name = p.checkExpr(p.parseExpr(false))
                         if p.tok != token.RPAREN {
-                                oldSel := p.noSel
-                                p.noSel = true
+                                /*oldSel := p.noSel
+                                p.noSel = true*/
                                 rest = append(rest, p.parseListExpr(false))
                                 for p.tok == token.COMMA {
                                         p.next()
                                         rest = append(rest, p.parseListExpr(false))
                                 }
-                                p.noSel = oldSel
+                                //p.noSel = oldSel
                         }
-                        p.noSel = oldSel
+                        //p.noSel = oldSel
                         rpos = p.expect(token.RPAREN)
                 default:
-                        // Parse name without compising expressions
+                        // Parse name without composing expressions
                         name = p.checkExpr(p.parseExpr0(false))
                 }
                 
@@ -799,15 +880,20 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 }*/
 
                 ident := p.identify(name)
-                //fmt.Printf("call: %T %v -> %T %v\n", name, name, ident, ident)
-                return &ast.CallExpr{
-                        Dollar: pos,
+                //fmt.Printf("ClosureDelegate: %T %v -> %T %v\n", name, name, ident, ident)
+                cd := ast.ClosureDelegate{
+                        TokPos: pos,
                         Lparen: lpos,
                         Name: ident,
                         Args: rest,
                         Rparen: rpos,
                         TokLp: tokLp,
                         Tok: tok,
+                }
+                if tok == token.DOLLAR {
+                        return &ast.DelegateExpr{ cd }
+                } else {
+                        return &ast.ClosureExpr{ cd }
                 }
 
         case token.LPAREN:
@@ -861,6 +947,28 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 fallthrough
 
         default:
+                if p.tok.IsClosure() || p.tok.IsDelegate() {
+                        pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
+                        p.next()
+
+                        var ident = &ast.Ident{ ast.Bareword{ p.pos, s }, nil }
+                        if p.resolve(ident); ident.Sym == nil {
+                                p.error(pos, fmt.Sprintf("undefined '%s'", ident.Value))
+                        }
+                        cd := ast.ClosureDelegate{
+                                TokPos: pos,
+                                Lparen: token.NoPos,
+                                Name: ident,
+                                Rparen: token.NoPos,
+                                Tok: tok,
+                        }
+                        if p.tok.IsDelegate() {
+                                return &ast.DelegateExpr{ cd }
+                        } else {
+                                return &ast.ClosureExpr{ cd }
+                        }
+                }
+
                 pos := p.pos
                 p.warn(pos, "weird token '%v'\n", p.tok)
                 p.errorExpected(pos, "clause or expression")
@@ -882,16 +990,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 }
         } else if p.tok == token.PERIOD {
                 p.next()
-                if p.noSel {
-                        x = &ast.Barecomp{
-                                []ast.Expr{ 
-                                        x, &ast.Bareword{ p.pos, "." },
-                                        p.checkExpr(p.parseExpr(lhs)),
-                                },
-                        }
-                } else {
-                        x = p.parseSelector(lhs, p.checkExpr(x))
-                }
+                x = p.parseSelect(lhs, p.checkExpr(x))
         } else if p.tok == token.PCON {
                 var (
                         segments []ast.Expr
@@ -1041,16 +1140,16 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                 }
                 switch v := ee.Data.(type) {
                 case *types.Pair:
-                        switch s := v.K.String(); vv := v.V.(type) {
+                        switch s := v.K.Strval(); vv := v.V.(type) {
                         case *types.Group:
                                 for _, elem := range vv.Elems {
-                                        files[s] = append(files[s], elem.String())
+                                        files[s] = append(files[s], elem.Strval())
                                 }
                         default:
-                                files[s] = append(files[s], vv.String())
+                                files[s] = append(files[s], vv.Strval())
                         }
                 case types.Value:
-                        s := v.String()
+                        s := v.Strval()
                         files[s] = append(files[s], ".")
                 default:
                         p.error(prop.Pos(), fmt.Sprintf("bad file spec (%T)", prop))
@@ -1330,7 +1429,7 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         switch elem.(type) {
                                         case *ast.Bareword, *ast.Barecomp:
                                                 if v, e := p.runtime.Eval(elem); e == nil {
-                                                        params = append(params, v.String())
+                                                        params = append(params, v.Strval())
                                                 } else {
                                                         p.error(elem.Pos(), fmt.Sprintf("bad parameter (%T, %v)", elem, e))
                                                 }
@@ -1339,14 +1438,14 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         }
                                 }
                                 goto next
-                        case *ast.CallExpr, *ast.Barecomp, *ast.BasicLit:
+                        case *ast.DelegateExpr, *ast.ClosureExpr, *ast.Barecomp, *ast.BasicLit:
                                 v, e := p.runtime.Eval(n)
                                 if e != nil {
                                         p.error(n.Pos(), fmt.Sprintf("%v (%v)", e, n))
                                         goto next
                                 }
 
-                                if name, pos = v.String(), x.Pos(); name == "" {
+                                if name, pos = v.Strval(), x.Pos(); name == "" {
                                         p.error(n.Pos(), fmt.Sprintf("empty name (%v)", n))
                                         goto next
                                 }
@@ -1425,7 +1524,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         continue
                 }
 
-                var name = v.String()
+                var name = v.Strval()
                 if name == "" {
                         p.error(target.Pos(), "empty entry name")
                         continue
@@ -1552,10 +1651,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 } else if nelems == 0 {
                                         p.error(depend.Pos(), fmt.Sprintf("bad depend"))
                                 }
-
-                        case *ast.SelectorExpr:
-                                //p.error(depend.Pos(), fmt.Sprintf("bad depend (%T)", depend))
-                                //continue dependsLoop
                         }
 
                         depval, err := p.runtime.Eval(depend)
@@ -1564,16 +1659,16 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 continue
                         }
 
-                        //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
+                        fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
 
-                        switch depval.(type) {
-                        case *types.RuleEntry, *types.PercentPattern, *types.Closure, *types.List:
+                        switch depval.Type() {
+                        case types.RuleEntryType, types.PatternType, types.ClosureType, types.DelegateType, types.ListType:
                                 depends[i] = &ast.EvaluatedExpr{ depval, depend }
                                 continue dependsLoop
                         }
                         
                         var (
-                                name = depval.String()
+                                name = depval.Strval()
                                 depent *types.RuleEntry
                         )
                         // Resolve the name first (this will look into the bases too),
@@ -1694,15 +1789,15 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         }
 
         x := p.parseExpr(true)
-        if token.ASSIGN <= p.tok && p.tok <= token.DCO_ASSIGN {
+        if p.tok.IsAssign() {
                 return p.parseDefineClause(p.tok, x)
         }
 
         list := []ast.Expr{ x }
-        if p.tok < token.COLON || token.CALL <= p.tok {
+        if !p.tok.IsRuleDelim() /*p.tok < token.COLON || token.CALL <= p.tok*/ {
                 list = append(list, p.parseLhsList()...)
         }
-        if token.COLON <= p.tok && p.tok <= token.QUE {
+        if p.tok.IsRuleDelim() /*token.COLON <= p.tok && p.tok <= token.QUE*/ {
                 return p.parseRuleClause(p.tok, list)
         }
 
@@ -1767,12 +1862,12 @@ func (p *parser) parseFile() *ast.File {
                 if p.tok == token.LPAREN || p.tok == token.LINEND {
                         basename := filepath.Base(filepath.Dir(filename))
                         // TODO: validate base for identifier 
-                        ident = &ast.Ident{ &ast.Bareword{
+                        ident = &ast.Ident{ ast.Bareword{
                                 ValuePos: pos,
                                 Value: basename,
                         }, nil }
                 } else {
-                        ident = &ast.Ident{ p.parseBareword(), nil }
+                        ident = &ast.Ident{ *p.parseBareword(), nil }
                 }
                 
                 if ident.Value == "_" && p.mode&DeclarationErrors != 0 {

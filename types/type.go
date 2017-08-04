@@ -44,7 +44,7 @@ const (
         PathKind
         FileKind
         FlagKind
-        
+
         // composite types
         CompoundKind
         BarecompKind
@@ -52,14 +52,16 @@ const (
         GroupKind
         MapKind
         PairKind
+        PatternKind
+        DelegateKind
         ClosureKind
 
         // named types
         NamedKind
 
-        // symbolic types
-        DefineKind
+        // object types
         BuiltinKind
+        DefineKind
         RuleEntryKind
         ProjectNameKind
         ScopeNameKind
@@ -89,6 +91,8 @@ var (
                 GroupKind:      "Group",
                 MapKind:        "Map",
                 PairKind:       "Pair",
+                PatternKind:    "Pattern",
+                DelegateKind:   "Delegate",
                 ClosureKind:    "Closure",
                 NamedKind:      "Named",
                 DefineKind:     "Define",
@@ -111,11 +115,13 @@ func (t Kind) String() (s string) {
 }
 
 // TypeInfo is a set of flags describing properties of a basic type.
-type TypeBits int
+type TypeBits uint
 const (
-        // Properties of basic types.
-	IsBoolean TypeBits = 1 << iota
-        IsAny
+        IsAny TypeBits = 1 << iota
+
+	IsNone
+
+	IsBoolean
 	IsInteger
 	IsUnsigned
 	IsFloat
@@ -126,9 +132,9 @@ const (
         IsBareword
         IsBarefile
         IsPath
+
         IsFile
         IsFlag
-	IsNone
 
         // Properties of composite types.
         IsCompound
@@ -136,29 +142,31 @@ const (
         IsList
         IsGroup
         IsMap
-        IsPair // key-value pair
-        IsClosure
+        IsPair // name-value pair
+        IsPattern // percent pattern, regexp pattern, etc.
+        IsDelegate // $(foo ...)
+        IsClosure  // &(foo ...)
 
-        // Custom type
-        IsNamed
-
-        // Symbolic types
-        IsDefine
+        // Object types
         IsBuiltin
+        IsDefine
         IsRuleEntry
-        IsProjectName
         IsScopeName
+        IsProjectName
 
-        IsCore      = IsDefine | IsBuiltin | IsRuleEntry | IsProjectName | IsScopeName
-        IsSymbolic  = IsCore
-        
         IsDateTime  = IsDate | IsTime
 	IsNumeric   = IsInteger | IsFloat
         IsKeyName   = IsInteger | IsString | IsBareword
 	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword | IsBarefile | IsPath | IsFlag
 	IsBasic     = IsBoolean | IsOrdered | IsNone
-        IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair
+        IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair | IsPattern
         IsConstType = IsBasic
+
+        IsCore      = IsBuiltin | IsDefine | IsRuleEntry | IsProjectName | IsScopeName
+        IsObject    = IsBuiltin | IsDefine | IsRuleEntry | IsProjectName | IsScopeName
+
+        // Custom type
+        IsNamed     = IsObject | IsPair
 )
 
 type Core struct {
@@ -219,7 +227,7 @@ func (t *Composite) IsPair() bool     { return t.info&IsPair != 0 }
 type Named struct {
         underlying Type
 	name string
-        value
+        //value
 }
 
 func (t *Named) String() string   { return TypeString(t, nil) }

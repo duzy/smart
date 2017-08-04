@@ -28,7 +28,7 @@ program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: &objects
 	$LINK $^ &LOADLIBES &LDLIBS -o $@
 lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
 	$LINK -shared $^ &LOADLIBES &LDLIBS -o $@
-lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]:  &objects
+lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
 	$ARCHIVE $@ $<
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cpp
 	$COMPILE $^ -o $@

@@ -285,13 +285,16 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                 s.next() // take the ending '"'
                 return
         case '$':
-                tok = token.CALL // escape to do token.CALL
+                tok = token.DOLLAR // escape to do token.DOLLAR
+                return
+        case '&':
+                tok = token.AND // escape to do token.AND
                 return
         }
 loop:   
         for s.ch != '"' {
                 switch s.ch {
-                case '\\', '$':
+                case '\\', '$', '&':
                         // just break it out, further scanning will decide escape
                         break loop
                 default:
@@ -326,14 +329,21 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                 s.context &= ^isCompoundLine
                 s.next() // take the line-end
                 return
-        case '$':
-                if n := s.offset + 1; n < len(s.src) && s.src[n] != '$' {
+        /*case '$', '&':
+                if n := s.offset + 1; n < len(s.src) && s.src[n] != s.ch {
                         tok = token.CALL // escape to do token.CALL
                         return
                 } else {
-                        s.next() // '$'
-                        s.next() // '$'
+                        s.next() // '$' or '&'
+                        s.next() // '$' or '&'
                 }
+                return*/
+        case '$':
+                tok = token.DOLLAR
+                return
+        case '&':
+                tok = token.AND
+                return
         }
 loop:   
         for s.ch != '\n' {
@@ -341,14 +351,15 @@ loop:
                 case '\\':
                         // just break it out, further scanning will decide
                         break loop
-                case '$':
-                        if n := s.offset + 1; n < len(s.src) && s.src[n] != '$' {
+                case '$', '&':
+                        /*if n := s.offset + 1; n < len(s.src) && s.src[n] != '$' {
                                 // just break it out, further scanning will decide
                                 break loop
                         } else {
                                 s.next() // '$'
                                 s.next() // '$'
-                        }
+                        }*/
+                        break loop
                 default:
                         s.next()
                 }
@@ -761,8 +772,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                         
                         switch tok {
-                        case token.CALL:
-                                // escape from '$'
+                        case token.DOLLAR, token.AND:
+                                // escape from '$', '&'
                         case token.COMPOSED:
                                 // skip spaces after composing: "..."
                                 loopSkip: for s.readOffset < len(s.src) {
@@ -874,32 +885,28 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         
                 case '*':
                         tok = token.STAR
-                case '&':
-                        tok = token.AND
-                case '$':
-                        switch tok, ch = token.CALL, rune(s.src[s.readOffset-1]); {
-                        case ch == '/': tok = token.CALL_R
-                        case ch == '.': tok = token.CALL_D
-                                if s.readOffset < len(s.src) && rune(s.src[s.readOffset]) == '.' {
-                                        tok = token.CALL_DD
-                                        s.next() // eat one '.' character
-                                }
-                        case ch == '@': tok = token.CALL_A
-                        case ch == '<': tok = token.CALL_L
-                        case ch == '^': tok = token.CALL_U
-                        case ch == '*': tok = token.CALL_S
-                        case ch == '-': tok = token.CALL_M
-                        case ch == '1': tok = token.CALL_1
-                        case ch == '2': tok = token.CALL_2
-                        case ch == '3': tok = token.CALL_3
-                        case ch == '4': tok = token.CALL_4
-                        case ch == '5': tok = token.CALL_5
-                        case ch == '6': tok = token.CALL_6
-                        case ch == '7': tok = token.CALL_7
-                        case ch == '8': tok = token.CALL_8
-                        case ch == '9': tok = token.CALL_9
+                case '$', '&':
+                        isDelegate := ch == '$'
+                        tok, ch = token.AND, rune(s.src[s.readOffset-1])
+                        switch {
+                        case ch == '/': tok = token.AND_R
+                        case ch == '.': tok = token.AND_D
+                        case ch == '@': tok = token.AND_A
+                        case ch == '<': tok = token.AND_L
+                        case ch == '^': tok = token.AND_U
+                        case ch == '*': tok = token.AND_S
+                        case ch == '-': tok = token.AND_M
+                        case ch == '1': tok = token.AND_1
+                        case ch == '2': tok = token.AND_2
+                        case ch == '3': tok = token.AND_3
+                        case ch == '4': tok = token.AND_4
+                        case ch == '5': tok = token.AND_5
+                        case ch == '6': tok = token.AND_6
+                        case ch == '7': tok = token.AND_7
+                        case ch == '8': tok = token.AND_8
+                        case ch == '9': tok = token.AND_9
                         }
-                        if token.CALL < tok {
+                        if token.AND < tok {
                                 lit = string(ch)
                                 s.next() // eat special
                         } else if s.context&(isCompoundString|isCompoundLine) != 0 {
@@ -909,6 +916,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 } else {
                                         s.context |= isCompoundCallIdent
                                 }
+                        }
+                        if isDelegate {
+                                tok = token.Token(token.DOLLAR + (tok - token.AND))
                         }
 
                 case '(':

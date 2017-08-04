@@ -54,6 +54,7 @@ var (
                 GroupKind:    {GroupKind, IsGroup, "group"},
                 MapKind:      {MapKind, IsMap, "map"},
                 PairKind:     {PairKind, IsPair, "pair"},
+                DelegateKind: {DelegateKind, IsDelegate, "delegate"},
                 ClosureKind:  {ClosureKind, IsClosure, "closure"},
         }
 
@@ -87,6 +88,8 @@ var (
         GroupType    = CompositeTypes[GroupKind]
         MapType      = CompositeTypes[MapKind]
         PairType     = CompositeTypes[PairKind]
+        PatternType  = CompositeTypes[PatternKind]
+        DelegateType = CompositeTypes[DelegateKind]
         ClosureType  = CompositeTypes[ClosureKind]
 )
 

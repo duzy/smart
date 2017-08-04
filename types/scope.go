@@ -211,6 +211,8 @@ func (s *Scope) String() string {
 }
 
 func (s *Scope) Resolve(name string) (sym ast.Symbol) {
-        sym = s.Find(name)
+        if obj := s.Find(name); obj != nil {
+                sym = obj.(ast.Symbol)
+        }
         return
 }

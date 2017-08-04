@@ -31,7 +31,7 @@ var builtins = map[string]BuiltinFunc {
         `printl`:  builtinPrintl,
         `println`: builtinPrintln,
 
-        `lit`:        builtinLit,
+        `string`:  builtinString,
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
         //`subst`:      builtinSubst,
@@ -65,9 +65,9 @@ var builtins = map[string]BuiltinFunc {
 
 func EscapedString(v Value) (s string) {
         if v.Type() == StringType {
-                s = strings.Replace(v.String(), "\\'", "'", -1)
+                s = strings.Replace(v.Strval(), "\\'", "'", -1)
         } else {
-                s = v.String()
+                s = v.Strval()
         }
         return
 }
@@ -104,12 +104,13 @@ func builtinPrintln(context *Scope, args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinLit(context *Scope, args... Value) (result Value, err error) {
-        var s string
-        for _, a := range args {
-                s += a.Lit()
+func builtinString(context *Scope, args... Value) (result Value, err error) {
+        s := new(bytes.Buffer)
+        for i, a := range args {
+                if i > 0 { s.WriteString(" ") }
+                s.WriteString(a.String())
         }
-        return &String{s}, nil
+        return &String{s.String()}, nil
 }
 
 func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, err error) {
@@ -127,7 +128,7 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
                         for _, pat := range pats {
                                 switch p := pat.(type) {
                                 case *PercentPattern:
-                                        if m, s := p.Match(v.String()); m && s != "" {
+                                        if m, s := p.Match(v.Strval()); m && s != "" {
                                                 //fmt.Printf("match: %v: %v (%v)\n", m, s, v)
                                                 return true
                                         }
@@ -173,11 +174,11 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
                                 m bool // matched
                         )
                         if pat, _ := args[0].(*PercentPattern); pat != nil {
-                                m, s = pat.Match(arg.String())
+                                m, s = pat.Match(arg.Strval())
                         } else if l, _ := args[0].(*List); l != nil {
                                 for _, elem := range l.Elems {
                                         if pat, _ := elem.(*PercentPattern); pat != nil {
-                                                m, s = pat.Match(arg.String())
+                                                m, s = pat.Match(arg.Strval())
                                                 if m && s != "" {
                                                         break
                                                 }
@@ -187,18 +188,18 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
 
                         if m && s != "" {
                                 if rep, ok := args[1].(*PercentPattern); ok {
-                                        s = rep.prefix.String() + s + rep.suffix.String()
+                                        s = rep.prefix.Strval() + s + rep.suffix.Strval()
                                 } else if l, _ := args[1].(*List); l != nil {
                                         var str = s
                                         for _, elem := range l.Elems {
                                                 if rep, _ := elem.(*PercentPattern); rep != nil {
-                                                        str = rep.prefix.String() + str + rep.suffix.String()
+                                                        str = rep.prefix.Strval() + str + rep.suffix.Strval()
                                                         break
                                                 }
                                         }
                                         s = str
                                 } else {
-                                        s = args[1].String()
+                                        s = args[1].Strval()
                                 }
                                 
                                 switch arg.(type) {
@@ -282,7 +283,7 @@ func builtinEncodeBase64(context *Scope, args... Value) (res Value, err error) {
                 buf := new(bytes.Buffer)
                 enc := base64.NewEncoder(base64.StdEncoding, buf)
                 for _, a := range args {
-                        enc.Write([]byte(a.String()))
+                        enc.Write([]byte(a.Strval()))
                 }
                 enc.Close()
                 res = &String{buf.String()}
@@ -295,7 +296,7 @@ func builtinDecodeBase64(context *Scope, args... Value) (res Value, err error) {
                 var list []Value
                 for _, a := range args {
                         var dat []byte
-                        dat, err = base64.StdEncoding.DecodeString(a.String())
+                        dat, err = base64.StdEncoding.DecodeString(a.Strval())
                         if err == nil {
                                 list = append(list, &String{string(dat)})
                         } else {
@@ -319,7 +320,7 @@ func builtinBase(context *Scope, args... Value) (Value, error) {
                 s string
         )
         for _, a := range args {
-                s = filepath.Base(a.String())
+                s = filepath.Base(a.Strval())
                 l = append(l, &String{s})
         }
         if len(l) == 1 {
@@ -335,7 +336,7 @@ func builtinDirDir(context *Scope, args... Value) (Value, error) {
                 s string
         )
         for _, a := range args {
-                s = filepath.Dir(filepath.Dir(a.String()))
+                s = filepath.Dir(filepath.Dir(a.Strval()))
                 l = append(l, &String{s})
         }
         if len(l) == 1 {
@@ -351,7 +352,7 @@ func builtinDir(context *Scope, args... Value) (Value, error) {
                 s string
         )
         for _, a := range args {
-                s = filepath.Dir(a.String())
+                s = filepath.Dir(a.Strval())
                 l = append(l, &String{s})
         }
         if len(l) == 1 {
@@ -372,7 +373,7 @@ func builtinNDir(context *Scope, args... Value) (Value, error) {
                 args = args[1:]
         }
         for _, a := range args {
-                s = filepath.Dir(a.String())
+                s = filepath.Dir(a.Strval())
                 for i := n-1; 0 < i; i -= 1 {
                         s = filepath.Dir(s)
                 }
@@ -389,7 +390,7 @@ func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
         var l []Value
         for _, a := range args {
                 var s []byte
-                if s, err = ioutil.ReadFile(a.String()); err == nil {
+                if s, err = ioutil.ReadFile(a.Strval()); err == nil {
                         l = append(l, &String{string(s)})
                 } else {
                         l = append(l, UniversalNone)

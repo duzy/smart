@@ -57,7 +57,7 @@ func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... 
                 recipes []types.Value
         )
         for _, recipe := range prog.recipes {
-                if v, e := types.Disclosure(prog.scope, recipe); e != nil {
+                if v, e := types.Disclose(prog.scope, recipe); e != nil {
                         return e
                 } else if v != nil {
                         //fmt.Printf("recipe: %v -> %v\n", recipe, v)
@@ -77,11 +77,11 @@ func (prog *Program) modify(pcd bool, g *types.Group, out *types.Def) (err error
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
-        var name = g.Get(0).String()
+        var name = g.Get(0).Strval()
         if name == "cd" {
                 // does nothing
         } else if f, ok := modifiers[name]; ok {
-                var value, _ = out.Call()
+                var value = out.Value
                 if value, err = f(prog, value, g.Slice(1)...); err == nil && value !=  nil {
                         out.Set(value)
                 }
@@ -104,13 +104,13 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
 
         // Convert the original depends
         for _, depend := range prog.depends {
-                if v, e := types.Disclosure(prog.scope, depend); e != nil {
+                if v, e := types.Disclose(prog.scope, depend); e != nil {
                         return e
                 } else if v != nil {
                         depend = v
                 }
                 //if vr, ok := depend.(types.Valuer); ok {
-                //        depend = vr.Value()
+                //        depend = vr.Value
                 //}
                 depends = append(depends, types.EvalElems(depend)...)
         }
@@ -135,7 +135,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         if p == nil {
                                 switch d.Class() {
                                 case types.FileRuleEntry:
-                                        file = d.String(); goto HandleFile
+                                        file = d.Strval(); goto HandleFile
                                 case types.PatternFileRuleEntry:
                                         // A pattern entry without program can't
                                         // help to update the file.
@@ -153,13 +153,12 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 //var fromOther = p != nil && p.project != prog.project
                                 //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
                                 dd, _ := p.scope.Lookup("@").(*types.Def)
-                                dt, _ := dd.Call()
                                 if isFileEntry {
-                                        dependList.Append(values.Group(targetRegularKind, dt))
+                                        dependList.Append(values.Group(targetRegularKind, dd.Value))
                                 } else {
                                         switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                dependList.Append(values.Group(targetRegularKind, dt))
+                                                dependList.Append(values.Group(targetRegularKind, dd.Value))
                                         default:
                                                 if res != nil && res != values.None {
                                                         dependList.Append(res)
@@ -182,14 +181,14 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 break DependsLoop
                         }
                 case *types.Barefile:
-                        file = d.String(); goto HandleFile
+                        file = d.Strval(); goto HandleFile
                 case *types.Path:
-                        file = d.String(); goto HandleFile
+                        file = d.Strval(); goto HandleFile
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
                                 var (
                                         dent = d.NewEntry(entry.Stem())
-                                        name = dent.String()
+                                        name = dent.Strval()
                                 )
                                 if prog.project.IsFile(name) {
                                         //fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
@@ -202,17 +201,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 return errors.New(fmt.Sprintf("empty stem (%s, dependency %v)", entry, d))
                         }
                 default:
-                        if types.IsDummy(d) {
-                                //fmt.Printf("dummy: %v\n", d)
-                                sym, _ := d.(types.Object)
-                                scope := sym.Parent()
-                                if s := scope.Find(sym.Name()); s != nil {
-                                        depend = s; goto DependSwitch
-                                }
-                                return errors.New(fmt.Sprintf("unknown dependency %s", sym.Name()))
-                        } else {
-                                return errors.New(fmt.Sprintf("unknown dependency (%T %v)", d, d))
-                        }
+                        return errors.New(fmt.Sprintf("unknown dependency (%T %v)", d, d))
                 }
                 
                 continue // done with non-file RuleEntry
@@ -263,10 +252,10 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
 func (prog *Program) Getwd() string {
         for _, m := range prog.pipline {
                 if g, ok := m.(*types.Group); ok && g != nil {
-                        if n := len(g.Elems); n > 0 && g.Elems[0].String() == "cd" {
+                        if n := len(g.Elems); n > 0 && g.Elems[0].Strval() == "cd" {
                                 var s string
                                 if n > 1 {
-                                        s = filepath.Clean(g.Elems[1].String())
+                                        s = filepath.Clean(g.Elems[1].Strval())
                                         if s == "-" { s = "" }
                                 }
                                 return s
@@ -325,7 +314,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         }
 
         var out = prog.auto("-", values.None)
-        defer func() { result, _ = out.Call() }()
+        defer func() { result = out.Value }()
         
         // TODO: define modifiers in a project, e.g.
         // 
@@ -359,7 +348,7 @@ pipelineLoop:
                                 break pipelineLoop
                         }
                 case *types.Bareword:
-                        if i, _ := interpreters[op.String()]; i == nil {
+                        if i, _ := interpreters[op.Strval()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
                         } else if err = prog.interpret(pcd, i, out, args...); err != nil {

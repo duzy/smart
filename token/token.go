@@ -49,40 +49,65 @@ const (
 	RBRACE    // }    right curly
 	SEMICOLON // ;
 
+        ruledelim_beg
 	COLON     // :
 	COLON2    // ::
 	EXC       // !          exclamation
 	QUE       // ?
+        ruledelim_end
 
         AT        // @
-        AND       // &
         STAR      // *
 
-        CALL      // $
-        CALL_R    // $/
-        CALL_D    // $.
-        CALL_DD   // $..
-        CALL_A    // $@
-        CALL_L    // $<
-        CALL_U    // $^
-        CALL_S    // $*
-        CALL_M    // $-
-        CALL_1    // $1
-        CALL_2    // $2
-        CALL_3    // $3
-        CALL_4    // $4
-        CALL_5    // $5
-        CALL_6    // $6
-        CALL_7    // $7
-        CALL_8    // $8
-        CALL_9    // $9
+        // NOTE: don't change the order of closures and delegates, scanner
+        // relys upon their order.
+        closure_beg
+        AND      // &
+        AND_R    // &/
+        AND_D    // &.
+        AND_A    // &@
+        AND_L    // &<
+        AND_U    // &^
+        AND_S    // &*
+        AND_M    // &-
+        AND_1    // &1
+        AND_2    // &2
+        AND_3    // &3
+        AND_4    // &4
+        AND_5    // &5
+        AND_6    // &6
+        AND_7    // &7
+        AND_8    // &8
+        AND_9    // &9
+        closure_end
+        delegate_beg
+        DOLLAR      // $
+        DOLLAR_R    // $/
+        DOLLAR_D    // $.
+        DOLLAR_A    // $@
+        DOLLAR_L    // $<
+        DOLLAR_U    // $^
+        DOLLAR_S    // $*
+        DOLLAR_M    // $-
+        DOLLAR_1    // $1
+        DOLLAR_2    // $2
+        DOLLAR_3    // $3
+        DOLLAR_4    // $4
+        DOLLAR_5    // $5
+        DOLLAR_6    // $6
+        DOLLAR_7    // $7
+        DOLLAR_8    // $8
+        DOLLAR_9    // $9
+        delegate_end
 
+        assign_beg
         ASSIGN     //   =
         ADD_ASSIGN //  +=       append
         QUE_ASSIGN //  ?=       set if absent (defined, including empty)
         EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
         SCO_ASSIGN //  :=       simply expanded
         DCO_ASSIGN // ::=       simply expanded (POSIX standard)
+        assign_end
         
         ARROW // arrow =>
 
@@ -134,34 +159,50 @@ var tokens = [...]string{
 	RPAREN:    ")",
 	RBRACK:    "]",
 	RBRACE:    "}",
-        
+
 	COLON:     ":",
         COLON2:    "::",
         EXC:       "!",
         QUE:       "?",
 
         AT:        "@",
-	AND:       "&",
         STAR:      "*",
 
-	CALL:      "$",
-        CALL_R:    "$/",
-        CALL_D:    "$.",
-        CALL_DD:   "$..",
-        CALL_A:    "$@",
-        CALL_L:    "$<",
-        CALL_U:    "$^",
-        CALL_S:    "$*",
-        CALL_M:    "$-",
-        CALL_1:    "$1",
-        CALL_2:    "$2",
-        CALL_3:    "$3",
-        CALL_4:    "$4",
-        CALL_5:    "$5",
-        CALL_6:    "$6",
-        CALL_7:    "$7",
-        CALL_8:    "$8",
-        CALL_9:    "$9",
+	AND:      "&",
+        AND_R:    "&/",
+        AND_D:    "&.",
+        AND_A:    "&@",
+        AND_L:    "&<",
+        AND_U:    "&^",
+        AND_S:    "&*",
+        AND_M:    "&-",
+        AND_1:    "&1",
+        AND_2:    "&2",
+        AND_3:    "&3",
+        AND_4:    "&4",
+        AND_5:    "&5",
+        AND_6:    "&6",
+        AND_7:    "&7",
+        AND_8:    "&8",
+        AND_9:    "&9",
+
+	DOLLAR:      "$",
+        DOLLAR_R:    "$/",
+        DOLLAR_D:    "$.",
+        DOLLAR_A:    "$@",
+        DOLLAR_L:    "$<",
+        DOLLAR_U:    "$^",
+        DOLLAR_S:    "$*",
+        DOLLAR_M:    "$-",
+        DOLLAR_1:    "$1",
+        DOLLAR_2:    "$2",
+        DOLLAR_3:    "$3",
+        DOLLAR_4:    "$4",
+        DOLLAR_5:    "$5",
+        DOLLAR_6:    "$6",
+        DOLLAR_7:    "$7",
+        DOLLAR_8:    "$8",
+        DOLLAR_9:    "$9",
 
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",
@@ -219,3 +260,7 @@ func Lookup(ident string) Token {
 func (tok Token) IsLiteral() bool { return literal_beg < tok && tok < literal_end }
 func (tok Token) IsOperator() bool { return operator_beg < tok && tok < operator_end }
 func (tok Token) IsKeyword() bool { return keyword_beg < tok && tok < keyword_end }
+func (tok Token) IsClosure() bool { return closure_beg < tok && tok < closure_end }
+func (tok Token) IsDelegate() bool { return delegate_beg < tok && tok < delegate_end }
+func (tok Token) IsAssign() bool { return assign_beg < tok && tok < assign_end }
+func (tok Token) IsRuleDelim() bool { return ruledelim_beg < tok && tok < ruledelim_end }

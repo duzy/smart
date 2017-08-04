@@ -28,7 +28,7 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 symDxi = prog.scope.Find("docker-exec-image")
-                symWd = prog.scope.Find("/") // "."
+                symWd = prog.scope.Find("/" /*"."*/)
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value
@@ -37,11 +37,11 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
         )
 
         if len(args) > 0 {
-                shi = args[0].String()
+                shi = args[0].Strval()
         }
 
         for _, recipe := range recipes {
-                source += recipe.String()
+                source += recipe.Strval()
                 if strings.HasSuffix(source, "\\") {
                         source += "\n" // give back the line feed
                         continue
@@ -67,20 +67,18 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                         dxi = "default-image"
                         src = source
                 )
-                if symDxi != nil {
-                        v, _ := symDxi.(types.Caller).Call()
-                        dxi = v.String()
+                if vr, _ := symDxi.(types.Valuer); vr != nil {
+                        dxi = vr.Value().Strval()
                 }
-                if symWd != nil {
-                        v, _ := symWd.(types.Caller).Call()
-                        if s := v.String(); s != "" {
+                if vr, _ := symWd.(types.Valuer); vr != nil {
+                        if s := vr.Value().Strval(); s != "" {
                                 src = fmt.Sprintf("cd '%s' && %s", s, source)
                         }
                 }
 
                 var (
                         args []string
-                        stdin = stdinOpt != nil && stdinOpt.Value().String() == "on"
+                        stdin = stdinOpt != nil && stdinOpt.Value.Strval() == "on"
                 )
                 if stdin {
                         args = []string{ "exec", "-ti", dxi, shi, "-c", src }
@@ -91,10 +89,10 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                 var sh *exec.Cmd
                 sh = exec.Command("docker", args...)
                 sh.Stdout, sh.Stderr = &stdout, &stderr
-                if stdoutOpt != nil && stdoutOpt.Value().String() == "on" {
+                if stdoutOpt != nil && stdoutOpt.Value.Strval() == "on" {
                         sh.Stdout = os.Stdout
                 }
-                if stderrOpt != nil && stderrOpt.Value().String() == "on" {
+                if stderrOpt != nil && stderrOpt.Value.Strval() == "on" {
                         sh.Stderr = os.Stderr
                 }
                 if stdin {

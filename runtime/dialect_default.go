@@ -64,7 +64,7 @@ evaluationLoop:
                                 list.Append(v)
                                 if g, _ := v.(*types.Group); g != nil {
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil &&
-                                                s.String() == "shell" && c.Integer() != 0 {
+                                                s.Strval() == "shell" && c.Integer() != 0 {
                                                 //fmt.Printf("evaluate: %v\n", v)
                                                 break evaluationLoop
                                         }

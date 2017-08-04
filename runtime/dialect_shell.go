@@ -56,7 +56,7 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
         )
 
         for _, recipe := range recipes {
-                source += recipe.String() // trimRightSpaces(recipe.String())
+                source += recipe.Strval() // trimRightSpaces(recipe.Strval())
                 if strings.HasSuffix(source, "\\") {
                         source += "\n" // give back the line feed
                         continue
@@ -84,16 +84,16 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                 } else {
                         var a []string
                         for _, v := range args {
-                                a = append(a, v.String())
+                                a = append(a, v.Strval())
                         }
                         a = append(a, s.xopt, source)
                         sh = exec.Command(s.interpreter, a...)
                 }
                 sh.Stdout, sh.Stderr = &stdout, &stderr
-                if stdoutOpt != nil && stdoutOpt.Value().String() == "on" {
+                if stdoutOpt != nil && stdoutOpt.Value.Strval() == "on" {
                         sh.Stdout = os.Stdout
                 }
-                if stderrOpt != nil && stderrOpt.Value().String() == "on" {
+                if stderrOpt != nil && stderrOpt.Value.Strval() == "on" {
                         sh.Stderr = os.Stderr
                 }
                 err = sh.Run()
@@ -106,7 +106,7 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
                         )
                         if n, e := fmt.Sscanf(s, "exit status %v", &code); n == 1 && e == nil {
                                 status = values.Int(code)
-                                if statusOpt != nil && statusOpt.Value().String() == "on" {
+                                if statusOpt != nil && statusOpt.Value.Strval() == "on" {
                                         err = nil
                                 } else {
                                         err = errors.New(fmt.Sprintf("%v (%s)", err, source))
