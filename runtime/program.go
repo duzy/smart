@@ -112,7 +112,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                 //if vr, ok := depend.(types.Valuer); ok {
                 //        depend = vr.Value()
                 //}
-                depends = append(depends, types.EvalElems(context, depend)...)
+                depends = append(depends, types.EvalElems(depend)...)
         }
 
         // TODO: using rules in a different project as prerequisites, e.g.
@@ -136,7 +136,6 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 switch d.Class() {
                                 case types.FileRuleEntry:
                                         file = d.String(); goto HandleFile
-                                        goto FindPatterns
                                 case types.PatternFileRuleEntry:
                                         // A pattern entry without program can't
                                         // help to update the file.
@@ -146,7 +145,11 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 }
                                 break DependSwitch
                         }
-                        if res, err = d.Call(context, args...); err == nil {
+                        scope := context
+                        if entry.Project() != d.Project() {
+                                scope = entry.Project().Scope()
+                        }
+                        if res, err = p.Execute(scope, d, args, false); err == nil {
                                 //var fromOther = p != nil && p.project != prog.project
                                 //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
                                 dd, _ := p.scope.Lookup("@").(*types.Def)
@@ -215,10 +218,14 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                 continue // done with non-file RuleEntry
                 
                 HandleFile: if file != "" {
-                        fmt.Printf("Program.prepare: %s (%T %v) (%v)\n", file, depend, depend, context)
-                        if s := context/*prog.scope*/.Find(file); s != nil {
-                                depend, isFileEntry = s, true
-                                goto DependSwitch
+                        //fmt.Printf("Program.prepare: %s (%T %v) (%v)\n", file, depend, depend, context)
+                        if obj := context.Find(file); obj != nil {
+                                if obj == depend { // ignore the same one
+                                        goto FindPatterns
+                                } else {
+                                        depend, isFileEntry = obj, true
+                                        goto DependSwitch
+                                }
                         }
                 }
                 FindPatterns: if file != "" {

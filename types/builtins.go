@@ -63,10 +63,6 @@ var builtins = map[string]BuiltinFunc {
         `read-file`: builtinReadFile,
 }
 
-func GetBuiltins() map[string]BuiltinFunc {
-        return builtins
-}
-
 func EscapedString(v Value) (s string) {
         if v.Type() == StringType {
                 s = strings.Replace(v.String(), "\\'", "'", -1)
@@ -143,7 +139,7 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
                 }
                 if len(pats) > 0 {
                         var elems []Value
-                        for _, v := range EvalElems(context, args[1:]...) {
+                        for _, v := range EvalElems(args[1:]...) {
                                 var okay = f(v)
                                 if neg { okay = !okay }
                                 if okay { elems = append(elems, v) }
@@ -171,7 +167,7 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
         // $(patsubst pattern,replacement,text)
         var list []Value
         if nargs := len(args); nargs > 2 {
-                for _, arg := range EvalElems(context, args[2:]...) {
+                for _, arg := range EvalElems(args[2:]...) {
                         var (
                                 s string // stemp
                                 m bool // matched

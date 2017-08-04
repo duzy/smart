@@ -68,11 +68,11 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                         src = source
                 )
                 if symDxi != nil {
-                        v, _ := symDxi.(types.Caller).Call(prog.scope)
+                        v, _ := symDxi.(types.Caller).Call()
                         dxi = v.String()
                 }
                 if symWd != nil {
-                        v, _ := symWd.(types.Caller).Call(prog.scope)
+                        v, _ := symWd.(types.Caller).Call()
                         if s := v.String(); s != "" {
                                 src = fmt.Sprintf("cd '%s' && %s", s, source)
                         }

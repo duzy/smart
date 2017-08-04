@@ -506,7 +506,7 @@ func (r *Closure) disclosure(scope *Scope, args []Value) (Value, error) {
                 return nil, errors.New(s)
         } else if c, ok := obj.(Caller); ok && c != nil {
                 a = append(a, args...)
-                return c.Call(scope, a...)
+                return c.Call(a...)
         } else {
                 return obj, nil
         }
@@ -621,11 +621,11 @@ type Definer interface {
 //}
 
 type Valuer interface {
-        Value(context *Scope) Value
+        Value() Value
 }
 
 type Caller interface {
-        Call(context *Scope, args... Value) (Value, error)
+        Call(args... Value) (Value, error)
 }
 
 //type CallerValue interface {
@@ -692,13 +692,13 @@ func NameScope(name string, scope *Scope) NameScoper {
         return &namescoper{ name, scope }
 }
 
-func Eval(context *Scope, v Value) (res Value) {
+func Eval(v Value) (res Value) {
         switch t := v.(type) {
         case Valuer:
-                res = Eval(context, t.Value(context))
+                res = Eval(t.Value())
         case *List:
                 for i, elem := range t.Elems {
-                        t.Elems[i] = Eval(context, elem)
+                        t.Elems[i] = Eval(elem)
                 }
                 res = t
         default:
@@ -707,12 +707,12 @@ func Eval(context *Scope, v Value) (res Value) {
         return
 }
 
-func EvalElems(context *Scope, args... Value) (elems []Value) {
+func EvalElems(args... Value) (elems []Value) {
         for _, arg := range args {
-                switch t := Eval(context, arg).(type) {
+                switch t := Eval(arg).(type) {
                 case *List:
                         for _, elem := range t.Elems {
-                                elems = append(elems, EvalElems(context, elem)...)
+                                elems = append(elems, EvalElems(elem)...)
                         }
                 default:
                         elems = append(elems, t)
@@ -765,7 +765,7 @@ func (p *delegate) Value(context *Scope) (v Value) {
                         }
                         args = append(args, a)
                 }
-                v, _ = c.Call(context, args...)
+                v, _ = c.Call(args...)
         }
         if v == nil {
                 v = UniversalNone

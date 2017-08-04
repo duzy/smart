@@ -24,10 +24,6 @@ type Context struct {
 func (ctx *Context) Getwd() string { return ctx.workdir }
 func (ctx *Context) Globe() *types.Globe { return ctx.globe }
 
-/*func (ctx *Context) Fold(obj types.Object, args... types.Value) types.Value {
-        return types.Delegate(obj, args...)
-} */
-
 func (ctx *Context) defineBuiltin(name string, f builtin) {
         scope := ctx.globe.Scope()
         _, alt := scope.InsertBuiltin(name, func(scope *types.Scope, args... types.Value) (types.Value, error) {
@@ -60,7 +56,7 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
         if len(targets) == 0 {
                 ctx.outdated = make(map[string]time.Time)
                 if entry := mm.GetDefaultEntry(); entry != nil {
-                        if value, err = entry.Call(contextScope); err == nil {
+                        if value, err = entry.Call(); err == nil {
                                 updated += 1
                         }
                 }
@@ -104,7 +100,7 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
 
                         if entry != nil {
                                 ctx.outdated = make(map[string]time.Time)
-                                if value, err = entry.Call(contextScope); err == nil {
+                                if value, err = entry.Call(); err == nil {
                                         updated += 1
                                 } else {
                                         //fmt.Printf("%v\n", err)
