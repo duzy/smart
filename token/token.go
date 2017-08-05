@@ -101,11 +101,12 @@ const (
         delegate_end
 
         assign_beg
-        ASSIGN     //   =
+        ASSIGN     //   =       define a new symbol (don't override, neither !=)
         ADD_ASSIGN //  +=       append
         QUE_ASSIGN //  ?=       set if absent (defined, including empty)
         EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
-        SCO_ASSIGN //  :=       simply expanded
+        // TODO: more assigns like !?=  !:=  !+=
+        SCO_ASSIGN //  :=       simply expanded (also override)
         DCO_ASSIGN // ::=       simply expanded (POSIX standard)
         assign_end
         

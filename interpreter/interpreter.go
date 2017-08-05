@@ -173,8 +173,8 @@ func CommandLine() {
                 )
                 if fi, err := os.Stat(s1); err == nil {
                         if m := fi.Mode(); m.IsRegular() {
-                                defS.Set(values.String(ab))
-                                defD.Set(values.String(ab))
+                                defS.Assign(values.String(ab))
+                                defD.Assign(values.String(ab))
                                 if err = i.Load(s1, nil); err != nil {
                                         fmt.Printf("%v\n", err)
                                         return
@@ -186,8 +186,8 @@ func CommandLine() {
                         }
                 } else if fi, err = os.Stat(s2); err == nil {
                         if m := fi.Mode(); m.IsDir() {
-                                defS.Set(values.String(ab))
-                                defD.Set(values.String(ab))
+                                defS.Assign(values.String(ab))
+                                defD.Assign(values.String(ab))
                                 if err = i.LoadDir(s2, nil); err != nil {
                                         fmt.Printf("%v\n", err)
                                         return

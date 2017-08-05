@@ -23,7 +23,7 @@ var (
 // Predeclared types.
 var (
         CoreTypes = []*Core {
-                DefineKind:      {DefineKind, IsDefine, "Define"},
+                DefKind:         {DefKind, IsDef, "Def"},
                 ProjectNameKind: {ProjectNameKind, IsBuiltin, "ProjectName"},
                 BuiltinKind:     {BuiltinKind, IsRuleEntry, "Builtin"},
                 RuleEntryKind:   {RuleEntryKind, IsProjectName, "RuleEntry"},
@@ -59,7 +59,7 @@ var (
         }
 
         // Shortcuts of core types
-        DefineType      = CoreTypes[DefineKind]
+        DefType         = CoreTypes[DefKind]
         BuiltinType     = CoreTypes[BuiltinKind]
         RuleEntryType   = CoreTypes[RuleEntryKind]
         ProjectNameType = CoreTypes[ProjectNameKind]

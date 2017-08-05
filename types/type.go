@@ -61,7 +61,8 @@ const (
 
         // object types
         BuiltinKind
-        DefineKind
+        //DefinerKind
+        DefKind
         RuleEntryKind
         ProjectNameKind
         ScopeNameKind
@@ -95,7 +96,8 @@ var (
                 DelegateKind:   "Delegate",
                 ClosureKind:    "Closure",
                 NamedKind:      "Named",
-                DefineKind:     "Define",
+                //DefinerKind:    "Definer",
+                DefKind:        "Def",
                 BuiltinKind:    "Builtin",
                 RuleEntryKind:  "RuleEntry",
                 ProjectNameKind: "ProjectName",
@@ -149,7 +151,7 @@ const (
 
         // Object types
         IsBuiltin
-        IsDefine
+        IsDef
         IsRuleEntry
         IsScopeName
         IsProjectName
@@ -162,8 +164,8 @@ const (
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair | IsPattern
         IsConstType = IsBasic
 
-        IsCore      = IsBuiltin | IsDefine | IsRuleEntry | IsProjectName | IsScopeName
-        IsObject    = IsBuiltin | IsDefine | IsRuleEntry | IsProjectName | IsScopeName
+        IsCore      = IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName
+        IsObject    = IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName
 
         // Custom type
         IsNamed     = IsObject | IsPair

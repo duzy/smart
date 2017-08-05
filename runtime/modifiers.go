@@ -147,7 +147,7 @@ func promptShellResult(value types.Value, n int) {
 func modifierShellStatus(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         def := prog.auto("shell-status", "on")
         if len(args) > 0 && args[0].Strval() == "off" {
-                def.Set(args[0])
+                def.Assign(args[0])
         }
         promptShellResult(value, 1)
         return
@@ -156,7 +156,7 @@ func modifierShellStatus(prog *Program, value types.Value, args... types.Value) 
 func modifierShellStdout(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         def := prog.auto("shell-stdout", "on")
         if len(args) > 0 && args[0].Strval() == "off" {
-                def.Set(args[0])
+                def.Assign(args[0])
         }
         promptShellResult(value, 2)
         return
@@ -165,7 +165,7 @@ func modifierShellStdout(prog *Program, value types.Value, args... types.Value) 
 func modifierShellStderr(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         def := prog.auto("shell-stderr", "on")
         if len(args) > 0 && args[0].Strval() == "off" {
-                def.Set(args[0])
+                def.Assign(args[0])
         }
         promptShellResult(value, 3)
         return
@@ -174,7 +174,7 @@ func modifierShellStderr(prog *Program, value types.Value, args... types.Value) 
 func modifierShellStdin(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         def := prog.auto("shell-stdin", "on")
         if len(args) > 0 && args[0].Strval() == "off" {
-                def.Set(args[0])
+                def.Assign(args[0])
         }
         //promptShellResult(value, ?)
         return

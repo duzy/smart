@@ -411,6 +411,7 @@ type (
 		Doc     *CommentGroup // associated documentation; or nil
 		TokPos  token.Pos     // position of Tok
 		Tok     token.Token   // '=', ':=', '+=', '?=', etc.
+                Sym     Symbol        // the symbol created for definition
 		Name    Expr          // name for the defining symbol
                 Value   Expr          // value of the definition
 		Comment *CommentGroup // line comments; or nil

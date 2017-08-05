@@ -62,8 +62,7 @@ type RuntimeContext interface {
         ClauseUse(spec *ast.UseSpec) error
         ClauseEval(spec *ast.EvalSpec) error
         
-        Define(clause *ast.DefineClause) (RuntimeObj, error)
-        DeclareRule(clause *ast.RuleClause) (RuntimeObj, error)
+        Rule(clause *ast.RuleClause) (RuntimeObj, error)
         
         Resolve(name string) (obj RuntimeObj)
         Symbol(name string, t types.Type) (obj, alt RuntimeObj)

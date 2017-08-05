@@ -37,7 +37,7 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
                 //fmt.Printf("auto: %p %T %v\n", prog, sym, sym.Name())
                 var found = false
                 if auto, found = alt.(*types.Def); found {
-                        auto.Set(values.Make(value))
+                        auto.Assign(values.Make(value))
                 } else {
                         Fail("name '%v' already taken", name)
                 }
@@ -68,7 +68,7 @@ func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... 
         
         value, err = i.evaluate(prog, args, recipes)
         if err == nil && value != nil {
-                out.Set(value)
+                out.Assign(value)
         }
         return
 }
@@ -83,7 +83,7 @@ func (prog *Program) modify(pcd bool, g *types.Group, out *types.Def) (err error
         } else if f, ok := modifiers[name]; ok {
                 var value = out.Value
                 if value, err = f(prog, value, g.Slice(1)...); err == nil && value !=  nil {
-                        out.Set(value)
+                        out.Assign(value)
                 }
         } else if i, _ := interpreters[name]; i != nil {
                 err = prog.interpret(pcd, i, out, g.Slice(1)...)

@@ -8,7 +8,10 @@ package types
 
 import (
         "github.com/duzy/smart/token"
+        "os/exec"
+        "strings"
         "errors"
+        "bytes"
         "fmt"
 )
 
@@ -161,15 +164,92 @@ func (scope *Scope) InsertScopeName(project *Project, name string, s *Scope) (pn
         return
 }
 
+type DefOrigin int
+const (
+        // Never assigned a value
+        TrivialDef DefOrigin = iota
+
+        // =, !=
+        DefaultDef
+        
+        // :=, ::=
+        ImmediateDef
+
+        // Immediate Def without closure.
+        // DisclosureDef
+)
+
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
 type Def struct {
         object
+        origin DefOrigin
         Value Value
 }
 
-func (d *Def) String() string  { return d.name+" = "+d.Value.String() }
-func (d *Def) Strval() string  { return d.name+" = "+d.Value.Strval() }
-func (d *Def) Set(v Value)     { d.Value = v }
+func (d *Def) String() string {
+        s := d.name + "="
+        if d.Value == nil {
+                s += "<nil>"
+        } else {
+                s += d.Value.String()
+        }
+        return s
+}
+func (d *Def) Strval() string {
+        s := d.name + "="
+        if d.Value == nil {
+                s += "<nil>"
+        } else {
+                s += d.Value.Strval()
+        }
+        return s
+}
+func (d *Def) Origin() DefOrigin { return d.origin }
+func (d *Def) SetOrigin(k DefOrigin) { d.origin = k }
+
+func (d *Def) Assign(v Value) Value {
+        switch d.origin {
+        case TrivialDef, DefaultDef:
+                d.Value = v // Keeps delegates and closures.
+        case ImmediateDef:
+                // Eval expends delegates in the value.
+                d.Value = Eval(v)
+        }
+        return d.Value
+}
+
+func (d *Def) Append(v Value) Value {
+        var nv Value
+        if d.Value != nil && d.Value.Type() != NoneType {
+                nv = d.Value
+                if l, _ := nv.(*List); l != nil {
+                        l.Append(v)
+                } else {
+                        nv = &List{ Elements{ []Value{ nv, v } } }
+                }
+        } else {
+                nv = v
+        }
+        return d.Assign(nv)
+}
+
+func (d *Def) AssignExec(a... Value) (res Value, err error) {
+        var (
+                stdout bytes.Buffer
+                stderr bytes.Buffer
+        )
+        for _, v := range a {
+                sh := exec.Command("sh", "-c", v.Strval())
+                sh.Stdout, sh.Stderr = &stdout, &stderr
+                if err = sh.Run(); err != nil {
+                        res = d.Assign(UniversalNone)
+                        return
+                }
+        }
+        res = d.Assign(&String{strings.TrimSpace(stdout.String())})
+        return
+}
+
 func (d *Def) Call(a... Value) (Value, error) {
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
         return d.Value, nil 
@@ -183,17 +263,45 @@ func (d *Def) Get(name string) (Value, error) {
         return nil, errors.New(fmt.Sprintf("no such property (%s)", name))
 }
 
+// TODO: move it into 'runtime' package
+type definer struct {
+        def *Def
+        value Value // initial value
+        op token.Token
+        //pos *token.Position
+}
+//func (p *definer) Pos() *token.Position { return p.pos }
+func (p *definer) Type() Type     { return p.def.Type() }
+func (p *definer) String() string { return "definer " + p.def.String() }
+func (p *definer) Strval() string { return "definer " + p.def.Strval() }
+func (p *definer) Integer() int64 { return 0 }
+func (p *definer) Float() float64 { return 0 }
+func (p *definer) Define(project *Project) (result Value, err error) {
+        scope := project.Scope()
+        if obj, alt := scope.InsertDef(project, p.def.name, p.value); alt != nil {
+                def := alt.(*Def)
+                switch p.op {
+                case token.EXC_ASSIGN: result, err = def.AssignExec(p.value)
+                case token.ADD_ASSIGN: result = def.Append(p.value)
+                default:               result = def.Assign(p.value)
+                }
+        } else {
+                result = obj
+        }
+        return
+}
+
 func (scope *Scope) NewDef(project *Project, name string, value Value) *Def {
 	return &Def{
                 object{
                         parent:  scope,
                         project: project,
                         name:    name,
-                        typ:     DefineType,
+                        typ:     DefType,
                         ord:     0,
                         scopos:  token.NoPos,
                 },
-                value,
+                TrivialDef, value,
         }
 }
 
@@ -202,7 +310,7 @@ func (scope *Scope) InsertDef(project *Project, name string, value Value) (def *
                 def = scope.NewDef(project, name, value)
                 scope.replace(name, def)
         } else if d,b := alt.(*Def); d != nil && b {
-                //d.Set(value)
+                //d.Assign(value)
         }
         return
 }
