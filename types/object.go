@@ -303,6 +303,15 @@ func (entry *RuleEntry) Get(name string) (Value, error) {
         return nil, errors.New(fmt.Sprintf("no such entry property (%s)", name))
 }
 
+type PatternEntry struct {
+        *RuleEntry
+        Pattern Pattern
+}
+
+func (p *PatternEntry) MakeConcreteEntry(stem string) (*RuleEntry, error) {
+        return p.Pattern.MakeConcreteEntry(p.RuleEntry, stem)
+}
+
 type ArgumentedEntry struct {
         *RuleEntry
         Args []Value

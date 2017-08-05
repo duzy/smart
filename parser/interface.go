@@ -19,6 +19,25 @@ import (
         "github.com/duzy/smart/types"
 )
 
+type EvalBits int
+const (
+        KeepClosures EvalBits = 1<<iota
+        KeepDelegates
+        CastDepends
+
+        // Expends delegates and disclose closures.
+        disclosure = 0
+
+        // Keeps closures
+        immediate = KeepClosures
+
+        // Keeps delegates and closures.
+        delegation = KeepClosures | KeepDelegates
+
+        // Keeps closures, convertion for rule depends
+        ruledepend = KeepClosures | CastDepends
+)
+
 type RuntimeObj ast.Symbol
 
 type RuntimeContext interface {
@@ -30,8 +49,8 @@ type RuntimeContext interface {
 
         Files(m map[string][]string)
 
-        DeclareProject(ident *ast.Ident, params types.Value) error
-        CloseCurrentProject(ident *ast.Ident) error
+        DeclareProject(name *ast.Bareword, params types.Value) error
+        CloseCurrentProject(name *ast.Bareword) error
 
         OpenScope(pos token.Pos, comment string) ast.Scope
         CloseScope(scope ast.Scope) error
@@ -46,10 +65,10 @@ type RuntimeContext interface {
         Define(clause *ast.DefineClause) (RuntimeObj, error)
         DeclareRule(clause *ast.RuleClause) (RuntimeObj, error)
         
-        Eval(x ast.Expr) (types.Value, error)
-
         Resolve(name string) (obj RuntimeObj)
         Symbol(name string, t types.Type) (obj, alt RuntimeObj)
+
+        Eval(x ast.Expr, ec EvalBits) (types.Value, error)
 }
 
 type Context struct {
@@ -162,7 +181,7 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 			// ParseFile API and return a valid (but) empty
 			// *ast.File
 			f = &ast.File{
-				Name:  new(ast.Ident),
+				Name:  new(ast.Bareword),
 				Scope: c.runtime.OpenScope(token.NoPos, s),
 			}
                         c.runtime.CloseScope(f.Scope)

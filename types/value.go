@@ -12,7 +12,7 @@ import (
         "net/url"
         "strconv"
         "strings"
-        //"errors"
+        "errors"
         "fmt"
         "os"
 )
@@ -578,31 +578,28 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
 // Pattern
 type Pattern interface {
         Value
-        Program() Program
-        NewEntry(stem string) *RuleEntry
+        MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error)
         Match(s string) (matched bool, stem string)
 }
 
 type pattern struct {
-        parent *Scope
-        project *Project
-        program Program
 }
 
 func (p *pattern) Type() Type        { return InvalidType }
 func (p *pattern) Integer() int64    { return 0 }
 func (p *pattern) Float() float64    { return 0 }
-func (p *pattern) Program() Program  { return p.program }
-func (p *pattern) entry(name, stem string) (entry *RuleEntry) {
-        var kind = PatternRuleEntry
-        if p.project != nil && p.project.IsFile(name) {
-                kind = PatternFileRuleEntry
+func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
+        switch patent.class {
+        case PatternRuleEntry, PatternFileRuleEntry:
+                scope := patent.parent
+                entry = scope.NewRuleEntry(patent.project, patent.class, name)
+                entry.parent = patent.parent
+                entry.project = patent.project
+                entry.program = patent.program
+                entry.stem = stem
+        default:
+                err = errors.New(fmt.Sprintf("pattern make %v", patent.class))
         }
-        entry = p.parent.NewRuleEntry(p.project, kind, name)
-        entry.parent = p.parent
-        entry.project = p.project
-        entry.program = p.program
-        entry.stem = stem
         return
 }
 
@@ -610,34 +607,25 @@ func (*pattern) disclose(_ *Scope) (Value, error) { return nil, nil }
 
 type PercentPattern struct {
         pattern
-        prefix Value
-        suffix Value
+        Prefix Value
+        Suffix Value
 }
 
-func NewPercentPattern(m *Project, prefix, suffix Value) Pattern {
-        return &PercentPattern{pattern:pattern{project:m}, prefix:prefix, suffix:suffix }
-}
-
-func (p *PercentPattern) String() string { return p.Strval() }
 func (p *PercentPattern) Pos() *token.Position { return nil }
+func (p *PercentPattern) String() string { return p.Strval() }
 func (p *PercentPattern) Strval() (s string) {
-        if p.prefix != nil {
-                s = p.prefix.Strval()
+        if p.Prefix != nil {
+                s = p.Prefix.Strval()
         }
         s += "%"
-        if p.suffix != nil {
-                s += p.suffix.Strval()
+        if p.Suffix != nil {
+                s += p.Suffix.Strval()
         }
         return
 }
 func (p *PercentPattern) Match(s string) (matched bool, stem string) {
-        /*
-        if pp, _ := p.prefix.(*PercentPattern); pp != nil {
-        }
-        if pp, _ := p.suffix.(*PercentPattern); pp != nil {
-        } */
-        if prefix := p.prefix.Strval(); prefix == "" || strings.HasPrefix(s, prefix) {
-                if suffix := p.suffix.Strval(); suffix == "" || strings.HasSuffix(s, suffix) {
+        if prefix := p.Prefix.Strval(); prefix == "" || strings.HasPrefix(s, prefix) {
+                if suffix := p.Suffix.Strval(); suffix == "" || strings.HasSuffix(s, suffix) {
                         if a, b := len(prefix), len(s)-len(suffix); a < b {
                                 matched, stem = true, s[a:b]
                         }
@@ -646,10 +634,9 @@ func (p *PercentPattern) Match(s string) (matched bool, stem string) {
         return
 }
 
-func (p *PercentPattern) NewEntry(stem string) (entry *RuleEntry) {
-        name := p.prefix.Strval() + stem + p.suffix.Strval()
-        entry = p.entry(name, stem)
-        return
+func (p *PercentPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
+        name := p.Prefix.Strval() + stem + p.Suffix.Strval()
+        return p.makeEntry(patent, name, stem)
 }
 
 type RegexpPattern struct {
@@ -667,7 +654,7 @@ func (p *RegexpPattern) Match(s string) (matched bool, stem string) {
         // TODO: regexp matching...
         return
 }
-func (p *RegexpPattern) NewEntry(stem string) (entry *RuleEntry) {
+func (p *RegexpPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         // TODO: creating new match entry
         return
 }

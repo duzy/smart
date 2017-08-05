@@ -100,6 +100,13 @@ func Barefile(name types.Value, ext string) (v *types.Barefile) {
         return &types.Barefile{name, ext}
 }
 
+func PercentPattern(m *types.Project, prefix, suffix types.Value) types.Pattern {
+        return &types.PercentPattern{
+                Prefix: prefix,
+                Suffix: suffix,
+        }
+}
+
 func Path(segments... types.Value) (v *types.Path) {
         return &types.Path{types.Elements{segments}}
 }

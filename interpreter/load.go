@@ -160,7 +160,6 @@ func (p *usedefiner) Integer() int64       { return 0 }
 func (p *usedefiner) Float() float64       { return 0 }
 func (p *usedefiner) Define(project *types.Project) (result types.Value, err error) {
         var value types.Value
-        // FIXME: use caller scope
         if value, err = types.Disclose(project.Scope(), p.value); err != nil {
                 return
         } else if value == nil {
@@ -310,34 +309,7 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
         return
 }
 
-func (i *Interpreter) unary(x *ast.UnaryExpr) (v types.Value) {
-        operand := i.expr(x.X)
-        if t, ok := operand.Type().(*types.Basic); ok && t.IsFloat() {
-                switch x.Op {
-                case token.PLUS:  v = values.Float(+operand.Float())
-                //case token.MINUS: v = values.Float(-operand.Float())
-                }
-        } else {
-                switch x.Op {
-                case token.PLUS:  v = values.Int(+operand.Integer())
-                //case token.MINUS: v = values.Int(-operand.Integer())
-                }
-        }
-        return
-}
-
-func (i *Interpreter) binary(x *ast.BinaryExpr) (v types.Value) {
-        operand1, operand2 := i.expr(x.X), i.expr(x.Y)
-        switch x.Op {
-        default:
-                assert(operand1 != nil)
-                assert(operand2 != nil)
-                unreachable();
-        }
-        return
-}
-
-func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
+/*func (i *Interpreter) ident(x *ast.Ident) (v types.Value, err error) {
         var (
                 scope = i.scope
                 p = i.project
@@ -357,10 +329,10 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         }
 
         if v == nil {
-                v = values.None //scope.NewDummy(p, x.Value)
+                err = errors.New(fmt.Sprintf("unidentified (%v)", x.Value))
         }
         return
-}
+}*/
 
 /*func (i *Interpreter) selector(first types.NameScoper, x *ast.SelectorExpr) (v types.Value) {
         var (
@@ -476,121 +448,178 @@ func (i *Interpreter) ident(x *ast.Ident) (v types.Value) {
         return
 }*/
 
-func (i *Interpreter) closure(x *ast.ClosureExpr) (v types.Value) {
-        var name = i.expr(x.Name)
+func (i *Interpreter) closure(x *ast.ClosureExpr) (v types.Value, err error) {
+        name, err := i.expr(x.Name)
+        if err != nil {
+                return nil, err
+        }
         switch t := name.(type) {
         case types.Object:
-                v = types.Closure(t, i.exprs(x.Args)...)
-        case *types.None, nil:
-                /*if ident, _ := x.Name.(*ast.Ident); ident != nil {
-                        i.parseFail(ident.Pos(), "'%s' undefined (%T %v)", ident.Value, x.Name, x.Name)
+                if args, err := i.exprs(x.Args); err != nil {
+                        return nil, err
                 } else {
-                        i.parseFail(x.Name.Pos(), "undefined callable (%T %v)", x.Name, x.Name)
-                }*/
-        default:
-                i.parseFail(x.Name.Pos(), "uncallable '%v' (%T -> %T)", x.Name, x.Name, name)
-        }
-        if v == nil {
-                v = values.None
-        }
-        return
-}
-
-func (i *Interpreter) delegate(x *ast.DelegateExpr) (v types.Value) {
-        var name = i.expr(x.Name)
-        switch t := name.(type) {
-        case types.Object:
-                v = types.Delegate(t, i.exprs(x.Args)...)
-        case *types.None, nil:
-                if ident, _ := x.Name.(*ast.Ident); ident != nil {
-                        i.parseFail(ident.Pos(), "'%s' undefined (%T %v)", ident.Value, x.Name, x.Name)
-                } else {
-                        i.parseFail(x.Name.Pos(), "undefined callable (%T %v)", x.Name, x.Name)
+                        v = types.Closure(t, args...)
                 }
         default:
-                i.parseFail(x.Name.Pos(), "uncallable '%v' (%T -> %T)", x.Name, x.Name, name)
+                i.parseWarn(x.Name.Pos(), "uncallable '%v' (%T -> %T)", x.Name, x.Name, name)
+                err = errors.New(fmt.Sprintf("uncallable (%T)", name))
         }
         return
 }
 
-func (i *Interpreter) recipe(x *ast.RecipeExpr) (v types.Value) {
+func (i *Interpreter) delegate(x *ast.DelegateExpr) (v types.Value, err error) {
+        name, err := i.expr(x.Name)
+        if err != nil {
+                return nil, err
+        }
+        switch t := name.(type) {
+        case types.Object:
+                args, err := i.exprs(x.Args)
+                if err != nil {
+                        return nil, err
+                }
+                v = types.Delegate(t, args...)
+        default:
+                i.parseWarn(x.Name.Pos(), "uncallable '%v' (%T -> %T)", x.Name, x.Name, name)
+                err = errors.New(fmt.Sprintf("uncallable (%T)", name))
+        }
+        return
+}
+
+func (i *Interpreter) recipe(x *ast.RecipeExpr) (v types.Value, err error) {
         if len(x.Elems) == 0 {
                 v = values.None
         } else if x.Dialect == "" {
                 var elems []types.Value
                 switch t := x.Elems[0].(type) {
-                default: runtime.Fail("unimplemented recipe (%T)", t)
-                case *ast.Ident:
+                //case *ast.Ident:
                 case *ast.UseDefineClause:
+                default: 
+                        s := fmt.Sprintf("unsupported recipe command (%T)", t)
+                        return nil, errors.New(s)
                 }
-                elems = append(elems, i.exprs(x.Elems)...)
-                //fmt.Printf("recipe: %T %T\n", x.Elems[0], elems[0])
-                v = values.List(elems...)
+                if a, err := i.exprs(x.Elems); err != nil {
+                        return nil, err
+                } else {
+                        elems = append(elems, a...)
+                        v = values.List(elems...)
+                }
+        } else if a, err := i.exprs(x.Elems); err != nil {
+                return nil, err
         } else {
-                v = values.Compound(i.exprs(x.Elems)...)
+                v = values.Compound(a...)
         }
         return
 }
 
-func (i *Interpreter) expr(expr ast.Expr) (v types.Value) {
+func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
         if expr == nil {
+                //err = errors.New("nil expr")
                 return
         }
         switch x := expr.(type) {
         case *ast.EvaluatedExpr:
                 if x.Data != nil {
                         v = x.Data.(types.Value)
+                } else {
+                        err = errors.New("evaluated expr has nil data")
+                        return
                 }
-        case *ast.Ident:
-                v = i.ident(x)
+        //case *ast.Ident:
+        //        v, err = i.ident(x)
         case *ast.ClosureExpr:
-                v = i.closure(x)
+                v, err = i.closure(x)
         case *ast.DelegateExpr:
-                v = i.delegate(x)
+                v, err = i.delegate(x)
         case *ast.RecipeExpr:
-                v = i.recipe(x)
+                v, err = i.recipe(x)
         case *ast.BasicLit:
                 v = values.Literal(x.Kind, x.Value)
         case *ast.Bareword:
                 v = values.Bareword(x.Value)
         case *ast.Barecomp:
-                v = values.Barecomp(i.exprs(x.Elems)...)
-        case *ast.Barefile:
-                v = values.Barefile(i.expr(x.Name), x.Ext)
-        case *ast.PathExpr:
-                v = values.Path(i.exprs(x.Segments)...)
-        case *ast.FlagExpr:
-                v = values.Flag(i.expr(x.Name))
-        case *ast.CompoundLit:
-                v = values.Compound(i.exprs(x.Elems)...)
-        case *ast.GroupExpr:
-                v = values.Group(i.exprs(x.Elems)...)
-        case *ast.ListExpr:
-                v = values.List(i.exprs(x.Elems)...)
-        case *ast.KeyValueExpr:
-                v = values.Pair(i.expr(x.Key), i.expr(x.Value))
-        case *ast.PercExpr:
-                v = types.NewPercentPattern(i.project, i.expr(x.X), i.expr(x.Y))
-        case *ast.UnaryExpr:
-                v = i.unary(x)
-        case nil:
-                v = values.None
-        case *ast.UseDefineClause:
-                v = &usedefiner{
-                        op: x.Tok,
-                        name: i.expr(x.Name).Strval(),
-                        value: i.expr(x.Value),
-                        pos: nil,
+                if a, err := i.exprs(x.Elems); err != nil {
+                        return nil, err
+                } else {
+                        v = values.Barecomp(a...)
                 }
-        default:
-                i.parseFail(x.Pos(), "unimplemented expression (%T %v)", x, x)
+        case *ast.Barefile:
+                if a, err := i.expr(x.Name); err != nil {
+                        return nil, err
+                } else {
+                        v = values.Barefile(a, x.Ext)
+                }
+        case *ast.PathExpr:
+                if a, err := i.exprs(x.Segments); err != nil {
+                        return nil, err
+                } else {
+                        v = values.Path(a...)
+                }
+        case *ast.FlagExpr:
+                if a, err := i.expr(x.Name); err != nil {
+                        return nil, err
+                } else {
+                        v = values.Flag(a)
+                }
+        case *ast.CompoundLit:
+                if a, err := i.exprs(x.Elems); err != nil {
+                        return nil, err
+                } else {
+                        v = values.Compound(a...)
+                }
+        case *ast.GroupExpr:
+                if a, err := i.exprs(x.Elems); err != nil {
+                        return nil, err
+                } else {
+                        v = values.Group(a...)
+                }
+        case *ast.ListExpr:
+                if a, err := i.exprs(x.Elems); err != nil {
+                        return nil, err
+                } else {
+                        v = values.List(a...)
+                }
+        case *ast.KeyValueExpr:
+                if b, err := i.expr(x.Value); err != nil {
+                        return nil, err
+                } else if a, err := i.expr(x.Key); err != nil {
+                        return nil, err
+                } else {
+                        v = values.Pair(a, b)
+                }
+        case *ast.PercExpr:
+                var a, b types.Value
+                if a, err = i.expr(x.X); err != nil {
+                        return
+                } else if b, err = i.expr(x.Y); err != nil {
+                        return
+                } else {
+                        v = values.PercentPattern(i.project, a, b)
+                }
+        case *ast.UseDefineClause:
+                if name, err := i.expr(x.Name); err != nil {
+                        return nil, err
+                } else if val, err := i.expr(x.Value); err != nil {
+                        return nil, err
+                } else {
+                        v = &usedefiner{
+                                op: x.Tok,
+                                name: name.Strval(),
+                                value: val,
+                                pos: nil,
+                        }
+                }
         }
         return
 }
 
-func (i *Interpreter) exprs(exprs []ast.Expr) (values []types.Value) {
+func (i *Interpreter) exprs(exprs []ast.Expr) (values []types.Value, err error) {
         for _, x := range exprs {
-                values = append(values, i.expr(x))
+                if v, err := i.expr(x); err != nil {
+                        return nil, err
+                } else {
+                        values = append(values, v)
+                }
         }
         return
 }
@@ -640,23 +669,26 @@ func (i *Interpreter) useProjectName(pos token.Pos, pn *types.ProjectName) error
         return i.useProject(pos, project)
 }
 
-func (i *Interpreter) use(spec *ast.UseSpec) error {
+func (i *Interpreter) use(spec *ast.UseSpec) (err error) {
         var (
                 name types.Value
                 params []types.Value
         )
         if len(spec.Props) == 0 {
-                //i.parseFail(spec.Pos(), "empty use spec")
                 return errors.New("empty use spec")
-        } else if name = i.expr(spec.Props[0]); name == nil {
-                //i.parseFail(spec.Props[0].Pos(), "undefined use spec")
+        } else if name, err = i.expr(spec.Props[0]); err != nil {
+                return
+        } else if name == nil {
                 return errors.New("undefined use target")
         } else if  name == values.None {
-                //i.parseFail(spec.Props[0].Pos(), "none use spec")
                 return errors.New("none use target")
         }
         for _, prop := range spec.Props[1:] {
-                params = append(params, i.expr(prop))
+                if v, err := i.expr(prop); err != nil {
+                        return err
+                } else {
+                        params = append(params, v)
+                }
         }
 
         var scope = i.project.Scope()
@@ -682,13 +714,25 @@ func (i *Interpreter) use(spec *ast.UseSpec) error {
 
 func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
-                switch op := i.expr(spec.Props[0]).(type) {
+                var v types.Value
+                if v, err = i.expr(spec.Props[0]); err != nil {
+                        return
+                }
+                switch op := v.(type) {
                 case types.Caller:
-                        res, _ = op.Call(i.exprs(spec.Props[1:])...)
+                        if a, err := i.exprs(spec.Props[1:]); err != nil {
+                                return nil, err
+                        } else {
+                                res, _ = op.Call(a...)
+                        }
                 default:
                         if _, obj := i.scope.FindAt(spec.EndPos, op.Strval()); obj != nil {
                                 if f, _ := obj.(types.Caller); f != nil {
-                                        res, err = f.Call(i.exprs(spec.Props[1:])...)
+                                        if a, err := i.exprs(spec.Props[1:]); err != nil {
+                                                return nil, err
+                                        } else {
+                                                res, err = f.Call(a...)
+                                        }
                                 }
                         } else {
                                 err = errors.New(fmt.Sprintf("undefined '%s'", op.Strval()))
@@ -704,15 +748,25 @@ func (i *Interpreter) define(d *ast.DefineClause) (obj types.Object, err error) 
                 err = errors.New(fmt.Sprintf("not in a project"))
                 return
         }
-        var (
-                name = i.expr(d.Name).Strval()
-                v = i.expr(d.Value)
-        )
-        //fmt.Printf("Interpreter.define: %v -> %T %v\n", name, v, v)
-        if obj, err = set(i.project, d.Tok, name, v); err != nil {
-                i.parseWarn(d.Value.Pos(), "%v", err)
-                err = nil // ignore errors
+
+        name, err := i.expr(d.Name)
+        if err != nil {
+                err = errors.New(fmt.Sprintf("name: %s", err))
+                return nil, err
         }
+
+        var value types.Value
+        if d.Value == nil {
+                value = values.None
+        } else {
+                if value, err = i.expr(d.Value); err != nil {
+                        err = errors.New(fmt.Sprintf("value: %s", err))
+                        return nil, err
+                }
+        }
+
+        //fmt.Printf("Interpreter.define: %v -> %T %v\n", name, v, v)
+        obj, err = set(i.project, d.Tok, name.Strval(), value)
         return
 }
 
@@ -738,41 +792,54 @@ func (i *Interpreter) depend(depend types.Value) (result types.Value, err error)
 
 func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
         var (
+                targets []types.Value
                 depends []types.Value
                 recipes []types.Value
+                depval, val types.Value
                 progScope *types.Scope
                 params []string
         )
         for _, depend := range clause.Depends {
-                depval := i.expr(depend)
+                if depval, err = i.expr(depend); err != nil {
+                        return
+                }
+
                 //fmt.Printf("depend: %T %v\n", depval, depval)
-                if v, e := i.depend(depval); e != nil {
-                        return e
-                } else if v == nil {
+                if val, err = i.depend(depval); err != nil {
+                        return
+                } else if val == nil {
                         i.parseWarn(depend.Pos(), "invalid depend (%T %v -> %T %v)", depend, depend, depval, depval)
-                        return errors.New(fmt.Sprintf("invalid depend"))
-                } else if l, _ := v.(*types.List); l != nil {
+                        err = errors.New(fmt.Sprintf("invalid depend"))
+                        return
+                } else if l, _ := val.(*types.List); l != nil {
                         depends = append(depends, l.Elems...)
                 } else {
-                        depends = append(depends, v)
+                        depends = append(depends, val)
                 }
         }
 
         if p, ok := clause.Program.(*ast.ProgramExpr); ok && p != nil {
                 if progScope, _ = p.Scope.(*types.Scope); progScope == nil {
-                        return errors.New(fmt.Sprintf("undefined program scope (%T)", p.Scope))
+                        err = errors.New(fmt.Sprintf("undefined program scope (%T)", p.Scope))
+                        return
                 }
                 if p.Values != nil {
-                        recipes = i.exprs(p.Values)
+                        if recipes, err = i.exprs(p.Values); err != nil {
+                                return
+                        }
                 }
                 params = p.Params
         } else {
-                return errors.New(fmt.Sprintf("unsupported program type (%T)", clause.Program))
+                err = errors.New(fmt.Sprintf("unsupported program type (%T)", clause.Program))
+                return
         }
         
         var modifiers []types.Value
         if clause.Modifier != nil {
-                modifiers = i.exprs(clause.Modifier.Elems)
+                modifiers, err = i.exprs(clause.Modifier.Elems)
+                if err != nil {
+                        return
+                }
         }
         
         var prog = i.NewProgram(i.project, params, progScope, depends, recipes...)
@@ -781,31 +848,38 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                         return
                 }
         }
+
+        if targets, err = i.exprs(clause.Targets); err != nil {
+                return
+        }
         
         var name string
-        for n, target := range i.exprs(clause.Targets) {
+        for n, target := range targets {
                 if target == nil {
-                        return errors.New(fmt.Sprintf("invalid target (%T)", clause.Targets[n]))
+                        err = errors.New(fmt.Sprintf("nil target (%T)", clause.Targets[n]))
+                        return
                 }
-                switch entry := target.(type) {
-                case *types.PercentPattern:
-                        i.project.AddPercentPattern(entry, prog)
-                default:
-                        class := types.GeneralRuleEntry
-                        if name = target.Strval(); name == "use" {
-                                if n == 0 && len(clause.Targets) == 1 {
-                                        class = types.UseRuleEntry
-                                        name = useRuleName
-                                } else {
-                                        i.parseFail(clause.Targets[n].Pos(), "'use' rule mixed with other targets")
-                                }
-                        } else if i.project.IsFile(name) {
-                                class = types.FileRuleEntry
-                        }
 
-                        _, err = i.project.SetProgram(name, prog, class)
-                        if err != nil {
-                                break
+                class := types.GeneralRuleEntry
+                if name = target.Strval(); name == "use" {
+                        if n == 0 && len(clause.Targets) == 1 {
+                                class = types.UseRuleEntry
+                                name = useRuleName
+                        } else {
+                                i.parseWarn(clause.Targets[n].Pos(), "'use' rule mixed with other targets")
+                                err = errors.New(fmt.Sprintf("mixes 'use' and normal targets"))
+                                return
+                        }
+                } else if i.project.IsFile(name) {
+                        class = types.FileRuleEntry
+                }
+                
+                switch namv := target.(type) {
+                case *types.PercentPattern:
+                        i.project.SetPercentPatternProgram(namv, class, prog)
+                default:
+                        if _, err = i.project.SetProgram(name, class, prog); err != nil {
+                                return
                         }
                 }
         }
@@ -815,32 +889,36 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
 func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         var (
                 linfo = i.loads[len(i.loads)-1]
-                specName = i.expr(spec.Props[0]).Strval()
+                specVal, err = i.expr(spec.Props[0])
                 params []types.Value
         )
+        if err != nil {
+                return err
+        }
 
         if len(spec.Props) > 1 {
-                params = i.exprs(spec.Props[1:])
+                params, err = i.exprs(spec.Props[1:])
+                if err != nil {
+                        return err
+                }
         }
 
         var (
+                specName = specVal.Strval()
                 jointPath = filepath.Join(linfo.absDir, specName)
                 absDir, baseName = filepath.Split(jointPath)
         )
         defer restoreLoadingInfo(saveLoadingInfo(i, specName, absDir, baseName))
         
-        doc, err := i.pc.ParseFile(i.fset, jointPath, nil, parseMode|parser.Flat)
+        _, err = i.pc.ParseFile(i.fset, jointPath, nil, parseMode|parser.Flat)
         if err != nil {
                 return err
-        }
-        if doc == nil {
-                // ...
         }
 
         if len(params) > 0 {
                 // TODO: parsing parameters
         }
-        return nil //i.lexing(doc.Scope)
+        return nil
 }
 
 func (i *Interpreter) openScope(pos token.Pos, comment string) ast.Scope {
@@ -903,7 +981,7 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
         return
 }
 
-func (i *Interpreter) declareProject(ident *ast.Ident, params types.Value) (err error) {
+func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (err error) {
         var name = ident.Value
         if i.project != nil && i.project.Name() == ident.Value {
                 return errors.New(fmt.Sprintf("already in project %s", i.project.Name()))
@@ -970,7 +1048,7 @@ func (i *Interpreter) declareProject(ident *ast.Ident, params types.Value) (err 
         return
 }
 
-func (i *Interpreter) closeCurrentProject(ident *ast.Ident) (err error) {
+func (i *Interpreter) closeCurrentProject(ident *ast.Bareword) (err error) {
         var (
                 name = ident.Value
                 linfo = i.loads[len(i.loads)-1]
@@ -1075,9 +1153,19 @@ func (pc *parseContext) IsFileName(s string) bool {
         return false
 }
 
-func (pc *parseContext) DeclareProject(ident *ast.Ident, params types.Value) error {
+func (pc *parseContext) DeclareProject(ident *ast.Bareword, params types.Value) error {
         if ident.Value == "@" {
-                at := pc.Globe().Scope().Lookup(ident.Value)
+                var (
+                        linfo = pc.loads[0]
+                        dec, ok = linfo.declares[ident.Value]
+                        at = pc.Globe().Scope().Lookup(ident.Value)
+                )
+                if !ok {
+                        dec = &declare{ project: at.Project() }
+                        linfo.declares[ident.Value] = dec
+                }
+                dec.backproj = pc.project
+                dec.backscope = pc.scope
                 pc.project = at.Project()
                 pc.scope = pc.project.Scope()
                 return nil
@@ -1085,12 +1173,20 @@ func (pc *parseContext) DeclareProject(ident *ast.Ident, params types.Value) err
         return pc.declareProject(ident, params)
 }
 
-func (pc *parseContext) CloseCurrentProject(ident *ast.Ident) error {
+func (pc *parseContext) CloseCurrentProject(ident *ast.Bareword) error {
         if ident.Value == "@" {
-                //at := pc.Globe().Scope().Lookup(ident.Value)
-                //pc.project = at.Project()
-                //pc.scope = pc.project.Scope()
-                //return nil
+                var (
+                        linfo = pc.loads[0]
+                        dec, ok = linfo.declares[ident.Value]
+                )
+                if !ok {
+                        panic("no @ declaraction")
+                }
+                pc.project = dec.backproj
+                pc.scope = dec.backscope
+                dec.backproj = nil
+                dec.backscope = nil
+                return nil
         }
         return pc.closeCurrentProject(ident)
 }
@@ -1137,7 +1233,7 @@ func (pc *parseContext) DeclareRule(clause *ast.RuleClause) (parser.RuntimeObj, 
         return nil, pc.rule(clause)
 }
 
-func (pc *parseContext) Eval(x ast.Expr) (res types.Value, err error) {
+func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, err error) {
 	defer func() {
 		if e := recover(); e != nil {
                         if err, _ = e.(error); err == nil {
@@ -1146,15 +1242,24 @@ func (pc *parseContext) Eval(x ast.Expr) (res types.Value, err error) {
 		}
         }()
 
-        /*switch res = pc.expr(x); res.Type() {
-        case types.ClosureType:
-                res, err = types.Disclose(pc.scope, res)
-        case types.DelegateType:
-                res = res.(types.Valuer).Value()
-        }*/
-        if res, err = types.Disclose(pc.scope, pc.expr(x)); err == nil {
-                res = types.Eval(res)
+        if res, err = pc.expr(x); err != nil || res == nil {
+                return
         }
+        if ec&parser.KeepClosures == 0 {
+                if res, err = types.Disclose(pc.scope, res); err != nil || res == nil {
+                        return
+                }
+        }
+        if ec&parser.KeepDelegates == 0 {
+                if res = types.Eval(res); res == nil {
+                        return
+                }
+        }
+        if ec&parser.CastDepends == 0 {
+                return
+        }
+        
+        // TODO: depend cast
         return
 }
 

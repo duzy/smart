@@ -31,8 +31,8 @@ type Project struct {
         files     map[string][]string
 
         // Rule Registry
-        dedicated []*RuleEntry
-        patterns  []Pattern
+        concrete []*RuleEntry
+        patterns  []*PatternEntry
 
         filescopes []*Scope
 }
@@ -126,26 +126,26 @@ func (m *Project) IsFile(s string) (v bool) {
         return
 }
 
-func (m *Project) AddPercentPattern(p *PercentPattern, prog Program) {
-        p.parent = m.scope
-        p.project = m
-        p.program = prog
-        m.patterns = append(m.patterns, p)
+func (m *Project) GetDefaultEntry() (entry *RuleEntry) {
+        if len(m.concrete) > 0 {
+                entry = m.concrete[0]
+        }
+        return
 }
 
 type PatternStem struct {
-        Pattern Pattern
+        Patent *PatternEntry
         Stem string
 }
 
-func (ps *PatternStem) NewEntry() *RuleEntry {
-        return ps.Pattern.NewEntry(ps.Stem)
+func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
+        return ps.Patent.MakeConcreteEntry(ps.Stem)
 }
 
 func (m *Project) FindPatterns(s string) (res []*PatternStem) {
         //fmt.Printf("FindPatterns: %v (%v %v %v)\n", s, m.Name(), m.patterns, m.bases)
         for _, p := range m.patterns {
-                if found, stem := p.Match(s); found && stem != "" {
+                if found, stem := p.Pattern.Match(s); found && stem != "" {
                         res = append(res, &PatternStem{ p, stem })
                 }
         }
@@ -155,21 +155,15 @@ func (m *Project) FindPatterns(s string) (res []*PatternStem) {
         return
 }
 
-/*func (m *Project) FindPercentPattern(s string) (res *PercentPattern) {
-        for _, p := range m.patterns {
-                if pp, _ := p.(*PercentPattern); pp != nil && pp.String() == s {
-                        res = pp; return
-                }
+func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (entry *RuleEntry, err error) {
+        switch class {
+        case GeneralRuleEntry:
+        case FileRuleEntry:
+        default:
+                err = errors.New(fmt.Sprintf("invalid entry class %v (%v)\n", class, name))
+                return
         }
-        for _, base := range m.bases {
-                if res = base.FindPercentPattern(s); res != nil {
-                        return
-                }
-        }
-        return
-}*/
-
-func (m *Project) SetProgram(name string, prog Program, class RuleEntryClass) (entry *RuleEntry, err error) {
+        
         var alt Object
         if entry, alt = m.scope.InsertEntry(m, class, name); alt != nil {
                 if entry, _ = alt.(*RuleEntry); entry == nil {
@@ -178,14 +172,33 @@ func (m *Project) SetProgram(name string, prog Program, class RuleEntryClass) (e
         }
         if entry != nil && err == nil {
                 entry.program = prog
-                m.dedicated = append(m.dedicated, entry)
+                m.concrete = append(m.concrete, entry)
         }
         return
 }
 
-func (m *Project) GetDefaultEntry() (entry *RuleEntry) {
-        if len(m.dedicated) > 0 {
-                entry = m.dedicated[0]
+func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryClass, prog Program) (patent *PatternEntry, err error) {
+        switch class {
+        case GeneralRuleEntry:
+        case FileRuleEntry:
+        default:
+                err = errors.New(fmt.Sprintf("invalid pattern class %v (%v)\n", class, p))
+                return
+        }
+        
+        var (
+                entry *RuleEntry
+                alt Object
+        )
+        if entry, alt = m.scope.InsertEntry(m, class, p.Strval()); alt != nil {
+                if entry, _ = alt.(*RuleEntry); entry == nil {
+                        err = errors.New(fmt.Sprintf("pattern '%v' already taken (%T)\n", p, alt))
+                }
+        }
+        if entry != nil && err == nil {
+                entry.program = prog
+                patent = &PatternEntry{ entry, p }
+                m.patterns = append(m.patterns, patent)
         }
         return
 }

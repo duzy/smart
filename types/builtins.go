@@ -188,12 +188,12 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
 
                         if m && s != "" {
                                 if rep, ok := args[1].(*PercentPattern); ok {
-                                        s = rep.prefix.Strval() + s + rep.suffix.Strval()
+                                        s = rep.Prefix.Strval() + s + rep.Suffix.Strval()
                                 } else if l, _ := args[1].(*List); l != nil {
                                         var str = s
                                         for _, elem := range l.Elems {
                                                 if rep, _ := elem.(*PercentPattern); rep != nil {
-                                                        str = rep.prefix.Strval() + str + rep.suffix.Strval()
+                                                        str = rep.Prefix.Strval() + str + rep.Suffix.Strval()
                                                         break
                                                 }
                                         }

@@ -131,11 +131,6 @@ type (
 		Value    string    // bareword value
 	}
 
-        Ident struct {
-                Bareword
-		Sym Symbol   // denoted symbol; or nil
-        }
-        
 	// A BasicLit node represents a literal of basic type.
 	BasicLit struct {
 		ValuePos token.Pos   // literal position
@@ -199,6 +194,7 @@ type (
                 TokPos token.Pos  // position of $ or &
                 Lparen token.Pos  // left paren position
                 Name Expr         // name being referred
+                Resolved Symbol   // resolved symbol by name
                 Args []Expr       // *ListExpr
                 Rparen token.Pos  // right paren position
                 TokLp token.Token // left paren token
@@ -219,24 +215,6 @@ type (
 		OpPos token.Pos   // position of '%'
 		Y     Expr        // right operand
         }
-
-	// A UnaryExpr node represents a unary expression.
-	// Currently only '+', '-' are defined for numbers.
-	//
-	UnaryExpr struct {
-		OpPos token.Pos   // position of Op
-		Op    token.Token // operator
-		X     Expr        // operand
-	}
-
-	// A BinaryExpr node represents a binary expression.
-        // Currently only '.' is defined to compose names.
-	BinaryExpr struct {
-		X     Expr        // left operand
-		OpPos token.Pos   // position of Op
-		Op    token.Token // operator
-		Y     Expr        // right operand
-	}
 
 	// A KeyValueExpr node represents 'key=value' pairs
 	// in composite literals.
@@ -273,7 +251,6 @@ type (
 )
 
 func (d *BadExpr) Pos() token.Pos         { return d.From }
-//func (d *Ident) Pos() token.Pos           { return d.NamePos }
 func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
@@ -286,15 +263,12 @@ func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
 func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
 func (d *PercExpr) Pos() token.Pos        { return d.OpPos }
-func (d *UnaryExpr) Pos() token.Pos       { return d.OpPos }
-func (d *BinaryExpr) Pos() token.Pos      { return d.OpPos }
 func (d *KeyValueExpr) Pos() token.Pos    { return d.Key.Pos() }
 func (d *ModifierExpr) Pos() token.Pos    { return d.Lbrack }
 func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
 func (d *ProgramExpr) Pos() token.Pos     { return d.Values[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
-//func (d *Ident) End() token.Pos           { return token.Pos(int(d.NamePos) + len(d.Name)) }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *BasicLit) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *FlagExpr) End() token.Pos        { return d.Name.End() }
@@ -307,15 +281,12 @@ func (d *GlobExpr) End() token.Pos        { return d.TokPos + 1 }
 func (d *ClosureDelegate) End() token.Pos { return d.Rparen + 1 }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }
-func (d *UnaryExpr) End() token.Pos       { return d.OpPos + 1 }
-func (d *BinaryExpr) End() token.Pos      { return d.OpPos + 1 }
 func (d *KeyValueExpr) End() token.Pos    { return d.Value.End() }
 func (d *ModifierExpr) End() token.Pos    { return d.Rbrack + 1 }
 func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
 func (d *ProgramExpr) End() token.Pos     { return d.Values[len(d.Values)-1].End() }
 
 func (*BadExpr) exprNode()         {}
-//func (*Ident) exprNode()           {}
 func (*Bareword) exprNode()        {}
 func (*BasicLit) exprNode()        {}
 func (*FlagExpr) exprNode()        {}
@@ -328,21 +299,10 @@ func (*GlobExpr) exprNode()        {}
 func (*ClosureDelegate) exprNode() {}
 func (*GroupExpr) exprNode()       {}
 func (*PercExpr) exprNode()        {}
-func (*UnaryExpr) exprNode()       {}
-func (*BinaryExpr) exprNode()      {}
 func (*KeyValueExpr) exprNode()    {}
 func (*ModifierExpr) exprNode()    {}
 func (*RecipeExpr) exprNode()      {}
 func (*ProgramExpr) exprNode()     {}
-
-/* func NewBareword(name string) *Bareword { return &Bareword{token.NoPos, name, token.NoPos} }
-
-func (id *Bareword) String() string {
-	if id != nil {
-		return id.Value
-	}
-	return "<nil>"
-} */
 
 // A declaration is represented by one of the following declaration nodes.
 //
@@ -395,6 +355,7 @@ type (
         // 
 	EvalSpec struct {
                 DirectiveSpec
+                Resolved Symbol // resolved symbol
         }
 )
 
@@ -511,11 +472,11 @@ type File struct {
 	Doc        *CommentGroup   // associated documentation; or nil
 	Keypos     token.Pos       // position of "module" or "project" keyword
         Keyword    token.Token     // e.g. "module", "project"
-	Name       *Ident          // project/module name
-	Scope      Scope          // module scope (this file only)
+	Name       *Bareword       // project/module name
+	Scope      Scope           // module scope (this file only)
 	Clauses    []Clause        // top-level declarations; or nil
 	Imports    []*ImportSpec   // imports in this file
-	Unresolved []*Ident        // unresolved identifiers in this file
+	//Unresolved []*Bareword     // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
 }
 

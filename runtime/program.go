@@ -187,9 +187,12 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
                                 var (
-                                        dent = d.NewEntry(entry.Stem())
+                                        dent types.Value
                                         name = dent.Strval()
                                 )
+                                if dent, err = d.MakeConcreteEntry(nil, entry.Stem()); err != nil {
+                                        return err
+                                }
                                 if prog.project.IsFile(name) {
                                         //fmt.Printf("%v: %v -> %v (file)\n", entry, depend, dent)
                                         depend, file = dent, name; goto HandleFile
@@ -223,16 +226,19 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         if pss := prog.project.FindPatterns(file); pss != nil {
                                 //fmt.Printf("Program.prepare: FoundPatterns: %v %v\n", file, len(pss))
                                 for _, ps := range pss {
-                                        p := ps.Pattern.Program().(*Program)
+                                        p := ps.Patent.Program().(*Program)
                                         if p == nil {
                                                 // goto SearchFile
                                         }
 
                                         //fmt.Printf("Program.prepare: %v -> %v (%v)\n", ps.Pattern, p.depends, ps.Stem)
-                                        entry := ps.NewEntry()
-                                        //fmt.Printf("Program.prepare: pattern: %T %T %v (%v, %v)\n", depend, ps.Pattern, ps.Pattern, ps.Stem, entry)
-                                        depend, isFileEntry = entry, true
-                                        goto DependSwitch
+                                        if entry, err := ps.MakeConcreteEntry(); err == nil {
+                                                //fmt.Printf("Program.prepare: pattern: %T %T %v (%v, %v)\n", depend, ps.Pattern, ps.Pattern, ps.Stem, entry)
+                                                depend, isFileEntry = entry, true
+                                                goto DependSwitch
+                                        } else {
+                                                return err
+                                        }
                                 }
                         }
                 }
