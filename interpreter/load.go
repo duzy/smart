@@ -24,7 +24,6 @@ import (
 
 const (
         useScopeName = "~usee~"
-        useRuleName = "~use~"
         ignoreRuleName = "ignore"
 )
 
@@ -427,10 +426,11 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                         v = values.List(a...)
                 }
         case *ast.KeyValueExpr:
-                if b, err := i.expr(x.Value); err != nil {
-                        return nil, err
-                } else if a, err := i.expr(x.Key); err != nil {
-                        return nil, err
+                var a, b types.Value
+                if b, err = i.expr(x.Value); err != nil {
+                        return
+                } else if a, err = i.expr(x.Key); err != nil {
+                        return
                 } else {
                         v = values.Pair(a, b)
                 }
@@ -444,14 +444,13 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                         v = values.PercentPattern(i.project, a, b)
                 }
         case *ast.UseDefineClause:
-                fmt.Printf("UseDefineClause: %T %v\n", x.Sym, x.Sym)
+                //fmt.Printf("UseDefineClause: %T %v\n", x.Sym, x.Sym)
                 if d, _ := x.Sym.(*types.Def); d != nil {
                         // !strings.HasPrefix(s, "rule use")
                         if s := d.Parent().Comment(); s != "rule use" {
                                 err = errors.New(fmt.Sprintf("not a 'use' scope (%s)", s))
                                 return
                         } else if o := d.Parent().Lookup(d.Name()); o == nil {
-                                //fmt.Printf("UseDefineClause: %v\n", d.Parent())
                                 err = errors.New(fmt.Sprintf("'%s' undefined in %v", d.Name(), d.Parent()))
                                 return
                         }
@@ -462,12 +461,8 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 } else if val, err := i.expr(x.Value); err != nil {
                         return nil, err
                 } else if name != nil && val != nil {
-                        /*v = &usedefiner{
-                                op: x.Tok,
-                                name: name.Strval(),
-                                value: val,
-                                pos: nil,
-                        }*/
+                        // TODO: check i.scope.Lookup(name.Strval()).(*Def)
+                        v = types.MakeDefiner(x.Tok, name.Strval())
                 }
         }
         return
@@ -485,7 +480,7 @@ func (i *Interpreter) exprs(exprs []ast.Expr) (values []types.Value, err error) 
 }
 
 func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
-        use := project.Scope().Lookup(useRuleName)
+        use := project.Scope().Lookup("use")
         if rule, _ := use.(*types.RuleEntry); rule != nil {
                 result, err := rule.Call(values.Any(i.project))
                 //i.parseInfo(pos, "use: %v: %v (%v)\n", i.project.Name(), project.Name(), result)
@@ -602,51 +597,26 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         return
 }
 
-func (i *Interpreter) depend(depend types.Value) (result types.Value, err error) {
-        fmt.Printf("Interpreter.depend: %T %v (%v)\n", depend, depend, depend.Strval())
-        switch depend.Type() {
-        case types.RuleEntryType, types.BarefileType, types.PathType, types.PatternType:
-                result = depend
-        case types.ClosureType:
-                if v, e := types.Disclose(i.scope, depend); e != nil {
-                        err = e; return
-                } else {
-                        result = v
-                }
-        case types.DelegateType:
-                result = depend.(types.Valuer).Value()
-        case types.ListType:
-                list := types.EvalElems(depend.(*types.List).Elems...)
-                result = values.List(list...)
-        }
-        return
-}
-
 func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
         var (
                 targets []types.Value
                 depends []types.Value
                 recipes []types.Value
-                depval, val types.Value
+                depval types.Value
                 progScope *types.Scope
                 params []string
         )
         for _, depend := range clause.Depends {
                 if depval, err = i.expr(depend); err != nil {
                         return
-                }
-
-                //fmt.Printf("depend: %T %v\n", depval, depval)
-                if val, err = i.depend(depval); err != nil {
-                        return
-                } else if val == nil {
+                } else if depval == nil {
                         i.parseWarn(depend.Pos(), "invalid depend (%T %v -> %T %v)", depend, depend, depval, depval)
                         err = errors.New(fmt.Sprintf("invalid depend"))
                         return
-                } else if l, _ := val.(*types.List); l != nil {
+                } else if l, _ := depval.(*types.List); l != nil {
                         depends = append(depends, l.Elems...)
                 } else {
-                        depends = append(depends, val)
+                        depends = append(depends, depval)
                 }
         }
 
@@ -655,8 +625,8 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                         err = errors.New(fmt.Sprintf("undefined program scope (%T)", p.Scope))
                         return
                 }
-                if p.Values != nil {
-                        if recipes, err = i.exprs(p.Values); err != nil {
+                if p.Recipes != nil {
+                        if recipes, err = i.exprs(p.Recipes); err != nil {
                                 return
                         }
                 }
@@ -696,7 +666,6 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 if name = target.Strval(); name == "use" {
                         if n == 0 && len(clause.Targets) == 1 {
                                 class = types.UseRuleEntry
-                                name = useRuleName
                         } else {
                                 i.parseWarn(clause.Targets[n].Pos(), "'use' rule mixed with other targets")
                                 err = errors.New(fmt.Sprintf("mixes 'use' and normal targets"))
@@ -980,6 +949,7 @@ func (pc *parseContext) Files(m map[string][]string) {
 
 func (pc *parseContext) IsFileName(s string) bool {
         if pc.project != nil {
+                //fmt.Printf("IsFileName: %s %v\n", s, pc.project.IsFile(s))
                 return pc.project.IsFile(s)
         }
         return false
@@ -1086,8 +1056,20 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
         if ec&parser.CastDepends == 0 {
                 return
         }
+
+        //fmt.Printf("Eval: depend: %T %v (%v)\n", res, res, res.Strval())
         
-        // TODO: depend cast
+        // Cast depends so that it's could be easily used.
+        switch res.Type() {
+        //case types.RuleEntryType:
+        //case types.BarewordType:
+        case types.BarefileType:
+        case types.PathType:
+        case types.PatternType:
+        case types.ClosureType:
+        default:
+                res, err = nil, errors.New(fmt.Sprintf("unsupported depend type '%v' (%T %v)", res.Type(), res, res))
+        }
         return
 }
 
@@ -1111,7 +1093,7 @@ func (pc *parseContext) Resolve(name string) parser.RuntimeObj {
                                 }
                         }
                 }
-                if obj == nil && (name == "generic") {
+                if obj == nil && (name == "^") {
                         fmt.Printf("Resolve: '%v' not in %v\n", name, pc.scope)
                         //for _, base := range pc.project.Bases() {
                         //        fmt.Printf("Resolve: %v %v\n", base.Name(), base.Scope())

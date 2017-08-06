@@ -45,7 +45,7 @@ evaluationLoop:
                                 }
                                 if a, _ := args[0].(*types.Any); a != nil {
                                         if p, ok := a.V.(*types.Project); ok {
-                                                v, e = t.Define(p); break
+                                                v, e = t.Define(prog.scope, p); break
                                         }
                                 }
                                 err = errors.New("wrong define arguments")

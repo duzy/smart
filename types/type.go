@@ -61,11 +61,13 @@ const (
 
         // object types
         BuiltinKind
-        //DefinerKind
         DefKind
         RuleEntryKind
         ProjectNameKind
         ScopeNameKind
+
+        // definer (special)
+        DefinerKind
 
         // type for expressions compute to nothing/empty
         NoneKind
@@ -96,12 +98,12 @@ var (
                 DelegateKind:   "Delegate",
                 ClosureKind:    "Closure",
                 NamedKind:      "Named",
-                //DefinerKind:    "Definer",
                 DefKind:        "Def",
                 BuiltinKind:    "Builtin",
                 RuleEntryKind:  "RuleEntry",
                 ProjectNameKind: "ProjectName",
                 ScopeNameKind:  "ScopeName",
+                DefinerKind:    "Definer",
                 NoneKind:       "None",
         }
 )
@@ -156,6 +158,8 @@ const (
         IsScopeName
         IsProjectName
 
+        IsDefiner // 30
+
         IsDateTime  = IsDate | IsTime
 	IsNumeric   = IsInteger | IsFloat
         IsKeyName   = IsInteger | IsString | IsBareword
@@ -164,11 +168,11 @@ const (
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair | IsPattern
         IsConstType = IsBasic
 
-        IsCore      = IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName
+        IsCore      = IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName | IsDefiner
         IsObject    = IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName
 
         // Custom type
-        IsNamed     = IsObject | IsPair
+        IsNamed     = IsObject | IsPair | IsProjectName | IsScopeName
 )
 
 type Core struct {

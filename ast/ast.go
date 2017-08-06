@@ -245,7 +245,7 @@ type (
         ProgramExpr struct {
                 Lang    int // TODO: language definition (default is recipes)
                 Params  []string
-                Values  []Expr
+                Recipes []Expr
                 Scope   Scope // scope specific to the program
         }
 )
@@ -266,7 +266,7 @@ func (d *PercExpr) Pos() token.Pos        { return d.OpPos }
 func (d *KeyValueExpr) Pos() token.Pos    { return d.Key.Pos() }
 func (d *ModifierExpr) Pos() token.Pos    { return d.Lbrack }
 func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
-func (d *ProgramExpr) Pos() token.Pos     { return d.Values[0].Pos() }
+func (d *ProgramExpr) Pos() token.Pos     { return d.Recipes[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
@@ -284,7 +284,7 @@ func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }
 func (d *KeyValueExpr) End() token.Pos    { return d.Value.End() }
 func (d *ModifierExpr) End() token.Pos    { return d.Rbrack + 1 }
 func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
-func (d *ProgramExpr) End() token.Pos     { return d.Values[len(d.Values)-1].End() }
+func (d *ProgramExpr) End() token.Pos     { return d.Recipes[len(d.Recipes)-1].End() }
 
 func (*BadExpr) exprNode()         {}
 func (*Bareword) exprNode()        {}

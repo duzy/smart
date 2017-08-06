@@ -113,6 +113,7 @@ func (m *Project) IsFile(s string) (v bool) {
                         if strings.ContainsAny(pat, "*?[") {
                                 v, _ = filepath.Match(pat, ss)
                         } else { 
+                                //fmt.Printf("IsFileName: %s %v\n", s, pat)
                                 v = s == pat
                         }
                         if v { return }
@@ -159,8 +160,9 @@ func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (e
         switch class {
         case GeneralRuleEntry:
         case FileRuleEntry:
+        case UseRuleEntry:
         default:
-                err = errors.New(fmt.Sprintf("invalid entry class %v (%v)\n", class, name))
+                err = errors.New(fmt.Sprintf("invalid entry class '%v' (%v)\n", class, name))
                 return
         }
         

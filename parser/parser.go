@@ -407,22 +407,44 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
 
-func (p *parser) parseBareword() *ast.Bareword {
-	pos, value := p.pos, ""
+func (p *parser) parseBareword() (x ast.Expr) {
+	pos, value, isFileName := p.pos, "", false
         switch p.tok {
 	case token.BAREWORD:
 		value = p.lit
 		p.next()
+                if end := token.Pos(int(pos) + len(value)); end == p.pos {
+                        switch p.tok {
+                        case token.PERIOD, token.PCON:
+                                //!< parseSelect will check IsFileName
+                                //v := p.runtime.IsFileName(value)
+                                //fmt.Printf("bareword: %v %v (%v) (%v)\n", value, p.lit, p.tok, v)
+                        default:
+                                isFileName = p.runtime.IsFileName(value)
+                        }
+                }
         case token.AT:
 		value = p.tok.String()
 		p.next()
         default:
 		p.expect(token.BAREWORD) // use expect() error handling
 	}
-	return &ast.Bareword{
-                ValuePos: pos, 
-                Value: value,
+        
+        x = &ast.Bareword{ ValuePos: pos, Value:value }
+        
+        if isFileName {
+                ext := filepath.Ext(value)
+                if len(ext) > 0 {
+                        ext = ext[1:] // drop the '.'
+                        pos = token.Pos(int(pos) + len(value) - len(ext))
+                }
+                x = &ast.Barefile{
+                        Name: x,
+                        ExtPos: pos,
+                        Ext: ext,
+                }
         }
+        return x
 }
 
 func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
@@ -650,12 +672,7 @@ func (p *parser) parseGroupExpr() ast.Expr {
 func (p *parser) parseExpr0(lhs bool) ast.Expr {
         switch p.tok {
         case token.BAREWORD:
-                pos, lit := p.pos, p.lit
-                p.next()
-                return &ast.Bareword{
-                        ValuePos: pos,
-                        Value: lit,
-                }
+                return p.parseBareword()
                 
         case token.INT, token.FLOAT, token.DATETIME, 
              token.DATE, token.TIME, token.URI, token.STRING,
@@ -757,12 +774,11 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
         case token.LPAREN:
                 return p.parseGroupExpr()
 
-        //case token.PCON:
-        case token.PERIOD:
-                pos := p.pos
+        case token.PERIOD, token.PCON:
+                pos, tok := p.pos, p.tok
                 p.next()
-                return &ast.Bareword{ pos, "." }
-
+                return &ast.Bareword{ pos, tok.String() }
+                
         case token.PERC:
                 pos := p.pos
                 p.next()
@@ -810,8 +826,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         p.next()
 
                         resolved := p.runtime.Resolve(s)
-                        if resolved != nil {
-                                p.error(pos, fmt.Sprintf("undefined %v (closure/delegate)", s))
+                        if resolved == nil {
+                                p.error(pos, fmt.Sprintf("undefined closure/delegate '%v'", s))
                         }
                         
                         cd := ast.ClosureDelegate{
@@ -1000,7 +1016,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                 }
                 switch v := ee.Data.(type) {
                 case *types.Pair:
-                        switch s := v.K.Strval(); vv := v.V.(type) {
+                        switch s := v.Key.Strval(); vv := v.Value.(type) {
                         case *types.Group:
                                 for _, elem := range vv.Elems {
                                         files[s] = append(files[s], elem.Strval())
@@ -1140,11 +1156,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 // Always work in the current runtime scope, so it won't affect
                 // any base symbols. If p.inUseRule is set, it will be defining
                 // a Definer in the 'use' rule scope. 
-                var t = types.DefType
-                if p.inUseRule {
-                        //t = types.DefinerType
-                }
-                if s, a := p.runtime.Symbol(v.Strval(), t); a != nil {
+                if s, a := p.runtime.Symbol(v.Strval(), types.DefType); a != nil {
                         switch tok {
                         case token.ASSIGN, token.EXC_ASSIGN:
                                 p.error(ident.Pos(), fmt.Sprintf("alread defined %v (%v)", v.Strval(), v))
@@ -1201,6 +1213,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         case token.ASSIGN, token.EXC_ASSIGN: // =, !=
                 def.SetOrigin(types.DefaultDef)
                 bits = delegation
+                // TODO: deal with p.inUseRule
         case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
                 def.SetOrigin(types.ImmediateDef)
                 bits = immediate
@@ -1212,11 +1225,12 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 if v, e := p.runtime.Eval(value, bits); e == nil {
                         switch tok {
                         case token.EXC_ASSIGN: v, e = def.AssignExec(v)
-                        case token.ADD_ASSIGN: v = def.Append(v)
-                        default:               v = def.Assign(v)
+                        case token.ADD_ASSIGN: v, e = def.Append(v)
+                        default:               v, e = def.Assign(v)
                         }
                         if e != nil {
-                                p.error(value.Pos(), fmt.Sprintf("command error: %v (%v)", e, v))
+                                p.warn(value.Pos(), fmt.Sprintf("assign: %v", e))
+                                p.error(value.Pos(), fmt.Sprintf("%v (%v)", e, def.Name()))
                         } else if def.Value == nil {
                                 // Avoid create a <nil> Def
                                 def.Value = types.UniversalNone
@@ -1575,10 +1589,11 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 continue
                         }
 
-                        fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
+                        //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                         continue dependsLoop
 
+                        /*
                         switch depval.Type() {
                         case types.RuleEntryType, types.PatternType, types.ClosureType, types.DelegateType, types.ListType:
                                 depends[i] = &ast.EvaluatedExpr{ depval, depend }
@@ -1637,11 +1652,16 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                         p.error(depend.Pos(), fmt.Sprintf("argumented depend (%v %v)", depval, args))
                                 }
                         }
-                        depends[i] = &ast.EvaluatedExpr{ depval, depend }
+                        depends[i] = &ast.EvaluatedExpr{ depval, depend } */
                 }
         }
         if p.tok != token.EOF {
                 p.expectLinend()
+        }
+
+        var useContainScope ast.Scope
+        if isUseRule {
+                //useContainScope = p.runtime.OpenScope(p.pos, fmt.Sprintf("use"))
         }
         
         // Parse recipes in the program scope.
@@ -1652,7 +1672,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         program = &ast.ProgramExpr{
                 Lang: 0, // FIXME: language definition
                 Params: params,
-                Values: recipes,
+                Recipes: recipes,
                 Scope: scope,
         }
         
@@ -1666,6 +1686,10 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Modifier: modifier,
         }
 
+        if useContainScope != nil {
+                p.closeScope(useContainScope)
+        }
+        
         // Close the rule scope and go back to project scope. The current
         // scope must be project scope befor Rule.
         p.closeScope(scope)
@@ -1788,7 +1812,10 @@ func (p *parser) parseFile() *ast.File {
                                 Value: basename,
                         }
                 } else {
-                        ident = p.parseBareword()
+                        x := p.parseBareword()
+                        if ident, _ = x.(*ast.Bareword); ident == nil {
+                                p.error(p.pos, fmt.Sprintf("invalid package name %T", x))
+                        }
                 }
                 
                 if ident.Value == "_" && p.mode&DeclarationErrors != 0 {

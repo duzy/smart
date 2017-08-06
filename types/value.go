@@ -37,10 +37,15 @@ type Value interface {
         // disclose method, also prevents creating new Value type from
         // other packages.
         disclose(scope *Scope) (Value, error)
+
+        // Recursively detecting whether this value is delegating the
+        // object (to avoid loop-delegation).
+        delegating(o Object) bool
 }
 
 type value struct {}
 func (*value) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*value) delegating(_ Object) bool { return false }
 func (*value) Type() Type         { return InvalidType }
 func (*value) String() string     { return "" }
 func (*value) Strval() string     { return "" }
@@ -54,12 +59,13 @@ type Any struct {
         V interface{}
         value
 }
-func (p *Any) Type() Type    { return AnyType }
+func (p *Any) Type() Type { return AnyType }
 
 type Int struct {
         V int64
 }
 func (*Int) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Int) delegating(_ Object) bool { return false }
 func (p *Int) Type() Type          { return IntType }
 func (p *Int) String() string      { return p.Strval() }
 func (p *Int) Strval() string      { return strconv.FormatInt(int64(p.V),10) }
@@ -70,6 +76,7 @@ type Float struct {
         V float64
 }
 func (*Float) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Float) delegating(_ Object) bool { return false }
 func (p *Float) Type() Type        { return FloatType }
 func (p *Float) String() string    { return p.Strval() }
 func (p *Float) Strval() string    { return strconv.FormatFloat(float64(p.V),'g', -1, 64) }
@@ -80,6 +87,7 @@ type DateTime struct {
         V time.Time 
 }
 func (*DateTime) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*DateTime) delegating(_ Object) bool { return false }
 func (p *DateTime) Type() Type     { return DateTimeType }
 func (p *DateTime) String() string { return p.Strval() }
 func (p *DateTime) Strval() string { return time.Time(p.V).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
@@ -88,6 +96,7 @@ func (p *DateTime) Float() float64 { return float64(p.Integer()) }
 
 type Date struct { DateTime }
 func (*Date) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Date) delegating(_ Object) bool { return false }
 func (p *Date) Type() Type         { return DateType }
 func (p *Date) String() string     { return p.Strval() }
 func (p *Date) Strval() string     { return time.Time(p.V).Format("2006-01-02") }
@@ -96,6 +105,7 @@ func (p *Date) Float() float64     { return float64(p.Integer()) }
 
 type Time struct { DateTime }
 func (*Time) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Time) delegating(_ Object) bool { return false }
 func (p *Time) Type() Type         { return TimeType }
 func (p *Time) String() string     { return p.Strval() }
 func (p *Time) Strval() string     { return time.Time(p.V).Format("15:04:05.999999999Z07:00") }
@@ -106,6 +116,7 @@ type Uri struct {
         V *url.URL
 }
 func (*Uri) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Uri) delegating(_ Object) bool { return false }
 func (p *Uri) Type() Type          { return UriType }
 func (p *Uri) String() string      { return p.Strval() }
 func (p *Uri) Strval() string      { return p.V.String() }
@@ -115,6 +126,8 @@ func (p *Uri) Float() float64      { return float64(p.Integer()) }
 type String struct {
         V string
 }
+func (*String) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*String) delegating(_ Object) bool { return false }
 func (p *String) Type() Type  { return StringType }
 func (p *String) String() string {
         if strings.ContainsRune(p.V, '\n') {
@@ -123,7 +136,6 @@ func (p *String) String() string {
                 return "'" + p.V + "'" 
         }
 }
-func (*String) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (p *String) Strval() string   { return p.V }
 func (p *String) Integer() int64   { i, _ := strconv.ParseInt(p.V, 10, 64); return i }
 func (p *String) Float() float64   { return float64(p.Integer()) }
@@ -132,6 +144,7 @@ type Bareword struct {
         V string
 }
 func (*Bareword) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Bareword) delegating(_ Object) bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
 func (p *Bareword) String() string { return p.V }
 func (p *Bareword) Strval() string { return p.V }
@@ -184,6 +197,15 @@ func (p *Elements) discloseElems(scope *Scope) ([]Value, int, error) {
                 elems = append(elems, elem)
         }
         return elems, num, nil
+}
+
+func (p *Elements) delegating(o Object) bool {
+        for _, elem := range p.Elems {
+                if elem.delegating(o) {
+                        return true
+                }
+        }
+        return false 
 }
 
 type Barecomp struct {
@@ -245,6 +267,10 @@ func (p *Barefile) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
+func (p *Barefile) delegating(o Object) bool {
+        return p.Name.delegating(o)
+}
+
 type Path struct {
         Elements
 }
@@ -297,6 +323,10 @@ func (p *File) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
+func (p *File) delegating(o Object) bool {
+        return p.Value.delegating(o)
+}
+
 type Flag struct {
         Name Value
 }
@@ -318,6 +348,10 @@ func (p *Flag) disclose(scope *Scope) (Value, error) {
                 return &Flag{ name }, nil
         }
         return nil, nil
+}
+
+func (p *Flag) delegating(o Object) bool {
+        return p.Name.delegating(o)
 }
         
 type Compound struct {
@@ -417,45 +451,46 @@ func (p *Map) Strval() string {
 } */
 
 type Pair struct { // key=value
-        K Value
-        V Value
+        Key Value
+        Value Value
 }
 func (p *Pair) String() string {
-        return p.K.String() + "=" + p.V.String()
+        return p.Key.String() + "=" + p.Value.String()
 }
 func (p *Pair) Strval() string {
-        return p.K.Strval() + "=" + p.V.Strval()
+        return p.Key.Strval() + "=" + p.Value.Strval()
 }
-func (p *Pair) Integer() int64     { return p.V.Integer() }
-func (p *Pair) Float() float64     { return p.V.Float() }
+func (p *Pair) Integer() int64     { return p.Value.Integer() }
+func (p *Pair) Float() float64     { return p.Value.Float() }
 func (p *Pair) Type() Type         { return PairType }
 
-func (p *Pair) Key() Value         { return p.K }
-func (p *Pair) Value() Value       { return p.V }
-func (p *Pair) SetValue(v Value)   { p.V = v }
+func (p *Pair) SetValue(v Value)   { p.Value = v }
 func (p *Pair) SetKey(k Value) {
         switch o := k.(type) {
-        case *Pair:   k = o.K
-        //case *PairLiteral: k = o.K
+        case *Pair:   k = o.Key
         }
         if k.Type().Bits()&IsKeyName != 0 {
-                p.K = k
+                p.Key = k
         } else {
-                p.K = nil
+                p.Key = nil
         }
 }
 
 func (p *Pair) disclose(scope *Scope) (Value, error) {
-        if k, err := p.K.disclose(scope); err != nil {
+        if k, err := p.Key.disclose(scope); err != nil {
                 return nil, err
-        } else if v, err := p.V.disclose(scope); err != nil {
+        } else if v, err := p.Value.disclose(scope); err != nil {
                 return nil, err
         } else if k != nil || v != nil {
-                if k == nil { k = p.K }
-                if v == nil { v = p.V }
+                if k == nil { k = p.Key }
+                if v == nil { v = p.Value }
                 return &Pair{ k, v }, nil
         }
         return nil, nil
+}
+
+func (p *Pair) delegating(o Object) bool {
+        return p.Key.delegating(o) || p.Value.delegating(o)
 }
 
 // Delegate wraps '$(foo a,b,c)' into Valuer
@@ -464,7 +499,7 @@ type delegate struct {
         a []Value
 }
 
-func (p *delegate) Type() Type          { return DelegateType }
+func (p *delegate) Type() Type         { return DelegateType }
 func (p *delegate) String() (s string) {
         var na = len(p.a)
         s = "$"
@@ -480,11 +515,12 @@ func (p *delegate) String() (s string) {
         }
         return
 }
-func (p *delegate) Strval() string      { return p.o.Strval() }
-func (p *delegate) Integer() int64      { return p.o.Integer() }
-func (p *delegate) Float() float64      { return p.o.Float() }
-func (p *delegate) Value() (v Value) {
+func (p *delegate) Strval() string   { return p.Value().Strval() }
+func (p *delegate) Integer() int64   { return p.Value().Integer() }
+func (p *delegate) Float() float64   { return p.Value().Float() }
+func (p *delegate) Value() (res Value) {
         //fmt.Printf("delegate.value: %T %v\n", p.o, p.o)
+        //fmt.Printf("delegate.value: %p %p\n", p, p.o)
         switch o := p.o.(type) {
         case Caller:
                 var (
@@ -501,25 +537,38 @@ func (p *delegate) Value() (v Value) {
                         }
                         args = append(args, a)
                 }
-                v, _ = o.Call(args...)
+                res, _ = o.Call(args...)
         default:
                 fmt.Printf("delegate.value: unknown (%T %v)\n", p.o, p.o)
         }
-        if v == nil {
-                v = UniversalNone
+        if res == nil {
+                res = UniversalNone
         }
-        return v 
+        return
 }
 
 func (p *delegate) disclose(scope *Scope) (Value, error) {
-        value := p.Value()
+        /*value := p.Value()
         if v, e := value.disclose(scope); e != nil {
                 return nil, e
         } else if v != nil {
                 //fmt.Printf("delegate.disclose: %T %v -> %T %v -> %T %v\n", p.o, p.o, value, value, v, v)
                 value = v
         }
-        return value, nil
+        return value, nil /**/
+        return nil, nil
+}
+
+func (p *delegate) delegating(o Object) bool {
+        if p.o == o {
+                return true
+        }
+        for _, a := range p.a {
+                if a.delegating(o) {
+                        return true
+                }
+        }
+        return false
 }
 
 type closure struct {
@@ -575,6 +624,18 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
+func (p *closure) delegating(o Object) bool {
+        if p.o == o {
+                return true
+        }
+        for _, a := range p.a {
+                if a.delegating(o) {
+                        return true
+                }
+        }
+        return false
+}
+
 // Pattern
 type Pattern interface {
         Value
@@ -585,7 +646,7 @@ type Pattern interface {
 type pattern struct {
 }
 
-func (p *pattern) Type() Type        { return InvalidType }
+func (p *pattern) Type() Type        { return PatternType }
 func (p *pattern) Integer() int64    { return 0 }
 func (p *pattern) Float() float64    { return 0 }
 func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
@@ -639,6 +700,10 @@ func (p *PercentPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entr
         return p.makeEntry(patent, name, stem)
 }
 
+func (p *PercentPattern) delegating(o Object) bool {
+        return p.Prefix.delegating(o) || p.Suffix.delegating(o)
+}
+
 type RegexpPattern struct {
         pattern
 }
@@ -659,14 +724,11 @@ func (p *RegexpPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry
         return
 }
 
-type Definer interface {
-        Define(p *Project) (Value, error)
-}
+func (p *RegexpPattern) delegating(_ Object) bool { return false }
 
-//type DefinerValue interface {
-//        Value
-//        Definer
-//}
+type Definer interface {
+        Define(s *Scope, p *Project) (*Def, error)
+}
 
 type Valuer interface {
         Value() Value
@@ -676,28 +738,9 @@ type Caller interface {
         Call(args... Value) (Value, error)
 }
 
-//type CallerValue interface {
-//        Value
-//        Caller
-//}
-
-//type Unrefer interface {
-//        Unref(project *Project, s string, a... Value) (Value, error)
-//}
-
-//type UnreferValue interface {
-//        Value
-//        Unrefer
-//}
-
 type Poser interface {
         Pos() *token.Position
 }
-
-//type PoserValue interface {
-//        Value
-//        Poser
-//}
 
 type Namer interface {
         Name() string
@@ -740,6 +783,8 @@ func NameScope(name string, scope *Scope) NameScoper {
         return &namescoper{ name, scope }
 }
 
+// Eval recursively expends delegates and join lists in the value,
+// converts Valuer.
 func Eval(v Value) (res Value) {
         switch t := v.(type) {
         case *List:

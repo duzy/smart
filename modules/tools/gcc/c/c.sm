@@ -8,8 +8,6 @@ files (
     'a.out'
 )
 
-eval println "c.sm:" gcc.TARGET_ARCH
-
 AS = as
 ASFLAGS =
 

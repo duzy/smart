@@ -15,3 +15,6 @@ hello.cpp:[(plain c++) (update-file)]
 	    std::cout <<"$(GREETING)" << std::endl;
 	    return 0;
 	}
+
+clean:[(stderr) (stdout) (shell)]
+	@rm -vf bin/hello obj/*.o src/hello.cpp

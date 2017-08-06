@@ -24,9 +24,11 @@ var (
 var (
         CoreTypes = []*Core {
                 DefKind:         {DefKind, IsDef, "Def"},
-                ProjectNameKind: {ProjectNameKind, IsBuiltin, "ProjectName"},
-                BuiltinKind:     {BuiltinKind, IsRuleEntry, "Builtin"},
-                RuleEntryKind:   {RuleEntryKind, IsProjectName, "RuleEntry"},
+                DefinerKind:     {DefinerKind, IsDefiner, "Definer"},
+                ScopeNameKind:   {ScopeNameKind, IsScopeName, "ScopeName"},
+                ProjectNameKind: {ProjectNameKind, IsProjectName, "ProjectName"},
+                BuiltinKind:     {BuiltinKind, IsBuiltin, "Builtin"},
+                RuleEntryKind:   {RuleEntryKind, IsRuleEntry, "RuleEntry"},
         }
         
         BasicTypes = []*Basic {
@@ -60,8 +62,10 @@ var (
 
         // Shortcuts of core types
         DefType         = CoreTypes[DefKind]
+        DefinerType     = CoreTypes[DefinerKind]
         BuiltinType     = CoreTypes[BuiltinKind]
         RuleEntryType   = CoreTypes[RuleEntryKind]
+        ScopeNameType   = CoreTypes[ScopeNameKind]
         ProjectNameType = CoreTypes[ProjectNameKind]
 
         // Shortcuts of basic types.

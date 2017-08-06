@@ -86,6 +86,7 @@ type ProjectName struct {
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
+func (n *ProjectName) Type() Type { return ProjectNameType }
 func (n *ProjectName) Project() *Project { return n.project }
 func (n *ProjectName) Strval() string  {
         return fmt.Sprintf("project %s %p", n.name, n.project)
@@ -129,6 +130,7 @@ type ScopeName struct {
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
+func (n *ScopeName) Type() Type { return ScopeNameType }
 func (n *ScopeName) Scope() *Scope { return n.scope }
 func (n *ScopeName) Strval() string  {
         return fmt.Sprintf("scope %s %p", n.name, n.project)
@@ -196,6 +198,7 @@ func (d *Def) String() string {
         return s
 }
 func (d *Def) Strval() string {
+        fmt.Printf("Def.Strval: %p %p\n", d, d.Value)
         s := d.name + "="
         if d.Value == nil {
                 s += "<nil>"
@@ -207,7 +210,14 @@ func (d *Def) Strval() string {
 func (d *Def) Origin() DefOrigin { return d.origin }
 func (d *Def) SetOrigin(k DefOrigin) { d.origin = k }
 
-func (d *Def) Assign(v Value) Value {
+func (d *Def) Assign(v Value) (Value, error) {
+        if v == nil {
+                v = UniversalNone
+        } else if v.delegating(d) {
+                err := errors.New(fmt.Sprintf("loop delegation (%s)", d.name))
+                return nil, err
+        }
+        
         switch d.origin {
         case TrivialDef, DefaultDef:
                 d.Value = v // Keeps delegates and closures.
@@ -215,10 +225,10 @@ func (d *Def) Assign(v Value) Value {
                 // Eval expends delegates in the value.
                 d.Value = Eval(v)
         }
-        return d.Value
+        return d.Value, nil
 }
 
-func (d *Def) Append(v Value) Value {
+func (d *Def) Append(v Value) (Value, error) {
         var nv Value
         if d.Value != nil && d.Value.Type() != NoneType {
                 nv = d.Value
@@ -233,7 +243,7 @@ func (d *Def) Append(v Value) Value {
         return d.Assign(nv)
 }
 
-func (d *Def) AssignExec(a... Value) (res Value, err error) {
+func (d *Def) AssignExec(a... Value) (Value, error) {
         var (
                 stdout bytes.Buffer
                 stderr bytes.Buffer
@@ -241,13 +251,12 @@ func (d *Def) AssignExec(a... Value) (res Value, err error) {
         for _, v := range a {
                 sh := exec.Command("sh", "-c", v.Strval())
                 sh.Stdout, sh.Stderr = &stdout, &stderr
-                if err = sh.Run(); err != nil {
-                        res = d.Assign(UniversalNone)
-                        return
+                if err := sh.Run(); err != nil {
+                        v, _ = d.Assign(UniversalNone)
+                        return v, err
                 }
         }
-        res = d.Assign(&String{strings.TrimSpace(stdout.String())})
-        return
+        return d.Assign(&String{strings.TrimSpace(stdout.String())})
 }
 
 func (d *Def) Call(a... Value) (Value, error) {
@@ -265,30 +274,42 @@ func (d *Def) Get(name string) (Value, error) {
 
 // TODO: move it into 'runtime' package
 type definer struct {
-        def *Def
-        value Value // initial value
+        name string
         op token.Token
-        //pos *token.Position
 }
-//func (p *definer) Pos() *token.Position { return p.pos }
-func (p *definer) Type() Type     { return p.def.Type() }
-func (p *definer) String() string { return "definer " + p.def.String() }
-func (p *definer) Strval() string { return "definer " + p.def.Strval() }
+func (p *definer) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *definer) delegating(_ Object) bool { return false }
+func (p *definer) Type() Type     { return DefinerType }
+func (p *definer) Name() string   { return p.name }
+func (p *definer) String() string { return "definer " + p.name }
+func (p *definer) Strval() string { return "definer " + p.name }
 func (p *definer) Integer() int64 { return 0 }
 func (p *definer) Float() float64 { return 0 }
-func (p *definer) Define(project *Project) (result Value, err error) {
-        scope := project.Scope()
-        if obj, alt := scope.InsertDef(project, p.def.name, p.value); alt != nil {
-                def := alt.(*Def)
-                switch p.op {
-                case token.EXC_ASSIGN: result, err = def.AssignExec(p.value)
-                case token.ADD_ASSIGN: result = def.Append(p.value)
-                default:               result = def.Assign(p.value)
-                }
+func (p *definer) Define(scope *Scope, project *Project) (def *Def, err error) {
+        var src *Def
+        if o := scope.Lookup(p.name); o == nil {
+                err = errors.New(fmt.Sprintf("%s undefined in source scope", p.name))
+                return
+        } else if src, _ = o.(*Def); src == nil {
+                err = errors.New(fmt.Sprintf("%s in source scope is not Def", p.name))
+                return
+        }
+        
+        if obj, alt := project.Scope().InsertDef(project, p.name, UniversalNone); alt != nil {
+                def = alt.(*Def)
         } else {
-                result = obj
+                def = obj
+        }
+        switch p.op {
+        case token.EXC_ASSIGN: _, err = def.AssignExec(src.Value)
+        case token.ADD_ASSIGN: _, err = def.Append(src.Value)
+        default:               _, err = def.Assign(src.Value)
         }
         return
+}
+
+func MakeDefiner(op token.Token, name string) Value {
+        return &definer{ name:name, op:op }
 }
 
 func (scope *Scope) NewDef(project *Project, name string, value Value) *Def {
@@ -352,7 +373,7 @@ func (scope *Scope) InsertBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt
 type RuleEntryClass int
 
 const (
-        GeneralRuleEntry RuleEntryClass = 1<<iota
+        GeneralRuleEntry RuleEntryClass = iota
         FileRuleEntry
         PatternRuleEntry
         PatternFileRuleEntry
@@ -367,7 +388,7 @@ var ruleEntryClassNames = []string{
         UseRuleEntry:         "UseRuleEntry",
 }
 
-func (c RuleEntryClass) Strval() string {
+func (c RuleEntryClass) String() string {
         var i = int(c)
         if 0 < i && i < len(ruleEntryClassNames) {
                 return ruleEntryClassNames[i]
@@ -405,7 +426,7 @@ func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
         case "name": return &String{entry.Name()}, nil
-        case "class": return &String{entry.class.Strval()}, nil
+        case "class": return &String{entry.class.String()}, nil
         //case "stem": return &String{entry.stem}, nil
         }
         return nil, errors.New(fmt.Sprintf("no such entry property (%s)", name))
