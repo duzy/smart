@@ -106,4 +106,4 @@ Build projects with complex hierarchies the easy way!
 
 ## Support
 
-Donations are welcomed to email "code at duzy.info".
+BTC: 1JSGu7hEGtGffHGAM3Tj9hP8NRdJ7vqS2X
