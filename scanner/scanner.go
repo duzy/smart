@@ -287,8 +287,14 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
         case '$':
                 tok = token.DOLLAR // escape to do token.DOLLAR
                 return
-        case '&':
-                tok = token.AND // escape to do token.AND
+        case '&': // Escapes '&', but '&&' is not escaped.
+                if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
+                        s.next() //! The first &
+                        s.next() //! The second &
+                        tok, lit = token.STRING, string(s.src[offs:s.offset])
+                } else {
+                        tok = token.AND // escape to do token.AND
+                }
                 return
         }
 loop:   
@@ -341,8 +347,14 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
         case '$':
                 tok = token.DOLLAR
                 return
-        case '&':
-                tok = token.AND
+        case '&': // Escapes '&', but '&&' is not escaped.
+                if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
+                        s.next() //! The first &
+                        s.next() //! The second &
+                        tok, lit = token.STRING, string(s.src[offs:s.offset])
+                } else {
+                        tok = token.AND // escape to do token.AND
+                }
                 return
         }
 loop:   

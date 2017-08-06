@@ -21,6 +21,20 @@ import (
 
 const optSortErrors = false
 
+type ResolveBits int
+const (
+        // If many bits are set, resolve in the listed priority.
+        FromGlobe ResolveBits = 1<<iota
+        FromBase    // TODO: ...
+        FromProject // TODO: ...
+        FromHere
+
+        // This is the default be
+        anywhere = FromHere
+        global = FromGlobe
+        nonlocal = FromGlobe | FromBase | FromProject
+)
+
 type EvalBits int
 const (
         KeepClosures EvalBits = 1<<iota
@@ -66,10 +80,10 @@ type RuntimeContext interface {
         
         Rule(clause *ast.RuleClause) (RuntimeObj, error)
         
-        Resolve(name string) (obj RuntimeObj)
+        Resolve(name string, bits ResolveBits) (obj RuntimeObj)
         Symbol(name string, t types.Type) (obj, alt RuntimeObj)
 
-        Eval(x ast.Expr, ec EvalBits) (types.Value, error)
+        Eval(x ast.Expr, bits EvalBits) (types.Value, error)
 }
 
 type Context struct {

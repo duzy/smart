@@ -982,19 +982,28 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
         // Cast depends so that it's could be easily used.
         switch res.Type() {
         //case types.RuleEntryType:
-        //case types.BarewordType:
+        case types.BarewordType:
         case types.BarefileType:
         case types.PathType:
         case types.PatternType:
         case types.ClosureType:
         default:
-                res, err = nil, errors.New(fmt.Sprintf("unsupported depend type '%v' (%T %v)", res.Type(), res, res))
+                res, err = nil, errors.New(fmt.Sprintf("Unsupported depend type '%v' (%T %v).", res.Type(), res, res))
         }
         return
 }
 
-func (pc *parseContext) Resolve(name string) parser.RuntimeObj {
-        if pc.scope != nil {
+func (pc *parseContext) Resolve(name string, bits parser.ResolveBits) parser.RuntimeObj {
+        if bits&parser.FromGlobe != 0 {
+                // If resolving @ in a rule (program) scope selection context,
+                // e.g. '$(@.FOO)', Resolve have to ensure @ is pointing to the global
+                // @ package.
+                obj := pc.Globe().Scope().Find(name)
+                if obj != nil {
+                        return obj.(parser.RuntimeObj)
+                }
+        }
+        if bits&parser.FromHere != 0 && pc.scope != nil {
                 obj := pc.scope.Find(name)
                 if obj != nil {
                         return obj.(parser.RuntimeObj)

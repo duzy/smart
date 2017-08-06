@@ -68,7 +68,7 @@ func (obj *object) Strval() string        { return obj.String() }
 func (obj *object) String() string        { return fmt.Sprintf("object %v", obj.name) }
 
 func (obj *object) Get(name string) (Value, error) {
-        return nil, errors.New(fmt.Sprintf("no such property (%s)", name))
+        return nil, errors.New(fmt.Sprintf("No such property `%s' (Object).", name))
 }
 
 func (obj *object) order() uint32         { return obj.ord }
@@ -282,7 +282,8 @@ func (d *Def) Get(name string) (Value, error) {
         case "name": return &String{d.name}, nil
         case "value": return d.Value, nil
         }
-        return nil, errors.New(fmt.Sprintf("no such property (%s)", name))
+        //fmt.Printf("%v %v\n", d.name, d.parent)
+        return nil, errors.New(fmt.Sprintf("No such property `%s' (Def)", name))
 }
 
 // TODO: move it into 'runtime' package

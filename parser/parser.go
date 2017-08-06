@@ -504,6 +504,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 value types.Value
                 operandName string
                 valueName string
+                where = anywhere
         )
         switch t := x.(type) {
         case *ast.Bareword: operandName = t.Value
@@ -522,7 +523,14 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                         p.error(t.Pos(), "Invalid select operand (%T).", t)
                 }
         }
-        if sym := p.runtime.Resolve(operandName); sym != nil {
+
+        if operandName == "@" {
+                // If resolving @ in a rule (program) scope selection context,
+                // e.g. '$(@.FOO)', Resolve have to ensure @ is pointing to the global
+                // @ package.
+                where = global
+        }
+        if sym := p.runtime.Resolve(operandName, where); sym != nil {
                 operand = sym.(types.Value)
         } else {
                 p.error(x.Pos(), "Undefined select operand `%s'.", operandName)
@@ -554,8 +562,9 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 var err error
                 if value, err = o.Get(valueName); err != nil {
                         p.error(s.Pos(), err)
+                        p.error(x.Pos(), "Selection `%s.%s' failed.", operandName, valueName)
                 } else if value == nil {
-                        p.error(s.Pos(), "No such property `%s'.", valueName)
+                        p.error(s.Pos(), "No such property `%s' in `%s'.", valueName, operandName)
                 } else {
                         goto DoneSelect
                 }
@@ -755,7 +764,9 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
                 var resolved RuntimeObj
                 if a, _ := name.(*ast.EvaluatedExpr); a != nil {
-                        if resolved = a.Data.(RuntimeObj); resolved == nil {
+                        if a.Data == nil {
+                                p.error(name.Pos(), "Evaluated data is nil `%T'.", a.Expr)
+                        } else if resolved = a.Data.(RuntimeObj); resolved == nil {
                                 p.error(name.Pos(), "Unresolved reference `%T'.", a.Expr)
                         }
                 } else if v, e := p.runtime.Eval(name, disclosure); e != nil {
@@ -764,7 +775,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         p.error(pos, "Name `%T' eval to nil", name)
                 } else {
                         a = &ast.EvaluatedExpr{ v, name }
-                        if resolved = p.runtime.Resolve(v.Strval()); resolved == nil {
+                        if resolved = p.runtime.Resolve(v.Strval(), anywhere); resolved == nil {
                                 p.error(name.Pos(), "Undefined reference `%v' (%T).", v.Strval(), name)
                         } else {
                                 name = a
@@ -841,7 +852,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
                         p.next()
 
-                        resolved := p.runtime.Resolve(s)
+                        resolved := p.runtime.Resolve(s, anywhere)
                         if resolved == nil {
                                 p.error(pos, "Undefined reference `%v' (%v).", s, tok)
                         }
@@ -1041,7 +1052,7 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
                 panic("expected evaluated expr (eval)")
         } else if name, _ := ee.Data.(types.Value); name == nil {
                 p.error(ee.Pos(), fmt.Sprintf("invalid eval symbol (%T)", ee.Data))
-        } else if spec.Resolved = p.runtime.Resolve(name.Strval()); spec.Resolved == nil {
+        } else if spec.Resolved = p.runtime.Resolve(name.Strval(), anywhere); spec.Resolved == nil {
                 p.error(ee.Pos(), fmt.Sprintf("undefined eval symbol %s (%v)", name.Strval(), name))
         } else if err := p.runtime.ClauseEval(spec); err != nil {
                 p.error(spec.Pos(), err)
@@ -1601,7 +1612,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 depent *types.RuleEntry
                         )
                         // Resolve the name first (this will look into the bases too),
-                        if sym := p.runtime.Resolve(name); sym != nil {
+                        if sym := p.runtime.Resolve(name, anywhere); sym != nil {
                                 if entry, ok := sym.(*types.RuleEntry); ok && entry != nil {
                                         depval = sym.(types.Value)
                                         depent = entry // depval.(*types.RuleEntry)
@@ -1784,8 +1795,8 @@ func (p *parser) parseFile() *ast.File {
                 //        relParent = ".."
                 //}
                 //fmt.Printf("%v\n", filename)
-                //fmt.Printf("%v\n", p.runtime.Resolve("/"))
-                //fmt.Printf("%v\n", p.runtime.Resolve("."))
+                //fmt.Printf("%v\n", p.runtime.Resolve("/", anywhere))
+                //fmt.Printf("%v\n", p.runtime.Resolve(".", anywhere))
         } else {
                 p.error(p.pos, fmt.Sprintf("open scope"))
         }
