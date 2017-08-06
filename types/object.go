@@ -188,6 +188,19 @@ type Def struct {
         Value Value
 }
 
+func (d *Def) disclose(scope *Scope) (Value, error) {
+        if v, e := d.Value.disclose(scope); e != nil {
+                return nil, e
+        } else if v != nil {
+                return &Def{ d.object, d.origin, v }, nil
+        }
+        return nil, nil
+}
+
+func (d *Def) referencing(o Object) bool {
+        return d.Value.referencing(o)
+}
+
 func (d *Def) String() string {
         s := d.name + "="
         if d.Value == nil {
@@ -213,7 +226,7 @@ func (d *Def) SetOrigin(k DefOrigin) { d.origin = k }
 func (d *Def) Assign(v Value) (Value, error) {
         if v == nil {
                 v = UniversalNone
-        } else if v.delegating(d) {
+        } else if v.referencing(d) {
                 err := errors.New(fmt.Sprintf("Recursive variable `%s' references itself.", d.name))
                 return nil, err
         }
@@ -278,7 +291,7 @@ type definer struct {
         op token.Token
 }
 func (p *definer) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (p *definer) delegating(_ Object) bool { return false }
+func (p *definer) referencing(_ Object) bool { return false }
 func (p *definer) Type() Type     { return DefinerType }
 func (p *definer) Name() string   { return p.name }
 func (p *definer) String() string { return "definer " + p.name }

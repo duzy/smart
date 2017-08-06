@@ -214,8 +214,8 @@ func (i *Interpreter) closuredelegate(x *ast.ClosureDelegate) (obj types.Object,
 
         def, _ := x.Resolved.(*types.Def)
         if def == nil {
-                i.parseWarn(x.Pos(), fmt.Sprintf("uncallable resolved %s (%T)", name, x.Resolved))
-                err = errors.New(fmt.Sprintf("uncallable resolved %s", name))
+                //i.parseWarn(x.Pos(), fmt.Sprintf("uncallable resolved %s (%T)", name, x.Resolved))
+                err = errors.New(fmt.Sprintf("Uncallable resolved `%s'.", name))
                 return
         } else {
                 obj = def
@@ -223,10 +223,12 @@ func (i *Interpreter) closuredelegate(x *ast.ClosureDelegate) (obj types.Object,
 
         for _, x := range x.Args {
                 if a,e := i.expr(x); e != nil {
-                        i.parseWarn(x.Pos(), fmt.Sprintf("invalid closure arg %T (%v)", a, e))
-                        return nil, nil, e
+                        //i.parseWarn(x.Pos(), fmt.Sprintf("invalid closure arg %T (%v)", a, e))
+                        err = e
+                        return
                 } else if a == nil {
-                        i.parseWarn(x.Pos(), fmt.Sprintf("nil closure arg (%T)", x, e))
+                        //i.parseWarn(x.Pos(), fmt.Sprintf("nil closure arg (%T)", x, e))
+                        err = errors.New(fmt.Sprintf("nil closure arg `%T'", e))
                         return
                 } else {
                         args = append(args, a)
@@ -286,7 +288,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 if x.Data != nil {
                         v = x.Data.(types.Value)
                 } else {
-                        err = errors.New("Evaluated expr is nil.")
+                        err = errors.New("EvaluatedExpr data is nil.")
                         return
                 }
         case *ast.ClosureExpr:
@@ -1011,7 +1013,7 @@ func (pc *parseContext) Resolve(name string) parser.RuntimeObj {
                         }
                 }
                 if obj == nil && (name == "^") {
-                        fmt.Printf("Resolve: '%v' not in %v\n", name, pc.scope)
+                        //fmt.Printf("Resolve: '%v' not in %v\n", name, pc.scope)
                         //for _, base := range pc.project.Bases() {
                         //        fmt.Printf("Resolve: %v %v\n", base.Name(), base.Scope())
                         //}

@@ -405,12 +405,12 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
         case *ast.PathExpr:
         case *ast.PercExpr:
         case nil:
-                p.warn(p.pos, "nil expression")
+                //p.warn(p.pos, "nil expression")
 		p.errorExpected(p.pos, "nil expression")
 		x = &ast.BadExpr{From:token.NoPos, To:token.NoPos}
 	default:
 		// all other nodes are not proper expressions
-                p.warn(x.Pos(), "bad expression (%T)\n", x)
+                //p.warn(x.Pos(), "bad expression (%T)\n", x)
 		p.errorExpected(x.Pos(), "bad expression")
 		x = &ast.BadExpr{From: x.Pos(), To: p.safePos(x.End())}
 	}
@@ -511,20 +511,22 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 if operand = t.Data.(types.Value); operand != nil {
                         goto ComputeValueName
                 } else {
-                        p.error(t.Pos(), fmt.Sprintf("nil select operand %T (%v)", t.Data, t.Data))
+                        p.error(t.Pos(), "Nil select operand %T (%v).", t.Data, t.Data)
                         goto DoneSelect
                 }
         default:
                 if v, e := p.runtime.Eval(x, disclosure); e == nil {
                         operandName = v.Strval()
                 } else {
-                        p.error(t.Pos(), fmt.Sprintf("invalid select operand %T (%v)", t, e))
+                        p.error(t.Pos(), e)
+                        p.error(t.Pos(), "Invalid select operand (%T).", t)
                 }
         }
         if sym := p.runtime.Resolve(operandName); sym != nil {
                 operand = sym.(types.Value)
         } else {
-                p.error(x.Pos(), fmt.Sprintf("undefiend select operand '%s'", operandName))
+                p.error(x.Pos(), "Undefined select operand `%s'.", operandName)
+                goto DoneSelect
         }
 
         ComputeValueName: switch t := s.(type) {
@@ -533,7 +535,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 if v, _ := t.Data.(types.Value); v != nil {
                         valueName = v.Strval()
                 } else {
-                        p.error(t.Pos(), fmt.Sprintf("nil select operand %T (%v)", t.Data, t.Data))
+                        p.error(t.Pos(), "Nil select operand `%T' (%v).", t.Data, t.Data)
                 }
                 goto DoneSelect
         default:
@@ -542,7 +544,8 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 } else if v == nil {
                         goto DoneSelect
                 } else {
-                        p.error(t.Pos(), fmt.Sprintf("invalid select operand %T (%v)", t, e))
+                        p.error(t.Pos(), e)
+                        p.error(t.Pos(), "Invalid select operand `%T'.", t)
                 }
         }
 
@@ -550,25 +553,20 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
         case types.Object:
                 var err error
                 if value, err = o.Get(valueName); err != nil {
-                        p.warn(s.Pos(), err.Error())
+                        p.error(s.Pos(), err)
                 } else if value == nil {
-                        p.warn(s.Pos(), fmt.Sprintf("no such property (%s)", valueName))
+                        p.error(s.Pos(), "No such property `%s'.", valueName)
                 } else {
                         goto DoneSelect
                 }
-                p.error(s.Pos(), "select property failed")
         default:
                 goto DoneSelect
         }
         
-        DoneSelect: if value == nil {
-                p.error(s.Pos(), fmt.Sprintf("symbol undefined (in %s)", operandName))
-        }
-
         //fmt.Printf("select: %T . %T -> %s.%s\n", x, s, operandName, valueName)
         //fmt.Printf("select: %T %v . %T %v\n", operand, operand, value, value)
         
-        res = &ast.EvaluatedExpr{ value, s }
+        DoneSelect: res = &ast.EvaluatedExpr{ value, s }
         if p.tok == token.PERIOD {
                 // Continue the selection recursivly
                 res = p.parseSelect(lhs, res)
@@ -756,16 +754,21 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 }
 
                 var resolved RuntimeObj
-                if v, e := p.runtime.Eval(name, disclosure); e != nil {
-                        p.error(pos, fmt.Sprintf("failed eval name %T (%s)", name, e))
-                } else if v == nil {
-                        p.error(pos, fmt.Sprintf("name eval to nil (%T)", name))
-                } else {
-                        name = &ast.EvaluatedExpr{ v, name }
-                        if resolved = p.runtime.Resolve(v.Strval()); resolved == nil {
-                                p.error(name.Pos(), fmt.Sprintf("undefined %v (%v)", v.Strval(), v))
+                if a, _ := name.(*ast.EvaluatedExpr); a != nil {
+                        if resolved = a.Data.(RuntimeObj); resolved == nil {
+                                p.error(name.Pos(), "Unresolved reference `%T'.", a.Expr)
                         }
-                        //fmt.Printf("ClosureDelegate: %T %v -> %T %v\n", name, name, ident, ident)
+                } else if v, e := p.runtime.Eval(name, disclosure); e != nil {
+                        p.error(pos, e)
+                } else if v == nil {
+                        p.error(pos, "Name `%T' eval to nil", name)
+                } else {
+                        a = &ast.EvaluatedExpr{ v, name }
+                        if resolved = p.runtime.Resolve(v.Strval()); resolved == nil {
+                                p.error(name.Pos(), "Undefined reference `%v' (%T).", v.Strval(), name)
+                        } else {
+                                name = a
+                        }
                 }
 
                 cd := ast.ClosureDelegate{
@@ -840,9 +843,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
                         resolved := p.runtime.Resolve(s)
                         if resolved == nil {
-                                p.error(pos, fmt.Sprintf("undefined closure/delegate '%v'", s))
+                                p.error(pos, "Undefined reference `%v' (%v).", s, tok)
                         }
-                        
                         cd := ast.ClosureDelegate{
                                 TokPos: pos,
                                 Lparen: token.NoPos,
@@ -851,7 +853,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                                 Rparen: token.NoPos,
                                 Tok: tok,
                         }
-                        if p.tok.IsDelegate() {
+                        if tok.IsDelegate() {
                                 return &ast.DelegateExpr{ cd }
                         } else {
                                 return &ast.ClosureExpr{ cd }
@@ -859,7 +861,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 }
 
                 pos := p.pos
-                p.warn(pos, "weird token '%v'\n", p.tok)
+                //p.warn(pos, "weird token '%v'\n", p.tok)
                 p.errorExpected(pos, "clause or expression")
                 p.next() // go to next token
                 return &ast.BadExpr{ From:pos, To:p.pos }
@@ -1142,9 +1144,28 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
 	}
 
         var (
+                doc = p.leadComment
+                pos = p.expect(tok)
+
+                elems = p.parseRhsList(false)
+                comment = p.lineComment
+
                 alt bool
                 def *types.Def
+                value ast.Expr
         )
+        // Take it from parser, since the line comment is assigned
+        // to the DefineClause.
+        p.lineComment = nil
+
+        // Create List value or use the first elem.
+        if n := len(elems); n == 1 {
+                value = elems[0]
+        } else if n > 1 {
+                value = &ast.ListExpr{ elems }
+        }
+
+        // Create the definition.
         if v, e := p.runtime.Eval(ident, disclosure); e == nil {
                 // Always work in the current runtime scope, so it won't affect
                 // any base symbols. If p.inUseRule is set, it will be defining
@@ -1169,23 +1190,6 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 p.error(ident.Pos(), fmt.Sprintf("error declosing name %T (%s)", ident, e))
         }
         
-        doc := p.leadComment
-        pos := p.expect(tok)
-
-        elems := p.parseRhsList(false)
-        comment := p.lineComment
-
-        // Take it from parser, since the line comment is assigned
-        // to the DefineClause.
-        p.lineComment = nil
-
-        var value ast.Expr
-        if n := len(elems); n == 1 {
-                value = elems[0]
-        } else if n > 1 {
-                value = &ast.ListExpr{ elems }
-        }
-
         var bits = delegation // assumes types.DefaultDef
         switch tok {
         case token.ADD_ASSIGN: // +=
@@ -1211,7 +1215,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 def.SetOrigin(types.ImmediateDef)
                 bits = immediate
         default:
-                p.error(pos, fmt.Sprintf("unsuported defining (%v)", tok))
+                p.error(pos, fmt.Sprintf("Unsuported assign `%v'", tok))
                 def, bits = nil, EvalBits(-1)
         }
         if bits != EvalBits(-1) && def != nil {
@@ -1222,15 +1226,13 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         default:               v, e = def.Assign(v)
                         }
                         if e != nil {
-                                //p.warn(value.Pos(), fmt.Sprintf("%v", e))
-                                p.error(value.Pos(), fmt.Sprintf("%v", e))
+                                p.error(value.Pos(), e)
                         } else if def.Value == nil {
-                                // Avoid create a <nil> Def
+                                //! Avoid creating a <nil> Def.
                                 def.Value = types.UniversalNone
                         }
                         value = &ast.EvaluatedExpr{ v, value }
                 } else {
-                        //p.warn(value.Pos(), fmt.Sprintf("error eval defining value %T (%s)", value, e))
                         p.error(value.Pos(), e)
                 }
         }
@@ -1440,23 +1442,23 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 v, e := p.runtime.Eval(target, disclosure)
                 if e != nil {
                         //p.warn(target.Pos(), fmt.Sprintf("target %T (%v): %v", target, target, e))
-                        p.error(target.Pos(), fmt.Sprintf("target %T: %v", target, e))
+                        p.error(target.Pos(), e)
                         continue
                 } else if v == nil {
                         //p.warn(target.Pos(), fmt.Sprintf("target %T (%v): nil", target, target))
-                        p.error(target.Pos(), fmt.Sprintf("target %T: nil", target))
+                        p.error(target.Pos(), fmt.Sprintf("Target `%T' is nil", target))
                         continue
                 }
 
                 var name = v.Strval()
                 if name == "" {
-                        p.error(target.Pos(), "empty entry name")
+                        p.error(target.Pos(), "Empty entry name.")
                         continue
                 } else if name == "use" {
                         if i == 0 && len(targets) == 1 {
                                 isUseRule = true
                         } else {
-                                p.error(target.Pos(), "mixing use with normal rules")
+                                p.error(target.Pos(), "Mixing use with normal targets.")
                         }
                 }
 

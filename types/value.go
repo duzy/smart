@@ -38,14 +38,14 @@ type Value interface {
         // other packages.
         disclose(scope *Scope) (Value, error)
 
-        // Recursively detecting whether this value is delegating the
-        // object (to avoid loop-delegation).
-        delegating(o Object) bool
+        // Recursively detecting whether this value is referencing
+        // to the object (to avoid loop-delegation).
+        referencing(o Object) bool
 }
 
 type value struct {}
 func (*value) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*value) delegating(_ Object) bool { return false }
+func (*value) referencing(_ Object) bool { return false }
 func (*value) Type() Type         { return InvalidType }
 func (*value) String() string     { return "" }
 func (*value) Strval() string     { return "" }
@@ -65,7 +65,7 @@ type Int struct {
         V int64
 }
 func (*Int) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Int) delegating(_ Object) bool { return false }
+func (*Int) referencing(_ Object) bool { return false }
 func (p *Int) Type() Type          { return IntType }
 func (p *Int) String() string      { return p.Strval() }
 func (p *Int) Strval() string      { return strconv.FormatInt(int64(p.V),10) }
@@ -76,7 +76,7 @@ type Float struct {
         V float64
 }
 func (*Float) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Float) delegating(_ Object) bool { return false }
+func (*Float) referencing(_ Object) bool { return false }
 func (p *Float) Type() Type        { return FloatType }
 func (p *Float) String() string    { return p.Strval() }
 func (p *Float) Strval() string    { return strconv.FormatFloat(float64(p.V),'g', -1, 64) }
@@ -87,7 +87,7 @@ type DateTime struct {
         V time.Time 
 }
 func (*DateTime) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*DateTime) delegating(_ Object) bool { return false }
+func (*DateTime) referencing(_ Object) bool { return false }
 func (p *DateTime) Type() Type     { return DateTimeType }
 func (p *DateTime) String() string { return p.Strval() }
 func (p *DateTime) Strval() string { return time.Time(p.V).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
@@ -96,7 +96,7 @@ func (p *DateTime) Float() float64 { return float64(p.Integer()) }
 
 type Date struct { DateTime }
 func (*Date) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Date) delegating(_ Object) bool { return false }
+func (*Date) referencing(_ Object) bool { return false }
 func (p *Date) Type() Type         { return DateType }
 func (p *Date) String() string     { return p.Strval() }
 func (p *Date) Strval() string     { return time.Time(p.V).Format("2006-01-02") }
@@ -105,7 +105,7 @@ func (p *Date) Float() float64     { return float64(p.Integer()) }
 
 type Time struct { DateTime }
 func (*Time) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Time) delegating(_ Object) bool { return false }
+func (*Time) referencing(_ Object) bool { return false }
 func (p *Time) Type() Type         { return TimeType }
 func (p *Time) String() string     { return p.Strval() }
 func (p *Time) Strval() string     { return time.Time(p.V).Format("15:04:05.999999999Z07:00") }
@@ -116,7 +116,7 @@ type Uri struct {
         V *url.URL
 }
 func (*Uri) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Uri) delegating(_ Object) bool { return false }
+func (*Uri) referencing(_ Object) bool { return false }
 func (p *Uri) Type() Type          { return UriType }
 func (p *Uri) String() string      { return p.Strval() }
 func (p *Uri) Strval() string      { return p.V.String() }
@@ -127,7 +127,7 @@ type String struct {
         V string
 }
 func (*String) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*String) delegating(_ Object) bool { return false }
+func (*String) referencing(_ Object) bool { return false }
 func (p *String) Type() Type  { return StringType }
 func (p *String) String() string {
         if strings.ContainsRune(p.V, '\n') {
@@ -144,7 +144,7 @@ type Bareword struct {
         V string
 }
 func (*Bareword) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Bareword) delegating(_ Object) bool { return false }
+func (*Bareword) referencing(_ Object) bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
 func (p *Bareword) String() string { return p.V }
 func (p *Bareword) Strval() string { return p.V }
@@ -199,9 +199,9 @@ func (p *Elements) discloseElems(scope *Scope) ([]Value, int, error) {
         return elems, num, nil
 }
 
-func (p *Elements) delegating(o Object) bool {
+func (p *Elements) referencing(o Object) bool {
         for _, elem := range p.Elems {
-                if elem.delegating(o) {
+                if elem.referencing(o) {
                         return true
                 }
         }
@@ -267,8 +267,8 @@ func (p *Barefile) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
-func (p *Barefile) delegating(o Object) bool {
-        return p.Name.delegating(o)
+func (p *Barefile) referencing(o Object) bool {
+        return p.Name.referencing(o)
 }
 
 type Path struct {
@@ -323,8 +323,8 @@ func (p *File) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
-func (p *File) delegating(o Object) bool {
-        return p.Value.delegating(o)
+func (p *File) referencing(o Object) bool {
+        return p.Value.referencing(o)
 }
 
 type Flag struct {
@@ -350,8 +350,8 @@ func (p *Flag) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
-func (p *Flag) delegating(o Object) bool {
-        return p.Name.delegating(o)
+func (p *Flag) referencing(o Object) bool {
+        return p.Name.referencing(o)
 }
         
 type Compound struct {
@@ -489,8 +489,8 @@ func (p *Pair) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
-func (p *Pair) delegating(o Object) bool {
-        return p.Key.delegating(o) || p.Value.delegating(o)
+func (p *Pair) referencing(o Object) bool {
+        return p.Key.referencing(o) || p.Value.referencing(o)
 }
 
 // Delegate wraps '$(foo a,b,c)' into Valuer
@@ -556,15 +556,41 @@ func (p *delegate) disclose(scope *Scope) (Value, error) {
                 value = v
         }
         return value, nil /**/
+
+        var (
+                o Object
+                a []Value
+                n = 0
+        )
+        if v, e := p.o.disclose(scope); e != nil {
+                return nil, e
+        } else if v != nil {
+                o, _ = v.(Object)
+        }
+
+        //fmt.Printf("delegate.disclose: %T -> %T\n", p.o, o)
+
+        for _, t := range p.a {
+                if v, e := t.disclose(scope); e != nil {
+                        return nil, e
+                } else if v != nil {
+                        t, n = v, n+1
+                }
+                a = append(a, t)
+        }
+
+        if o != nil || n > 0 {
+                return &delegate{ o, a }, nil
+        }
         return nil, nil
 }
 
-func (p *delegate) delegating(o Object) bool {
+func (p *delegate) referencing(o Object) bool {
         if p.o == o {
                 return true
         }
         for _, a := range p.a {
-                if a.delegating(o) {
+                if a.referencing(o) {
                         return true
                 }
         }
@@ -609,7 +635,7 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
                         args []Value
                 )
                 for _, a := range p.a {
-                        if v, e := Disclose(scope, a); e != nil {
+                        if v, e := a.disclose(scope); e != nil {
                                 return nil, e
                         } else if v != nil {
                                 //fmt.Printf("delegate.value: %v -> %v\n", a, v)
@@ -624,12 +650,12 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
-func (p *closure) delegating(o Object) bool {
+func (p *closure) referencing(o Object) bool {
         if p.o == o {
                 return true
         }
         for _, a := range p.a {
-                if a.delegating(o) {
+                if a.referencing(o) {
                         return true
                 }
         }
@@ -700,8 +726,8 @@ func (p *PercentPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entr
         return p.makeEntry(patent, name, stem)
 }
 
-func (p *PercentPattern) delegating(o Object) bool {
-        return p.Prefix.delegating(o) || p.Suffix.delegating(o)
+func (p *PercentPattern) referencing(o Object) bool {
+        return p.Prefix.referencing(o) || p.Suffix.referencing(o)
 }
 
 type RegexpPattern struct {
@@ -724,7 +750,7 @@ func (p *RegexpPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry
         return
 }
 
-func (p *RegexpPattern) delegating(_ Object) bool { return false }
+func (p *RegexpPattern) referencing(_ Object) bool { return false }
 
 type Definer interface {
         Define(s *Scope, p *Project) (*Def, error)

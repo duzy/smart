@@ -19,6 +19,8 @@ import (
         "github.com/duzy/smart/types"
 )
 
+const optSortErrors = false
+
 type EvalBits int
 const (
         KeepClosures EvalBits = 1<<iota
@@ -186,7 +188,9 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
                         c.runtime.CloseScope(f.Scope)
 		}
 
-		p.errors.Sort()
+                if optSortErrors {
+                        p.errors.Sort()
+                }
 		err = p.errors.Err()
                 c.p = oldp
 	}()
