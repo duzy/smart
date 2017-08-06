@@ -32,7 +32,7 @@ comparing to macros in a makefile.
 We use `go` to install the `smart` command line utility directly from GitHub like this:
 
 ```shell
-$ go get github.com/duzy/smart/cmd/smart
+$ go get github.com/duzy/smart/cmd
 $ $GOPATH/bin/smart -help
 ```
 
@@ -43,7 +43,7 @@ start building. For example of doing this:
 
 ```shell
 $ cd $GOPATH/src/github.com/duzy/smart/examples/hello
-$ $GOPATH/bin/smart && ./hello
+$ $GOPATH/bin/smart run
 Hello World!
 ```
 

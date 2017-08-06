@@ -55,7 +55,7 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
 
         if len(targets) == 0 {
                 ctx.outdated = make(map[string]time.Time)
-                if entry := mm.GetDefaultEntry(); entry != nil {
+                if entry := mm.DefaultEntry(); entry != nil {
                         if value, err = entry.Call(); err == nil {
                                 updated += 1
                         }
@@ -86,10 +86,8 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
 
                         var entry *types.RuleEntry
                         switch t := m.Scope().Lookup(target).(type) {
-                        case *types.ProjectName:
-                                entry = t.Project().GetDefaultEntry()
-                        case *types.RuleEntry:
-                                entry = t
+                        case *types.ProjectName: entry = t.Project().DefaultEntry()
+                        case *types.RuleEntry:   entry = t
                         case nil:
                                 fmt.Printf("'%s' is not defined in %v", target, m.Scope())
                                 return

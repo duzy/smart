@@ -52,6 +52,36 @@ func (*value) Strval() string     { return "" }
 func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
 
+type Argumented struct {
+        Value
+        Args []Value
+}
+//func (p *Argumented) Type() Type { return ArgumentedType }
+func (p *Argumented) String() (s string) {
+        s = p.Value.String()
+        s += "("
+        for i, a := range p.Args {
+                if i > 0 {
+                        s += " "
+                }
+                s += a.String()
+        }
+        s += ")"
+        return
+}
+func (p *Argumented) Strval() (s string) {
+        s = p.Value.Strval()
+        s += "("
+        for i, a := range p.Args {
+                if i > 0 {
+                        s += " "
+                }
+                s += a.Strval()
+        }
+        s += ")"
+        return
+}
+
 type None struct { value }
 func (p *None) Type() Type { return NoneType }
 
@@ -507,6 +537,7 @@ func (p *delegate) String() (s string) {
         // FIXME: needs the original name value to represent the original form
         s += p.o.Name()
         if na > 0 {
+                s += " "
                 for i, a := range p.a {
                         if i > 0 { s += "," }
                         s += a.String()
@@ -685,7 +716,7 @@ func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEn
                 entry.program = patent.program
                 entry.stem = stem
         default:
-                err = errors.New(fmt.Sprintf("pattern make %v", patent.class))
+                err = errors.New(fmt.Sprintf("make entry `%s' (%s): invalid class `%v'", name, stem, patent.class))
         }
         return
 }
@@ -721,8 +752,12 @@ func (p *PercentPattern) Match(s string) (matched bool, stem string) {
         return
 }
 
+func (p *PercentPattern) MakeString(stem string) string {
+        return p.Prefix.Strval() + stem + p.Suffix.Strval()
+}
+
 func (p *PercentPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
-        name := p.Prefix.Strval() + stem + p.Suffix.Strval()
+        name := p.MakeString(stem)
         return p.makeEntry(patent, name, stem)
 }
 

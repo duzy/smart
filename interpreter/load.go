@@ -12,7 +12,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        //"github.com/duzy/smart/runtime"
+        "github.com/duzy/smart/runtime"
         "path/filepath"
         //"os/exec"
         "strings"
@@ -224,11 +224,9 @@ func (i *Interpreter) closuredelegate(x *ast.ClosureDelegate) (obj types.Object,
 
         for _, x := range x.Args {
                 if a,e := i.expr(x); e != nil {
-                        //i.parseWarn(x.Pos(), fmt.Sprintf("invalid closure arg %T (%v)", a, e))
                         err = e
                         return
                 } else if a == nil {
-                        //i.parseWarn(x.Pos(), fmt.Sprintf("nil closure arg (%T)", x, e))
                         err = errors.New(fmt.Sprintf("nil closure arg `%T'", e))
                         return
                 } else {
@@ -360,7 +358,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 } else if b, err = i.expr(x.Y); err != nil {
                         return
                 } else {
-                        v = values.PercentPattern(i.project, a, b)
+                        v = values.PercentPattern(a, b)
                 }
         case *ast.UseDefineClause:
                 //fmt.Printf("UseDefineClause: %T %v\n", x.Sym, x.Sym)
@@ -529,12 +527,13 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
                 if depval, err = i.expr(depend); err != nil {
                         return
                 } else if depval == nil {
-                        i.parseWarn(depend.Pos(), "invalid depend (%T %v -> %T %v)", depend, depend, depval, depval)
-                        err = errors.New(fmt.Sprintf("invalid depend"))
+                        err = errors.New(fmt.Sprintf("Invalid depend type `%T'.", depend))
                         return
-                } else if l, _ := depval.(*types.List); l != nil {
-                        depends = append(depends, l.Elems...)
-                } else {
+                }
+                switch dep := depval.(type) {
+                case *types.List:
+                        depends = append(depends, dep.Elems...)
+                default:
                         depends = append(depends, depval)
                 }
         }
@@ -954,7 +953,9 @@ func (pc *parseContext) Rule(clause *ast.RuleClause) (parser.RuntimeObj, error) 
 func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, err error) {
 	defer func() {
 		if e := recover(); e != nil {
-                        if err, _ = e.(error); err == nil {
+                        if fault := runtime.GoFault(e); fault != nil {
+                                err = fault
+                        } else if err, _ = e.(error); err == nil {
                                 err = errors.New(fmt.Sprintf("%v", e))
                         }
 		}

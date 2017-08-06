@@ -64,6 +64,15 @@ func (s *Scope) NumChildren() int { return len(s.children) }
 // Child returns the i'th child scope for 0 <= i < NumChildren().
 func (s *Scope) Child(i int) *Scope { return s.children[i] }
 
+func (s *Scope) FindProject() *Project {
+        for _, elem := range s.elems {
+                if elem.Parent() == s {
+                        return elem.Project()
+                }
+        }
+        return nil
+}
+
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
 func (s *Scope) Lookup(name string) Object {

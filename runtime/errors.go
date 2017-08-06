@@ -10,6 +10,7 @@ import (
         //"github.com/duzy/smart/token"
         "errors"
         "fmt"
+        gort "runtime"
 )
 
 var (
@@ -31,4 +32,32 @@ func Fail(s string, a... interface{}) {
                 s = fmt.Sprintf(s, a...)
         }
         panic(&Failure{s})
+}
+
+type GortFault struct {
+        stack string
+}
+
+func (p *GortFault) Error() string {
+        return p.stack
+}
+
+func GoFault(e interface{}) *GortFault {
+        if _, ok := e.(gort.Error); ok {
+                s := ParseStack(false)
+                return &GortFault{ s }
+        }
+        return nil
+}
+
+
+func ParseStack(all bool) (s string) {
+        // Alternative: debug.PrintStack
+        // 1. runtime/stack.go
+        // 2. runtime/debug/stack.go
+        ba := make([]byte, 1<<16)
+        ss := gort.Stack(ba, all)
+        s = string(ba[:ss])
+        // TODO: trim off some sys frames
+        return
 }

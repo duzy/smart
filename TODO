@@ -5,5 +5,5 @@
   - execute the command when:
     + target outdated
     + or recipe record differs
-* TODO Fix immediate expension (e.g. :=)
 * TODO Add 'env' modifier
+* TODO show file position of entries when update failed 

@@ -88,6 +88,9 @@ type ProjectName struct {
 // containing the import statement.
 func (n *ProjectName) Type() Type { return ProjectNameType }
 func (n *ProjectName) Project() *Project { return n.project }
+func (n *ProjectName) String() string  {
+        return fmt.Sprintf("project %s %p", n.name, n.project)
+}
 func (n *ProjectName) Strval() string  {
         return fmt.Sprintf("project %s %p", n.name, n.project)
 }
@@ -132,8 +135,11 @@ type ScopeName struct {
 // containing the import statement.
 func (n *ScopeName) Type() Type { return ScopeNameType }
 func (n *ScopeName) Scope() *Scope { return n.scope }
+func (n *ScopeName) String() string  {
+        return fmt.Sprintf("scope %s %p", n.name, n.scope)
+}
 func (n *ScopeName) Strval() string  {
-        return fmt.Sprintf("scope %s %p", n.name, n.project)
+        return fmt.Sprintf("scope %s %p", n.name, n.scope)
 }
 
 func (n *ScopeName) Get(name string) (Value, error) {
@@ -418,6 +424,7 @@ type RuleEntry struct {
         stem string // only applied for PatternRuleEntry
 }
 
+func (entry *RuleEntry) String() string { return fmt.Sprintf("entry %v", entry.name) }
 func (entry *RuleEntry) Strval() string { return entry.name }
 func (entry *RuleEntry) Stem() string { return entry.stem }
 
@@ -455,10 +462,10 @@ func (p *PatternEntry) MakeConcreteEntry(stem string) (*RuleEntry, error) {
         return p.Pattern.MakeConcreteEntry(p.RuleEntry, stem)
 }
 
-type ArgumentedEntry struct {
+/*type ArgumentedEntry struct {
         *RuleEntry
         Args []Value
-}
+}*/
 
 func (scope *Scope) NewRuleEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry) {
         return &RuleEntry{

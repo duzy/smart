@@ -270,7 +270,10 @@ func (p *parser) error(pos token.Pos, err interface{}, a... interface{}) {
         p.errors.Add(epos, errors.New(s))
 }
 
-func (p *parser) errorExpected(pos token.Pos, msg string) {
+func (p *parser) errorExpected(pos token.Pos, msg string, a... interface{}) {
+        if len(a) > 0 {
+                msg = fmt.Sprintf(msg, a...)
+        }
 	msg = "expected " + msg
 	if pos == p.pos {
 		// the error happened at the current position;
@@ -907,7 +910,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         case *ast.BasicLit: // TODO: validate t.Kind...
                         default:
                                 //fmt.Printf("%T %v (%v)\n", x, x, p.tok)
-                                p.errorExpected(x.Pos(), fmt.Sprintf("path segment (%T)", x))
+                                p.errorExpected(x.Pos(), "path segment (%T)", x)
                                 return false
                         }
                         return true
@@ -1022,7 +1025,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
         for _, prop := range spec.Props {
                 ee, _ := prop.(*ast.EvaluatedExpr)
                 if ee == nil || ee.Data == nil {
-                        p.error(prop.Pos(), fmt.Sprintf("bad file spec (%T)", prop))
+                        p.error(prop.Pos(), "bad file spec (%T)", prop)
                         continue
                 }
                 switch v := ee.Data.(type) {
@@ -1039,7 +1042,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         s := v.Strval()
                         files[s] = append(files[s], ".")
                 default:
-                        p.error(prop.Pos(), fmt.Sprintf("bad file spec (%T)", prop))
+                        p.error(prop.Pos(), "bad file spec (%T)", prop)
                 }
         }
         p.runtime.Files(files)
@@ -1051,9 +1054,9 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
         if ee, _ := spec.Props[0].(*ast.EvaluatedExpr); ee == nil {
                 panic("expected evaluated expr (eval)")
         } else if name, _ := ee.Data.(types.Value); name == nil {
-                p.error(ee.Pos(), fmt.Sprintf("invalid eval symbol (%T)", ee.Data))
+                p.error(ee.Pos(), "invalid eval symbol (%T)", ee.Data)
         } else if spec.Resolved = p.runtime.Resolve(name.Strval(), anywhere); spec.Resolved == nil {
-                p.error(ee.Pos(), fmt.Sprintf("undefined eval symbol %s (%v)", name.Strval(), name))
+                p.error(ee.Pos(), "undefined eval symbol %s (%v)", name.Strval(), name)
         } else if err := p.runtime.ClauseEval(spec); err != nil {
                 p.error(spec.Pos(), err)
         }
@@ -1074,7 +1077,7 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
         if v, e := p.runtime.Eval(x, disclosure); e == nil {
                 props = append(props, &ast.EvaluatedExpr{ v, x })
         } else {
-                p.error(x.Pos(), fmt.Sprintf("immediate (%s)", e))
+                p.error(x.Pos(), "immediate (%s)", e)
         }
         for p.tok != token.EOF {
                 if p.tok == token.COMMA || p.tok == token.LINEND || p.tok == token.RPAREN {
@@ -1089,7 +1092,7 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
                 if v, e := p.runtime.Eval(x, delegation); e == nil {
                         props = append(props, &ast.EvaluatedExpr{ v, x })
                 } else {
-                        p.error(x.Pos(), fmt.Sprintf("immediate (%s)", e))
+                        p.error(x.Pos(), "immediate (%s)", e)
                 }
         }
         return ast.DirectiveSpec{
@@ -1184,7 +1187,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 if s, a := p.runtime.Symbol(v.Strval(), types.DefType); a != nil {
                         switch tok {
                         case token.ASSIGN, token.EXC_ASSIGN:
-                                p.error(ident.Pos(), fmt.Sprintf("alread defined %v (%v)", v.Strval(), v))
+                                p.error(ident.Pos(), "alread defined %v (%v)", v.Strval(), v)
                         default:
                                 def, _ = a.(*types.Def) // override the existing
                         }
@@ -1192,13 +1195,14 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 } else if def, _ = s.(*types.Def); def != nil {
                         alt = false // it's a new symbol
                 } else if s != nil {
-                        p.error(ident.Pos(), fmt.Sprintf("name '%s' already taken (%T)", v.Strval(), s))
+                        p.error(ident.Pos(), "name '%s' already taken (%T)", v.Strval(), s)
                 }
                 if def == nil {
-                        p.error(ident.Pos(), fmt.Sprintf("failed defining %s (%v)", v.Strval(), v))
+                        p.error(ident.Pos(), "failed defining %s (%v)", v.Strval(), v)
                 }
         } else {
-                p.error(ident.Pos(), fmt.Sprintf("error declosing name %T (%s)", ident, e))
+                p.error(ident.Pos(), e)
+                p.error(ident.Pos(), "error declosing name %T", ident)
         }
         
         var bits = delegation // assumes types.DefaultDef
@@ -1226,7 +1230,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 def.SetOrigin(types.ImmediateDef)
                 bits = immediate
         default:
-                p.error(pos, fmt.Sprintf("Unsuported assign `%v'", tok))
+                p.error(pos, "Unsuported assign `%v'", tok)
                 def, bits = nil, EvalBits(-1)
         }
         if bits != EvalBits(-1) && def != nil {
@@ -1259,22 +1263,18 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         }
 }
 
-func (p *parser) parseUseRecipe() (x ast.Expr) {
-        p.inUseRule = true
-        defer func() {
-                p.inUseRule = false;
-        }()
-
-        x = p.parseExpr(true) // left-hand-side parsing
-
+func (p *parser) parseBuiltinRecipeExpr() (x ast.Expr) {
+        // Do left-hand-side parsing if in use rule
+        x = p.parseExpr(p.inUseRule)
         switch {
         case token.ASSIGN <= p.tok && p.tok <= token.DCO_ASSIGN:
                 d := p.parseDefineClause(p.tok, x).(*ast.DefineClause)
                 x = &ast.UseDefineClause{ d }
         default:
+                /*
                 p.warn(x.Pos(), "bad statement '%v' (%T)\n", x, x)
-                p.error(p.pos, fmt.Sprintf("unimplemented use statement: %T", x))
-                sync(p, token.LINEND)
+                p.error(x.Pos(), "unimplemented use statement: %T", x)
+                sync(p, token.LINEND) */
         }
         return
 }
@@ -1290,31 +1290,23 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
                 doc = p.leadComment
                 pos = p.pos
         )
-        
-        if dialect == "" {
+
+        switch dialect {
+        case "":
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE and parse in list mode
 
+                p.inUseRule = isUseRule
                 for p.tok != token.LINEND && p.tok != token.EOF {
-                        if isUseRule {
-                                elems = append(elems, p.parseUseRecipe())
-                        } else {
-                                elems = append(elems, p.parseExpr(false))
-                        }
+                        elems = append(elems, p.parseBuiltinRecipeExpr())
                         if p.lineComment != nil {
                                 comment = p.lineComment
                                 break
                         }
                 }
-                /* if !isUseRule && len(elems) > 0 {
-                        if v, e := p.runtime.Eval(elems[0], delegation); e == nil {
-                                fmt.Printf("parseRecipeExpr: %T %v\n", v, v)
-                                elems[0] = &ast.EvaluatedExpr{ v, elems[0] }
-                        } else {
-                                p.error(elems[0].Pos(), fmt.Sprintf("immediate (%s)", e))
-                        }
-                } /**/
-        } else {
+                p.inUseRule = false
+
+        default:
                 p.next() // skip RECIPE and parse in line-string mode
                 for p.tok != token.LINEND && p.tok != token.EOF {
                         elems = append(elems, p.parseExpr(false))
@@ -1364,21 +1356,21 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                                 if v, e := p.runtime.Eval(elem, disclosure); e == nil {
                                                         params = append(params, v.Strval())
                                                 } else {
-                                                        p.error(elem.Pos(), fmt.Sprintf("bad parameter (%T, %v)", elem, e))
+                                                        p.error(elem.Pos(), "bad parameter (%T, %v)", elem, e)
                                                 }
                                         default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
-                                                p.error(elem.Pos(), fmt.Sprintf("bad parameter form (%T)", elem))
+                                                p.error(elem.Pos(), "bad parameter form (%T)", elem)
                                         }
                                 }
                                 goto next
                         case *ast.DelegateExpr, *ast.ClosureExpr, *ast.Barecomp, *ast.BasicLit:
                                 v, e := p.runtime.Eval(n, disclosure)
                                 if e != nil {
-                                        p.error(n.Pos(), fmt.Sprintf("%v (%v)", e, n))
+                                        p.error(n.Pos(), "%v (%v)", e, n)
                                         goto next
                                 }
                                 if name, pos = v.Strval(), x.Pos(); name == "" {
-                                        p.error(n.Pos(), fmt.Sprintf("empty name (%v)", n))
+                                        p.error(n.Pos(), "empty name (%v)", n)
                                         goto next
                                 }
                                 goto checkName
@@ -1393,13 +1385,13 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                         if dialect == "" {
                                 dialect = name
                         } else {
-                                p.error(pos, fmt.Sprintf("multi-dialect unsupported, already defined '%s'", dialect))
+                                p.error(pos, "multi-dialect unsupported, already defined '%s'", dialect)
                                 goto next
                         }
                 } else if p.runtime.IsModifier(name) {
                         goto addModifier
                 } else {
-                        p.error(pos, fmt.Sprintf("no dialect or modifier '%s'", name))
+                        p.error(pos, "no dialect or modifier '%s'", name)
                         goto next
                 }
                 
@@ -1418,7 +1410,7 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
 
 func (p *parser) closeScope(scope ast.Scope) {
         if err := p.runtime.CloseScope(scope); err != nil {
-                p.error(p.pos, fmt.Sprintf("close scope (%v)", err))
+                p.error(p.pos, "close scope (%v)", err)
         }
 }
 
@@ -1452,12 +1444,10 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         for i, target := range targets {
                 v, e := p.runtime.Eval(target, disclosure)
                 if e != nil {
-                        //p.warn(target.Pos(), fmt.Sprintf("target %T (%v): %v", target, target, e))
                         p.error(target.Pos(), e)
                         continue
                 } else if v == nil {
-                        //p.warn(target.Pos(), fmt.Sprintf("target %T (%v): nil", target, target))
-                        p.error(target.Pos(), fmt.Sprintf("Target `%T' is nil", target))
+                        p.error(target.Pos(), "Target `%T' is nil", target)
                         continue
                 }
 
@@ -1476,30 +1466,30 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 var tarent *types.RuleEntry
                 if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
                         if entry, ok := alt.(*types.RuleEntry); entry == nil {
-                                p.warn(target.Pos(), fmt.Sprintf("'%s' already taken (%T)", name, alt))
-                                p.error(target.Pos(), fmt.Sprintf("name '%s' already taken", name))
+                                p.warn(target.Pos(), "'%s' already taken (%T)", name, alt)
+                                p.error(target.Pos(), "name '%s' already taken", name)
                         } else if entry.Program() != nil {
-                                p.warn(target.Pos(), fmt.Sprintf("rule entry already defined (%s)", name))
-                                p.error(target.Pos(), fmt.Sprintf("rule already defined (%s)", name))
+                                p.warn(target.Pos(), "rule entry already defined (%s)", name)
+                                p.error(target.Pos(), "rule already defined (%s)", name)
                         } else if ok {
                                 tarent = entry
                         } else {
-                                p.error(target.Pos(), fmt.Sprintf("invalid rule (%s)", name))
+                                p.error(target.Pos(), "invalid rule (%s)", name)
                         }
                 } else if sym != nil {
                         tarent = sym.(*types.RuleEntry)
                 } else {
-                        p.warn(target.Pos(), fmt.Sprintf("target entry (%s)", name))
-                        p.error(target.Pos(), fmt.Sprintf("bad entry name (%s)", name))
+                        p.warn(target.Pos(), "target entry (%s)", name)
+                        p.error(target.Pos(), "bad entry name (%s)", name)
                         continue
                 }
 
                 if tarent == nil {
-                        p.error(target.Pos(), fmt.Sprintf("bad entry name (%s)", name))
+                        p.error(target.Pos(), "bad entry name (%s)", name)
                         continue
                 }
 
-                //p.warn(target.Pos(), fmt.Sprintf("%v: %v (%T %v)", tarent, tarent.Class(), target, p.runtime.IsFileName(name)))
+                //p.warn(target.Pos(), "%v: %v (%T %v)", tarent, tarent.Class(), target, p.runtime.IsFileName(name))
 
                 // Guessing target entry class, e.g. general, file, etc.
                 var class = tarent.Class()
@@ -1541,22 +1531,22 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
         for _, s := range automatics {
                 if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
-                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
-                        p.error(p.pos, fmt.Sprintf("name '%s' already taken", s))
+                        p.warn(p.pos, "'%s' already taken", s)
+                        p.error(p.pos, "name '%s' already taken", s)
                 } else if sym == nil {
                         // TODO: errors
                 }
         }
         for _, s := range params {
                 if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
-                        p.warn(p.pos, fmt.Sprintf("'%s' already taken", s))
+                        p.warn(p.pos, "'%s' already taken", s)
                 } else if sym == nil {
                         // TODO: errors
                 }
         }
         for i := 1; i < 10; i += 1 {
                 if sym, alt := p.runtime.Symbol(strconv.Itoa(i), types.DefType); alt != nil {
-                        p.warn(p.pos, fmt.Sprintf("'%v' already taken", i))
+                        p.warn(p.pos, "'%v' already taken", i)
                 } else if sym == nil {
                         // TODO: errors
                 }
@@ -1577,7 +1567,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                         for _, elem := range g.Elems {
                                                 v, e := p.runtime.Eval(elem, delegation)
                                                 if e != nil {
-                                                        p.error(depend.Pos(), fmt.Sprintf("bad arg (%s)", e))
+                                                        p.error(depend.Pos(), "bad arg (%s)", e)
                                                         continue
                                                 }
                                                 args = append(args, v)
@@ -1586,80 +1576,25 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 if nelems := len(dep.Elems); nelems == 1 {
                                         depend = dep.Elems[0]
                                 } else if nelems == 0 {
-                                        p.error(depend.Pos(), fmt.Sprintf("bad depend"))
+                                        p.error(depend.Pos(), "bad depend")
                                 }
                         }
 
                         depval, err := p.runtime.Eval(depend, ruledepend)
                         if err != nil {
-                                p.error(depend.Pos(), fmt.Sprintf("%s", err))
+                                p.error(depend.Pos(), err)
                                 continue
+                        } else if depval == nil {
+                                p.error(depend.Pos(), "Invalid depend `%T'.", depend)
+                                continue
+                        } else if len(args) > 0 {
+                                depval = &types.Argumented{ depval, args }
                         }
 
                         //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
+
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                         continue dependsLoop
-
-                        /*
-                        switch depval.Type() {
-                        case types.RuleEntryType, types.PatternType, types.ClosureType, types.DelegateType, types.ListType:
-                                depends[i] = &ast.EvaluatedExpr{ depval, depend }
-                                continue dependsLoop
-                        }
-                        
-                        var (
-                                name = depval.Strval()
-                                depent *types.RuleEntry
-                        )
-                        // Resolve the name first (this will look into the bases too),
-                        if sym := p.runtime.Resolve(name, anywhere); sym != nil {
-                                if entry, ok := sym.(*types.RuleEntry); ok && entry != nil {
-                                        depval = sym.(types.Value)
-                                        depent = entry // depval.(*types.RuleEntry)
-                                } else {
-                                        p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%T)", name, sym))
-                                        p.error(depend.Pos(), fmt.Sprintf("name '%s' already taken", name))
-                                }
-                        } else if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
-                                if true {
-                                        depval = alt.(types.Value)
-                                        depent = depval.(*types.RuleEntry)
-                                } else {
-                                        p.warn(depend.Pos(), fmt.Sprintf("'%s' already taken (%T)", name, alt))
-                                        p.error(depend.Pos(), fmt.Sprintf("name '%s' already taken", name))
-                                }
-                        } else if sym != nil { // New entry (not previously defined)!
-                                depval = sym.(types.Value)
-                                depent = depval.(*types.RuleEntry)
-                                class := depent.Class()
-                                switch depend.(type) {
-                                case *ast.Barefile, *ast.PathExpr:
-                                        class = types.FileRuleEntry
-                                case *ast.Bareword:
-                                        if p.runtime.IsFileName(name) {
-                                                class = types.FileRuleEntry
-                                        }
-                                default:
-                                        p.error(depend.Pos(), fmt.Sprintf("unknown depend class '%v' (%T) (%T)", depval, depval, depend))
-                                }
-                                depent.SetClass(class)
-                        } else {
-                                p.error(depend.Pos(), fmt.Sprintf("bad depend (%v %v)", depval, args))
-                                continue
-                        }
-
-                        //fmt.Printf("depend: %T %v -> %T %v\n", depend, depend, depval, depval)
-                        
-                        if len(args) > 0 {
-                                //fmt.Printf("depend: %v %v\n", depent, args)
-                                if depent != nil {
-                                        depval = &types.ArgumentedEntry{ depent, args }
-                                } else {
-                                        //depval = &types.Argumented{ depval, args }
-                                        p.error(depend.Pos(), fmt.Sprintf("argumented depend (%v %v)", depval, args))
-                                }
-                        }
-                        depends[i] = &ast.EvaluatedExpr{ depval, depend } */
                 }
         }
         if p.tok != token.EOF {
@@ -1668,7 +1603,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
 
         var useContainScope ast.Scope
         if isUseRule {
-                //useContainScope = p.runtime.OpenScope(p.pos, fmt.Sprintf("use"))
+                //useContainScope = p.runtime.OpenScope(p.pos, "use")
         }
         
         // Parse recipes in the program scope.
@@ -1702,7 +1637,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         p.closeScope(scope)
 
         if _, err := p.runtime.Rule(clause); err != nil {
-                p.error(pos, fmt.Sprintf("%s", err))
+                p.error(pos, err)
         }
         return clause
 }
@@ -1798,12 +1733,12 @@ func (p *parser) parseFile() *ast.File {
                 //fmt.Printf("%v\n", p.runtime.Resolve("/", anywhere))
                 //fmt.Printf("%v\n", p.runtime.Resolve(".", anywhere))
         } else {
-                p.error(p.pos, fmt.Sprintf("open scope"))
+                p.error(p.pos, "open scope")
         }
 
         if keyword = p.tok; keyword == token.PROJECT || keyword == token.MODULE {
                 if p.mode&Flat != 0 {
-                        p.error(p.pos, fmt.Sprintf("forbidden %v in flat file", p.tok))
+                        p.error(p.pos, "forbidden %v in flat file", p.tok)
                 }
 
                 p.next()
@@ -1821,7 +1756,7 @@ func (p *parser) parseFile() *ast.File {
                 } else {
                         x := p.parseBareword()
                         if ident, _ = x.(*ast.Bareword); ident == nil {
-                                p.error(p.pos, fmt.Sprintf("invalid package name %T", x))
+                                p.error(p.pos, "invalid package name %T", x)
                         }
                 }
                 
@@ -1835,7 +1770,7 @@ func (p *parser) parseFile() *ast.File {
                         if err == nil {
                                 params = value
                         } else {
-                                p.error(p.pos, fmt.Sprintf("immediate (%v)", err))
+                                p.error(p.pos, err)
                         }
                 }
 

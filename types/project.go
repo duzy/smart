@@ -30,7 +30,7 @@ type Project struct {
 
         files     map[string][]string
 
-        // Rule Registry
+        // Rule Registry (orderred)
         concrete []*RuleEntry
         patterns  []*PatternEntry
 
@@ -61,7 +61,7 @@ func (m *Project) AddFiles(files map[string][]string) {
         }
 }
 
-func (m *Project) SearchFile(fv *File) *File {
+func (m *Project) SearchFile(context *Scope, fv *File) *File {
         var (
                 ss = filepath.Base(fv.Name)
                 firstMatched []string
@@ -97,7 +97,7 @@ func (m *Project) SearchFile(fv *File) *File {
                 fv.Dir = firstMatched[0]
         } else {
                 for _, base := range m.bases {
-                        base.SearchFile(fv)
+                        base.SearchFile(context, fv)
                         if fv.Info != nil || fv.Dir != "" {
                                 return fv
                         }
@@ -127,7 +127,7 @@ func (m *Project) IsFile(s string) (v bool) {
         return
 }
 
-func (m *Project) GetDefaultEntry() (entry *RuleEntry) {
+func (m *Project) DefaultEntry() (entry *RuleEntry) {
         if len(m.concrete) > 0 {
                 entry = m.concrete[0]
         }
@@ -152,6 +152,29 @@ func (m *Project) FindPatterns(s string) (res []*PatternStem) {
         }
         for _, base := range m.bases {
                 res = append(res, base.FindPatterns(s)...)
+        }
+        return
+}
+
+// Find rule entry by name or create new one.
+func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
+        obj := m.scope.Find(name)
+        if obj != nil {
+                if entry, _ = obj.(*RuleEntry); entry != nil {
+                        return
+                }
+        }
+        
+        // TODO: Improves patter searching on base chain. 
+        if pss := m.FindPatterns(name); pss != nil {
+                for _, ps := range pss {
+                        if ps.Patent.Program() == nil {
+                                continue // FIXME: ???
+                        }
+                        if entry, err = ps.MakeConcreteEntry(); entry != nil || err != nil {
+                                return
+                        }
+                }
         }
         return
 }
@@ -181,8 +204,8 @@ func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (e
 
 func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryClass, prog Program) (patent *PatternEntry, err error) {
         switch class {
-        case GeneralRuleEntry:
-        case FileRuleEntry:
+        case GeneralRuleEntry: class = PatternRuleEntry
+        case FileRuleEntry: class = PatternFileRuleEntry
         default:
                 err = errors.New(fmt.Sprintf("invalid pattern class %v (%v)\n", class, p))
                 return
@@ -198,6 +221,7 @@ func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryCla
                 }
         }
         if entry != nil && err == nil {
+                entry.class = class
                 entry.program = prog
                 patent = &PatternEntry{ entry, p }
                 m.patterns = append(m.patterns, patent)
