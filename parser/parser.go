@@ -13,8 +13,9 @@ import (
         "github.com/duzy/smart/values"
         "path/filepath"
         "strconv"
-        "unicode"
         "strings"
+        "unicode"
+        "errors"
         "fmt"
 )
 
@@ -64,7 +65,10 @@ func (p *parser) init(ctx *Context, fset *token.FileSet, filename string, src []
 	if mode&ParseComments != 0 {
 		m = scanner.ScanComments
 	}
-	eh := func(pos token.Position, msg string) { p.errors.Add(pos, msg) }
+        
+	eh := func(pos token.Position, msg string) {
+                p.errors.Add(pos, errors.New(msg))
+        }
 	p.scanner.Init(p.file, src, eh, m)
 
 	p.mode = mode
@@ -238,7 +242,7 @@ func (p *parser) warn(pos token.Pos, s string, a... interface{}) {
         fmt.Printf(s, a...)
 }
 
-func (p *parser) error(pos token.Pos, msg string) {
+func (p *parser) error(pos token.Pos, err interface{}, a... interface{}) {
 	epos := p.file.Position(pos)
 
 	// If AllErrors is not set, discard errors reported on the same line
@@ -254,7 +258,16 @@ func (p *parser) error(pos token.Pos, msg string) {
 		}
 	}
 
-	p.errors.Add(epos, msg)
+        var s string
+        switch t := err.(type) {
+        case error:  p.errors.Add(epos, t); return
+        case string: s = t
+        default: s = fmt.Sprintf("%v", err)
+        }
+        if len(a) > 0 {
+                s = fmt.Sprintf(s, a...)
+        }
+        p.errors.Add(epos, errors.New(s))
 }
 
 func (p *parser) errorExpected(pos token.Pos, msg string) {
@@ -962,12 +975,7 @@ func isValidImport(lit string) bool {
 func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
 	spec := &ast.ImportSpec{ p.parseDirectiveSpec() }
         if err := p.runtime.ClauseImport(spec); err != nil {
-                if _, ok := err.(scanner.Errors); ok {
-                        fmt.Printf("%v\n", err)
-                        p.error(spec.Pos(), "import error")
-                } else {
-                        p.warn(spec.Pos(), "%v", err)
-                }
+                p.error(spec.Pos(), err)
         } else {
                 p.imports = append(p.imports, spec)
         }
@@ -977,12 +985,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.IncludeSpec{ p.parseDirectiveSpec() }
         if err := p.runtime.ClauseInclude(spec); err != nil {
-                if _, ok := err.(scanner.Errors); ok {
-                        fmt.Printf("%v\n", err)
-                        p.error(spec.Pos(), fmt.Sprintf("include error"))
-                } else {
-                        p.error(spec.Pos(), fmt.Sprintf("%v", err))
-                }
+                p.error(spec.Pos(), err)
         }
         return spec
 }
@@ -990,12 +993,7 @@ func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) a
 func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.UseSpec{ p.parseDirectiveSpec() }
         if err := p.runtime.ClauseUse(spec); err != nil {
-                if _, ok := err.(scanner.Errors); ok { // TODO: impossible
-                        fmt.Printf("%v\n", err)
-                        p.error(spec.Pos(), fmt.Sprintf("use error"))
-                } else {
-                        p.error(spec.Pos(), fmt.Sprintf("%v", err))
-                }
+                p.error(spec.Pos(), err)
         }
         return spec
 
@@ -1044,12 +1042,7 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
         } else if spec.Resolved = p.runtime.Resolve(name.Strval()); spec.Resolved == nil {
                 p.error(ee.Pos(), fmt.Sprintf("undefined eval symbol %s (%v)", name.Strval(), name))
         } else if err := p.runtime.ClauseEval(spec); err != nil {
-                if _, ok := err.(scanner.Errors); ok { // TODO: impossible
-                        fmt.Printf("%v\n", err) // Just print out the scanner errors
-                        p.error(spec.Pos(), fmt.Sprintf("eval error"))
-                } else {
-                        p.error(spec.Pos(), fmt.Sprintf("%v", err))
-                }
+                p.error(spec.Pos(), err)
         }
         return spec
 }
@@ -1229,15 +1222,16 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         default:               v, e = def.Assign(v)
                         }
                         if e != nil {
-                                p.warn(value.Pos(), fmt.Sprintf("assign: %v", e))
-                                p.error(value.Pos(), fmt.Sprintf("%v (%v)", e, def.Name()))
+                                //p.warn(value.Pos(), fmt.Sprintf("%v", e))
+                                p.error(value.Pos(), fmt.Sprintf("%v", e))
                         } else if def.Value == nil {
                                 // Avoid create a <nil> Def
                                 def.Value = types.UniversalNone
                         }
                         value = &ast.EvaluatedExpr{ v, value }
                 } else {
-                        p.error(value.Pos(), fmt.Sprintf("error eval defining value %T (%s)", value, e))
+                        //p.warn(value.Pos(), fmt.Sprintf("error eval defining value %T (%s)", value, e))
+                        p.error(value.Pos(), e)
                 }
         }
 
@@ -1842,12 +1836,7 @@ func (p *parser) parseFile() *ast.File {
 
                 if p.mode&Flat == 0 {
                         if err := p.runtime.DeclareProject(ident, params); err != nil {
-                                if _, ok := err.(scanner.Errors); ok {
-                                        fmt.Printf("%v\n", err)
-                                } else {
-                                        p.warn(ident.Pos(), fmt.Sprintf("project %s (%v)", ident.Value, err))
-                                }
-                                p.error(ident.Pos(), fmt.Sprintf("declare %s error", ident.Value))
+                                p.error(ident.Pos(), err)
                         } else {
                                 defer p.runtime.CloseCurrentProject(ident)
                         }

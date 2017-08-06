@@ -10,6 +10,7 @@ package scanner
 
 import (
         "github.com/duzy/smart/token"
+        "errors"
 	"fmt"
 	"io"
 	"sort"
@@ -22,17 +23,15 @@ import (
 //
 type Error struct {
 	Pos token.Position
-	Msg string
+	Err error // Underlying error
 }
 
 // Error implements the error interface.
 func (e Error) Error() string {
 	if e.Pos.Filename != "" || e.Pos.IsValid() {
-		// don't print "<unknown position>"
-		// TODO(gri) reconsider the semantics of Position.IsValid
-		return e.Pos.String() + ": " + e.Msg
+		return e.Pos.String() + ": " + e.Err.Error()
 	}
-	return e.Msg
+	return e.Err.Error()
 }
 
 // Errors is a list of *Errors.
@@ -41,8 +40,22 @@ func (e Error) Error() string {
 type Errors []*Error
 
 // Add adds an Error with given position and error message to an Errors.
-func (p *Errors) Add(pos token.Position, msg string) {
-	*p = append(*p, &Error{pos, msg})
+func (p *Errors) Add(pos token.Position, err error) {
+        switch t := err.(type) {
+        case *Error:
+                *p = append(*p, t)
+                *p = append(*p, &Error{pos, errors.New("from here")})
+        case *Errors:
+                for _, e := range *t {
+                        *p = append(*p, e)
+                }
+        case Errors:
+                for _, e := range t {
+                        *p = append(*p, e)
+                }
+        default:
+                *p = append(*p, &Error{pos, err})
+        }
 }
 
 // Reset resets an Errors to no errors.
@@ -67,7 +80,7 @@ func (p Errors) Less(i, j int) bool {
 	if e.Column != f.Column {
 		return e.Column < f.Column
 	}
-	return p[i].Msg < p[j].Msg
+	return p[i].Err.Error() < p[j].Err.Error()
 }
 
 // Sort sorts an Errors. *Error entries are sorted by position,

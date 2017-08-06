@@ -11,6 +11,7 @@ import (
         "github.com/duzy/smart/parser"
         "github.com/duzy/smart/runtime"
         "github.com/duzy/smart/values"
+        "github.com/duzy/smart/scanner"
         "path/filepath"
         "strings"
         "errors"
@@ -119,7 +120,7 @@ func CommandLine() {
 			if failure, ok := e.(*runtime.Failure); !ok {
 				panic(e)
 			} else {
-                                fmt.Printf("%s\n", failure)
+                                scanner.PrintError(os.Stderr, failure)
                                 os.Exit(-1) // exit abnormally
                         }
 		}
@@ -150,7 +151,7 @@ func CommandLine() {
                                 v = strings.TrimSpace(a[i+1:])
                         )
                         if name == "" {
-                                fmt.Printf("ERROR: bad argument '%v'\n", a)
+                                fmt.Fprintf(os.Stderr, "ERROR: bad argument '%v'\n", a)
                                 return
                         }
                         as.InsertDef(at, name, values.String(v))
@@ -176,7 +177,7 @@ func CommandLine() {
                                 defS.Assign(values.String(ab))
                                 defD.Assign(values.String(ab))
                                 if err = i.Load(s1, nil); err != nil {
-                                        fmt.Printf("%v\n", err)
+                                        scanner.PrintError(os.Stderr, err)
                                         return
                                 } else {
                                         break AtLookupLoop
@@ -189,7 +190,7 @@ func CommandLine() {
                                 defS.Assign(values.String(ab))
                                 defD.Assign(values.String(ab))
                                 if err = i.LoadDir(s2, nil); err != nil {
-                                        fmt.Printf("%v\n", err)
+                                        scanner.PrintError(os.Stderr, err)
                                         return
                                 } else {
                                         break AtLookupLoop
@@ -211,16 +212,16 @@ func CommandLine() {
         var s3 = filepath.Join(base, "build.smart")
         if fi, err := os.Stat(s3); err == nil && fi.Mode().IsRegular() {
                 if err = i.Load(s3, nil); err != nil {
-                        fmt.Printf("%v\n", err)
+                        scanner.PrintError(os.Stderr, err)
                         return
                 }
         } else if err = i.LoadDir(base, nil); err != nil {
-                fmt.Printf("%v\n", err)
+                scanner.PrintError(os.Stderr, err)
                 return
         }
 
         if err := i.Run(i.scope, targets...); err != nil {
-                fmt.Printf("%v\n", err)
+                scanner.PrintError(os.Stderr, err)
                 return
         }
 }

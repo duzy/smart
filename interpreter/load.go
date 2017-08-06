@@ -12,7 +12,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        "github.com/duzy/smart/runtime"
+        //"github.com/duzy/smart/runtime"
         "path/filepath"
         //"os/exec"
         "strings"
@@ -65,96 +65,12 @@ func saveLoadingInfo(i *Interpreter, specName, absDir, baseName string) *Interpr
         return i
 }
 
-/*
-func defSet(op token.Token, def *types.Def, value types.Value) (err error) {
-        //fmt.Printf("defSet: %v %T %v %v\n", def.Name(), def.Value(), op, value)
-        switch op {
-        case token.QUE_ASSIGN: // ?=
-                if def.Value == values.None {
-                        def.Set(value)
-                } else {
-                        // noop, only set if absent (not defined)
-                }
-        case token.ADD_ASSIGN: // +=
-                var (
-                        l []types.Value
-                        v = def.Value
-                )
-                if a, ok := v.(*types.List); ok {
-                        l = append(l, a.Slice(0)...)
-                } else {
-                        l = append(l, v)
-                }
-                if a, ok := value.(*types.List); ok {
-                        l = append(l, a.Slice(0)...)
-                } else {
-                        l = append(l, value)
-                }
-                if len(l) == 1 {
-                        def.Set(l[0])
-                } else {
-                        def.Set(values.List(l...))
-                }
-        case token.EXC_ASSIGN: // !=
-                var (
-                        source = value.Strval()
-                        sh = exec.Command("sh", "-c", source)
-                        stdout bytes.Buffer
-                        stderr bytes.Buffer
-                )
-                sh.Stdout, sh.Stderr = &stdout, &stderr
-                if err = sh.Run(); err == nil {
-                        def.Set(values.String(strings.TrimSpace(stdout.String())))
-                } else {
-                        def.Set(values.None)
-                        //fmt.Printf("%v\n", err)
-                        //err = nil // ignore the error
-                }
-        case token.SCO_ASSIGN, token.DCO_ASSIGN:
-                // TODO: 'expand' all calls?
-                def.Set(value)
-        case token.ASSIGN: // =
-                def.Set(value)
-        default:
-                runtime.Fail("unknown set operation %v\n", op)
-        }
-        return
-}
-
-func set(p *types.Project, op token.Token, name string, value types.Value) (def *types.Def, err error) {
-        // See https://www.gnu.org/software/make/manual/html_node/Setting.html
-        var (
-                scope = p.Scope()
-                obj = scope.Lookup(name) // Only lookup the project's scope!
-        )
-        if obj == nil {
-                var alt types.Object
-                if obj, alt = scope.InsertDef(p, name, values.None); alt != nil {
-                        unreachable()
-                }
-        }
-        if def, _ = obj.(*types.Def); def == nil {
-                err = errors.New(fmt.Sprintf("name '%s' already taken in '%s'", name, p.Name()))
-                return
-        }
-
-        if err = defSet(op, def, value); err != nil {
-                //i.parseWarn()
-        }
-        return
-} */
-
 func (i *Interpreter) parseInfo(pos token.Pos, s string, a... interface{}) {
         i.pc.ParseInfo(pos, s, a...)
 }
 
 func (i *Interpreter) parseWarn(pos token.Pos, s string, a... interface{}) {
         i.pc.ParseWarn(pos, s, a...)
-}
-
-func (i *Interpreter) parseFail(pos token.Pos, s string, a... interface{}) {
-        i.pc.ParseWarn(pos, s, a...)
-        runtime.Fail("parse failed")
 }
 
 func (i *Interpreter) searchSpecPath(linfo *loadinfo, specName string) (absPath string, isDir bool, err error) {
@@ -291,8 +207,8 @@ func (i *Interpreter) closuredelegate(x *ast.ClosureDelegate) (obj types.Object,
                 return nil, nil, err
         }
         if x.Resolved == nil {
-                i.parseWarn(x.Name.Pos(), fmt.Sprintf("unresolved %s", name))
-                err = errors.New(fmt.Sprintf("unresolved %s", name))
+                //i.parseWarn(x.Name.Pos(), fmt.Sprintf("Unresolved reference `%s'.", name))
+                err = errors.New(fmt.Sprintf("Unresolved reference `%s'.", name))
                 return
         }
 
@@ -370,7 +286,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 if x.Data != nil {
                         v = x.Data.(types.Value)
                 } else {
-                        err = errors.New("evaluated expr has nil data")
+                        err = errors.New("Evaluated expr is nil.")
                         return
                 }
         case *ast.ClosureExpr:
@@ -817,7 +733,8 @@ func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (e
                         use = types.NewScope(s, token.NoPos, token.NoPos, useScopeName)
                 )
                 if _, alt := s.InsertScopeName(p, useScopeName, use); alt != nil {
-                        i.parseFail(ident.Pos(), "name '%s' already taken in %s", useScopeName, s)
+                        err = errors.New(fmt.Sprintf("Name '%s' already taken (%s).", useScopeName, s))
+                        return
                 }
         }
 
@@ -832,8 +749,8 @@ func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (e
 
                 if _, a := loader.Scope().InsertProjectName(loader, name, dec.project); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
-                                i.parseFail(ident.Pos(), "name '%s' already taken (%T)", name, a)
-                                err = errors.New(fmt.Sprintf("name '%s' already taken (%T)", name, a))
+                                err = errors.New(fmt.Sprintf("Name '%s' already taken (%T).", name, a))
+                                return
                         }
                 }
 

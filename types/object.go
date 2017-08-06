@@ -214,7 +214,7 @@ func (d *Def) Assign(v Value) (Value, error) {
         if v == nil {
                 v = UniversalNone
         } else if v.delegating(d) {
-                err := errors.New(fmt.Sprintf("loop delegation (%s)", d.name))
+                err := errors.New(fmt.Sprintf("Recursive variable `%s' references itself.", d.name))
                 return nil, err
         }
         
