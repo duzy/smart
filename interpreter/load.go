@@ -212,13 +212,14 @@ func (i *Interpreter) closuredelegate(x *ast.ClosureDelegate) (obj types.Object,
                 return
         }
 
-        def, _ := x.Resolved.(*types.Def)
+        def, _ := x.Resolved.(types.Caller)
         if def == nil {
                 //i.parseWarn(x.Pos(), fmt.Sprintf("uncallable resolved %s (%T)", name, x.Resolved))
-                err = errors.New(fmt.Sprintf("Uncallable resolved `%s'.", name))
+                err = errors.New(fmt.Sprintf("Uncallable `%s' resolved (%T).", name, x.Resolved))
                 return
-        } else {
-                obj = def
+        } else if obj = def.(types.Object); obj == nil {
+                err = errors.New(fmt.Sprintf("Non-object callable `%s' resolved (%T).", name, def))
+                return
         }
 
         for _, x := range x.Args {
