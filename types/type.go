@@ -32,7 +32,10 @@ const (
         AnyKind
 
         // basic types
+        BinKind
+        OctKind
         IntKind
+        HexKind
         FloatKind
         DateTimeKind
         DateKind
@@ -119,14 +122,17 @@ func (t Kind) String() (s string) {
 }
 
 // TypeInfo is a set of flags describing properties of a basic type.
-type TypeBits uint
+type TypeBits uint64
 const (
         IsAny TypeBits = 1 << iota
 
 	IsNone
 
 	IsBoolean
-	IsInteger
+	IsBin
+	IsOct
+	IsInt
+	IsHex
 	IsUnsigned
 	IsFloat
 	IsString
@@ -161,8 +167,8 @@ const (
         IsDefiner // 30
 
         IsDateTime  = IsDate | IsTime
-	IsNumeric   = IsInteger | IsFloat
-        IsKeyName   = IsInteger | IsString | IsBareword
+	IsNumeric   = IsBin | IsOct | IsInt | IsHex | IsFloat
+        IsKeyName   = IsNumeric | IsString | IsBareword
 	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword | IsBarefile | IsPath | IsFlag
 	IsBasic     = IsBoolean | IsOrdered | IsNone
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair | IsPattern
@@ -198,7 +204,10 @@ func (t *Basic) Underlying() Type { return t }
 func (t *Basic) Kind() Kind       { return t.kind }
 func (t *Basic) Bits() TypeBits   { return t.info }
 func (t *Basic) IsBoolean() bool  { return t.info&IsBoolean != 0 }
-func (t *Basic) IsInteger() bool  { return t.info&IsInteger != 0 }
+func (t *Basic) IsBin() bool      { return t.info&IsBin != 0 }
+func (t *Basic) IsOct() bool      { return t.info&IsOct != 0 }
+func (t *Basic) IsInt() bool      { return t.info&IsInt != 0 }
+func (t *Basic) IsHex() bool      { return t.info&IsHex != 0 }
 func (t *Basic) IsUnsigned() bool { return t.info&IsUnsigned != 0 }
 func (t *Basic) IsFloat() bool    { return t.info&IsFloat != 0 }
 func (t *Basic) IsNumeric() bool  { return t.info&IsNumeric != 0 }

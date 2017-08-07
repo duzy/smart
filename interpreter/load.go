@@ -256,12 +256,13 @@ func (i *Interpreter) recipe(x *ast.RecipeExpr) (v types.Value, err error) {
                 v = values.None
         } else if x.Dialect == "" {
                 var elems []types.Value
-                switch t := x.Elems[0].(type) {
+                /*switch t := x.Elems[0].(type) {
+                case *ast.Bareword:
                 case *ast.UseDefineClause:
                 default: 
-                        s := fmt.Sprintf("unsupported recipe command (%T)", t)
+                        s := fmt.Sprintf("Unsupported recipe command (%T)", t)
                         return nil, errors.New(s)
-                }
+                }*/
                 if a, err := i.exprs(x.Elems); err != nil {
                         return nil, err
                 } else {

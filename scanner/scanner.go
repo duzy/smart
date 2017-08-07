@@ -582,6 +582,7 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			// binary int
 			s.next()
 			s.scanMantissa(2)
+                        tok = token.BIN
 			if s.offset-offs <= 2 {
 				// only scanned "0b" or "0B"
 				s.error(offs, "illegal binary number")
@@ -590,6 +591,7 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			// hexadecimal int
 			s.next()
 			s.scanMantissa(16)
+                        tok = token.HEX
 			if s.offset-offs <= 2 {
 				// only scanned "0x" or "0X"
 				s.error(offs, "illegal hexadecimal number")
@@ -598,11 +600,13 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			// octal int or float
 			seenDecimalDigit := false
 			s.scanMantissa(8)
+                        tok = token.OCT
+                        //fmt.Printf("oct: %s\n", string(s.src[offs:s.offset]))
 			if s.ch == '8' || s.ch == '9' {
 				// illegal octal int or float
 				seenDecimalDigit = true
 				s.scanMantissa(10)
-			}
+                        }
 			if s.ch == '.' || s.ch == 'e' || s.ch == 'E' || s.ch == 'i' {
 				goto fraction
 			}
@@ -831,6 +835,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 }
 	case '0' <= ch && ch <= '9':
                 tok, lit = s.scanNumber(false)
+                fmt.Printf("%v: %s\n", tok, lit)
         case ch == -1 && s.offset == len(s.src):
                 tok = token.EOF
         default:

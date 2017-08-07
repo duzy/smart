@@ -20,6 +20,26 @@ func Any(v interface{}) *types.Any {
         return &types.Any{ V:v }
 }
 
+func BinLit(s string) (v *types.Bin) {
+        if i, e := strconv.ParseInt(s, 2, 64); e == nil {
+                v = &types.Bin{i}
+        }
+        return
+}
+func Bin(s int64) (v *types.Bin) {
+        return &types.Bin{s}
+}
+
+func OctLit(s string) (v *types.Oct) {
+        if i, e := strconv.ParseInt(s, 8, 64); e == nil {
+                v = &types.Oct{i}
+        }
+        return
+}
+func Oct(s int64) (v *types.Oct) {
+        return &types.Oct{s}
+}
+
 func IntLit(s string) (v *types.Int) {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
                 v = &types.Int{i}
@@ -28,6 +48,16 @@ func IntLit(s string) (v *types.Int) {
 }
 func Int(s int64) (v *types.Int) {
         return &types.Int{s}
+}
+
+func HexLit(s string) (v *types.Hex) {
+        if i, e := strconv.ParseInt(s, 16, 64); e == nil {
+                v = &types.Hex{i}
+        }
+        return
+}
+func Hex(s int64) (v *types.Hex) {
+        return &types.Hex{s}
 }
 
 func FloatLit(s string) (v *types.Float) {
@@ -161,7 +191,10 @@ func EscapeChar(s string) string {
 func Literal(tok token.Token, s string) (v types.Value) {
         switch tok {
         default:             v = None
+        case token.BIN:   v = BinLit(s)
+        case token.OCT:      v = OctLit(s)
         case token.INT:      v = IntLit(s)
+        case token.HEX:      v = HexLit(s)
         case token.FLOAT:    v = FloatLit(s)
         case token.DATETIME: v = DateTimeLit(s)
         case token.DATE:     v = DateLit(s)

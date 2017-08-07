@@ -34,7 +34,10 @@ var (
         BasicTypes = []*Basic {
                 InvalidKind:  {InvalidKind, 0, "invalid"},
                 AnyKind:      {AnyKind, IsAny, "any"},
-                IntKind:      {IntKind, IsInteger, "int"},
+                BinKind:      {BinKind, IsBin, "bin"},
+                OctKind:      {OctKind, IsOct, "oct"},
+                IntKind:      {IntKind, IsInt, "int"},
+                HexKind:      {HexKind, IsHex, "hex"},
                 FloatKind:    {FloatKind, IsFloat, "float"},
                 DateTimeKind: {DateTimeKind, IsDateTime, "datetime"},
                 DateKind:     {DateKind, IsDate, "date"},
@@ -71,7 +74,10 @@ var (
         // Shortcuts of basic types.
         InvalidType  = BasicTypes[InvalidKind]
         AnyType      = BasicTypes[AnyKind]
+        BinType      = BasicTypes[BinKind]
+        OctType      = BasicTypes[OctKind]
         IntType      = BasicTypes[IntKind]
+        HexType      = BasicTypes[HexKind]
         FloatType    = BasicTypes[FloatKind]
         DateTimeType = BasicTypes[DateTimeKind]
         DateType     = BasicTypes[DateKind]

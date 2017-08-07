@@ -8,12 +8,14 @@ package types
 
 import (
         //"github.com/duzy/smart/token"
-        "path/filepath"
         "encoding/base64"
+        "path/filepath"
         "io/ioutil"
         "strings"
+        "errors"
         "bytes"
         "fmt"
+        "os"
 )
 
 type BuiltinFunc func(context *Scope, args... Value) (Value, error)
@@ -54,13 +56,28 @@ var builtins = map[string]BuiltinFunc {
         `decode-hex`
         `encode-csv`
         `decode-csv` */
-        
-        `base`:    builtinBase,
-        `dir`:     builtinDir,
-        `dirdir`:  builtinDirDir,
-        `ndir`:    builtinNDir,
 
-        `read-file`: builtinReadFile,
+        // TODO: move these into builtin package `path', `filepath'
+        `base`:       builtinBase,
+        `dir`:        builtinDir,
+        `dirdir`:     builtinDirDir,
+        `ndir`:       builtinNDir,
+
+        // TODO: move these into builtin package `os'
+        `mkdir`:      builtinMkdir,     // os/file.go
+        `mkdir-all`:  builtinMkdirAll,  // os/path.go
+        `chdir`:      builtinChdir,     // os/file.go
+        `rename`:     builtinRename,    // os/file.go
+        `remove`:     builtinRemove,    // os/file_*.go
+        `remove-all`: builtinRemoveAll, // os/path.go
+        `truncate`:   builtinTruncate,  // os/file_*.go
+        `link`:       builtinLink,      // os/file_*.go
+        `symlink`:    builtinSymlink,   // os/file_*.go
+
+        // TODO: move these into builtin package 'io/ioutil'
+        `read-dir`:   builtinReadDir,   // io/ioutil/ioutil.go
+        `read-file`:  builtinReadFile,  // io/ioutil/ioutil.go
+        `write-file`: builtinWriteFile, // io/ioutil/ioutil.go
 }
 
 func EscapedString(v Value) (s string) {
@@ -105,7 +122,7 @@ func builtinPrintln(context *Scope, args... Value) (Value, error) {
 }
 
 func builtinString(context *Scope, args... Value) (result Value, err error) {
-        s := new(bytes.Buffer)
+        var s bytes.Buffer
         for i, a := range args {
                 if i > 0 { s.WriteString(" ") }
                 s.WriteString(a.String())
@@ -386,6 +403,312 @@ func builtinNDir(context *Scope, args... Value) (Value, error) {
         }
 }
 
+func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
+        for i, nargs := 0, len(args); i < nargs; i += 1 {
+                var (
+                        a = args[i]
+                        name string
+                        perm os.FileMode
+                )
+                switch t := a.(type) {
+                case *Pair: // mkdir name => perm name => perm
+                        name = t.Key.Strval()
+                        perm = os.FileMode(t.Value.Integer())
+                case *Group: // mkdir (name perm) (name perm)
+                        if t.Len() == 2 {
+                                name = t.Get(0).Strval()
+                                perm = os.FileMode(t.Get(1).Integer())
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                break
+                        }
+                case *List: // mkdir name perm, name perm, ...
+                        if t.Len() == 2 {
+                                name = t.Get(0).Strval()
+                                perm = os.FileMode(t.Get(1).Integer())
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                break
+                        }
+                default: // mkdir name perm, name perm, ...
+                        name = args[i].Strval()
+                        if i+1 < nargs {
+                                perm = os.FileMode(args[i+1].Integer())
+                                i += 1
+                        }
+                }
+                if err = os.Mkdir(name, perm); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinMkdirAll(context *Scope, args... Value) (res Value, err error) {
+        for i, nargs := 0, len(args); i < nargs; i += 1 {
+                var (
+                        a = args[i]
+                        name string
+                        perm os.FileMode
+                )
+                switch t := a.(type) {
+                case *Pair: // mkdir name => perm name => perm
+                        name = t.Key.Strval()
+                        perm = os.FileMode(t.Value.Integer())
+                case *Group: // mkdir (name perm) (name perm)
+                        if t.Len() == 2 {
+                                name = t.Get(0).Strval()
+                                perm = os.FileMode(t.Get(1).Integer())
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                break
+                        }
+                case *List: // mkdir name perm, name perm, ...
+                        if t.Len() == 2 {
+                                name = t.Get(0).Strval()
+                                perm = os.FileMode(t.Get(1).Integer())
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                break
+                        }
+                default: // mkdir name perm, name perm, ...
+                        name = args[i].Strval()
+                        if i+1 < nargs {
+                                perm = os.FileMode(args[i+1].Integer())
+                                i += 1
+                        }
+                }
+                if err = os.MkdirAll(name, perm); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinChdir(context *Scope, args... Value) (res Value, err error) {
+        if len(args) == 1 {
+                err = os.Chdir(args[0].Strval())
+        } else {
+                err = errors.New("Wrong number of arguments.")
+        }
+        return
+}
+
+func builtinRename(context *Scope, args... Value) (res Value, err error) {
+        for i, nargs := 0, len(args); i < nargs; i += 1 {
+                var (
+                        a = args[i]
+                        oldname, newname string
+                )
+                switch t := a.(type) {
+                case *Pair: // rename oldname => newname old => new
+                        oldname = t.Key.Strval()
+                        newname = t.Value.Strval()
+                case *Group: // rename (oldname newname) (old new)
+                        if t.Len() == 2 {
+                                oldname = t.Get(0).Strval()
+                                newname = t.Get(1).Strval()
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                break
+                        }
+                case *List: // rename oldname newname, old new, ...
+                        if t.Len() == 2 {
+                                oldname = t.Get(0).Strval()
+                                newname = t.Get(1).Strval()
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                break
+                        }
+                default: // rename newname oldname  newname oldname ...
+                        if i+1 < nargs {
+                                oldname = args[i+0].Strval()
+                                newname = args[i+1].Strval()
+                                i += 1
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
+                                break
+                        }
+                }
+                if err = os.Rename(oldname, newname); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinRemove(context *Scope, args... Value) (res Value, err error) {
+        for _, a := range args {
+                if err = os.Remove(a.Strval()); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinRemoveAll(context *Scope, args... Value) (res Value, err error) {
+        for _, a := range args {
+                if err = os.RemoveAll(a.Strval()); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinTruncate(context *Scope, args... Value) (res Value, err error) {
+        for i, nargs := 0, len(args); i < nargs; i += 1 {
+                var (
+                        a = args[i]
+                        name string
+                        size int64
+                )
+                switch t := a.(type) {
+                case *Pair: // truncate name => size old => new
+                        name = t.Key.Strval()
+                        size = t.Value.Integer()
+                case *Group: // truncate (name size) (old new)
+                        if t.Len() == 2 {
+                                name = t.Get(0).Strval()
+                                size = t.Get(1).Integer()
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                break
+                        }
+                case *List: // truncate name size, old new, ...
+                        if t.Len() == 2 {
+                                name = t.Get(0).Strval()
+                                size = t.Get(1).Integer()
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                break
+                        }
+                default: // truncate name size  name size ...
+                        if i+1 < nargs {
+                                name = args[i+0].Strval()
+                                size = args[i+1].Integer()
+                                i += 1
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
+                                break
+                        }
+                }
+                if err = os.Truncate(name, size); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinLink(context *Scope, args... Value) (res Value, err error) {
+        for i, nargs := 0, len(args); i < nargs; i += 1 {
+                var (
+                        a = args[i]
+                        oldname, newname string
+                )
+                switch t := a.(type) {
+                case *Pair: // link oldname => newname old => new
+                        oldname = t.Key.Strval()
+                        newname = t.Value.Strval()
+                case *Group: // link (oldname newname) (old new)
+                        if t.Len() == 2 {
+                                oldname = t.Get(0).Strval()
+                                newname = t.Get(1).Strval()
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                break
+                        }
+                case *List: // link oldname newname, old new, ...
+                        if t.Len() == 2 {
+                                oldname = t.Get(0).Strval()
+                                newname = t.Get(1).Strval()
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                break
+                        }
+                default: // link oldname newname  oldname newname ...
+                        if i+1 < nargs {
+                                oldname = args[i+0].Strval()
+                                newname = args[i+1].Strval()
+                                i += 1
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
+                                break
+                        }
+                }
+                if err = os.Link(oldname, newname); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinSymlink(context *Scope, args... Value) (res Value, err error) {
+        for i, nargs := 0, len(args); i < nargs; i += 1 {
+                var (
+                        a = args[i]
+                        oldname, newname string
+                )
+                switch t := a.(type) {
+                case *Pair: // symlink oldname => newname old => new
+                        oldname = t.Key.Strval()
+                        newname = t.Value.Strval()
+                case *Group: // symlink (oldname newname) (old new)
+                        if t.Len() == 2 {
+                                oldname = t.Get(0).Strval()
+                                newname = t.Get(1).Strval()
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                break
+                        }
+                case *List: // symlink oldname newname, old new, ...
+                        if t.Len() == 2 {
+                                oldname = t.Get(0).Strval()
+                                newname = t.Get(1).Strval()
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                break
+                        }
+                default: // symlink newname oldname  newname oldname ...
+                        if i+1 < nargs {
+                                oldname = args[i+0].Strval()
+                                newname = args[i+1].Strval()
+                                i += 1
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
+                                break
+                        }
+                }
+                if err = os.Symlink(oldname, newname); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinReadDir(context *Scope, args... Value) (res Value, err error) {
+        var l []Value
+        for _, a := range args {
+                var fis []os.FileInfo
+                if fis, err = ioutil.ReadDir(a.Strval()); err == nil {
+                        v := new(List)
+                        for _, fi := range fis {
+                                v.Append(&String{fi.Name()})
+                        }
+                        l = append(l, v)
+                } else {
+                        break //l = append(l, UniversalNone)
+                }
+        }
+        if x := len(l); x == 0 {
+                //res = UniversalNone
+        } else if x == 1 {
+                res = l[0]
+        } else {
+                res = &List{Elements{l}}
+        }
+        return
+}
+
 func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
         var l []Value
         for _, a := range args {
@@ -393,15 +716,70 @@ func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
                 if s, err = ioutil.ReadFile(a.Strval()); err == nil {
                         l = append(l, &String{string(s)})
                 } else {
-                        l = append(l, UniversalNone)
+                        break //l = append(l, UniversalNone)
                 }
         }
         if x := len(l); x == 0 {
-                res = UniversalNone
+                //res = UniversalNone
         } else if x == 1 {
                 res = l[0]
         } else {
                 res = &List{Elements{l}}
+        }
+        return
+}
+
+func builtinWriteFile(context *Scope, args... Value) (res Value, err error) {
+        for i, nargs := 0, len(args); i < nargs; i += 1 {
+                var (
+                        a = args[i]
+                        name, data string
+                        perm = os.FileMode(0600)
+                )
+                switch t := a.(type) {
+                case *Pair: // write-file name => text name => text
+                        name = t.Key.Strval()
+                        data = t.Value.Strval()
+                case *Group: // write-file (name text) (name text 0660)
+                        if n := t.Len(); n < 4 && n > 0 {
+                                name = t.Get(0).Strval()
+                                if n > 1 {
+                                        data = t.Get(1).Strval()
+                                }
+                                if n > 2 {
+                                        perm = os.FileMode(t.Get(2).Integer())
+                                }
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
+                                break
+                        }
+                case *List: // write-file name text, name text 0660, ...
+                        if n := t.Len(); n < 4 && n > 0 {
+                                name = t.Get(0).Strval()
+                                if n > 1 {
+                                        data = t.Get(1).Strval()
+                                }
+                                if n > 2 {
+                                        perm = os.FileMode(t.Get(2).Integer())
+                                }
+                        } else {
+                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
+                                break
+                        }
+                default: // write-file name text 0660  name text 0660 ...
+                        name = args[i].Strval()
+                        if i+1 < nargs {
+                                data = args[i+1].Strval()
+                                i += 1
+                        }
+                        if i+1 < nargs {
+                                perm = os.FileMode(args[i+1].Integer())
+                                i += 1
+                        }
+                }
+                if err = ioutil.WriteFile(name, []byte(data), perm); err != nil {
+                        break
+                }
         }
         return
 }

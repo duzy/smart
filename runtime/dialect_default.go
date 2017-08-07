@@ -53,12 +53,17 @@ evaluationLoop:
 
                         case types.Caller:
                                 v, e = t.Call(stmt.Slice(1)...)
-                        default:
+
+                        /*case yield:
                                 if stmt.Len() == 1 {
                                         list.Append(v)
                                 } else {
                                         list.Append(recipe)
-                                }
+                                }*/
+
+                        default:
+                                err = errors.New(fmt.Sprintf("Unsupported recipe command `%v' (%T)", t, t))
+                                break evaluationLoop
                         }
                         if e == nil && v != nil {
                                 list.Append(v)

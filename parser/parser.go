@@ -620,12 +620,11 @@ func (p *parser) isEndOfList(lhs bool) bool {
         if p.tok == token.RPAREN || p.tok == token.LBRACK /*|| p.tok == token.COLON_RBK*/ {
                 return true
         }
-        if token.COLON <= p.tok && p.tok <= token.QUE {
+        if p.tok.IsRuleDelim() {
                 return true
         }
         return p.tok == token.EOF || p.tok == token.LINEND || 
-                p.tok == token.COMMA || (lhs && 
-                (token.ASSIGN <= p.tok && p.tok <= token.DCO_ASSIGN))
+                p.tok == token.COMMA || (lhs && p.tok.IsAssign())
 }
 
 // If lhs is set, result list elements which are identifiers are not resolved.
@@ -719,9 +718,9 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
         case token.BAREWORD:
                 return p.parseBareword()
                 
-        case token.INT, token.FLOAT, token.DATETIME, 
-             token.DATE, token.TIME, token.URI, token.STRING,
-             token.ESCAPE:
+        case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
+             token.DATETIME, token.DATE, token.TIME, 
+             token.URI, token.STRING, token.ESCAPE:
                 pos, tok, lit := p.pos, p.tok, p.lit
                 p.next()
                 return &ast.BasicLit{
@@ -1312,18 +1311,30 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         }
 }
 
-func (p *parser) parseBuiltinRecipeExpr() (x ast.Expr) {
+func (p *parser) parseBuiltinRecipeExpr(i int) (x ast.Expr) {
         // Do left-hand-side parsing if in use rule
-        x = p.parseExpr(p.inUseRule)
-        switch {
-        case token.ASSIGN <= p.tok && p.tok <= token.DCO_ASSIGN:
+        switch x = p.parseExpr(p.inUseRule); {
+        case p.tok.IsAssign():
                 d := p.parseDefineClause(p.tok, x).(*ast.DefineClause)
                 x = &ast.UseDefineClause{ d }
+
         default:
-                /*
-                p.warn(x.Pos(), "bad statement '%v' (%T)\n", x, x)
-                p.error(x.Pos(), "unimplemented use statement: %T", x)
-                sync(p, token.LINEND) */
+                if v, e := p.runtime.Eval(x, disclosure); e != nil {
+                        p.error(x.Pos(), e)
+                } else if v != nil {
+                        if i == 0 {
+                                if name := v.Strval(); name == "" {
+                                        p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
+                                } else if sym := p.runtime.Resolve(name, anywhere); sym == nil {
+                                        p.error(x.Pos(), "Undefined recipe command `%v' (%v).", name, v)
+                                } else {
+                                        v = sym.(types.Value)
+                                }
+                        }
+                        x = &ast.EvaluatedExpr{ v, x }
+                } else {
+                        p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
+                }
         }
         return
 }
@@ -1344,10 +1355,9 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
         case "":
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE and parse in list mode
-
                 p.inUseRule = isUseRule
-                for p.tok != token.LINEND && p.tok != token.EOF {
-                        elems = append(elems, p.parseBuiltinRecipeExpr())
+                for i := 0; p.tok != token.LINEND && p.tok != token.EOF; i += 1 {
+                        elems = append(elems, p.parseBuiltinRecipeExpr(i))
                         if p.lineComment != nil {
                                 comment = p.lineComment
                                 break
@@ -1357,9 +1367,8 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
 
         default:
                 p.next() // skip RECIPE and parse in line-string mode
-                for p.tok != token.LINEND && p.tok != token.EOF {
+                for i := 0; p.tok != token.LINEND && p.tok != token.EOF; i += 1 {
                         elems = append(elems, p.parseExpr(false))
-                        //fmt.Printf("recipe: %v %v %v\n", x, p.tok, p.lit)
                 }
         }
         if p.tok != token.EOF {
@@ -1695,7 +1704,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseEvalSpec)
 	case token.USE:
                 pos := p.expect(p.tok)
-                if token.COLON <= p.tok && p.tok <= token.QUE {
+                if p.tok.IsRuleDelim() {
                         var list = []ast.Expr{
                                 &ast.Bareword{
                                         ValuePos: pos, 
@@ -1719,10 +1728,10 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         }
 
         list := []ast.Expr{ x }
-        if !p.tok.IsRuleDelim() /*p.tok < token.COLON || token.CALL <= p.tok*/ {
+        if !p.tok.IsRuleDelim() {
                 list = append(list, p.parseLhsList()...)
         }
-        if p.tok.IsRuleDelim() /*token.COLON <= p.tok && p.tok <= token.QUE*/ {
+        if p.tok.IsRuleDelim() {
                 return p.parseRuleClause(p.tok, list)
         }
 

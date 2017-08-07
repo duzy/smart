@@ -21,7 +21,10 @@ const (
 	// Identifiers and basic type literals
 	// (these tokens stand for classes of literals)
         BAREWORD // abc
+        BIN      // 0b010101, 0B0111001
+        OCT      // 0600, 0567
 	INT      // 12345
+        HEX      // 0x1234567890ABCDEF
 	FLOAT    // 123.45
         DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
         DATE     // 1979-05-27 (internet date format - RFC3339)
@@ -137,7 +140,10 @@ var tokens = [...]string{
         COMMENT: "COMMENT",
 
         BAREWORD: "BAREWORD",
+        BIN:      "BIN",
+        OCT:      "OCT",
         INT:      "INT",
+        HEX:      "HEX",
         FLOAT:    "FLOAT",
         DATETIME: "DATETIME",
         DATE:     "DATE",

@@ -1,4 +1,4 @@
-project hello
+project
 
 import (
     'tools/gcc/c++'
@@ -14,10 +14,10 @@ run:[(stderr) (stdout) (shell)]: hello
 	./hello
 
 hello:[(compare) (stderr) (shell)]: hello.o
-	$(link) $^ -o $@
+	$(LINK) $^ -o $@
 
 hello.o:[(compare) (stderr) (shell)]: hello.cpp
-	$(compile) $< -o $@
+	$(COMPILE) $< -o $@
 
 # TODO: using 'files' scheme
 clean:[shell]:

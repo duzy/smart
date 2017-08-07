@@ -1,4 +1,4 @@
-project use_posix_thread
+project
 
 import (
     'tools/gcc/c++'
@@ -10,10 +10,10 @@ files '*.o' '*.cpp' 'example'
 GREETING := 'Hello World!'
 
 example:[(compare) (stderr) (shell)]: example.o
-	$(link) $^ -o $@ $(libs)
+	$(LINK) $^ -o $@ $(LDLIBS)
 
 example.o:[(compare) (stderr) (shell)]: example.cpp
-	$(compile) $< -o $@
+	$(COMPILE) $< -o $@
 
 example.cpp:[(plain) (update-file)]
 	#include <iostream>
@@ -24,3 +24,7 @@ example.cpp:[(plain) (update-file)]
 	    std::cout << self << std::endl;
 	    return 0;
 	}
+
+clean:
+	write-file aaa aaa 0600 bbb bbb 0600
+	remove example example.o example.cpp

@@ -91,6 +91,28 @@ type Any struct {
 }
 func (p *Any) Type() Type { return AnyType }
 
+type Bin struct {
+        V int64
+}
+func (*Bin) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Bin) referencing(_ Object) bool { return false }
+func (p *Bin) Type() Type          { return BinType }
+func (p *Bin) String() string      { return p.Strval() }
+func (p *Bin) Strval() string      { return strconv.FormatInt(int64(p.V),2) }
+func (p *Bin) Integer() int64      { return p.V }
+func (p *Bin) Float() float64      { return float64(p.V) }
+
+type Oct struct {
+        V int64
+}
+func (*Oct) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Oct) referencing(_ Object) bool { return false }
+func (p *Oct) Type() Type          { return OctType }
+func (p *Oct) String() string      { return p.Strval() }
+func (p *Oct) Strval() string      { return strconv.FormatInt(int64(p.V),8) }
+func (p *Oct) Integer() int64      { return p.V }
+func (p *Oct) Float() float64      { return float64(p.V) }
+
 type Int struct {
         V int64
 }
@@ -101,6 +123,17 @@ func (p *Int) String() string      { return p.Strval() }
 func (p *Int) Strval() string      { return strconv.FormatInt(int64(p.V),10) }
 func (p *Int) Integer() int64      { return p.V }
 func (p *Int) Float() float64      { return float64(p.V) }
+
+type Hex struct {
+        V int64
+}
+func (*Hex) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Hex) referencing(_ Object) bool { return false }
+func (p *Hex) Type() Type          { return HexType }
+func (p *Hex) String() string      { return p.Strval() }
+func (p *Hex) Strval() string      { return strconv.FormatInt(int64(p.V),16) }
+func (p *Hex) Integer() int64      { return p.V }
+func (p *Hex) Float() float64      { return float64(p.V) }
 
 type Float struct {
         V float64
