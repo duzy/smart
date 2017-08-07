@@ -64,15 +64,23 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                 }
 
                 var (
-                        dxi = "default-image"
+                        dxi = "default-dock-image"
                         src = source
                 )
-                if vr, _ := symDxi.(types.Valuer); vr != nil {
-                        dxi = vr.Value().Strval()
+                if symDxi != nil {
+                        if v, e := symDxi.(types.Caller).Call(); e != nil {
+                                err = e; return
+                        } else if v != nil {
+                                dxi = v.Strval()
+                        } 
                 }
-                if vr, _ := symWd.(types.Valuer); vr != nil {
-                        if s := vr.Value().Strval(); s != "" {
-                                src = fmt.Sprintf("cd '%s' && %s", s, source)
+                if symWd != nil {
+                        if v, e := symWd.(types.Caller).Call(); e != nil {
+                                err = e; return
+                        } else if v != nil {
+                                if s := v.Strval(); s != "" {
+                                        src = fmt.Sprintf("cd '%s' && %s", s, source)
+                                }
                         }
                 }
 

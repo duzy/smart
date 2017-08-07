@@ -525,8 +525,10 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 p.error(t.Pos(), "Evaluated select (left) operand `%T' invalid (%v).", t.Expr, t.Data)
                 goto DoneSelect
         default:
-                if v, e := p.runtime.Eval(x, disclosure); e == nil {
+                if v, e := p.runtime.Eval(x, disclosure); e == nil && v != nil {
                         operandName = v.Strval()
+                } else if v == nil {
+                        p.error(t.Pos(), "Select operand `%T' eval to nil.", t)
                 } else {
                         p.error(t.Pos(), e)
                         p.error(t.Pos(), "Invalid select operand (%T).", t)
@@ -892,6 +894,11 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         } else {
                                 return &ast.ClosureExpr{ cd }
                         }
+                } else if p.tok == token.USE {
+                        // Treat `use' here as a bareword.
+                        tok, pos := p.tok, p.pos
+                        p.next() // Drop `use'
+                        return &ast.Bareword{ pos, tok.String() }
                 }
 
                 pos := p.pos

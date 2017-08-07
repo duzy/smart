@@ -64,13 +64,19 @@ func (s *dialectDocksh) evaluate(prog *Program, args []types.Value, recipes []ty
                         src = source
                 )
                 if symDxi != nil {
-                        v, _ := symDxi.(types.Caller).Call()
-                        dxi = v.Strval()
+                        if v, e := symDxi.(types.Caller).Call(); e != nil {
+                                err = e; return
+                        } else if v != nil {
+                                dxi = v.Strval()
+                        } 
                 }
                 if symWd != nil {
-                        v, _ := symWd.(types.Caller).Call()
-                        if s := v.Strval(); s != "" {
-                                src = fmt.Sprintf("cd '%s' && %s", s, source)
+                        if v, e := symWd.(types.Caller).Call(); e != nil {
+                                err = e; return
+                        } else if v != nil {
+                                if s := v.Strval(); s != "" {
+                                        src = fmt.Sprintf("cd '%s' && %s", s, source)
+                                }
                         }
                 }
 
