@@ -52,6 +52,7 @@ type parser struct {
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
         inUseRule bool // parsing use recipe
+        selecting bool // parsing a selection, e.g. foo.bar.xxx.yyy.zzz
         
 	// Ordinary identifier scopes
 	imports    []*ast.ImportSpec // list of imports
@@ -469,7 +470,10 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
 	}
 
         // Parse rhs of '.'...
+        p.selecting = true // Avoid the next '.' being parsed, e.g. foo.bar.xxx.yyy
         s := p.checkExpr(p.parseExpr(lhs))
+        p.selecting = false
+        
         switch t := s.(type) {
         case *ast.Bareword:
                 if bw, ok := x.(*ast.Bareword); ok && p.runtime.IsFileName(bw.Value+"."+t.Value) {
@@ -512,12 +516,14 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
         switch t := x.(type) {
         case *ast.Bareword: operandName = t.Value
         case *ast.EvaluatedExpr:
-                if operand = t.Data.(types.Value); operand != nil {
-                        goto ComputeValueName
-                } else {
-                        p.error(t.Pos(), "Nil select operand %T (%v).", t.Data, t.Data)
-                        goto DoneSelect
+                if t.Data != nil {
+                        if operand = t.Data.(types.Value); operand != nil {
+                                goto ComputeValueName
+                        }
                 }
+                // Error...
+                p.error(t.Pos(), "Evaluated select (left) operand `%T' invalid (%v).", t.Expr, t.Data)
+                goto DoneSelect
         default:
                 if v, e := p.runtime.Eval(x, disclosure); e == nil {
                         operandName = v.Strval()
@@ -535,30 +541,38 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
         }
         if sym := p.runtime.Resolve(operandName, where); sym != nil {
                 operand = sym.(types.Value)
-        } else {
-                p.error(x.Pos(), "Undefined select operand `%s'.", operandName)
+        }
+        
+        if operand == nil {
+                p.error(x.Pos(), "Undefined select operand `%s' (%T).", operandName, x)
                 goto DoneSelect
         }
 
         ComputeValueName: switch t := s.(type) {
         case *ast.Bareword: valueName = t.Value
+        case *ast.GlobExpr: valueName = t.Tok.String()
         case *ast.EvaluatedExpr:
-                if v, _ := t.Data.(types.Value); v != nil {
-                        valueName = v.Strval()
-                } else {
-                        p.error(t.Pos(), "Nil select operand `%T' (%v).", t.Data, t.Data)
+                if t.Data != nil {
+                        if v, _ := t.Data.(types.Value); v != nil {
+                                valueName = v.Strval()
+                        }
                 }
-                goto DoneSelect
+                if valueName == "" {
+                        p.error(t.Pos(), "Evaluated select (right) operand `%T' invalid (%v).", t.Expr, t.Data)
+                        goto DoneSelect
+                }
         default:
                 if v, e := p.runtime.Eval(s, disclosure); e == nil && v != nil {
                         valueName = v.Strval()
                 } else if v == nil {
+                        p.error(t.Pos(), "Select operand (%T) evals to nil.", t)
                         goto DoneSelect
                 } else {
                         p.error(t.Pos(), e)
                         p.error(t.Pos(), "Invalid select operand `%T'.", t)
                 }
         }
+        //fmt.Printf("select: %v.%v (%T %T)\n", operandName, valueName, x, s)
 
         switch o := operand.(type) {
         case types.Object:
@@ -574,12 +588,18 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
         default:
                 goto DoneSelect
         }
-        
+
+        DoneSelect: if value == nil {
+                p.error(s.Pos(), "No such property `%v' (%T) in `%s'.", valueName, s, operandName)
+        }
+
         //fmt.Printf("select: %T . %T -> %s.%s\n", x, s, operandName, valueName)
         //fmt.Printf("select: %T %v . %T %v\n", operand, operand, value, value)
-        
-        DoneSelect: res = &ast.EvaluatedExpr{ value, s }
+        //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
+
+        res = &ast.EvaluatedExpr{ value, s }
         if p.tok == token.PERIOD {
+                p.next() // Drop '.' before continuing selecting.
                 // Continue the selection recursivly
                 res = p.parseSelect(lhs, res)
         }
@@ -894,8 +914,13 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         Value: p.parseExpr0(false),
                 }
         } else if p.tok == token.PERIOD {
-                p.next()
-                x = p.parseSelect(lhs, p.checkExpr(x))
+                if p.selecting {
+                        // If it's selecting, don't enter parseSelect again.
+                        // The parseSelect procedure will check this '.'
+                } else {
+                        p.next()
+                        x = p.parseSelect(lhs, p.checkExpr(x))
+                }
         } else if p.tok == token.PCON {
                 var (
                         segments []ast.Expr
@@ -1054,9 +1079,9 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
         if ee, _ := spec.Props[0].(*ast.EvaluatedExpr); ee == nil {
                 panic("expected evaluated expr (eval)")
         } else if name, _ := ee.Data.(types.Value); name == nil {
-                p.error(ee.Pos(), "invalid eval symbol (%T)", ee.Data)
+                p.error(ee.Pos(), "Invalid eval symbol (%T).", ee.Data)
         } else if spec.Resolved = p.runtime.Resolve(name.Strval(), anywhere); spec.Resolved == nil {
-                p.error(ee.Pos(), "undefined eval symbol %s (%v)", name.Strval(), name)
+                p.error(ee.Pos(), "Undefined eval symbol `%s' (%v).", name.Strval(), name)
         } else if err := p.runtime.ClauseEval(spec); err != nil {
                 p.error(spec.Pos(), err)
         }
@@ -1187,7 +1212,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 if s, a := p.runtime.Symbol(v.Strval(), types.DefType); a != nil {
                         switch tok {
                         case token.ASSIGN, token.EXC_ASSIGN:
-                                p.error(ident.Pos(), "alread defined %v (%v)", v.Strval(), v)
+                                p.error(ident.Pos(), "Already defined `%v' (%v).", v.Strval(), v)
                         default:
                                 def, _ = a.(*types.Def) // override the existing
                         }
@@ -1195,10 +1220,10 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 } else if def, _ = s.(*types.Def); def != nil {
                         alt = false // it's a new symbol
                 } else if s != nil {
-                        p.error(ident.Pos(), "name '%s' already taken (%T)", v.Strval(), s)
+                        p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", v.Strval(), s)
                 }
                 if def == nil {
-                        p.error(ident.Pos(), "failed defining %s (%v)", v.Strval(), v)
+                        p.error(ident.Pos(), "Failed defining `%s' (%v).", v.Strval(), v)
                 }
         } else {
                 p.error(ident.Pos(), e)
@@ -1466,29 +1491,22 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 var tarent *types.RuleEntry
                 if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
                         if entry, ok := alt.(*types.RuleEntry); entry == nil {
-                                p.warn(target.Pos(), "'%s' already taken (%T)", name, alt)
-                                p.error(target.Pos(), "name '%s' already taken", name)
+                                p.error(target.Pos(), "Name `%s' already taken, not rule entry (%T).", name, alt)
                         } else if entry.Program() != nil {
-                                p.warn(target.Pos(), "rule entry already defined (%s)", name)
-                                p.error(target.Pos(), "rule already defined (%s)", name)
+                                p.error(target.Pos(), "Rule `%s' already defined.", name)
                         } else if ok {
                                 tarent = entry
                         } else {
-                                p.error(target.Pos(), "invalid rule (%s)", name)
+                                p.error(target.Pos(), "Invalid rule `%s'.", name)
                         }
                 } else if sym != nil {
                         tarent = sym.(*types.RuleEntry)
-                } else {
-                        p.warn(target.Pos(), "target entry (%s)", name)
-                        p.error(target.Pos(), "bad entry name (%s)", name)
-                        continue
                 }
-
                 if tarent == nil {
-                        p.error(target.Pos(), "bad entry name (%s)", name)
+                        p.error(target.Pos(), "Entry name `%s' invalid.", name)
                         continue
                 }
-
+                
                 //p.warn(target.Pos(), "%v: %v (%T %v)", tarent, tarent.Class(), target, p.runtime.IsFileName(name))
 
                 // Guessing target entry class, e.g. general, file, etc.
@@ -1531,22 +1549,21 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
         for _, s := range automatics {
                 if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
-                        p.warn(p.pos, "'%s' already taken", s)
-                        p.error(p.pos, "name '%s' already taken", s)
+                        p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
                 } else if sym == nil {
                         // TODO: errors
                 }
         }
         for _, s := range params {
                 if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
-                        p.warn(p.pos, "'%s' already taken", s)
+                        p.error(p.pos, "Name `%s' already taken, not parameter (%T).", s, alt)
                 } else if sym == nil {
                         // TODO: errors
                 }
         }
         for i := 1; i < 10; i += 1 {
                 if sym, alt := p.runtime.Symbol(strconv.Itoa(i), types.DefType); alt != nil {
-                        p.warn(p.pos, "'%v' already taken", i)
+                        p.error(p.pos, "Name `%v' already taken, not numberred (%T).", i, alt)
                 } else if sym == nil {
                         // TODO: errors
                 }

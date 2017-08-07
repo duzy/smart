@@ -185,14 +185,14 @@ func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (e
         case FileRuleEntry:
         case UseRuleEntry:
         default:
-                err = errors.New(fmt.Sprintf("invalid entry class '%v' (%v)\n", class, name))
+                err = errors.New(fmt.Sprintf("Invalid entry class `%v' (%v).\n", class, name))
                 return
         }
         
         var alt Object
         if entry, alt = m.scope.InsertEntry(m, class, name); alt != nil {
                 if entry, _ = alt.(*RuleEntry); entry == nil {
-                        err = errors.New(fmt.Sprintf("name '%v' already taken (%T)\n", name, alt))
+                        err = errors.New(fmt.Sprintf("Name '%v' already taken as `%T', failed mapping entry.", name, alt))
                 }
         }
         if entry != nil && err == nil {
@@ -207,7 +207,7 @@ func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryCla
         case GeneralRuleEntry: class = PatternRuleEntry
         case FileRuleEntry: class = PatternFileRuleEntry
         default:
-                err = errors.New(fmt.Sprintf("invalid pattern class %v (%v)\n", class, p))
+                err = errors.New(fmt.Sprintf("Invalid pattern class `%v' (%v).\n", class, p))
                 return
         }
         
@@ -217,7 +217,7 @@ func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryCla
         )
         if entry, alt = m.scope.InsertEntry(m, class, p.Strval()); alt != nil {
                 if entry, _ = alt.(*RuleEntry); entry == nil {
-                        err = errors.New(fmt.Sprintf("pattern '%v' already taken (%T)\n", p, alt))
+                        err = errors.New(fmt.Sprintf("Pattern '%v' already taken as `%T', failed mapping entry.", p, alt))
                 }
         }
         if entry != nil && err == nil {

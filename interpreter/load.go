@@ -23,7 +23,6 @@ import (
 )
 
 const (
-        useScopeName = "~usee~"
         ignoreRuleName = "ignore"
 )
 
@@ -178,7 +177,7 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
                         i.parseWarn(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, scope)
                         return errors.New(fmt.Sprintf("'%s' not found (%s)", specName, loaded.Name()))
                 }
-                if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
+                if sn, _ := scope.Lookup("use").(*types.ScopeName); sn != nil {
                         if alt := sn.Scope().Insert(pn); alt != nil {
                                 return errors.New(fmt.Sprintf("'%s' already defined in %v", specName, sn.Scope()))
                         }
@@ -287,7 +286,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 if x.Data != nil {
                         v = x.Data.(types.Value)
                 } else {
-                        err = errors.New("EvaluatedExpr data is nil.")
+                        err = errors.New(fmt.Sprintf("Expr `%T' evaluated to nil.", x.Expr))
                         return
                 }
         case *ast.ClosureExpr:
@@ -364,11 +363,12 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 //fmt.Printf("UseDefineClause: %T %v\n", x.Sym, x.Sym)
                 if d, _ := x.Sym.(*types.Def); d != nil {
                         // !strings.HasPrefix(s, "rule use")
-                        if s := d.Parent().Comment(); s != "rule use" {
-                                err = errors.New(fmt.Sprintf("not a 'use' scope (%s)", s))
-                                return
-                        } else if o := d.Parent().Lookup(d.Name()); o == nil {
-                                err = errors.New(fmt.Sprintf("'%s' undefined in %v", d.Name(), d.Parent()))
+                        //if s := d.Parent().Comment(); s != "rule use" {
+                        //        err = errors.New(fmt.Sprintf("Not `use' scope, but '%s'.", s))
+                        //        return
+                        //} else
+                        if o := d.Parent().Lookup(d.Name()); o == nil {
+                                err = errors.New(fmt.Sprintf("Symbol `%s' undefined in %v", d.Name(), d.Parent()))
                                 return
                         }
                 }
@@ -422,7 +422,7 @@ func (i *Interpreter) useProjectName(pos token.Pos, pn *types.ProjectName) error
         }
         
         // FIXME: defined used project in represented order
-        if sn, _ := scope.Lookup(useScopeName).(*types.ScopeName); sn != nil {
+        if sn, _ := scope.Lookup("use").(*types.ScopeName); sn != nil {
                 if alt := sn.Scope().Insert(pn); alt != nil {
                         if alt.Type().Kind() == types.ProjectNameKind {
                                 i.parseInfo(pos, "'%s' already used", pn.Name())
@@ -447,13 +447,13 @@ func (i *Interpreter) use(spec *ast.UseSpec) (err error) {
                 params []types.Value
         )
         if len(spec.Props) == 0 {
-                return errors.New("empty use spec")
+                return errors.New("Empty use spec.")
         } else if name, err = i.expr(spec.Props[0]); err != nil {
                 return
         } else if name == nil {
-                return errors.New("undefined use target")
+                return errors.New("Undefined `use' target.")
         } else if  name == values.None {
-                return errors.New("none use target")
+                return errors.New("None `use' target.")
         }
         for _, prop := range spec.Props[1:] {
                 if v, err := i.expr(prop); err != nil {
@@ -507,7 +507,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                                         }
                                 }
                         } else {
-                                err = errors.New(fmt.Sprintf("undefined '%s'", op.Strval()))
+                                err = errors.New(fmt.Sprintf("Eval undefined `%s'", op.Strval()))
                         }
                 }
         }
@@ -540,7 +540,7 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
 
         if p, ok := clause.Program.(*ast.ProgramExpr); ok && p != nil {
                 if progScope, _ = p.Scope.(*types.Scope); progScope == nil {
-                        err = errors.New(fmt.Sprintf("undefined program scope (%T)", p.Scope))
+                        err = errors.New(fmt.Sprintf("Undefined program scope (%T).", p.Scope))
                         return
                 }
                 if p.Recipes != nil {
@@ -732,10 +732,15 @@ func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (e
                 var (
                         p = dec.project
                         s = p.Scope()
-                        use = types.NewScope(s, token.NoPos, token.NoPos, useScopeName)
+                        use = types.NewScope(s, token.NoPos, token.NoPos, "use")
                 )
-                if _, alt := s.InsertScopeName(p, useScopeName, use); alt != nil {
-                        err = errors.New(fmt.Sprintf("Name '%s' already taken (%s).", useScopeName, s))
+                if obj, alt := s.InsertScopeName(p, "use", use); alt != nil {
+                        if _, ok := alt.(*types.ScopeName); !ok {
+                                err = errors.New(fmt.Sprintf("Name `use' already taken (%s).", s))
+                                return
+                        }
+                } else if obj == nil {
+                        err = errors.New("Failed adding `use' scope.")
                         return
                 }
         }
@@ -751,7 +756,7 @@ func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (e
 
                 if _, a := loader.Scope().InsertProjectName(loader, name, dec.project); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
-                                err = errors.New(fmt.Sprintf("Name '%s' already taken (%T).", name, a))
+                                err = errors.New(fmt.Sprintf("Name `%s' already taken (%T).", name, a))
                                 return
                         }
                 }
@@ -804,7 +809,7 @@ func (i *Interpreter) load(specName, absPath string, source interface{}) error {
                 )
                 if _, a := s.InsertProjectName(i.project, name, loaded); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
-                                return errors.New(fmt.Sprintf("name '%s' already taken (%T)", name, a))
+                                return errors.New(fmt.Sprintf("Name `%s' already taken (%T).", name, a))
                         }
                 }
                 return nil
@@ -836,7 +841,7 @@ func (i *Interpreter) loadDir(specName, absDir string, filter func(os.FileInfo) 
                 )
                 if _, a := s.InsertProjectName(i.project, name, loaded); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
-                                err = errors.New(fmt.Sprintf("name '%s' already taken (%T)", name, a))
+                                err = errors.New(fmt.Sprintf("Name `%s' already taken (%T).", name, a))
                         }
                 }
                 return nil
@@ -981,13 +986,20 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
         //fmt.Printf("Eval: depend: %T %v (%v)\n", res, res, res.Strval())
         
         // Cast depends so that it's could be easily used.
+
+        if def, ok := res.(*types.Def); ok && def != nil {
+                res = def.Value
+        }
+
         switch res.Type() {
-        //case types.RuleEntryType:
+        case types.RuleEntryType: // e.g. other.entry
         case types.BarewordType:
         case types.BarefileType:
         case types.PathType:
         case types.PatternType:
         case types.ClosureType:
+        case types.ListType:
+                // TODO: check list elements type?
         default:
                 res, err = nil, errors.New(fmt.Sprintf("Unsupported depend type '%v' (%T %v).", res.Type(), res, res))
         }
@@ -1009,22 +1021,22 @@ func (pc *parseContext) Resolve(name string, bits parser.ResolveBits) parser.Run
                 if obj != nil {
                         return obj.(parser.RuntimeObj)
                 }
-                if obj == nil && name == "use" {
-                        obj = pc.scope.Find(useScopeName)
-                }
-                if obj == nil {
+                if obj == nil && name != "use" {
                         // TODO: add this search path into Scope.Find
-                        /*if obj = pc.project.Scope().Find(name); obj != nil {
-                             return
-                        }*/
                         for _, base := range pc.project.Bases() {
                                 if obj = base.Scope().Find(name); obj != nil {
                                         return obj.(parser.RuntimeObj)
                                 }
                         }
                 }
-                if obj == nil && (name == "^") {
-                        //fmt.Printf("Resolve: '%v' not in %v\n", name, pc.scope)
+                if obj != nil && name == "use" {
+                        if sn, ok := obj.(*types.ScopeName); ok && sn != nil {
+                                // TODO: parser.FindDef
+                                // TODO: parser.FindRule
+                        }
+                }
+                if obj == nil /*&& (name == "use")*/ {
+                        //fmt.Printf("Resolve: `%v' not in %v\n", name, pc.scope)
                         //for _, base := range pc.project.Bases() {
                         //        fmt.Printf("Resolve: %v %v\n", base.Name(), base.Scope())
                         //}
@@ -1039,11 +1051,23 @@ func (pc *parseContext) Resolve(name string, bits parser.ResolveBits) parser.Run
 func (pc *parseContext) Symbol(name string, t types.Type) (obj, alt parser.RuntimeObj) {
         switch t {
         case types.DefType/*, types.DefinerType*/:
-                scope := pc.scope // always in the current scope
-                obj, alt = scope.InsertDef(pc.project, name, values.None)
+                var (
+                        scope = pc.scope // always in the current scope
+                        def *types.Def
+                )
+                def, alt = scope.InsertDef(pc.project, name, values.None)
+                if def != nil {
+                        obj = def
+                }
         case types.RuleEntryType:
-                scope := pc.project.Scope() // always in the project
-                obj, alt = scope.InsertEntry(pc.project, types.GeneralRuleEntry, name)
+                var (
+                        scope = pc.project.Scope() // always in the project
+                        entry *types.RuleEntry
+                )
+                entry, alt = scope.InsertEntry(pc.project, types.GeneralRuleEntry, name)
+                if entry != nil {
+                        obj = entry
+                }
         }
         return
 }

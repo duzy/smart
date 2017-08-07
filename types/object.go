@@ -350,6 +350,10 @@ func (scope *Scope) InsertDef(project *Project, name string, value Value) (def *
         if alt = scope.elems[name]; alt == nil {
                 def = scope.NewDef(project, name, value)
                 scope.replace(name, def)
+        } else if name == "use" {
+                if sn, ok := alt.(*ScopeName); ok && sn != nil {
+                        def, alt = sn.Scope().InsertDef(project, "=", value)
+                }
         } else if d,b := alt.(*Def); d != nil && b {
                 //d.Assign(value)
         }
@@ -485,6 +489,10 @@ func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name stri
         if alt = scope.elems[name]; alt == nil {
                 entry = scope.NewRuleEntry(project, kind, name)
                 scope.replace(name, entry)
+        } else if name == "use" {
+                if sn, ok := alt.(*ScopeName); ok && sn != nil {
+                        entry, alt = sn.Scope().InsertEntry(project, UseRuleEntry, ":")
+                }
         }
         return
 }

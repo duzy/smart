@@ -39,7 +39,7 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
                 if auto, found = alt.(*types.Def); found {
                         auto.Assign(values.Make(value))
                 } else {
-                        Fail("name '%v' already taken", name)
+                        Fail("Name '%v' already taken, not auto (%T)", name, alt)
                 }
         }
         return

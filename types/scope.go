@@ -96,7 +96,7 @@ func (s *Scope) FindChainUp(name string, pos token.Pos) (*Scope, Object) {
                 }
         }
 	for p := s; p != nil; p = p.outer {
-		if obj := p.elems[name]; obj != nil && (!pos.IsValid() || obj.scopePos() <= pos) {
+		if obj := p.Lookup(name); obj != nil && (!pos.IsValid() || obj.scopePos() <= pos) {
 			return p, obj
 		}
 	}

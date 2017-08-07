@@ -29,6 +29,9 @@ const (
         FromProject // TODO: ...
         FromHere
 
+        FindDef
+        FindRule
+
         // This is the default be
         anywhere = FromHere
         global = FromGlobe
