@@ -397,19 +397,34 @@ func (i *Interpreter) exprs(exprs []ast.Expr) (values []types.Value, err error) 
 }
 
 func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
+        var entry *types.RuleEntry
         use := project.Scope().Lookup("use")
-        if rule, _ := use.(*types.RuleEntry); rule != nil {
-                result, err := rule.Call(values.Any(i.project))
-                //i.parseInfo(pos, "use: %v: %v (%v)\n", i.project.Name(), project.Name(), result)
-                if err != nil {
-                        return err
-                } else if result == nil {
-                        // ...
-                }
-        } else if false {
-                i.parseInfo(pos, "nil use rule of '%s' (%T %v)\n", project.Name(), use, use)
+        if use == nil {
+                return errors.New(fmt.Sprintf("Project `%v' has no 'use' package.", project.Name()))
         }
-        return nil
+        if sn, ok := use.(*types.ScopeName); ok && sn != nil {
+                // Get the 'use' rule entry in the 'use' scope. 
+                if obj := sn.Scope().Lookup(":"); obj != nil {
+                        //fmt.Printf("useProject: %T\n", obj)
+                        if entry, _ = obj.(*types.RuleEntry); entry == nil {
+                                return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' entry (%T).", project.Name(), obj))
+                        } else {
+                                result, err := entry.Call(values.Any(i.project))
+                                //i.parseInfo(pos, "use: %v: %v (%v)\n", i.project.Name(), project.Name(), result)
+                                if err != nil {
+                                        return err
+                                } else if result == nil {
+                                        // ...
+                                }
+                                return nil
+                        }
+                } else {
+                        //fmt.Printf("useProject: %v\n", sn.Scope())
+                        // The 'use' rule entry is not defined.
+                        return nil
+                }
+        }
+        return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' package (%T).", project.Name(), use))
 }
 
 func (i *Interpreter) useProjectName(pos token.Pos, pn *types.ProjectName) error {

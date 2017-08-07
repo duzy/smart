@@ -1197,7 +1197,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 comment = p.lineComment
 
                 alt bool
-                def *types.Def
+                def, prev *types.Def
                 value ast.Expr
         )
         // Take it from parser, since the line comment is assigned
@@ -1213,24 +1213,38 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
 
         // Create the definition.
         if v, e := p.runtime.Eval(ident, disclosure); e == nil {
+                name := v.Strval()
+
+                // If doing '+=', the assignment will concate the previous value
+                // with new one.
+                if tok == token.ADD_ASSIGN {
+                        if sym := p.runtime.Resolve(name, anywhere); sym != nil {
+                                prev, _ = sym.(*types.Def)
+                        }
+                }
+                
                 // Always work in the current runtime scope, so it won't affect
                 // any base symbols. If p.inUseRule is set, it will be defining
                 // a Definer in the 'use' rule scope. 
-                if s, a := p.runtime.Symbol(v.Strval(), types.DefType); a != nil {
+                if s, a := p.runtime.Symbol(name, types.DefType); a != nil {
                         switch tok {
                         case token.ASSIGN, token.EXC_ASSIGN:
-                                p.error(ident.Pos(), "Already defined `%v' (%v).", v.Strval(), v)
+                                p.error(ident.Pos(), "Already defined `%v' (%v).", name, v)
                         default:
                                 def, _ = a.(*types.Def) // override the existing
                         }
-                        alt = true
+                        alt = true // it's the second defining this symbol
                 } else if def, _ = s.(*types.Def); def != nil {
-                        alt = false // it's a new symbol
+                        alt = false // it's a new symbol (first in this scope)
+                        if prev != nil && prev != def /*&& prev.Parent() != def.Parent()*/ {
+                                def.SetOrigin(prev.Origin())
+                                def.Assign(types.Delegate(prev))
+                        }
                 } else if s != nil {
-                        p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", v.Strval(), s)
+                        p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", name, s)
                 }
                 if def == nil {
-                        p.error(ident.Pos(), "Failed defining `%s' (%v).", v.Strval(), v)
+                        p.error(ident.Pos(), "Failed defining `%s' (%v).", name, v)
                 }
         } else {
                 p.error(ident.Pos(), e)
@@ -1268,9 +1282,12 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         if bits != EvalBits(-1) && def != nil {
                 if v, e := p.runtime.Eval(value, bits); e == nil {
                         switch tok {
-                        case token.EXC_ASSIGN: v, e = def.AssignExec(v)
-                        case token.ADD_ASSIGN: v, e = def.Append(v)
-                        default:               v, e = def.Assign(v)
+                        case token.EXC_ASSIGN:
+                                v, e = def.AssignExec(v)
+                        case token.ADD_ASSIGN:
+                                v, e = def.Append(v)
+                        default:
+                                v, e = def.Assign(v)
                         }
                         if e != nil {
                                 p.error(value.Pos(), e)

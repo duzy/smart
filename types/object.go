@@ -247,19 +247,29 @@ func (d *Def) Assign(v Value) (Value, error) {
         return d.Value, nil
 }
 
-func (d *Def) Append(v Value) (Value, error) {
-        var nv Value
-        if d.Value != nil && d.Value.Type() != NoneType {
+func (d *Def) Append(va... Value) (Value, error) {
+        var (
+                nva = len(va)
+                nv Value // new value
+        )
+        if nva == 0 {
+                // Does nothing...
+        } else if d.Value != nil && d.Value.Type() != NoneType {
                 nv = d.Value
-                if l, _ := nv.(*List); l != nil {
-                        l.Append(v)
-                } else {
-                        nv = &List{ Elements{ []Value{ nv, v } } }
+                if l, ok := nv.(*List); ok && l != nil {
+                        l.Append(Join(va...)...)
+                } else if nva > 0 {
+                        elems := []Value{ nv }
+                        elems = append(elems, Join(va...)...)
+                        nv = &List{ Elements{ elems } }
                 }
-        } else {
-                nv = v
+        } else if nva > 0 {
+                nv = &List{ Elements{ Join(va...) } }
         }
-        return d.Assign(nv)
+        if nv != nil {
+                return d.Assign(nv)
+        }
+        return d.Value, nil
 }
 
 func (d *Def) AssignExec(a... Value) (Value, error) {
@@ -307,6 +317,7 @@ func (p *definer) Integer() int64 { return 0 }
 func (p *definer) Float() float64 { return 0 }
 func (p *definer) Define(scope *Scope, project *Project) (def *Def, err error) {
         var src *Def
+        //fmt.Printf("define: %v in %v\n", p.name, scope)
         if o := scope.Lookup(p.name); o == nil {
                 err = errors.New(fmt.Sprintf("%s undefined in source scope", p.name))
                 return
@@ -315,16 +326,89 @@ func (p *definer) Define(scope *Scope, project *Project) (def *Def, err error) {
                 return
         }
         
+        var isAltDef = false
         if obj, alt := project.Scope().InsertDef(project, p.name, UniversalNone); alt != nil {
-                def = alt.(*Def)
+                def, isAltDef = alt.(*Def), true
         } else {
                 def = obj
         }
         switch p.op {
-        case token.EXC_ASSIGN: _, err = def.AssignExec(src.Value)
-        case token.ADD_ASSIGN: _, err = def.Append(src.Value)
         default:               _, err = def.Assign(src.Value)
+        case token.EXC_ASSIGN: _, err = def.AssignExec(src.Value)
+        case token.ADD_ASSIGN:
+                var value = src.Value
+                // Inorder to avoid recursive referencing, assignment have to
+                // check if the heading elements are the same or referencing to
+                // each other. This restrition only to rule-program definers and
+                // required when importing (and using) multiple projects and they're
+                // appending to them same symbol name.
+                if isAltDef && src.Value.Type() == ListType && def.Value.Type() == ListType {
+                        srcList, dstList := src.Value.(*List), def.Value.(*List)
+                        if len(srcList.Elems) > 0 && len(dstList.Elems) > 0 {
+                                srcDel0, _ := srcList.Elems[0].(*delegate)
+                                dstDel0, _ := dstList.Elems[0].(*delegate)
+                                if srcDel0 == dstDel0 || srcDel0.o == dstDel0.o {
+                                        fmt.Printf("append--: %p %p, %v %v, %v %v\n", srcDel0.o, dstDel0.o, 
+                                                srcDel0.o.referencing(dstDel0.o),
+                                                dstDel0.o.referencing(srcDel0.o),
+                                                srcDel0.referencing(dstDel0.o),
+                                                dstDel0.referencing(srcDel0.o))
+                                } else if srcDel0.o.Name() == dstDel0.o.Name() {
+                                        srcDef := srcDel0.o.(*Def)
+                                        dstDef := dstDel0.o.(*Def)
+                                        /*if srcDef == nil || dstDef == nil {
+                                                // FIXME: unreachable...
+                                        } else if srcDel0.o.referencing(dstDel0.o) {
+                                                var d *delegate
+                                                switch t := srcDef.Value.(type) {
+                                                case *List: d, _ = t.Elems[0].(*delegate)
+                                                case *delegate: d = t
+                                                }
+                                                if d != nil && d.o == dstDef {
+                                                        //fmt.Printf("append: %p %p\n", d.o, dstDef)
+                                                        value = &List{ Elements{ srcList.Elems[1:] } }
+                                                }
+                                        } else if dstDel0.o.referencing(srcDel0.o) {
+                                                var d *delegate
+                                                switch t := dstDef.Value.(type) {
+                                                case *List: d, _ = t.Elems[0].(*delegate)
+                                                case *delegate: d = t
+                                                }
+                                                if d != nil && d.o == srcDef {
+                                                        // The def value already contains src delegate.
+                                                        return
+                                                }
+                                        }*/
+                                        if srcDef != nil && dstDef != nil {
+                                                var del *delegate
+                                                
+                                                // Case: srcDel0.o.referencing(dstDel0.o)
+                                                switch t := srcDef.Value.(type) {
+                                                case *List: del, _ = t.Elems[0].(*delegate)
+                                                case *delegate: del = t
+                                                }
+                                                if del != nil && del.o == dstDef {
+                                                        //fmt.Printf("append: %p %p\n", d.o, dstDef)
+                                                        value = &List{ Elements{ srcList.Elems[1:] } }
+                                                        goto AppendValue
+                                                }
+
+                                                // Case: dstDel0.o.referencing(srcDel0.o)
+                                                switch t := dstDef.Value.(type) {
+                                                case *List: del, _ = t.Elems[0].(*delegate)
+                                                case *delegate: del = t
+                                                }
+                                                if del != nil && del.o == srcDef {
+                                                        // The def value already contains src delegate.
+                                                        return
+                                                }
+                                        }
+                                }
+                        }
+                }
+                AppendValue: _, err = def.Append(value)
         }
+        //fmt.Printf("defined: %v: %v = %v\n", project.Name(), p.Name(), src.Value)
         return
 }
 
@@ -354,8 +438,6 @@ func (scope *Scope) InsertDef(project *Project, name string, value Value) (def *
                 if sn, ok := alt.(*ScopeName); ok && sn != nil {
                         def, alt = sn.Scope().InsertDef(project, "=", value)
                 }
-        } else if d,b := alt.(*Def); d != nil && b {
-                //d.Assign(value)
         }
         return
 }

@@ -862,11 +862,19 @@ func Eval(v Value) (res Value) {
 }
 
 func EvalElems(args... Value) (elems []Value) {
+        elems = Join(args...)
+        for i, elem := range elems {
+                elems[i] = Eval(elem)
+        }
+        return
+}
+
+func Join(args... Value) (elems []Value) {
         for _, arg := range args {
-                switch t := Eval(arg).(type) {
+                switch t := arg.(type) {
                 case *List:
                         for _, elem := range t.Elems {
-                                elems = append(elems, EvalElems(elem)...)
+                                elems = append(elems, Join(elem)...)
                         }
                 default:
                         elems = append(elems, t)
