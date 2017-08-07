@@ -17,57 +17,67 @@ import (
 var None = types.UniversalNone
 
 func Any(v interface{}) *types.Any {
-        return &types.Any{ V:v }
+        return &types.Any{ Value:v }
 }
 
 func BinLit(s string) (v *types.Bin) {
         if i, e := strconv.ParseInt(s, 2, 64); e == nil {
-                v = &types.Bin{i}
+                v = Bin(i)
         }
         return
 }
-func Bin(s int64) (v *types.Bin) {
-        return &types.Bin{s}
+func Bin(i int64) (v *types.Bin) {
+        v = new(types.Bin)
+        v.Value = i
+        return
 }
 
 func OctLit(s string) (v *types.Oct) {
         if i, e := strconv.ParseInt(s, 8, 64); e == nil {
-                v = &types.Oct{i}
+                v = Oct(i)
         }
         return
 }
-func Oct(s int64) (v *types.Oct) {
-        return &types.Oct{s}
+func Oct(i int64) (v *types.Oct) {
+        v = new(types.Oct)
+        v.Value = i
+        return
 }
 
 func IntLit(s string) (v *types.Int) {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-                v = &types.Int{i}
+                v = Int(i)
         }
         return
 }
-func Int(s int64) (v *types.Int) {
-        return &types.Int{s}
+func Int(i int64) (v *types.Int) {
+        v = new(types.Int)
+        v.Value = i
+        return
 }
 
 func HexLit(s string) (v *types.Hex) {
         if i, e := strconv.ParseInt(s, 16, 64); e == nil {
-                v = &types.Hex{i}
+                v = Hex(i)
         }
         return
 }
-func Hex(s int64) (v *types.Hex) {
-        return &types.Hex{s}
+func Hex(i int64) (v *types.Hex) {
+        v = new(types.Hex)
+        v.Value = i
+        return
 }
 
 func FloatLit(s string) (v *types.Float) {
         if f, e := strconv.ParseFloat(s, 64); e == nil {
-                v = &types.Float{f}
+                v = Float(f)
         }
         return
 }
-func Float(s float64) (v *types.Float) {
-        return &types.Float{s}
+func Float(f float64) (v *types.Float) {
+        v = new(types.Float)
+        v.Value = f
+        return
 }
 
 func DateTimeLit(s string) (v *types.DateTime) {

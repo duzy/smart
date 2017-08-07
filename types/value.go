@@ -86,75 +86,59 @@ type None struct { value }
 func (p *None) Type() Type { return NoneType }
 
 type Any struct {
-        V interface{}
+        Value interface{}
         value
 }
 func (p *Any) Type() Type { return AnyType }
 
-type Bin struct {
-        V int64
+type integer struct {
+        Value int64
 }
-func (*Bin) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Bin) referencing(_ Object) bool { return false }
+func (p *integer) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *integer) referencing(_ Object) bool { return false }
+func (p *integer) Integer() int64      { return p.Value }
+func (p *integer) Float() float64      { return float64(p.Value) }
+
+type Bin struct { integer }
 func (p *Bin) Type() Type          { return BinType }
 func (p *Bin) String() string      { return p.Strval() }
-func (p *Bin) Strval() string      { return strconv.FormatInt(int64(p.V),2) }
-func (p *Bin) Integer() int64      { return p.V }
-func (p *Bin) Float() float64      { return float64(p.V) }
+func (p *Bin) Strval() string      { return strconv.FormatInt(int64(p.Value),2) }
 
-type Oct struct {
-        V int64
-}
-func (*Oct) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Oct) referencing(_ Object) bool { return false }
+type Oct struct { integer }
 func (p *Oct) Type() Type          { return OctType }
 func (p *Oct) String() string      { return p.Strval() }
-func (p *Oct) Strval() string      { return strconv.FormatInt(int64(p.V),8) }
-func (p *Oct) Integer() int64      { return p.V }
-func (p *Oct) Float() float64      { return float64(p.V) }
+func (p *Oct) Strval() string      { return strconv.FormatInt(int64(p.Value),8) }
 
-type Int struct {
-        V int64
-}
-func (*Int) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Int) referencing(_ Object) bool { return false }
+type Int struct { integer }
 func (p *Int) Type() Type          { return IntType }
 func (p *Int) String() string      { return p.Strval() }
-func (p *Int) Strval() string      { return strconv.FormatInt(int64(p.V),10) }
-func (p *Int) Integer() int64      { return p.V }
-func (p *Int) Float() float64      { return float64(p.V) }
+func (p *Int) Strval() string      { return strconv.FormatInt(int64(p.Value),10) }
 
-type Hex struct {
-        V int64
-}
-func (*Hex) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Hex) referencing(_ Object) bool { return false }
+type Hex struct { integer }
 func (p *Hex) Type() Type          { return HexType }
 func (p *Hex) String() string      { return p.Strval() }
-func (p *Hex) Strval() string      { return strconv.FormatInt(int64(p.V),16) }
-func (p *Hex) Integer() int64      { return p.V }
-func (p *Hex) Float() float64      { return float64(p.V) }
+func (p *Hex) Strval() string      { return strconv.FormatInt(int64(p.Value),16) }
 
 type Float struct {
-        V float64
+        Value float64
 }
-func (*Float) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Float) referencing(_ Object) bool { return false }
+func (p *Float) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *Float) referencing(_ Object) bool { return false }
 func (p *Float) Type() Type        { return FloatType }
 func (p *Float) String() string    { return p.Strval() }
-func (p *Float) Strval() string    { return strconv.FormatFloat(float64(p.V),'g', -1, 64) }
-func (p *Float) Integer() int64    { return int64(p.V) }
-func (p *Float) Float() float64    { return p.V }
+func (p *Float) Strval() string    { return strconv.FormatFloat(float64(p.Value),'g', -1, 64) }
+func (p *Float) Integer() int64    { return int64(p.Value) }
+func (p *Float) Float() float64    { return p.Value }
 
 type DateTime struct {
-        V time.Time 
+        Value time.Time 
 }
 func (*DateTime) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*DateTime) referencing(_ Object) bool { return false }
 func (p *DateTime) Type() Type     { return DateTimeType }
 func (p *DateTime) String() string { return p.Strval() }
-func (p *DateTime) Strval() string { return time.Time(p.V).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
-func (p *DateTime) Integer() int64 { return p.V.Unix() }
+func (p *DateTime) Strval() string { return time.Time(p.Value).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
+func (p *DateTime) Integer() int64 { return p.Value.Unix() }
 func (p *DateTime) Float() float64 { return float64(p.Integer()) }
 
 type Date struct { DateTime }
@@ -162,8 +146,8 @@ func (*Date) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*Date) referencing(_ Object) bool { return false }
 func (p *Date) Type() Type         { return DateType }
 func (p *Date) String() string     { return p.Strval() }
-func (p *Date) Strval() string     { return time.Time(p.V).Format("2006-01-02") }
-func (p *Date) Integer() int64     { return p.V.Unix() }
+func (p *Date) Strval() string     { return time.Time(p.Value).Format("2006-01-02") }
+func (p *Date) Integer() int64     { return p.Value.Unix() }
 func (p *Date) Float() float64     { return float64(p.Integer()) }
 
 type Time struct { DateTime }
@@ -171,46 +155,46 @@ func (*Time) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*Time) referencing(_ Object) bool { return false }
 func (p *Time) Type() Type         { return TimeType }
 func (p *Time) String() string     { return p.Strval() }
-func (p *Time) Strval() string     { return time.Time(p.V).Format("15:04:05.999999999Z07:00") }
-func (p *Time) Integer() int64     { return p.V.Unix() }
+func (p *Time) Strval() string     { return time.Time(p.Value).Format("15:04:05.999999999Z07:00") }
+func (p *Time) Integer() int64     { return p.Value.Unix() }
 func (p *Time) Float() float64     { return float64(p.Integer()) }
 
 type Uri struct {
-        V *url.URL
+        Value *url.URL
 }
 func (*Uri) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*Uri) referencing(_ Object) bool { return false }
 func (p *Uri) Type() Type          { return UriType }
 func (p *Uri) String() string      { return p.Strval() }
-func (p *Uri) Strval() string      { return p.V.String() }
-func (p *Uri) Integer() int64      { return int64(len(p.V.String())) }
+func (p *Uri) Strval() string      { return p.Value.String() }
+func (p *Uri) Integer() int64      { return int64(len(p.Value.String())) }
 func (p *Uri) Float() float64      { return float64(p.Integer()) }
 
 type String struct {
-        V string
+        Value string
 }
 func (*String) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*String) referencing(_ Object) bool { return false }
 func (p *String) Type() Type  { return StringType }
 func (p *String) String() string {
-        if strings.ContainsRune(p.V, '\n') {
-                return "\"" + strings.Replace(p.V, "\n", "\\n", -1) + "\"" 
+        if strings.ContainsRune(p.Value, '\n') {
+                return "\"" + strings.Replace(p.Value, "\n", "\\n", -1) + "\"" 
         } else {
-                return "'" + p.V + "'" 
+                return "'" + p.Value + "'" 
         }
 }
-func (p *String) Strval() string   { return p.V }
-func (p *String) Integer() int64   { i, _ := strconv.ParseInt(p.V, 10, 64); return i }
+func (p *String) Strval() string   { return p.Value }
+func (p *String) Integer() int64   { i, _ := strconv.ParseInt(p.Value, 10, 64); return i }
 func (p *String) Float() float64   { return float64(p.Integer()) }
 
 type Bareword struct {
-        V string
+        Value string
 }
 func (*Bareword) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*Bareword) referencing(_ Object) bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
-func (p *Bareword) String() string { return p.V }
-func (p *Bareword) Strval() string { return p.V }
+func (p *Bareword) String() string { return p.Value }
+func (p *Bareword) Strval() string { return p.Value }
 func (p *Bareword) Integer() int64 { return 0 }
 func (p *Bareword) Float() float64 { return float64(p.Integer()) }
         

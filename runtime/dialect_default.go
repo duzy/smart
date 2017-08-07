@@ -44,7 +44,7 @@ evaluationLoop:
                                         break evaluationLoop
                                 }
                                 if a, _ := args[0].(*types.Any); a != nil {
-                                        if p, ok := a.V.(*types.Project); ok {
+                                        if p, ok := a.Value.(*types.Project); ok {
                                                 v, e = t.Define(prog.scope, p); break
                                         }
                                 }
