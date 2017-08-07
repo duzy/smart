@@ -26,5 +26,4 @@ example.cpp:[(plain) (update-file)]
 	}
 
 clean:
-	write-file aaa aaa 0600 bbb bbb 0600
 	remove example example.o example.cpp
