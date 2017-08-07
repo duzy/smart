@@ -992,7 +992,6 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
         }
 
         switch res.Type() {
-        case types.RuleEntryType: // e.g. other.entry
         case types.BarewordType:
         case types.BarefileType:
         case types.PathType:
@@ -1000,6 +999,8 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
         case types.ClosureType:
         case types.ListType:
                 // TODO: check list elements type?
+        case types.RuleEntryType: // e.g. other.entry
+        case types.ProjectNameType: // e.g. use.*
         default:
                 res, err = nil, errors.New(fmt.Sprintf("Unsupported depend type '%v' (%T %v).", res.Type(), res, res))
         }

@@ -140,6 +140,12 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         file = d.Strval(); goto HandleFile
                 case *types.Path:
                         file = d.Strval(); goto HandleFile
+                case *types.ProjectName:
+                        if ent := d.Project().DefaultEntry(); ent != nil {
+                                depend = ent; goto DependSwitch
+                        } else {
+                                continue DependsLoop
+                        }
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
                                 name := d.MakeString(stem)
