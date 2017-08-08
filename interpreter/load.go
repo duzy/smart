@@ -360,8 +360,8 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 } else {
                         v = values.PercentPattern(a, b)
                 }
-        case *ast.UseDefineClause:
-                //fmt.Printf("UseDefineClause: %T %v\n", x.Sym, x.Sym)
+        case *ast.RecipeDefineClause:
+                //fmt.Printf("RecipeDefineClause: %s: %T %v\n", i.project.Name(), x.Sym, x.Sym)
                 if d, _ := x.Sym.(*types.Def); d != nil {
                         // !strings.HasPrefix(s, "rule use")
                         //if s := d.Parent().Comment(); s != "rule use" {

@@ -316,8 +316,8 @@ func (p *definer) Strval() string { return "definer " + p.name }
 func (p *definer) Integer() int64 { return 0 }
 func (p *definer) Float() float64 { return 0 }
 func (p *definer) Define(scope *Scope, project *Project) (def *Def, err error) {
+        fmt.Printf("define: %v in %v\n", p.name, scope)
         var src *Def
-        //fmt.Printf("define: %v in %v\n", p.name, scope)
         if o := scope.Lookup(p.name); o == nil {
                 err = errors.New(fmt.Sprintf("%s undefined in source scope", p.name))
                 return
@@ -408,7 +408,7 @@ func (p *definer) Define(scope *Scope, project *Project) (def *Def, err error) {
                 }
                 AppendValue: _, err = def.Append(value)
         }
-        //fmt.Printf("defined: %v: %v = %v\n", project.Name(), p.Name(), src.Value)
+        fmt.Printf("defined: %v: %v = %v\n", project.Name(), p.Name(), src.Value)
         return
 }
 

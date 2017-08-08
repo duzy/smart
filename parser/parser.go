@@ -1315,18 +1315,23 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         }
 }
 
-func (p *parser) parseBuiltinRecipeExpr(i int) (x ast.Expr) {
+func (p *parser) parseBuiltinRecipeExpr(elems []ast.Expr) (x ast.Expr) {
         // Do left-hand-side parsing if in use rule
         switch x = p.parseExpr(p.inUseRule); {
         case p.tok.IsAssign():
                 d := p.parseDefineClause(p.tok, x).(*ast.DefineClause)
-                x = &ast.UseDefineClause{ d }
+                x = &ast.RecipeDefineClause{ d }
+
+        case p.tok.IsRuleDelim():
+                elems = append(elems, x)
+                d := p.parseRuleClause(p.tok, elems).(*ast.RuleClause)
+                x = &ast.RecipeRuleClause{ d }
 
         default:
                 if v, e := p.runtime.Eval(x, disclosure); e != nil {
                         p.error(x.Pos(), e)
                 } else if v != nil {
-                        if i == 0 {
+                        if len(elems) == 0 {
                                 if name := v.Strval(); name == "" {
                                         p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
                                 } else if sym := p.runtime.Resolve(name, anywhere); sym == nil {
@@ -1360,8 +1365,8 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE and parse in list mode
                 p.inUseRule = isUseRule
-                for i := 0; p.tok != token.LINEND && p.tok != token.EOF; i += 1 {
-                        elems = append(elems, p.parseBuiltinRecipeExpr(i))
+                for p.tok != token.LINEND && p.tok != token.EOF {
+                        elems = append(elems, p.parseBuiltinRecipeExpr(elems[:]))
                         if p.lineComment != nil {
                                 comment = p.lineComment
                                 break
@@ -1371,7 +1376,7 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
 
         default:
                 p.next() // skip RECIPE and parse in line-string mode
-                for i := 0; p.tok != token.LINEND && p.tok != token.EOF; i += 1 {
+                for p.tok != token.LINEND && p.tok != token.EOF {
                         elems = append(elems, p.parseExpr(false))
                 }
         }

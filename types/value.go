@@ -650,7 +650,7 @@ type closure struct {
         a []Value
 }
 
-func (p *closure) Type() Type           { return ClosureType }
+func (p *closure) Type() Type { return ClosureType }
 func (p *closure) String() (s string) {
         var na = len(p.a)
         s = "&"
@@ -671,9 +671,9 @@ func (p *closure) Integer() int64       { return p.o.Integer() }
 func (p *closure) Float() float64       { return p.o.Float() }
 func (p *closure) disclose(scope *Scope) (Value, error) {
         //fmt.Printf("closure.disclose: %T %v\n", p.o, p.o)
-        obj := scope.Find(p.o.Name())
-        if obj == nil {
-                obj = p.o
+        var obj = p.o
+        if o := scope.Find(p.o.Name()); o != nil {
+                obj = o
         }
 
         switch o := obj.(type) {

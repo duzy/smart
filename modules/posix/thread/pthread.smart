@@ -1,4 +1,7 @@
 project thread
 
+CPPFLAGS = -DPT
+
 use:
-	libs += -lpthread
+	CPPFLAGS += -DPTHREAD
+	LDLIBS += -lpthread

@@ -428,10 +428,10 @@ type (
 		Tok     token.Token    // token ':', '::'
 	}
 
-        UseDefineClause struct {
+        RecipeDefineClause struct {
                 *DefineClause
         }
-        UseRuleClause struct {
+        RecipeRuleClause struct {
                 *RuleClause
         }
 )
@@ -460,8 +460,8 @@ func (*GenericClause) clauseNode() {}
 func (*DefineClause) clauseNode()  {}
 func (*RuleClause) clauseNode()    {}
 
-func (*UseDefineClause) exprNode() {}
-func (*UseRuleClause) exprNode() {}
+func (*RecipeDefineClause) exprNode() {}
+func (*RecipeRuleClause) exprNode() {}
 
 // A File node represents a Smart source file.
 //

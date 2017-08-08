@@ -9,6 +9,11 @@ files '*.o' '*.cpp' 'example'
 
 GREETING := 'Hello World!'
 
+eval println "CPPFLAGS = $CPPFLAGS"
+
+run:[(stdout) (stderr) (shell)]: example
+	./example
+
 example:[(compare) (stderr) (shell)]: example.o
 	$(LINK) $^ -o $@ $(LDLIBS)
 
@@ -21,7 +26,7 @@ example.cpp:[(plain) (update-file)]
 	int main(int argc, char** argv) {
 	    pthread_t self = pthread_self();
 	    std::cout << "$(GREETING)" << std::endl;
-	    std::cout << self << std::endl;
+	    std::cout << "self: " << self << std::endl;
 	    return 0;
 	}
 
