@@ -19,6 +19,17 @@ import (
         "fmt"
 )
 
+type parsingBits uint
+const (
+        composing parsingBits = 1<<iota
+        composingPERIOD
+        composingPCON
+        composingPERC
+        
+        // Bits to disable parsing ArgumentedExpr 
+        composingNoArg = composingPERIOD | composingPCON | composingPERC
+)
+
 type parser struct {
         *Context
         
@@ -52,7 +63,8 @@ type parser struct {
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
         inUseRule bool // parsing use recipe
-        selecting bool // parsing a selection, e.g. foo.bar.xxx.yyy.zzz
+
+        bits parsingBits
         
 	// Ordinary identifier scopes
 	imports    []*ast.ImportSpec // list of imports
@@ -392,6 +404,7 @@ func (p *parser) safePos(pos token.Pos) (res token.Pos) {
 // checkExpr checks that x is a valid expression (and not a Clause).
 func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	switch /*unparen(x)*/x.(type) {
+        case *ast.ArgumentedExpr:
 	case *ast.BadExpr:
 	case *ast.Bareword:
 	case *ast.BasicLit:
@@ -470,17 +483,14 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
 	}
 
         // Parse rhs of '.'...
-        p.selecting = true // Avoid the next '.' being parsed, e.g. foo.bar.xxx.yyy
         s := p.checkExpr(p.parseExpr(lhs))
-        p.selecting = false
-        
         switch t := s.(type) {
         case *ast.Bareword:
                 if bw, ok := x.(*ast.Bareword); ok && p.runtime.IsFileName(bw.Value+"."+t.Value) {
                         return &ast.Barefile{ x, t.Pos(), t.Value }
                 }
 
-        case *ast.Barecomp:
+        /*case *ast.Barecomp:
                 // Dealing with barecomps like 'foobar.o(arg)', this
                 // algorithm converts splitting 'foobar', '.o(arg)' into
                 // 'foobar.o' and '(arg)' (suppose '*.o' are files).
@@ -502,7 +512,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                                 t.Elems[0] = res
                                 res = t
                         }()
-                }
+                }*/
         }
 
         // Deal with lhs of '.', convert x into an Ident or Barefile
@@ -914,113 +924,84 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
 func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         //fmt.Printf("composing:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
-        if (p.tok == token.ARROW || p.tok == token.ASSIGN) && !lhs {
-                pos, tok := p.pos, p.tok
-                p.next()
-                x = &ast.KeyValueExpr{
-                        Key:   x,
-                        Tok:   tok,
-                        Equal: pos,
-                        Value: p.parseExpr0(false),
-                }
-        } else if p.tok == token.PERIOD {
-                if p.selecting {
-                        // If it's selecting, don't enter parseSelect again.
-                        // The parseSelect procedure will check this '.'
-                } else {
-                        p.next()
-                        x = p.parseSelect(lhs, p.checkExpr(x))
-                }
-        } else if p.tok == token.PCON {
-                var (
-                        segments []ast.Expr
-                        pos = x.Pos()
-                )
-
-                good := func() bool {
-                        switch x.(type) {
-                        case *ast.Barefile: // good
-                        case *ast.Bareword: // good
-                        case *ast.Barecomp: // good
-                        case *ast.BasicLit: // TODO: validate t.Kind...
-                        default:
-                                //fmt.Printf("%T %v (%v)\n", x, x, p.tok)
-                                p.errorExpected(x.Pos(), "path segment (%T)", x)
-                                return false
-                        }
-                        return true
-                }
-
-                if good() {
-                        segments = append(segments, x)
-                        p.next() // next token after '/'
-                        prev := p.pos
-                        x = p.checkExpr(p.parseExpr(lhs))
-                        if pp, ok := x.(*ast.PathExpr); ok {
-                                segments = append(segments, pp.Segments...)
-                        } else if x.Pos() == prev && good() {
-                                segments = append(segments, x)
-                        }
-                }
-                return &ast.PathExpr{ PosBeg:pos, Segments:segments, PosEnd:p.pos }
-        } else if p.tok == token.PERC && x.End() == p.pos {
-                return &ast.PercExpr{
-                        X: x,
-                        OpPos: p.pos,
-                        Y: p.checkExpr(p.parseExpr(lhs)),
-                }
-        } else if p.tok == token.COMPOSED {
-                // ignored
-        } else if p.tok == token.RPAREN {
-                // ignored
-        } else if p.tok == token.RBRACK {
-                // ignored
-        } else if p.tok == token.COMMA {
-                // ignored
-        } else if p.tok == token.COLON {
-                // ignored
-        } else if p.tok == token.LINEND {
-                // ignored
-        } else if p.tok == token.ILLEGAL {
+        var joint = x.End() == p.pos && p.lineComment == nil
+        switch p.tok {
+        case token.COMPOSED, token.RPAREN, token.RBRACK, token.COMMA, token.COLON, token.LINEND:
+        case token.ILLEGAL:
                 p.error(p.pos, "illegal token")
-        } else if x.End() == p.pos && p.lineComment == nil {
-                // The next expr is concated (without any spaces).
-                
-                //fmt.Printf("compose: %T %v %v %v\t%v %v\n", x, x, x.Pos(), x.End(), p.pos, p.tok)
-                switch p.tok {
-                case token.LPAREN:
+        case token.ARROW, token.ASSIGN:
+                if !lhs {
+                        pos, tok := p.pos, p.tok
+                        p.next()
+                        x = &ast.KeyValueExpr{
+                                Key:   x,
+                                Tok:   tok,
+                                Equal: pos,
+                                Value: p.parseExpr(false),
+                        }
+                }
+        case token.LPAREN:
+                // ArgumentedExpr: foo(xxx)
+                // Special: foo.o(xxx) - parse select, then argumented
+                if joint && p.bits&composingNoArg == 0 {
                         y := p.parseGroupExpr().(*ast.GroupExpr)
                         x = &ast.ArgumentedExpr{ x, y.Elems, y.End() }
-                case token.PERIOD:
-                        // If it's selecting, don't enter parseSelect again.
-                        // The parseSelect procedure will check this '.'
-                        if !p.selecting {
-                                p.next() // Drop the '.' token.
-                                x = p.parseSelect(lhs, p.checkExpr(x))
-                        }
-                case token.PCON:
+                }
+        case token.PERIOD:
+                // If it's selecting, don't enter parseSelect again.
+                // The parseSelect procedure will check this '.'
+                if joint && p.bits&composingPERIOD == 0 {
+                        p.bits |= composingPERIOD
+                        p.next() // Drop the '.' token.
+                        x = p.parseSelect(lhs, p.checkExpr(x))
+                        p.bits &= ^composingPERIOD
+                }
+        case token.PCON:
+                if joint && p.bits&composingPCON == 0 {
+                        p.bits |= composingPCON
                         pat := &ast.PathExpr{ PosBeg:p.pos, PosEnd:p.pos }
                         // Drop continual '/' tokens.
                         ConcatPath: for p.tok == token.PCON { p.next() }
-                        y := p.checkExpr(p.parseExpr0(lhs))
+                        y := p.checkExpr(p.parseExpr(lhs))
                         pat.Segments = append(pat.Segments, y)
                         pat.PosEnd = y.End()
                         if p.tok == token.PCON {
                                 goto ConcatPath
                         }
+                        p.bits &= ^composingPCON
                 }
-                
-                var (
-                        bc = &ast.Barecomp{ []ast.Expr{ x } }
+        case token.PERC:
+                if joint && p.bits&composingPERC == 0 {
+                        p.bits |= composingPERC
+                        x = &ast.PercExpr{
+                                X: x,
+                                OpPos: p.pos,
+                                Y: p.checkExpr(p.parseExpr(lhs)),
+                        }
+                        p.bits &= ^composingPERC
+                }
+        default:
+                if joint && p.bits&composing == 0 {
+                        var y ast.Expr
+                        p.bits |= composing
+                Compose:
                         y = p.checkExpr(p.parseExpr(lhs))
-                )
-                switch t := y.(type) {
-                case *ast.Barecomp: 
-                        bc.Elems = append(bc.Elems, t.Elems...)
-                default: 
-                        bc.Elems = append(bc.Elems, y)
+                        x = &ast.Barecomp{ []ast.Expr{ x, y } }
+                        if x.End() == p.pos && p.lineComment == nil {
+                                switch p.tok {
+                                case token.COMPOSED, token.RPAREN, token.RBRACK, token.COMMA, token.COLON, token.LINEND:
+                                case token.LPAREN, token.PERIOD, token.PCON, token.PERC:
+                                case token.ARROW, token.ASSIGN:
+                                case token.ILLEGAL:
+                                default:
+                                        if p.tok.IsAssign() || p.tok.IsRuleDelim() {
+                                                break
+                                        }
+                                        goto Compose
+                                }
+                        }
+                        p.bits &= ^composing
                 }
-                x = bc
         }
         return x
 }
@@ -1642,29 +1623,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         if p.tok != token.LINEND {
                 depends = p.parseRhsList(true)
                 dependsLoop: for i, depend := range depends {
-                        /*var (
-                                args []types.Value
-                        )
-                        switch dep := depend.(type) {
-                        case *ast.Barecomp:
-                                if g := dep.Elems[len(dep.Elems)-1].(*ast.GroupExpr); g != nil {
-                                        dep.Elems = dep.Elems[:len(dep.Elems)-1]
-                                        for _, elem := range g.Elems {
-                                                v, e := p.runtime.Eval(elem, delegation)
-                                                if e != nil {
-                                                        p.error(depend.Pos(), "bad arg (%s)", e)
-                                                        continue
-                                                }
-                                                args = append(args, v)
-                                        }
-                                }
-                                if nelems := len(dep.Elems); nelems == 1 {
-                                        depend = dep.Elems[0]
-                                } else if nelems == 0 {
-                                        p.error(depend.Pos(), "bad depend")
-                                }
-                        }*/
-
                         //fmt.Printf("depend: %T %v\n", depend, depend)
 
                         depval, err := p.runtime.Eval(depend, ruledepend)
@@ -1674,8 +1632,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         } else if depval == nil {
                                 p.error(depend.Pos(), "Invalid depend `%T'.", depend)
                                 continue
-                        /*} else if len(args) > 0 {
-                                depval = &types.Argumented{ depval, args }*/
                         }
 
                         //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
