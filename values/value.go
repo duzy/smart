@@ -152,6 +152,9 @@ func PercentPattern(prefix, suffix types.Value) types.Pattern {
 func Path(segments... types.Value) (v *types.Path) {
         return &types.Path{types.Elements{segments}}
 }
+func PathSeg(ch rune) (v *types.PathSeg) {
+        return &types.PathSeg{ Value:ch }
+}
 
 func File(v types.Value, s string) (fv *types.File) {
         return &types.File{ Value:v, Name:s }

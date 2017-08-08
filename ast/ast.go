@@ -188,6 +188,11 @@ type (
                 PosEnd token.Pos
         }
 
+        PathSegExpr struct { // '/', '.' (only like './'), '..' (only like './')
+                TokPos token.Pos
+                Tok token.Token
+        }
+
         // Delegate expressions: $(foo a1,a2,a3), $(foo), $foo
         // Closure expressions: &(foo a1,a2,a3), &(foo), &foo
         ClosureDelegate struct {
@@ -262,6 +267,7 @@ func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
 func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
 func (d *PathExpr) Pos() token.Pos        { return d.PosBeg }
+func (d *PathSegExpr) Pos() token.Pos    { return d.TokPos }
 func (d *GlobExpr) Pos() token.Pos        { return d.TokPos }
 func (d *ClosureDelegate) Pos() token.Pos { return d.TokPos }
 func (d *ArgumentedExpr) Pos() token.Pos  { return d.X.Pos() }
@@ -284,6 +290,7 @@ func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End()
 func (d *Barefile) End() token.Pos        { return token.Pos(int(d.ExtPos) + len(d.Ext)) }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *PathExpr) End() token.Pos        { return d.PosEnd }
+func (d *PathSegExpr) End() token.Pos    { return d.TokPos+1 }
 func (d *GlobExpr) End() token.Pos        { return d.TokPos + 1 }
 func (d *ClosureDelegate) End() token.Pos { return d.Rparen + 1 }
 func (d *ArgumentedExpr) End() token.Pos  { return d.EndPos }
@@ -303,6 +310,7 @@ func (*Barecomp) expr()        {}
 func (*Barefile) expr()        {}
 func (*ListExpr) expr()        {}
 func (*PathExpr) expr()        {}
+func (*PathSegExpr) expr()     {}
 func (*GlobExpr) expr()        {}
 func (*ClosureDelegate) expr() {}
 func (*ArgumentedExpr) expr()  {}

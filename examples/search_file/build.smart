@@ -1,8 +1,11 @@
 project
 
 import (
-    'tools/gcc/c++'
+    tools///gcc///c++
 )
+
+eval println /////opt///foobar
+eval println .///foo///bar
 
 files (
     '*.cpp' => "$./src"

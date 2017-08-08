@@ -835,10 +835,23 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
         case token.LPAREN:
                 return p.parseGroupExpr()
 
-        case token.PERIOD, token.PCON:
+        /*case token.PERIOD, token.PCON:
                 pos, tok := p.pos, p.tok
                 p.next()
-                return &ast.Bareword{ pos, tok.String() }
+                return &ast.Bareword{ pos, tok.String() }*/
+        case token.PCON:
+                pos, tok := p.pos, p.tok; p.next()
+                //for p.tok == token.PCON { p.next() }
+                return &ast.PathSegExpr{ pos, tok }
+        case token.PERIOD:
+                pos, tok := p.pos, p.tok; p.next()
+                if p.tok == token.PCON {
+                        return &ast.PathSegExpr{ pos, tok }
+                //} else if p.tok == token.PERIOD {
+                } else {
+                        // FIXME: select from the current context
+                        return &ast.Bareword{ pos, "." }
+                }
                 
         case token.PERC:
                 pos := p.pos
@@ -959,7 +972,11 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         case token.PCON:
                 if joint && p.bits&composingPCON == 0 {
                         p.bits |= composingPCON
-                        pat := &ast.PathExpr{ PosBeg:p.pos, PosEnd:p.pos }
+                        pat := &ast.PathExpr{ 
+                                PosBeg: p.pos, 
+                                Segments: []ast.Expr{x}, 
+                                PosEnd: p.pos,
+                        }
                         // Drop continual '/' tokens.
                         ConcatPath: for p.tok == token.PCON { p.next() }
                         y := p.checkExpr(p.parseExpr(lhs))
@@ -968,6 +985,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         if p.tok == token.PCON {
                                 goto ConcatPath
                         }
+                        x = pat
                         p.bits &= ^composingPCON
                 }
         case token.PERC:

@@ -46,6 +46,7 @@ var (
                 StringKind:   {StringKind, IsString, "string"},
                 BarewordKind: {BarewordKind, IsBareword, "bareword"},
                 BarefileKind: {BarefileKind, IsBarefile, "barefile"},
+                PathSegKind:  {PathSegKind, IsPathSeg, "pathseg"},
                 PathKind:     {PathKind, IsPath, "path"},
                 FileKind:     {FileKind, IsFile, "file"},
                 FlagKind:     {FlagKind, IsFlag, "flag"},
@@ -86,6 +87,7 @@ var (
         StringType   = BasicTypes[StringKind]
         BarewordType = BasicTypes[BarewordKind]
         BarefileType = BasicTypes[BarefileKind]
+        PathSegType  = BasicTypes[PathSegKind]
         PathType     = BasicTypes[PathKind]
         FileType     = BasicTypes[FileKind]
         FlagType     = BasicTypes[FlagKind]

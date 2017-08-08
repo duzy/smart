@@ -323,18 +323,34 @@ type Path struct {
 }
 func (p *Path) String() (s string) {
         // TODO: add '/' for root dir
+        var sep = true
         for i, seg := range p.Elems {
-                if i > 0 { s += string(os.PathSeparator) }
+                if i > 0 && sep {
+                        s += string(os.PathSeparator) 
+                }
                 s += seg.String()
+                if ps, ok := seg.(*PathSeg); ok && ps != nil && ps.Value == '/' {
+                        sep = false
+                } else {
+                        sep = true
+                }
         }
         // TODO: add '/' if there's such a suffix
         return
 }
 func (p *Path) Strval() (s string) {
         // TODO: add '/' for root dir
+        var sep = true
         for i, seg := range p.Elems {
-                if i > 0 { s += string(os.PathSeparator) }
+                if i > 0 && sep {
+                        s += string(os.PathSeparator) 
+                }
                 s += seg.Strval()
+                if ps, ok := seg.(*PathSeg); ok && ps != nil && ps.Value == '/' {
+                        sep = false
+                } else {
+                        sep = true
+                }
         }
         // TODO: add '/' if there's such a suffix
         return
@@ -342,7 +358,6 @@ func (p *Path) Strval() (s string) {
 func (p *Path) Integer() int64     { return 0 }
 func (p *Path) Float() float64     { return float64(p.Integer()) }
 func (p *Path) Type() Type         { return PathType }
-
 func (p *Path) disclose(scope *Scope) (Value, error) {
         if elems, num, err := p.discloseElems(scope); err != nil {
                 return nil, err
@@ -350,6 +365,21 @@ func (p *Path) disclose(scope *Scope) (Value, error) {
                 return &Path{ Elements{ elems } }, nil
         }
         return nil, nil
+}
+
+type PathSeg struct {
+        Value rune 
+        value
+}
+func (p *PathSeg) Type() Type { return PathSegType }
+func (p *PathSeg) String() string { return p.Strval() }
+func (p *PathSeg) Strval() (s string) {
+        switch p.Value {
+        case '/': s = "/"
+        case '.': s = "."
+        case '^': s = ".." // ''
+        }
+        return
 }
 
 type File struct {

@@ -46,8 +46,8 @@ func (m *Project) Uses() []*Use { return m.uses }
 func (m *Project) Bases() []*Project { return m.bases }
 
 func (m *Project) Chain(bases... *Project) {
-        m.bases = append(m.bases, bases...)
         for _, base := range bases {
+                m.bases = append(m.bases, base)
                 m.scope.chain = append(m.scope.chain, base.scope)
         }
 }

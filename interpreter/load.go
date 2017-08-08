@@ -327,6 +327,14 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 } else {
                         v = values.Path(a...)
                 }
+        case *ast.PathSegExpr:
+                switch x.Tok {
+                case token.PCON: v = values.PathSeg('/')
+                case token.PERIOD: v = values.PathSeg('.')
+                //case token.???: v = values.PathSeg('^') // 
+                default: err := errors.New(fmt.Sprintf("Unsupported PathSeg `%v'.", x.Tok))
+                        return nil, err
+                }
         case *ast.FlagExpr:
                 if a, err := i.expr(x.Name); err != nil {
                         return nil, err
@@ -720,12 +728,6 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
                 isDir bool
         )
         ParamsLoop: for _, elem := range g.Elems {
-                /* if k := elem.Type().Kind(); k != types.InvalidKind &&
-                        k <= types.ListKind {
-                        args = append(args, elem)
-                        continue ParamsLoop
-                } */
-                
                 specName = elem.Strval()
                 absPath, isDir, err = i.searchSpecPath(linfo, specName)
                 if err != nil {
@@ -742,7 +744,11 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
                 }
 
                 loaded, _ := i.loaded[absPath]
-                i.project.Chain(loaded)
+                if loaded == nil {
+                        err = errors.New(fmt.Sprintf("Project `%v' not loaded.", specName))
+                } else {
+                        i.project.Chain(loaded)
+                }
 
                 //fmt.Printf("base: %s (%s %v)\n", specName, loaded.Name(), absPath)
         }
