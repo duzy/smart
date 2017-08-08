@@ -208,7 +208,12 @@ func (d *Def) referencing(o Object) bool {
 }
 
 func (d *Def) String() string {
-        s := d.name + "="
+        s := d.name
+        if d.origin == ImmediateDef {
+                s += ":="
+        } else {
+                s += "="
+        }
         if d.Value == nil {
                 s += "<nil>"
         } else {
@@ -301,111 +306,6 @@ func (d *Def) Get(name string) (Value, error) {
         }
         //fmt.Printf("%v %v\n", d.name, d.parent)
         return nil, errors.New(fmt.Sprintf("No such property `%s' (Def)", name))
-}
-
-// TODO: move it into 'runtime' package
-type definer struct {
-        src *Def
-        op token.Token
-}
-func (p *definer) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (p *definer) referencing(_ Object) bool { return false }
-func (p *definer) Type() Type     { return DefinerType }
-func (p *definer) Name() string   { return p.src.name }
-func (p *definer) String() string { return "definer " + p.src.String() }
-func (p *definer) Strval() string { return "definer " + p.src.Strval() }
-func (p *definer) Integer() int64 { return 0 }
-func (p *definer) Float() float64 { return 0 }
-func (p *definer) Define(project *Project) (def *Def, err error) {
-        //fmt.Printf("definer.define: %v\n", p.src)
-        var isAltDef = false
-        if obj, alt := project.Scope().InsertDef(project, p.src.name, UniversalNone); alt != nil {
-                def, isAltDef = alt.(*Def), true
-        } else {
-                def = obj
-        }
-        switch p.op {
-        default:               _, err = def.Assign(p.src.Value)
-        case token.EXC_ASSIGN: _, err = def.AssignExec(p.src.Value)
-        case token.ADD_ASSIGN:
-                // Remove delegates but keeps closures.
-                var value = p.src.Value //Eval(p.src.Value)
-
-                // Inorder to avoid recursive referencing, assignment have to
-                // check if the heading elements are the same or referencing to
-                // each other. This restrition only to rule-program definers and
-                // required when importing (and using) multiple projects and they're
-                // appending to them same symbol name.
-                if false && isAltDef && p.src.Value.Type() == ListType && def.Value.Type() == ListType {
-                        srcList, dstList := p.src.Value.(*List), def.Value.(*List)
-                        if len(srcList.Elems) > 0 && len(dstList.Elems) > 0 {
-                                srcDel0, _ := srcList.Elems[0].(*delegate)
-                                dstDel0, _ := dstList.Elems[0].(*delegate)
-                                if srcDel0 == nil || dstDel0 == nil {
-                                        fmt.Printf("definer.define: %T %T\n", srcList.Elems[0], dstList.Elems[0])
-                                } else if srcDel0 == dstDel0 || srcDel0.o == dstDel0.o {
-                                        fmt.Printf("definer.define: append: %p %p\n", srcDel0, dstDel0)
-                                } else if srcDel0.o.Name() == dstDel0.o.Name() {
-                                        srcDef := srcDel0.o.(*Def)
-                                        dstDef := dstDel0.o.(*Def)
-                                        /*if srcDef == nil || dstDef == nil {
-                                                // FIXME: unreachable...
-                                        } else if srcDel0.o.referencing(dstDel0.o) {
-                                                var d *delegate
-                                                switch t := srcDef.Value.(type) {
-                                                case *List: d, _ = t.Elems[0].(*delegate)
-                                                case *delegate: d = t
-                                                }
-                                                if d != nil && d.o == dstDef {
-                                                        //fmt.Printf("append: %p %p\n", d.o, dstDef)
-                                                        value = &List{ Elements{ srcList.Elems[1:] } }
-                                                }
-                                        } else if dstDel0.o.referencing(srcDel0.o) {
-                                                var d *delegate
-                                                switch t := dstDef.Value.(type) {
-                                                case *List: d, _ = t.Elems[0].(*delegate)
-                                                case *delegate: d = t
-                                                }
-                                                if d != nil && d.o == srcDef {
-                                                        // The def value already contains src delegate.
-                                                        return
-                                                }
-                                        }*/
-                                        if srcDef != nil && dstDef != nil {
-                                                var del *delegate
-                                                
-                                                // Case: srcDel0.o.referencing(dstDel0.o)
-                                                switch t := srcDef.Value.(type) {
-                                                case *List: del, _ = t.Elems[0].(*delegate)
-                                                case *delegate: del = t
-                                                }
-                                                if del != nil && del.o == dstDef {
-                                                        //fmt.Printf("append: %p %p\n", d.o, dstDef)
-                                                        value = &List{ Elements{ srcList.Elems[1:] } }
-                                                        goto AppendValue
-                                                }
-
-                                                // Case: dstDel0.o.referencing(srcDel0.o)
-                                                switch t := dstDef.Value.(type) {
-                                                case *List: del, _ = t.Elems[0].(*delegate)
-                                                case *delegate: del = t
-                                                }
-                                                if del != nil && del.o == srcDef {
-                                                        // The def value already contains src delegate.
-                                                        return
-                                                }
-                                        }
-                                }
-                        }
-                }
-                AppendValue: _, err = def.Append(value)
-        }
-        //fmt.Printf("defined: %v: %v = %v\n", project.Name(), p.Name(), p.src.Value)
-        return
-}
-
-func MakeDefiner(op token.Token, src *Def) Value {
-        return &definer{ src:src, op:op }
 }
 
 func (scope *Scope) NewDef(project *Project, name string, value Value) *Def {

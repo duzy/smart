@@ -38,18 +38,8 @@ evaluationLoop:
                                 e error
                         )
                         switch t := v.(type) {
-                        case types.Definer:
-                                if n := len(args); n != 1 {
-                                        err = errors.New(fmt.Sprintf("wrong define arguments (%v)", n))
-                                        break evaluationLoop
-                                }
-                                if a, _ := args[0].(*types.Any); a != nil {
-                                        if p, ok := a.Value.(*types.Project); ok {
-                                                v, e = t.Define(p); break
-                                        }
-                                }
-                                err = errors.New("wrong define arguments")
-                                break evaluationLoop
+                        case *types.Def:
+                                // Noop, just return to the caller.
 
                         case types.Caller:
                                 v, e = t.Call(stmt.Slice(1)...)

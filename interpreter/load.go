@@ -362,26 +362,27 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 }
         case *ast.RecipeDefineClause:
                 //fmt.Printf("RecipeDefineClause: %s: %T %v\n", i.project.Name(), x.Sym, x.Sym)
-                var def *types.Def
-                if def, _ = x.Sym.(*types.Def); def != nil {
-                        if o := def.Parent().Lookup(def.Name()); o == nil {
-                                err = errors.New(fmt.Sprintf("Symbol `%s' undefined in %v", def.Name(), def.Parent()))
-                                return
-                        }
-                }
-                
                 if name, err := i.expr(x.Name); err != nil {
                         return nil, err
-                } else if val, err := i.expr(x.Value); err != nil {
-                        return nil, err
-                } else if name != nil && val != nil {
+                } else if name != nil {
+                        def, _ := x.Sym.(*types.Def)
+                        if def == nil {
+                                err = errors.New(fmt.Sprintf("Symbol `%s' undefined in %v", def.Name(), def.Parent()))
+                                return nil, err
+                        }
+                        
                         // TODO: check i.scope.Lookup(name.Strval()).(*Def)
-                        if def.Name() == name.Strval() {
-                                v = types.MakeDefiner(x.Tok, def)
-                        } else {
+                        if def.Name() != name.Strval() {
                                 err = errors.New(fmt.Sprintf("Symbol `%s' differs from `%s'", name.Strval(), def.Name()))
                                 return nil, err
                         }
+                        
+                        if o := def.Parent().Lookup(def.Name()); o != def {
+                                err = errors.New(fmt.Sprintf("Symbol `%s' undefined in %v", def.Name(), def.Parent()))
+                                return nil, err
+                        }
+
+                        v = def
                 }
         }
         return
@@ -411,12 +412,29 @@ func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
                         if entry, _ = obj.(*types.RuleEntry); entry == nil {
                                 return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' entry (%T).", project.Name(), obj))
                         } else {
-                                result, err := entry.Call(values.Any(i.project))
-                                //i.parseInfo(pos, "use: %v: %v (%v)\n", i.project.Name(), project.Name(), result)
-                                if err != nil {
+                                if result, err := entry.Call(/*values.Any(i.project)*/); err != nil {
                                         return err
-                                } else if result == nil {
-                                        // ...
+                                } else if result != nil && result.Type() == types.ListType {
+                                        for _, elem := range result.(*types.List).Elems {
+                                                def, ok := elem.(*types.Def)
+                                                if !ok || def == nil {
+                                                        continue
+                                                }
+
+                                                //fmt.Printf("%v: %v\n", i.project.Name(), elem)
+                                                newd, alt := i.project.Scope().InsertDef(i.project, def.Name(), values.None)
+                                                if alt != nil {
+                                                        if d, _ := alt.(*types.Def); d == nil {
+                                                                return errors.New(fmt.Sprintf("Name `%s' already taken in project `%s' (%T).", def.Name(), alt, i.project.Name()))
+                                                        } else {
+                                                                newd = d
+                                                        }
+                                                }
+                                                if newd != nil {
+                                                        // Append the delegate.
+                                                        newd.Append(types.Delegate(def))
+                                                }
+                                        }
                                 }
                                 return nil
                         }
