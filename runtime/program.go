@@ -119,7 +119,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
         DependsLoop: for _, depend := range depends {
-                //fmt.Printf("Program.prepare: %T %v\n", depend, depend)               
+                //fmt.Printf("Program.prepare: %v: %T %v\n", entry.Name(), depend, depend)               
                 var (
                         project = prog.project
                         isFileEntry = false

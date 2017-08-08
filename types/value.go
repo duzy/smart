@@ -879,9 +879,8 @@ func Eval(v Value) (res Value) {
 }
 
 func EvalElems(args... Value) (elems []Value) {
-        elems = Join(args...)
-        for i, elem := range elems {
-                elems[i] = Eval(elem)
+        for _, elem := range Join(args...) {
+                elems = append(elems, Join(Eval(elem))...)
         }
         return
 }

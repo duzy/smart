@@ -38,7 +38,9 @@ lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
 #	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 use:
+	println $LINK
 	LINK = $LINK
+	println $LINK
 	COMPILE = $COMPILE
 	ARCHIVE = $ARCHIVE
 	
