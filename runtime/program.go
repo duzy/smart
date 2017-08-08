@@ -108,6 +108,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                 } else if v != nil {
                         depend = v
                 }
+                //depends = append(depends, types.Join(depend)...)
                 depends = append(depends, types.EvalElems(depend)...)
         }
 
@@ -123,12 +124,8 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         args []types.Value
                 )
                 DependSwitch: switch d := depend.(type) {
-                case *types.Group:
-                        for _, elem := range d.Elems {
-                                fmt.Printf("  %s: %T %v\n", entry.Name(), elem, elem)
-                        }
                 case *types.Argumented:
-                        //fmt.Printf("  %s: argumented: %v\n", entry.Name(), d.Args)
+                        fmt.Printf("Program.prepare: %s: argumented: %v\n", entry.Name(), d.Args)
                         depend, args = d.Value, d.Args; goto DependSwitch
                 case *types.Bareword:
                         if p, e := project.Entry(d.Strval()); e != nil {
@@ -227,7 +224,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 break DependsLoop
                         }
                 default:
-                        return errors.New(fmt.Sprintf("Unknown depend `%T' (%v).", d, d))
+                        return errors.New(fmt.Sprintf("Unknown depend `%T' (%v) (by `%s').", d, d, entry.Name()))
                 }
                 
                 continue // done with non-file RuleEntry
@@ -279,11 +276,12 @@ func (prog *Program) Getwd() string {
 }
 
 func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
-        //if entry.Name() == "xxx" {
-        //        fmt.Printf("Program.Execute: %v %v\n", entry.Name(), context)
-        //}
-        //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.depends)
-        //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.pipline)
+        /*if entry.Name() == "lib.a" {
+                //fmt.Printf("Program.Execute: %v: %v %v\n", entry, args, prog.depends)
+                //fmt.Printf("Program.Execute: %v: %v %v\n", entry, args, prog.pipline)
+                //fmt.Printf("Program.Execute: %v: %v\n", entry.Name(), context)
+                fmt.Printf("Program.Execute: %v: %v\n", entry.Name(), args)
+        }*/
         var pcd = entry.Class() != types.UseRuleEntry
         if workdir := prog.Getwd(); workdir != "" {
                 if wd, _ := os.Getwd(); workdir != filepath.Clean(wd) {

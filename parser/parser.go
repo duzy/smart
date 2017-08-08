@@ -487,32 +487,11 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
         switch t := s.(type) {
         case *ast.Bareword:
                 if bw, ok := x.(*ast.Bareword); ok && p.runtime.IsFileName(bw.Value+"."+t.Value) {
+                        //if bw.Value == "lib.a" {
+                        //        fmt.Printf("parseSelect: barefile: %v.%v (%v)\n", bw.Value, t.Value, p.tok)
+                        //}
                         return &ast.Barefile{ x, t.Pos(), t.Value }
                 }
-
-        /*case *ast.Barecomp:
-                // Dealing with barecomps like 'foobar.o(arg)', this
-                // algorithm converts splitting 'foobar', '.o(arg)' into
-                // 'foobar.o' and '(arg)' (suppose '*.o' are files).
-                bw1, b1 := x.(*ast.Bareword)
-                bw2, b2 := t.Elems[0].(*ast.Bareword)
-                if b1 && b2 {
-                        if p.runtime.IsFileName(bw1.Value+"."+bw2.Value) {
-                                t.Elems[0] = &ast.Barefile{
-                                        x, t.Pos(), bw2.Value,
-                                }
-                                return t
-                        }
-
-                        // Reset the select operand
-                        s = bw2
-
-                        // Compose again at the end
-                        defer func() {
-                                t.Elems[0] = res
-                                res = t
-                        }()
-                }*/
         }
 
         // Deal with lhs of '.', convert x into an Ident or Barefile
@@ -607,6 +586,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
 
         //fmt.Printf("select: %T . %T -> %s.%s\n", x, s, operandName, valueName)
         //fmt.Printf("select: %T %v . %T %v\n", operand, operand, value, value)
+        //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
         //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
 
         res = &ast.EvaluatedExpr{ value, s }
@@ -967,6 +947,13 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         p.bits |= composingPERIOD
                         p.next() // Drop the '.' token.
                         x = p.parseSelect(lhs, p.checkExpr(x))
+                        if p.tok == token.LPAREN && x.End() == p.pos {
+                                //fmt.Printf("parseSelect: compose: %T %v\n", x, x)
+                                //x = p.parseComposing(x, lhs)
+                                y := p.parseGroupExpr().(*ast.GroupExpr)
+                                x = &ast.ArgumentedExpr{ x, y.Elems, y.End() }
+                                //fmt.Printf("parseSelect: composed: %T %v\n", x, x)
+                        }
                         p.bits &= ^composingPERIOD
                 }
         case token.PCON:
@@ -1004,11 +991,12 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         p.bits |= composing
                 Compose:
                         y = p.checkExpr(p.parseExpr(lhs))
+                        //fmt.Printf("compose: %T %T\n", x, y)
                         x = &ast.Barecomp{ []ast.Expr{ x, y } }
                         if x.End() == p.pos && p.lineComment == nil {
                                 switch p.tok {
                                 case token.COMPOSED, token.RPAREN, token.RBRACK, token.COMMA, token.COLON, token.LINEND:
-                                case token.LPAREN, token.PERIOD, token.PCON, token.PERC:
+                                case /*token.LPAREN, */token.PERIOD, token.PCON, token.PERC:
                                 case token.ARROW, token.ASSIGN:
                                 case token.ILLEGAL:
                                 default:
@@ -1019,8 +1007,31 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                                 }
                         }
                         p.bits &= ^composing
+                        return x
                 }
         }
+        /*if p.bits&composing == 0 && x.End() == p.pos && p.lineComment == nil {
+                var y ast.Expr
+                p.bits |= composing
+        Compose:
+                y = p.checkExpr(p.parseExpr(lhs))
+                fmt.Printf("compose: %T %T\n", x, y)
+                x = &ast.Barecomp{ []ast.Expr{ x, y } }
+                if x.End() == p.pos && p.lineComment == nil {
+                        switch p.tok {
+                        case token.COMPOSED, token.RPAREN, token.RBRACK, token.COMMA, token.COLON, token.LINEND:
+                        case token.LPAREN, token.PERIOD, token.PCON, token.PERC:
+                        case token.ARROW, token.ASSIGN:
+                        case token.ILLEGAL, token.EOF:
+                        default:
+                                if p.tok.IsAssign() || p.tok.IsRuleDelim() {
+                                        break
+                                }
+                                goto Compose
+                        }
+                }
+                p.bits &= ^composing
+        }*/
         return x
 }
 
@@ -1579,7 +1590,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 // Guessing target entry class, e.g. general, file, etc.
                 var class = tarent.Class()
                 switch target.(type) {
-                case *ast.Barefile, *ast.PathExpr:
+                case *ast.Barefile, *ast.PathExpr, *ast.PathSegExpr:
                         class = types.FileRuleEntry
                 case *ast.Bareword:
                         if p.runtime.IsFileName(name) {
@@ -1626,6 +1637,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         p.error(p.pos, "Name `%s' already taken, not parameter (%T).", s, alt)
                 } else if sym == nil {
                         // TODO: errors
+                } else {
+                        //sym.(*types.Def).Assign(values.String("xxxxxxxxxx"))
                 }
         }
         for i := 1; i < 10; i += 1 {
@@ -1653,6 +1666,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         }
 
                         //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
+                        //if scopeComment == "lib.a" || scopeComment == "libbitcoin_crypto.a" {
+                        //        fmt.Printf("parseRuleClause: %s: %T -> %T %v\n", scopeComment, depend, depval, depval)
+                        //}
 
                         depends[i] = &ast.EvaluatedExpr{ depval, depend }
                         continue dependsLoop

@@ -14,4 +14,3 @@ check-stdout:[(shell) (stdout-equals 'okay')]
 
 check-stderr:[(shell) (stderr-equals 'okay')]
 	echo -n "okay" > /dev/stderr
-
