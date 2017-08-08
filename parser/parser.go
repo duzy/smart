@@ -984,17 +984,43 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         } else if p.tok == token.ILLEGAL {
                 p.error(p.pos, "illegal token")
         } else if x.End() == p.pos && p.lineComment == nil {
+                // The next expr is concated (without any spaces).
+                
                 //fmt.Printf("compose: %T %v %v %v\t%v %v\n", x, x, x.Pos(), x.End(), p.pos, p.tok)
+                switch p.tok {
+                case token.LPAREN:
+                        y := p.parseGroupExpr().(*ast.GroupExpr)
+                        x = &ast.ArgumentedExpr{ x, y.Elems, y.End() }
+                case token.PERIOD:
+                        // If it's selecting, don't enter parseSelect again.
+                        // The parseSelect procedure will check this '.'
+                        if !p.selecting {
+                                p.next() // Drop the '.' token.
+                                x = p.parseSelect(lhs, p.checkExpr(x))
+                        }
+                case token.PCON:
+                        pat := &ast.PathExpr{ PosBeg:p.pos, PosEnd:p.pos }
+                        // Drop continual '/' tokens.
+                        ConcatPath: for p.tok == token.PCON { p.next() }
+                        y := p.checkExpr(p.parseExpr0(lhs))
+                        pat.Segments = append(pat.Segments, y)
+                        pat.PosEnd = y.End()
+                        if p.tok == token.PCON {
+                                goto ConcatPath
+                        }
+                }
+                
                 var (
-                        elems = []ast.Expr{ x }
+                        bc = &ast.Barecomp{ []ast.Expr{ x } }
                         y = p.checkExpr(p.parseExpr(lhs))
                 )
-                if c, ok := y.(*ast.Barecomp); ok {
-                        elems = append(elems, c.Elems...)
-                } else {
-                        elems = append(elems, y)
+                switch t := y.(type) {
+                case *ast.Barecomp: 
+                        bc.Elems = append(bc.Elems, t.Elems...)
+                default: 
+                        bc.Elems = append(bc.Elems, y)
                 }
-                x = &ast.Barecomp{ elems }
+                x = bc
         }
         return x
 }
@@ -1534,8 +1560,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
                         if entry, ok := alt.(*types.RuleEntry); entry == nil {
                                 p.error(target.Pos(), "Name `%s' already taken, not rule entry (%T).", name, alt)
-                        } else if entry.Program() != nil {
-                                p.error(target.Pos(), "Rule `%s' already defined.", name)
+                        /*} else if entry.Programs() != nil {
+                                p.error(target.Pos(), "Rule `%s' already defined (%v).", name, entry.Class())*/
                         } else if ok {
                                 tarent = entry
                         } else {
@@ -1616,7 +1642,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         if p.tok != token.LINEND {
                 depends = p.parseRhsList(true)
                 dependsLoop: for i, depend := range depends {
-                        var (
+                        /*var (
                                 args []types.Value
                         )
                         switch dep := depend.(type) {
@@ -1637,7 +1663,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 } else if nelems == 0 {
                                         p.error(depend.Pos(), "bad depend")
                                 }
-                        }
+                        }*/
+
+                        //fmt.Printf("depend: %T %v\n", depend, depend)
 
                         depval, err := p.runtime.Eval(depend, ruledepend)
                         if err != nil {
@@ -1646,8 +1674,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         } else if depval == nil {
                                 p.error(depend.Pos(), "Invalid depend `%T'.", depend)
                                 continue
-                        } else if len(args) > 0 {
-                                depval = &types.Argumented{ depval, args }
+                        /*} else if len(args) > 0 {
+                                depval = &types.Argumented{ depval, args }*/
                         }
 
                         //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
@@ -1778,6 +1806,9 @@ func (p *parser) parseFile() *ast.File {
                         abs = filepath.Dir(filename)
                         rel , _ = filepath.Rel(wd, abs)
                 )
+                //if strings.HasSuffix(rel, abs) {
+                //        rel = abs
+                //}
 
                 //fmt.Printf("filename=%v\n", filename)
                 //fmt.Printf("wd=%v\n", wd)

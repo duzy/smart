@@ -398,7 +398,7 @@ func (c RuleEntryClass) String() string {
 type RuleEntry struct {
         object
         class RuleEntryClass
-        program Program
+        programs []Program
         stem string // only applied for PatternRuleEntry
 }
 
@@ -409,15 +409,30 @@ func (entry *RuleEntry) Stem() string { return entry.stem }
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 
+func (entry *RuleEntry) IsPattern() bool {
+        return entry.class == PatternRuleEntry || entry.class == PatternFileRuleEntry;
+}
+
+func (entry *RuleEntry) IsFile() bool {
+        return entry.class == FileRuleEntry || entry.class == PatternFileRuleEntry;
+}
+
 // RuleEntry.Program returns the rule program.
-func (entry *RuleEntry) Program() Program { return entry.program }
+func (entry *RuleEntry) Programs() []Program { return entry.programs }
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
-func (entry *RuleEntry) Call(a... Value) (result Value, err error) {
-        if entry.program != nil {
-                context := entry.Project().Scope()
-                result, err = entry.program.Execute(context, entry, a, false)
+func (entry *RuleEntry) ExecutePrograms(a... Value) (result []Value, err error) {
+        if entry.IsPattern() {
+                return nil, errors.New(fmt.Sprintf("Calling pattern entry `%s'.", entry.Name()))
+        }
+        context := entry.Project().Scope()
+        for _, program := range entry.programs {
+                if v, e := program.Execute(context, entry, a, false); e != nil {
+                        err = e; return
+                } else {
+                        result = append(result, v)
+                }
         }
         return
 }

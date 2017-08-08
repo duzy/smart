@@ -24,7 +24,7 @@ type Clause interface {
 
 type Expr interface {
 	Node
-	exprNode()
+	expr()
 }
 
 // A Comment node represents a single #-style comment.
@@ -209,6 +209,12 @@ type (
                 ClosureDelegate
         }
 
+        ArgumentedExpr struct {
+                X Expr
+                Arguments []Expr
+                EndPos token.Pos
+        }
+
 	// A PercExpr node represents a percent expression.
         PercExpr struct {
 		X     Expr        // left operand (or nil)
@@ -258,6 +264,7 @@ func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
 func (d *PathExpr) Pos() token.Pos        { return d.PosBeg }
 func (d *GlobExpr) Pos() token.Pos        { return d.TokPos }
 func (d *ClosureDelegate) Pos() token.Pos { return d.TokPos }
+func (d *ArgumentedExpr) Pos() token.Pos  { return d.X.Pos() }
 func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
 func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
@@ -279,6 +286,7 @@ func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End()
 func (d *PathExpr) End() token.Pos        { return d.PosEnd }
 func (d *GlobExpr) End() token.Pos        { return d.TokPos + 1 }
 func (d *ClosureDelegate) End() token.Pos { return d.Rparen + 1 }
+func (d *ArgumentedExpr) End() token.Pos  { return d.EndPos }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }
 func (d *KeyValueExpr) End() token.Pos    { return d.Value.End() }
@@ -286,23 +294,24 @@ func (d *ModifierExpr) End() token.Pos    { return d.Rbrack + 1 }
 func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
 func (d *ProgramExpr) End() token.Pos     { return d.Recipes[len(d.Recipes)-1].End() }
 
-func (*BadExpr) exprNode()         {}
-func (*Bareword) exprNode()        {}
-func (*BasicLit) exprNode()        {}
-func (*FlagExpr) exprNode()        {}
-func (*CompoundLit) exprNode()     {}
-func (*Barecomp) exprNode()        {}
-func (*Barefile) exprNode()        {}
-func (*ListExpr) exprNode()        {}
-func (*PathExpr) exprNode()        {}
-func (*GlobExpr) exprNode()        {}
-func (*ClosureDelegate) exprNode() {}
-func (*GroupExpr) exprNode()       {}
-func (*PercExpr) exprNode()        {}
-func (*KeyValueExpr) exprNode()    {}
-func (*ModifierExpr) exprNode()    {}
-func (*RecipeExpr) exprNode()      {}
-func (*ProgramExpr) exprNode()     {}
+func (*BadExpr) expr()         {}
+func (*Bareword) expr()        {}
+func (*BasicLit) expr()        {}
+func (*FlagExpr) expr()        {}
+func (*CompoundLit) expr()     {}
+func (*Barecomp) expr()        {}
+func (*Barefile) expr()        {}
+func (*ListExpr) expr()        {}
+func (*PathExpr) expr()        {}
+func (*GlobExpr) expr()        {}
+func (*ClosureDelegate) expr() {}
+func (*ArgumentedExpr) expr()  {}
+func (*GroupExpr) expr()       {}
+func (*PercExpr) expr()        {}
+func (*KeyValueExpr) expr()    {}
+func (*ModifierExpr) expr()    {}
+func (*RecipeExpr) expr()      {}
+func (*ProgramExpr) expr()     {}
 
 // A declaration is represented by one of the following declaration nodes.
 //
@@ -460,8 +469,8 @@ func (*GenericClause) clauseNode() {}
 func (*DefineClause) clauseNode()  {}
 func (*RuleClause) clauseNode()    {}
 
-func (*RecipeDefineClause) exprNode() {}
-func (*RecipeRuleClause) exprNode() {}
+func (*RecipeDefineClause) expr() {}
+func (*RecipeRuleClause) expr() {}
 
 // A File node represents a Smart source file.
 //

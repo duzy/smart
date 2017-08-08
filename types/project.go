@@ -168,7 +168,7 @@ func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
         // TODO: Improves patter searching on base chain. 
         if pss := m.FindPatterns(name); pss != nil {
                 for _, ps := range pss {
-                        if ps.Patent.Program() == nil {
+                        if ps.Patent.Programs() == nil {
                                 continue // FIXME: ???
                         }
                         if entry, err = ps.MakeConcreteEntry(); entry != nil || err != nil {
@@ -196,7 +196,7 @@ func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (e
                 }
         }
         if entry != nil && err == nil {
-                entry.program = prog
+                entry.programs = append(entry.programs, prog)
                 m.concrete = append(m.concrete, entry)
         }
         return
@@ -222,7 +222,7 @@ func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryCla
         }
         if entry != nil && err == nil {
                 entry.class = class
-                entry.program = prog
+                entry.programs = append(entry.programs, prog)
                 patent = &PatternEntry{ entry, p }
                 m.patterns = append(m.patterns, patent)
         }

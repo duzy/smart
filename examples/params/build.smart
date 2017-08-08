@@ -16,3 +16,6 @@ foo:[((arg)) (shell)]: foobar.o(test)
 
 foobar.o:[((arg)) (shell)]
 	echo -n $arg
+
+clean:
+	println "clean..."

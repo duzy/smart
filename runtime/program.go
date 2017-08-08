@@ -115,7 +115,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
         //       [ c++.compiled-objects ]
         //       [ docker.instance-launched ]
         DependsLoop: for _, depend := range depends {
-                //fmt.Printf("Program.prepare: %v: %T %v\n", entry.Name(), depend, depend)               
+                //fmt.Printf("Program.prepare: %v: %T %v\n", entry.Name(), depend, depend)
                 var (
                         project = prog.project
                         isFileEntry = false
@@ -123,7 +123,12 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         args []types.Value
                 )
                 DependSwitch: switch d := depend.(type) {
+                case *types.Group:
+                        for _, elem := range d.Elems {
+                                fmt.Printf("  %s: %T %v\n", entry.Name(), elem, elem)
+                        }
                 case *types.Argumented:
+                        //fmt.Printf("  %s: argumented: %v\n", entry.Name(), d.Args)
                         depend, args = d.Value, d.Args; goto DependSwitch
                 case *types.Bareword:
                         if p, e := project.Entry(d.Strval()); e != nil {
@@ -169,7 +174,10 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         }
                 case *types.RuleEntry:
                         //fmt.Printf("Program.prepare: %v %v\n", d, d.Class())
-                        var p, _ = d.Program().(*Program)
+                        var p *Program
+                        if len(d.Programs()) > 0 {
+                                p = d.Programs()[0].(*Program)
+                        }
                         if p == nil {
                                 switch d.Class() {
                                 case types.FileRuleEntry:

@@ -55,7 +55,7 @@ const (
         delegation = KeepClosures | KeepDelegates
 
         // Keeps closures, convertion for rule depends
-        ruledepend = KeepClosures | CastDepends
+        ruledepend = delegation/*KeepClosures*/ | CastDepends
 )
 
 type RuntimeObj ast.Symbol

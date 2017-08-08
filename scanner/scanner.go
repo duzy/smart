@@ -835,7 +835,6 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 }
 	case '0' <= ch && ch <= '9':
                 tok, lit = s.scanNumber(false)
-                fmt.Printf("%v: %s\n", tok, lit)
         case ch == -1 && s.offset == len(s.src):
                 tok = token.EOF
         default:

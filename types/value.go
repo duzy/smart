@@ -248,7 +248,7 @@ func (p *Elements) discloseElems(scope *Scope) ([]Value, int, error) {
 
 func (p *Elements) referencing(o Object) bool {
         for _, elem := range p.Elems {
-                if elem.referencing(o) {
+                if elem != nil && elem.referencing(o) {
                         return true
                 }
         }
@@ -677,6 +677,7 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
         }
 
         switch o := obj.(type) {
+        //case *RuleEntry:
         case Caller:
                 var (
                         scope = p.o.Parent()
@@ -693,7 +694,8 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
                 }
                 return o.Call(args...)
         default:
-                fmt.Printf("closure.disclose: unknown (%T %v)\n", obj, obj)
+                err := errors.New(fmt.Sprintf("Unsupported closure object `%T' (%v)", obj, obj))
+                return nil, err
         }
         return nil, nil
 }
@@ -730,7 +732,7 @@ func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEn
                 entry = scope.NewRuleEntry(patent.project, patent.class, name)
                 entry.parent = patent.parent
                 entry.project = patent.project
-                entry.program = patent.program
+                entry.programs = patent.programs[:]
                 entry.stem = stem
         default:
                 err = errors.New(fmt.Sprintf("make entry `%s' (%s): invalid class `%v'", name, stem, patent.class))

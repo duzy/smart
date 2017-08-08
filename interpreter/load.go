@@ -290,6 +290,15 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                         err = errors.New(fmt.Sprintf("Expr `%T' evaluated to nil.", x.Expr))
                         return
                 }
+        case *ast.ArgumentedExpr:
+                av := new(types.Argumented)
+                if av.Value, err = i.expr(x.X); err != nil {
+                        return
+                }
+                if av.Args, err = i.exprs(x.Arguments); err != nil {
+                        return
+                }
+                v = av
         case *ast.ClosureExpr:
                 v, err = i.closure(x)
         case *ast.DelegateExpr:
@@ -412,9 +421,14 @@ func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
                         if entry, _ = obj.(*types.RuleEntry); entry == nil {
                                 return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' entry (%T).", project.Name(), obj))
                         } else {
-                                if result, err := entry.Call(/*values.Any(i.project)*/); err != nil {
+                                results, err := entry.ExecutePrograms(/*values.Any(i.project)*/)
+                                if err != nil {
                                         return err
-                                } else if result != nil && result.Type() == types.ListType {
+                                }
+                                for _, result := range results {
+                                        if result.Type() != types.ListType {
+                                                continue
+                                        }
                                         for _, elem := range result.(*types.List).Elems {
                                                 def, ok := elem.(*types.Def)
                                                 if !ok || def == nil {
@@ -1026,7 +1040,7 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
                 res = def.Value
         }
 
-        switch res.Type() {
+        /*switch res.Type() {
         case types.BarewordType:
         case types.BarefileType:
         case types.PathType:
@@ -1037,8 +1051,8 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
         case types.RuleEntryType: // e.g. other.entry
         case types.ProjectNameType: // e.g. use.*
         default:
-                res, err = nil, errors.New(fmt.Sprintf("Unsupported depend type '%v' (%T %v).", res.Type(), res, res))
-        }
+                res, err = nil, errors.New(fmt.Sprintf("Unsupported depend type '%v' (%T) (%v).", res.Type(), res, res))
+        }*/
         return
 }
 
@@ -1099,7 +1113,7 @@ func (pc *parseContext) Resolve(name string, bits parser.ResolveBits) parser.Run
 
 func (pc *parseContext) Symbol(name string, t types.Type) (obj, alt parser.RuntimeObj) {
         switch t {
-        case types.DefType/*, types.DefinerType*/:
+        case types.DefType:
                 var (
                         scope = pc.scope // always in the current scope
                         def *types.Def

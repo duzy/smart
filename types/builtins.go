@@ -234,7 +234,6 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
                                         list = append(list, &String{s})
                                 }
                         } else if arg.Type().Kind() != NoneKind {
-                                fmt.Printf("%T %p %v %v\n", arg, arg, m, s)
                                 list = append(list, arg)
                         }
                 }
