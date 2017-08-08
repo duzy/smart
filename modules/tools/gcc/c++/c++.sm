@@ -8,7 +8,7 @@ files (
 CXX = g++
 
 CPPFLAGS += -std=c++1z
-CXXFLAGS =
+CXXFLAGS = -DSMART
 
 # FIXME: naming COMPILE.cc, COMPILE.cpp, COMPILE.C
 COMPILE-cc = &CXX &CXXFLAGS &CPPFLAGS &TARGET_ARCH -c
@@ -38,9 +38,7 @@ lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: &objects
 #	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 use:
-	println $LINK
 	LINK = $LINK
-	println $LINK
 	COMPILE = $COMPILE
 	ARCHIVE = $ARCHIVE
 	

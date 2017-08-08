@@ -25,16 +25,17 @@ type ResolveBits int
 const (
         // If many bits are set, resolve in the listed priority.
         FromGlobe ResolveBits = 1<<iota
-        FromBase    // TODO: ...
-        FromProject // TODO: ...
-        FromHere
-
+        FromBase
+        FromProject
         FindDef
         FindRule
+
+        FromHere
 
         // This is the default be
         anywhere = FromHere
         global = FromGlobe
+        local = FromProject
         nonlocal = FromGlobe | FromBase | FromProject
 )
 

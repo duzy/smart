@@ -45,7 +45,7 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... types.Value) (err error) {
+func (prog *Program) interpret(context *types.Scope, pcd bool, i interpreter, out *types.Def, args... types.Value) (err error) {
         /* if pcd {
                 workdir := filepath.Clean(prog.project.AbsPath())
                 fmt.Printf("smart: Entering directory '%s'\n", workdir)
@@ -57,13 +57,12 @@ func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... 
                 recipes []types.Value
         )
         for _, recipe := range prog.recipes {
-                if v, e := types.Disclose(prog.scope, recipe); e != nil {
+                if v, e := types.Disclose(context/*prog.scope*/, recipe); e != nil {
                         return e
                 } else if v != nil {
-                        //fmt.Printf("recipe: %v -> %v\n", recipe, v)
                         recipe = v
                 }
-                recipes = append(recipes, recipe)
+                recipes = append(recipes, recipe) // types.EvalElems
         }
         
         value, err = i.evaluate(prog, args, recipes)
@@ -73,7 +72,7 @@ func (prog *Program) interpret(pcd bool, i interpreter, out *types.Def, args... 
         return
 }
 
-func (prog *Program) modify(pcd bool, g *types.Group, out *types.Def) (err error) {
+func (prog *Program) modify(context *types.Scope, pcd bool, g *types.Group, out *types.Def) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -86,7 +85,7 @@ func (prog *Program) modify(pcd bool, g *types.Group, out *types.Def) (err error
                         out.Assign(value)
                 }
         } else if i, _ := interpreters[name]; i != nil {
-                err = prog.interpret(pcd, i, out, g.Slice(1)...)
+                err = prog.interpret(context, pcd, i, out, g.Slice(1)...)
         } else {
                 err = errors.New(fmt.Sprintf("no modifier or dialect '%s'", name))
         }
@@ -104,14 +103,11 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
 
         // Convert the original depends
         for _, depend := range prog.depends {
-                if v, e := types.Disclose(prog.scope, depend); e != nil {
+                if v, e := types.Disclose(context, depend); e != nil {
                         return e
                 } else if v != nil {
                         depend = v
                 }
-                //if vr, ok := depend.(types.Valuer); ok {
-                //        depend = vr.Value
-                //}
                 depends = append(depends, types.EvalElems(depend)...)
         }
 
@@ -274,6 +270,9 @@ func (prog *Program) Getwd() string {
 }
 
 func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
+        //if entry.Name() == "xxx" {
+        //        fmt.Printf("Program.Execute: %v %v\n", entry.Name(), context)
+        //}
         //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.depends)
         //fmt.Printf("Program.Execute: %v %v %v\n", entry, args, prog.pipline)
         var pcd = entry.Class() != types.UseRuleEntry
@@ -335,7 +334,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 if i, _ := interpreters[``]; i == nil {
                         err = errors.New("no default dialect")
                         return
-                } else if err = prog.interpret(pcd, i, out, args...); err != nil {
+                } else if err = prog.interpret(context, pcd, i, out, args...); err != nil {
                         // ...
                 }
                 return
@@ -345,7 +344,7 @@ pipelineLoop:
         for _, v := range prog.pipline {
                 switch op := v.(type) {
                 case *types.Group:
-                        if err = prog.modify(pcd, op, out); err != nil {
+                        if err = prog.modify(context, pcd, op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
                                                 err = nil
@@ -359,7 +358,7 @@ pipelineLoop:
                         if i, _ := interpreters[op.Strval()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
-                        } else if err = prog.interpret(pcd, i, out, args...); err != nil {
+                        } else if err = prog.interpret(context, pcd, i, out, args...); err != nil {
                                 //fmt.Printf("interpret: %v\n", err)
                                 break pipelineLoop
                         }

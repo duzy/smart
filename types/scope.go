@@ -30,7 +30,7 @@ type Scope struct {
 
 func NewScope(outer *Scope, pos, end token.Pos, comment string) *Scope {
         scope := &Scope{ outer, nil, nil, nil, pos, end, comment }
- 	// don't add children to Universe scope!
+ 	// Don't add children to Universe scope!
 	if outer != nil && outer != universe {
 		outer.children = append(outer.children, scope)
 	}
@@ -90,16 +90,18 @@ func (s *Scope) Lookup(name string) Object {
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
 func (s *Scope) FindChainUp(name string, pos token.Pos) (*Scope, Object) {
-        for _, p := range s.chain {
-                if p, obj := p.FindAt(pos, name); obj != nil {
-                        return p, obj
-                }
-        }
+        // 1. Lookup outer scopes.
 	for p := s; p != nil; p = p.outer {
 		if obj := p.Lookup(name); obj != nil && (!pos.IsValid() || obj.scopePos() <= pos) {
 			return p, obj
 		}
 	}
+        // 2. Lookup chained scopes.
+        for _, p := range s.chain {
+                if p, obj := p.FindAt(pos, name); obj != nil {
+                        return p, obj
+                }
+        }
 	return nil, nil
 }
 

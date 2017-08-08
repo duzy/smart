@@ -876,7 +876,11 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
                         p.next()
 
-                        resolved := p.runtime.Resolve(s, anywhere)
+                        var where = anywhere
+                        //if s == "/" || s == "." {
+                        //        where = local
+                        //}
+                        resolved := p.runtime.Resolve(s, where)
                         if resolved == nil {
                                 p.error(pos, "Undefined reference `%v' (%v).", s, tok)
                         }
@@ -1765,9 +1769,15 @@ func (p *parser) parseFile() *ast.File {
                 defer p.closeScope(scope)
                 var (
                         sym RuntimeObj
+                        wd = p.runtime.Getwd()
                         abs = filepath.Dir(filename)
-                        rel, _ = filepath.Rel(p.runtime.Getwd(), abs)
+                        rel , _ = filepath.Rel(wd, abs)
                 )
+
+                //fmt.Printf("filename=%v\n", filename)
+                //fmt.Printf("wd=%v\n", wd)
+                //fmt.Printf("abs=%v\n", abs)
+                //fmt.Printf("rel=%v\n", rel)
 
                 sym, _ = p.runtime.Symbol("/", types.DefType)
                 sym.(*types.Def).Assign(values.String(abs))
@@ -1779,9 +1789,8 @@ func (p *parser) parseFile() *ast.File {
                 //if rel == "." && relParent == "." {
                 //        relParent = ".."
                 //}
-                //fmt.Printf("%v\n", filename)
-                //fmt.Printf("%v\n", p.runtime.Resolve("/", anywhere))
-                //fmt.Printf("%v\n", p.runtime.Resolve(".", anywhere))
+                //fmt.Printf("%p: %v\n", sym, p.runtime.Resolve("/", anywhere))
+                //fmt.Printf("%p: %v\n", sym, p.runtime.Resolve(".", anywhere))
         } else {
                 p.error(p.pos, "open scope")
         }

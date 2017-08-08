@@ -1033,6 +1033,19 @@ func (pc *parseContext) Resolve(name string, bits parser.ResolveBits) parser.Run
                         return obj.(parser.RuntimeObj)
                 }
         }
+        if bits&parser.FromBase != 0 && pc.project != nil {
+                for _, base := range pc.project.Bases() {
+                        if obj := base.Scope().Find(name); obj != nil {
+                                return obj.(parser.RuntimeObj)
+                        }
+                }
+        }
+        if bits&parser.FromProject != 0 && pc.project != nil {
+                obj := pc.project.Scope().Find(name)
+                if obj != nil {
+                        return obj.(parser.RuntimeObj)
+                }
+        }
         if bits&parser.FromHere != 0 && pc.scope != nil {
                 obj := pc.scope.Find(name)
                 if obj != nil {
