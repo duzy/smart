@@ -805,7 +805,7 @@ func (p *RegexpPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry
 func (p *RegexpPattern) referencing(_ Object) bool { return false }
 
 type Definer interface {
-        Define(s *Scope, p *Project) (*Def, error)
+        Define(p *Project) (*Def, error)
 }
 
 type Valuer interface {

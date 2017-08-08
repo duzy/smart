@@ -362,14 +362,10 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 }
         case *ast.RecipeDefineClause:
                 //fmt.Printf("RecipeDefineClause: %s: %T %v\n", i.project.Name(), x.Sym, x.Sym)
-                if d, _ := x.Sym.(*types.Def); d != nil {
-                        // !strings.HasPrefix(s, "rule use")
-                        //if s := d.Parent().Comment(); s != "rule use" {
-                        //        err = errors.New(fmt.Sprintf("Not `use' scope, but '%s'.", s))
-                        //        return
-                        //} else
-                        if o := d.Parent().Lookup(d.Name()); o == nil {
-                                err = errors.New(fmt.Sprintf("Symbol `%s' undefined in %v", d.Name(), d.Parent()))
+                var def *types.Def
+                if def, _ = x.Sym.(*types.Def); def != nil {
+                        if o := def.Parent().Lookup(def.Name()); o == nil {
+                                err = errors.New(fmt.Sprintf("Symbol `%s' undefined in %v", def.Name(), def.Parent()))
                                 return
                         }
                 }
@@ -380,7 +376,12 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                         return nil, err
                 } else if name != nil && val != nil {
                         // TODO: check i.scope.Lookup(name.Strval()).(*Def)
-                        v = types.MakeDefiner(x.Tok, name.Strval())
+                        if def.Name() == name.Strval() {
+                                v = types.MakeDefiner(x.Tok, def)
+                        } else {
+                                err = errors.New(fmt.Sprintf("Symbol `%s' differs from `%s'", name.Strval(), def.Name()))
+                                return nil, err
+                        }
                 }
         }
         return

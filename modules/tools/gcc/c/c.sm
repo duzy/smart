@@ -25,7 +25,8 @@ LINK-c = &CC &CFLAGS &CPPFLAGS &LDFLAGS &TARGET_ARCH
 LINK = $(LINK-c)
 
 AR = ar
-ARFLAGS = rv #crus
+#ARFLAGS = rv #crus
+ARFLAGS = rvs
 ARCHIVE = &AR &ARFLAGS
 
 ignore:

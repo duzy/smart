@@ -290,7 +290,8 @@ func (d *Def) AssignExec(a... Value) (Value, error) {
 
 func (d *Def) Call(a... Value) (Value, error) {
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
-        return d.Value, nil 
+        //return Eval(d.Value), nil
+        return d.Value, nil
 }
 
 func (d *Def) Get(name string) (Value, error) {
@@ -304,55 +305,46 @@ func (d *Def) Get(name string) (Value, error) {
 
 // TODO: move it into 'runtime' package
 type definer struct {
-        name string
+        src *Def
         op token.Token
 }
 func (p *definer) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (p *definer) referencing(_ Object) bool { return false }
 func (p *definer) Type() Type     { return DefinerType }
-func (p *definer) Name() string   { return p.name }
-func (p *definer) String() string { return "definer " + p.name }
-func (p *definer) Strval() string { return "definer " + p.name }
+func (p *definer) Name() string   { return p.src.name }
+func (p *definer) String() string { return "definer " + p.src.String() }
+func (p *definer) Strval() string { return "definer " + p.src.Strval() }
 func (p *definer) Integer() int64 { return 0 }
 func (p *definer) Float() float64 { return 0 }
-func (p *definer) Define(scope *Scope, project *Project) (def *Def, err error) {
-        fmt.Printf("define: %v in %v\n", p.name, scope)
-        var src *Def
-        if o := scope.Lookup(p.name); o == nil {
-                err = errors.New(fmt.Sprintf("%s undefined in source scope", p.name))
-                return
-        } else if src, _ = o.(*Def); src == nil {
-                err = errors.New(fmt.Sprintf("%s in source scope is not Def", p.name))
-                return
-        }
-        
+func (p *definer) Define(project *Project) (def *Def, err error) {
+        //fmt.Printf("definer.define: %v\n", p.src)
         var isAltDef = false
-        if obj, alt := project.Scope().InsertDef(project, p.name, UniversalNone); alt != nil {
+        if obj, alt := project.Scope().InsertDef(project, p.src.name, UniversalNone); alt != nil {
                 def, isAltDef = alt.(*Def), true
         } else {
                 def = obj
         }
         switch p.op {
-        default:               _, err = def.Assign(src.Value)
-        case token.EXC_ASSIGN: _, err = def.AssignExec(src.Value)
+        default:               _, err = def.Assign(p.src.Value)
+        case token.EXC_ASSIGN: _, err = def.AssignExec(p.src.Value)
         case token.ADD_ASSIGN:
-                var value = src.Value
+                // Remove delegates but keeps closures.
+                var value = p.src.Value //Eval(p.src.Value)
+
                 // Inorder to avoid recursive referencing, assignment have to
                 // check if the heading elements are the same or referencing to
                 // each other. This restrition only to rule-program definers and
                 // required when importing (and using) multiple projects and they're
                 // appending to them same symbol name.
-                if isAltDef && src.Value.Type() == ListType && def.Value.Type() == ListType {
-                        srcList, dstList := src.Value.(*List), def.Value.(*List)
+                if false && isAltDef && p.src.Value.Type() == ListType && def.Value.Type() == ListType {
+                        srcList, dstList := p.src.Value.(*List), def.Value.(*List)
                         if len(srcList.Elems) > 0 && len(dstList.Elems) > 0 {
                                 srcDel0, _ := srcList.Elems[0].(*delegate)
                                 dstDel0, _ := dstList.Elems[0].(*delegate)
-                                if srcDel0 == dstDel0 || srcDel0.o == dstDel0.o {
-                                        fmt.Printf("append--: %p %p, %v %v, %v %v\n", srcDel0.o, dstDel0.o, 
-                                                srcDel0.o.referencing(dstDel0.o),
-                                                dstDel0.o.referencing(srcDel0.o),
-                                                srcDel0.referencing(dstDel0.o),
-                                                dstDel0.referencing(srcDel0.o))
+                                if srcDel0 == nil || dstDel0 == nil {
+                                        fmt.Printf("definer.define: %T %T\n", srcList.Elems[0], dstList.Elems[0])
+                                } else if srcDel0 == dstDel0 || srcDel0.o == dstDel0.o {
+                                        fmt.Printf("definer.define: append: %p %p\n", srcDel0, dstDel0)
                                 } else if srcDel0.o.Name() == dstDel0.o.Name() {
                                         srcDef := srcDel0.o.(*Def)
                                         dstDef := dstDel0.o.(*Def)
@@ -408,12 +400,12 @@ func (p *definer) Define(scope *Scope, project *Project) (def *Def, err error) {
                 }
                 AppendValue: _, err = def.Append(value)
         }
-        fmt.Printf("defined: %v: %v = %v\n", project.Name(), p.Name(), src.Value)
+        //fmt.Printf("defined: %v: %v = %v\n", project.Name(), p.Name(), p.src.Value)
         return
 }
 
-func MakeDefiner(op token.Token, name string) Value {
-        return &definer{ name:name, op:op }
+func MakeDefiner(op token.Token, src *Def) Value {
+        return &definer{ src:src, op:op }
 }
 
 func (scope *Scope) NewDef(project *Project, name string, value Value) *Def {

@@ -24,7 +24,7 @@ type Program struct {
         project  *types.Project
         scope   *types.Scope
         params  []string // named parameters
-        depends []types.Value // *types.RuleEntry, *values.BarefileValue
+        depends []types.Value // *types.RuleEntry, *types.Barefile
         recipes []types.Value
         pipline []types.Value
 }
@@ -191,13 +191,14 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         if res, err = p.Execute(scope, d, args, false); err == nil {
                                 //var fromOther = p != nil && p.project != prog.project
                                 //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
-                                dd, _ := p.scope.Lookup("@").(*types.Def)
+                                dd, _ := p.scope.Lookup("@").(*types.Def).Call()
+                                //fmt.Printf("Program.prepare: updated %v\n", dd)
                                 if isFileEntry {
-                                        dependList.Append(values.Group(targetRegularKind, dd.Value))
+                                        dependList.Append(values.Group(targetRegularKind, dd))
                                 } else {
                                         switch d.Class() {
                                         case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                dependList.Append(values.Group(targetRegularKind, dd.Value))
+                                                dependList.Append(values.Group(targetRegularKind, dd))
                                         default:
                                                 if res != nil && res != values.None {
                                                         dependList.Append(res)

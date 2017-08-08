@@ -1218,9 +1218,10 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         if v, e := p.runtime.Eval(ident, disclosure); e == nil {
                 name := v.Strval()
 
-                // If doing '+=', the assignment will concate the previous value
-                // with new one.
-                if tok == token.ADD_ASSIGN {
+                // If doing '+=', the assignment will concate the value of the
+                // symbol from the other scope with new one. But when working in
+                // 'use' rule, this concation will not applied.
+                if tok == token.ADD_ASSIGN && !p.inUseRule {
                         if sym := p.runtime.Resolve(name, anywhere); sym != nil {
                                 prev, _ = sym.(*types.Def)
                         }
@@ -1238,7 +1239,6 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         }
                         alt = true // it's the second defining this symbol
                 } else if def, _ = s.(*types.Def); def != nil {
-                        alt = false // it's a new symbol (first in this scope)
                         if prev != nil && prev != def /*&& prev.Parent() != def.Parent()*/ {
                                 def.SetOrigin(prev.Origin())
                                 def.Assign(types.Delegate(prev))
