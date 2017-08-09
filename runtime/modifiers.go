@@ -264,9 +264,11 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 nonfiles      = values.List()
                 shellFalses  int
         )
+        //fmt.Printf("compare: %v: %v -> %v\n", targetName, targetVal, types.Eval(targetVal))
+
         targetVal = types.Eval(targetVal)
         dependVal = types.Eval(dependVal)
-        
+
         switch t := targetVal.(type) {
         case *types.File: targetFile = t
         case *types.Barefile:

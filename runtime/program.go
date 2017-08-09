@@ -176,6 +176,10 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         }
                 case *types.RuleEntry:
                         //fmt.Printf("Program.prepare: %v %v\n", d, d.Class())
+                        var (
+                                isDependPatternUnfit = false
+                                isDependUpdated = false
+                        )
                         ProgramsLoop: for _, dp := range d.Programs() {
                                 var p = dp.(*Program)
                                 if p == nil {
@@ -215,8 +219,11 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                                         }
                                                 }
                                         }
+                                        isDependUpdated = true
+                                        break ProgramsLoop
                                 } else if _, ok := err.(*dependPatternUnfit); ok {
                                         //fmt.Printf("%s: %v (pattern not fit)\n", entry.Name(), depend)
+                                        isDependPatternUnfit = true
                                         continue ProgramsLoop
                                 } else {
                                         //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
@@ -229,6 +236,12 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                         err = errors.New(fmt.Sprintf("Updating %v%v", entry.Name(), s))
                                         break DependsLoop
                                 }
+                        }
+                        if isDependPatternUnfit && !isDependUpdated {
+                                if args != nil {
+                                        return errors.New(fmt.Sprintf("No rule for `%v' (required by `%v%v')", d.Name(), entry.Name(), args))
+                                }
+                                return errors.New(fmt.Sprintf("No rule for `%v' (required by `%v')", d.Name(), entry.Name()))
                         }
                 default:
                         return errors.New(fmt.Sprintf("Unknown depend `%T' (%v) (by `%s').", d, d, entry.Name()))

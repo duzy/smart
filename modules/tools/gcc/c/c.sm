@@ -32,11 +32,11 @@ ARCHIVE = &AR &ARFLAGS
 ignore:
 
 program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: $objects
-	$LINK $^ &LOADLIBES &LDLIBS -o $@
+	$LINK $^ &LOADLIBES &LDLIBS -o $bin
 lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $objects
-	$LINK -shared $^ &LOADLIBES &LDLIBS -o $@
+	$LINK -shared $^ &LOADLIBES &LDLIBS -o $lib
 lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $objects
-	$ARCHIVE $@ $^
+	$ARCHIVE $lib $^
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.c
 	$COMPILE -o $@ $<
 
