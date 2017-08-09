@@ -18,6 +18,11 @@ import (
         "os"
 )
 
+type dependPatternUnfit struct {
+}
+
+func (*dependPatternUnfit) Error() string { return "pattern unfit" }
+
 // Program (TODO: moving program into `types` package)
 type Program struct {
         context *Context
@@ -125,7 +130,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                 )
                 DependSwitch: switch d := depend.(type) {
                 case *types.Argumented:
-                        fmt.Printf("Program.prepare: %s: argumented: %v\n", entry.Name(), d.Args)
+                        //fmt.Printf("Program.prepare: %s: argumented: %v (%v)\n", entry.Name(), d, d.Args)
                         depend, args = d.Value, d.Args; goto DependSwitch
                 case *types.Bareword:
                         if p, e := project.Entry(d.Strval()); e != nil {
@@ -171,57 +176,59 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         }
                 case *types.RuleEntry:
                         //fmt.Printf("Program.prepare: %v %v\n", d, d.Class())
-                        var p *Program
-                        if len(d.Programs()) > 0 {
-                                p = d.Programs()[0].(*Program)
-                        }
-                        if p == nil {
-                                switch d.Class() {
-                                case types.FileRuleEntry:
-                                        file = d.Strval(); goto HandleFile
-                                case types.PatternFileRuleEntry:
-                                        // A pattern entry without program can't
-                                        // help to update the file.
-                                        return errors.New(fmt.Sprintf("no rule to make file '%v'", d))
-                                default:
-                                        return errors.New(fmt.Sprintf("%v: '%v' requies update actions (%v)\n", entry, d, d.Class()))
-                                }
-                                break DependSwitch
-                        }
-                        
-                        scope := context
-                        if entry.Project() != d.Project() {
-                                scope = entry.Project().Scope()
-                        }
-                        if res, err = p.Execute(scope, d, args, false); err == nil {
-                                //var fromOther = p != nil && p.project != prog.project
-                                //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
-                                dd, _ := p.scope.Lookup("@").(*types.Def).Call()
-                                //fmt.Printf("Program.prepare: updated %v\n", dd)
-                                if isFileEntry {
-                                        dependList.Append(values.Group(targetRegularKind, dd))
-                                } else {
+                        ProgramsLoop: for _, dp := range d.Programs() {
+                                var p = dp.(*Program)
+                                if p == nil {
                                         switch d.Class() {
-                                        case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                dependList.Append(values.Group(targetRegularKind, dd))
+                                        case types.FileRuleEntry:
+                                                file = d.Strval(); goto HandleFile
+                                        case types.PatternFileRuleEntry:
+                                                // A pattern entry without program can't
+                                                // help to update the file.
+                                                return errors.New(fmt.Sprintf("no rule to make file '%v'", d))
                                         default:
-                                                if res != nil && res != values.None {
-                                                        dependList.Append(res)
-                                                } else {
-                                                        dependList.Append(d)
+                                                return errors.New(fmt.Sprintf("%v: '%v' requies update actions (%v)\n", entry, d, d.Class()))
+                                        }
+                                        break DependSwitch
+                                }
+                                
+                                scope := context
+                                if entry.Project() != d.Project() {
+                                        scope = entry.Project().Scope()
+                                }
+                                if res, err = p.Execute(scope, d, args, false); err == nil {
+                                        //var fromOther = p != nil && p.project != prog.project
+                                        //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
+                                        dd, _ := p.scope.Lookup("@").(*types.Def).Call()
+                                        //fmt.Printf("Program.prepare: updated %v\n", dd)
+                                        if isFileEntry {
+                                                dependList.Append(values.Group(targetRegularKind, dd))
+                                        } else {
+                                                switch d.Class() {
+                                                case types.FileRuleEntry, types.PatternFileRuleEntry:
+                                                        dependList.Append(values.Group(targetRegularKind, dd))
+                                                default:
+                                                        if res != nil && res != values.None {
+                                                                dependList.Append(res)
+                                                        } else {
+                                                                dependList.Append(d)
+                                                        }
                                                 }
                                         }
-                                }
-                        } else {
-                                //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
-                                var s = err.Error()
-                                if strings.HasPrefix(s, "Updating ") {
-                                        s = "->" + strings.TrimPrefix(s, "Updating ")
+                                } else if _, ok := err.(*dependPatternUnfit); ok {
+                                        //fmt.Printf("%s: %v (pattern not fit)\n", entry.Name(), depend)
+                                        continue ProgramsLoop
                                 } else {
-                                        s = ", " + s
+                                        //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
+                                        var s = err.Error()
+                                        if strings.HasPrefix(s, "Updating ") {
+                                                s = "->" + strings.TrimPrefix(s, "Updating ")
+                                        } else {
+                                                s = ", " + s
+                                        }
+                                        err = errors.New(fmt.Sprintf("Updating %v%v", entry.Name(), s))
+                                        break DependsLoop
                                 }
-                                err = errors.New(fmt.Sprintf("Updating %v%v", entry.Name(), s))
-                                break DependsLoop
                         }
                 default:
                         return errors.New(fmt.Sprintf("Unknown depend `%T' (%v) (by `%s').", d, d, entry.Name()))
@@ -251,7 +258,11 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                 fv := project.SearchFile(context, values.File(depend, file))
                 if fv.Info != nil {
                         dependList.Append(fv)
+                } else if depend.Type() == types.PatternType {
+                        //fmt.Printf("%v: %v %v (no matched pattern file)\n", entry.Name(), depend, file)
+                        return new(dependPatternUnfit)
                 } else {
+                        //fmt.Printf("failed: %v: %T %v %v\n", entry.Name(), depend, depend, file)
                         return errors.New(fmt.Sprintf("No such file `%v' (required by `%v')", fv, entry.Name()))
                 }
         }

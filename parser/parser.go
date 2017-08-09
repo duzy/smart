@@ -589,7 +589,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
         //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
         //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
 
-        res = &ast.EvaluatedExpr{ value, s }
+        res = &ast.EvaluatedExpr{ s, value }
         if p.tok == token.PERIOD {
                 p.next() // Drop '.' before continuing selecting.
                 // Continue the selection recursivly
@@ -712,11 +712,16 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
              token.DATETIME, token.DATE, token.TIME, 
              token.URI, token.STRING, token.ESCAPE:
                 pos, tok, lit := p.pos, p.tok, p.lit
+                end := int(pos) + len(lit)
+                switch tok {
+                case token.STRING: end += 2
+                }
                 p.next()
                 return &ast.BasicLit{
                         ValuePos: pos,
                         Kind: tok,
                         Value: lit,
+                        EndPos: token.Pos(end),
                 }
                 
         case token.COMPOUND:
@@ -788,7 +793,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 } else if v == nil {
                         p.error(pos, "Name `%T' eval to nil", name)
                 } else {
-                        a = &ast.EvaluatedExpr{ v, name }
+                        a = &ast.EvaluatedExpr{ name, v }
                         if resolved = p.runtime.Resolve(v.Strval(), anywhere); resolved == nil {
                                 p.error(name.Pos(), "Undefined reference `%v' (%T).", v.Strval(), name)
                         } else {
@@ -947,6 +952,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         p.bits |= composingPERIOD
                         p.next() // Drop the '.' token.
                         x = p.parseSelect(lhs, p.checkExpr(x))
+                        //fmt.Printf("parseSelect: select: %T %v (%v %v)\n", x, x, x.End(), p.pos)
                         if p.tok == token.LPAREN && x.End() == p.pos {
                                 //fmt.Printf("parseSelect: compose: %T %v\n", x, x)
                                 //x = p.parseComposing(x, lhs)
@@ -1146,7 +1152,7 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
                 x = p.parseExpr(false)
         )
         if v, e := p.runtime.Eval(x, disclosure); e == nil {
-                props = append(props, &ast.EvaluatedExpr{ v, x })
+                props = append(props, &ast.EvaluatedExpr{ x, v })
         } else {
                 p.error(x.Pos(), "immediate (%s)", e)
         }
@@ -1161,7 +1167,7 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
                 }
                 x = p.parseExpr(false)
                 if v, e := p.runtime.Eval(x, delegation); e == nil {
-                        props = append(props, &ast.EvaluatedExpr{ v, x })
+                        props = append(props, &ast.EvaluatedExpr{ x, v })
                 } else {
                         p.error(x.Pos(), "immediate (%s)", e)
                 }
@@ -1272,6 +1278,9 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                                 p.error(ident.Pos(), "Already defined `%v' (%v).", name, v)
                         default:
                                 def, _ = a.(*types.Def) // override the existing
+                                if def == nil {
+                                        p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", name, a)
+                                }
                         }
                         alt = true // it's the second defining this symbol
                 } else if def, _ = s.(*types.Def); def != nil {
@@ -1281,8 +1290,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         }
                 } else if s != nil {
                         p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", name, s)
-                }
-                if def == nil {
+                } else {
                         p.error(ident.Pos(), "Failed defining `%s' (%v).", name, v)
                 }
         } else {
@@ -1308,11 +1316,15 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 }
                 bits = delegation
         case token.ASSIGN, token.EXC_ASSIGN: // =, !=
-                def.SetOrigin(types.DefaultDef)
+                if def != nil {
+                        def.SetOrigin(types.DefaultDef)
+                }
                 bits = delegation
                 // TODO: deal with p.inUseRule
         case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
-                def.SetOrigin(types.ImmediateDef)
+                if def != nil {
+                        def.SetOrigin(types.ImmediateDef)
+                }
                 bits = immediate
         default:
                 p.error(pos, "Unsuported assign `%v'", tok)
@@ -1334,7 +1346,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                                 //! Avoid creating a <nil> Def.
                                 def.Value = types.UniversalNone
                         }
-                        value = &ast.EvaluatedExpr{ v, value }
+                        value = &ast.EvaluatedExpr{ value, v }
                 } else {
                         p.error(value.Pos(), e)
                 }
@@ -1376,7 +1388,7 @@ func (p *parser) parseBuiltinRecipeExpr(elems []ast.Expr) (x ast.Expr) {
                                         v = sym.(types.Value)
                                 }
                         }
-                        x = &ast.EvaluatedExpr{ v, x }
+                        x = &ast.EvaluatedExpr{ x, v }
                 } else {
                         p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
                 }
@@ -1670,7 +1682,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         //        fmt.Printf("parseRuleClause: %s: %T -> %T %v\n", scopeComment, depend, depval, depval)
                         //}
 
-                        depends[i] = &ast.EvaluatedExpr{ depval, depend }
+                        depends[i] = &ast.EvaluatedExpr{ depend, depval }
                         continue dependsLoop
                 }
         }

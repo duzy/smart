@@ -121,8 +121,8 @@ type (
 	}
 
         EvaluatedExpr struct {
-                Data interface{}
                 Expr
+                Data interface{}
         }
 
 	// A Bareword represents a word without decorations or an identifier.
@@ -136,6 +136,7 @@ type (
 		ValuePos token.Pos   // literal position
 		Kind     token.Token // token.INT, token.FLOAT, token.CHAR, or token.STRING
 		Value    string      // literal string; e.g. 42, 0x7f, 3.14, 1e-9, 2.4i, 'a', '\x7f', "foo" or `\m\n\o`
+                EndPos   token.Pos
 	}
 
         // A FlagExpr is a bare word leading by dash '-'.
@@ -283,7 +284,7 @@ func (d *ProgramExpr) Pos() token.Pos     { return d.Recipes[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
-func (d *BasicLit) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
+func (d *BasicLit) End() token.Pos        { return d.EndPos /*token.Pos(int(d.ValuePos) + len(d.Value))*/ }
 func (d *FlagExpr) End() token.Pos        { return d.Name.End() }
 func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }

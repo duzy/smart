@@ -429,6 +429,7 @@ func (entry *RuleEntry) ExecutePrograms(a... Value) (result []Value, err error) 
         context := entry.Project().Scope()
         for _, program := range entry.programs {
                 if v, e := program.Execute(context, entry, a, false); e != nil {
+                        //fmt.Printf("failed: %v: %v\n", entry.Name(), e)
                         err = e; return
                 } else {
                         result = append(result, v)

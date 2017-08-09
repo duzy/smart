@@ -168,9 +168,10 @@ func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
         // TODO: Improves patter searching on base chain. 
         if pss := m.FindPatterns(name); pss != nil {
                 for _, ps := range pss {
-                        if ps.Patent.Programs() == nil {
+                        if ps.Patent.programs == nil {
                                 continue // FIXME: ???
                         }
+                        //fmt.Printf("%s: %v has %v programs\n", name, ps.Patent.Name(), len(ps.Patent.programs))
                         if entry, err = ps.MakeConcreteEntry(); entry != nil || err != nil {
                                 return
                         }
