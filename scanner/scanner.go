@@ -284,14 +284,13 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                 s.context &= ^isCompoundString
                 s.next() // take the ending '"'
                 return
-        case '$':
-                tok = token.DOLLAR // escape to do token.DOLLAR
-                return
-        case '&': // Escapes '&', but '&&' is not escaped.
+        case '&', '$': // Escapes '&', '$', but '&&' or '$$' is not escaped.
                 if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
-                        s.next() //! The first &
-                        s.next() //! The second &
+                        s.next() //! The first & or $
+                        s.next() //! The second & or $
                         tok, lit = token.STRING, string(s.src[offs:s.offset])
+                } else if s.ch == '$' {
+                        tok = token.DOLLAR // escape to do token.DOLLAR
                 } else {
                         tok = token.AND // escape to do token.AND
                 }
@@ -335,23 +334,13 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                 s.context &= ^isCompoundLine
                 s.next() // take the line-end
                 return
-        /*case '$', '&':
-                if n := s.offset + 1; n < len(s.src) && s.src[n] != s.ch {
-                        tok = token.CALL // escape to do token.CALL
-                        return
-                } else {
-                        s.next() // '$' or '&'
-                        s.next() // '$' or '&'
-                }
-                return*/
-        case '$':
-                tok = token.DOLLAR
-                return
-        case '&': // Escapes '&', but '&&' is not escaped.
+        case '&', '$': // Escapes '&', '$', but '&&' and '$$' is not escaped.
                 if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
-                        s.next() //! The first &
-                        s.next() //! The second &
+                        s.next() //! The first & or $
+                        s.next() //! The second & or $
                         tok, lit = token.STRING, string(s.src[offs:s.offset])
+                } else if s.ch == '$' {
+                        tok = token.DOLLAR // escape to do token.DOLLAR
                 } else {
                         tok = token.AND // escape to do token.AND
                 }

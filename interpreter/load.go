@@ -329,9 +329,9 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 }
         case *ast.PathSegExpr:
                 switch x.Tok {
-                case token.PCON: v = values.PathSeg('/')
+                case token.PCON:   v = values.PathSeg('/')
                 case token.PERIOD: v = values.PathSeg('.')
-                //case token.???: v = values.PathSeg('^') // 
+                case token.DOTDOT: v = values.PathSeg('^') // 
                 default: err := errors.New(fmt.Sprintf("Unsupported PathSeg `%v'.", x.Tok))
                         return nil, err
                 }
