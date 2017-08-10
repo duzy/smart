@@ -139,9 +139,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 depend = p; goto DependSwitch
                         }
                         return errors.New(fmt.Sprintf("No such rule `%v' (required by `%s').", d, entry.Name()))
-                case *types.Barefile:
-                        file = d.Strval(); goto HandleFile
-                case *types.Path:
+                case *types.Barefile, *types.Path:
                         file = d.Strval(); goto HandleFile
                 case *types.ProjectName:
                         if ent := d.Project().DefaultEntry(); ent != nil {
@@ -275,7 +273,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                         //fmt.Printf("%v: %v %v (no matched pattern file)\n", entry.Name(), depend, file)
                         return new(dependPatternUnfit)
                 } else {
-                        //fmt.Printf("failed: %v: %T %v %v\n", entry.Name(), depend, depend, file)
+                        fmt.Printf("failed: %v: %T %v %v\n", entry.Name(), depend, depend, file)
                         return errors.New(fmt.Sprintf("No such file `%v' (required by `%v')", fv, entry.Name()))
                 }
         }

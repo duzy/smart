@@ -166,6 +166,7 @@ func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
         }
         
         // TODO: Improves patter searching on base chain. 
+        //fmt.Printf("Project.Entry: %v: %v %v\n", name, m.patterns, m.scope)
         if pss := m.FindPatterns(name); pss != nil {
                 for _, ps := range pss {
                         if ps.Patent.programs == nil {

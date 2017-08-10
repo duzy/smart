@@ -29,6 +29,7 @@ const (
         
         // Bits to disable parsing ArgumentedExpr 
         composingNoArg = composingPERIOD | composingDOTDOT | composingPCON | composingPERC
+        composingNoKeyword = composingPERIOD | composingPCON | composingPERC
 )
 
 type parser struct {
@@ -830,8 +831,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 pos, tok := p.pos, p.tok; p.next()
                 if p.tok == token.PCON {
                         return &ast.PathSegExpr{ pos, tok }
-                } else if p.tok == token.PERIOD {
-                        // FIXME: select from the current context
+                } else if tok == token.PERIOD {
+                        // TODO: select from the current context
                         return &ast.Bareword{ pos, "." }
                 } else {
                         // TODO: select from the parent context
@@ -839,10 +840,16 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 }
                 
         case token.PERC:
-                pos := p.pos
-                p.next()
-                y := p.checkExpr(p.parseExpr(false))
+                var (
+                        y ast.Expr
+                        pos = p.pos
+                )
+                if p.next(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
+                        y = p.checkExpr(p.parseExpr(false))
+                        //fmt.Printf("PERC: %T %v %v(%v)\n", y, y, p.tok, p.lit)
+                }
                 return &ast.PercExpr{
+                        X: nil,
                         OpPos: pos,
                         Y: y,
                 }
@@ -868,7 +875,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 
         case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, 
              token.IMPORT, token.INSTANCE, token.FILES:
-                if p.inRhs {
+                if p.inRhs || p.bits&composingNoKeyword != 0 {
                         pos, lit := p.pos, p.lit
                         p.next()
                         // convert keyword into Bareword

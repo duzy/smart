@@ -370,9 +370,9 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 }
         case *ast.PercExpr:
                 var a, b types.Value
-                if a, err = i.expr(x.X); err != nil {
+                if a, err = i.expr(x.X); err != nil { // a can be nil
                         return
-                } else if b, err = i.expr(x.Y); err != nil {
+                } else if b, err = i.expr(x.Y); err != nil { // b can be nil
                         return
                 } else {
                         v = values.PercentPattern(a, b)
