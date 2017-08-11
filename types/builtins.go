@@ -33,6 +33,9 @@ var builtins = map[string]BuiltinFunc {
         `printl`:  builtinPrintl,
         `println`: builtinPrintln,
 
+        `plus`:    builtinPlus,
+        `minus`:   builtinMinus,
+
         `string`:  builtinString,
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
@@ -119,6 +122,26 @@ func builtinPrintln(context *Scope, args... Value) (Value, error) {
         builtinPrint(context, args...)
         fmt.Printf("\n")
         return nil, nil
+}
+
+func builtinPlus(context *Scope, args... Value) (result Value, err error) {
+        var num int64
+        for _, a := range args {
+                num += a.Integer()
+        } 
+        return &Int{integer{num}}, nil
+}
+
+func builtinMinus(context *Scope, args... Value) (result Value, err error) {
+        var num int64
+        for i, a := range args {
+                if i == 0 {
+                        num = a.Integer()
+                } else {
+                        num -= a.Integer()
+                }
+        }
+        return &Int{integer{num}}, nil
 }
 
 func builtinString(context *Scope, args... Value) (result Value, err error) {

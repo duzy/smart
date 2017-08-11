@@ -389,7 +389,12 @@ type File struct {
         Info os.FileInfo // file info if exists
 }
 func (p *File) Type() Type { return FileType }
-func (p *File) Strval() string { return filepath.Join(p.Dir, p.Name) }
+func (p *File) Strval() string { 
+        if filepath.IsAbs(p.Name) {
+                return p.Name
+        }
+        return filepath.Join(p.Dir, p.Name) 
+}
 
 func (p *File) disclose(scope *Scope) (Value, error) {
         if v, err := p.Value.disclose(scope); err != nil {

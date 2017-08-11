@@ -8,7 +8,7 @@ package runtime
 
 import (
         //"github.com/duzy/smart/token"
-        //"github.com/duzy/smart/values"
+        "github.com/duzy/smart/values"
         "github.com/duzy/smart/types"
         "strings"
         "time"
@@ -84,7 +84,11 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
                                 target = names[len(names)-1]
                         }
 
-                        var entry *types.RuleEntry
+                        var (
+                                entry *types.RuleEntry
+                                args = strings.Split(target, ":")
+                        )
+                        target, args = args[0], args[1:]
                         switch t := m.Scope().Lookup(target).(type) {
                         case *types.ProjectName: entry = t.Project().DefaultEntry()
                         case *types.RuleEntry:   entry = t
@@ -98,7 +102,11 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
 
                         if entry != nil {
                                 ctx.outdated = make(map[string]time.Time)
-                                if _, err = entry.ExecutePrograms(); err == nil {
+                                var v []types.Value
+                                for _, a := range args {
+                                        v = append(v, values.String(a))
+                                }
+                                if _, err = entry.ExecutePrograms(v...); err == nil {
                                         updated += 1
                                 } else {
                                         //fmt.Printf("%v\n", err)
