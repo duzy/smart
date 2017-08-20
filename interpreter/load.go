@@ -106,7 +106,12 @@ func (i *Interpreter) searchSpecPath(linfo *loadinfo, specName string) (absPath 
                 }
         } else {
                 for _, base := range i.paths {
-                        s := filepath.Join(base, specName)
+                        var s string
+                        if filepath.IsAbs(base) {
+                                s = filepath.Join(base, specName)
+                        } else {
+                                s = filepath.Join(i.Getwd(), base, specName)
+                        }
                         if fi, err = os.Stat(s); err == nil && fi != nil {
                                 isDir, absPath = fi.IsDir(), s
                                 return
@@ -723,7 +728,6 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
         }
 
         var (
-                //args []types.Value
                 absPath, specName string
                 isDir bool
         )
@@ -733,7 +737,7 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
                 if err != nil {
                         break ParamsLoop
                 }
-                
+
                 if isDir {
                         err = i.loadDir(specName, absPath, nil)
                 } else {
@@ -750,7 +754,7 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
                         i.project.Chain(loaded)
                 }
 
-                //fmt.Printf("base: %s (%s %v)\n", specName, loaded.Name(), absPath)
+                //fmt.Printf("base: %s (%s) (%s %v)\n", specName, i.project.Name(), loaded.Name(), absPath)
         }
         return
 }
@@ -855,6 +859,11 @@ func (i *Interpreter) closeCurrentProject(ident *ast.Bareword) (err error) {
 // Interpreter.Load loads script from a file or source code (string, []byte).
 func (i *Interpreter) load(specName, absPath string, source interface{}) error {
         //fmt.Printf("load: %v (%v)\n", specName, absPath)
+
+        if !filepath.IsAbs(absPath) {
+                //panic(fmt.Sprintf("Invalid abs name `%s' (%s).", absPath, specName))
+                return errors.New(fmt.Sprintf("Invalid abs name `%s' (%s).", absPath, specName))
+        }
         
         // Check already project.
         if loaded, ok := i.loaded[absPath]; ok {
@@ -862,6 +871,7 @@ func (i *Interpreter) load(specName, absPath string, source interface{}) error {
                         s = i.project.Scope()
                         name = loaded.Name()
                 )
+                //fmt.Printf("loaded: %v (%v)\n", loaded.Name(), absPath)
                 if _, a := s.InsertProjectName(i.project, name, loaded); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
                                 return errors.New(fmt.Sprintf("Name `%s' already taken (%T).", name, a))
@@ -886,7 +896,13 @@ func (i *Interpreter) load(specName, absPath string, source interface{}) error {
 }
 
 func (i *Interpreter) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (err error) {
-        //fmt.Printf("loaddir: %v (%v)\n", specName, absDir)
+        //fmt.Printf("loadDir: %v: %v (%v)\n", i.project.Name(), specName, absDir)
+
+        if !filepath.IsAbs(absDir) {
+                panic(fmt.Sprintf("Invalid abs name `%s' (%s).", absDir, specName))
+                err = errors.New(fmt.Sprintf("Invalid abs name `%s' (%s).", absDir, specName))
+                return
+        }
 
         // Check already project.
         if loaded, ok := i.loaded[absDir]; ok {
@@ -894,6 +910,7 @@ func (i *Interpreter) loadDir(specName, absDir string, filter func(os.FileInfo) 
                         s = i.project.Scope()
                         name = loaded.Name()
                 )
+                //fmt.Printf("loaded: %v: %v (%v)\n", i.project.Name(), name, absDir)
                 if _, a := s.InsertProjectName(i.project, name, loaded); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
                                 err = errors.New(fmt.Sprintf("Name `%s' already taken (%T).", name, a))
@@ -913,13 +930,16 @@ func (i *Interpreter) loadDir(specName, absDir string, filter func(os.FileInfo) 
 }
 
 func (i *Interpreter) Load(filename string, source interface{}) error {
-        dir, _ := filepath.Split(filename)
-        if dir == "" { dir = "." }
-        return i.load(dir, filename, source)
+        s, _ := filepath.Split(filename)
+        s, _  = filepath.Rel(i.Getwd(), s)
+        //fmt.Printf("Load: %v (%v)\n", s, filename)
+        return i.load(s, filename, source)
 }
 
 func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
-        return i.loadDir(path, path, filter)
+        s, _ := filepath.Rel(i.Getwd(), path)
+        //fmt.Printf("LoadDir: %v (%v)\n", s, path)
+        return i.loadDir(s, path, filter)
 }
 
 func (pc *parseContext) Files(m map[string][]string) {
