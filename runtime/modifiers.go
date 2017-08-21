@@ -245,7 +245,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
         )
         if nargs > 0 { targetName = args[0].Strval() }
         if nargs > 1 {
-                s := fmt.Sprintf("`compare' accepts only one optional argument (%v)", args)
+                s := fmt.Sprintf("compare: accepts only one optional argument (%v)", args)
                 return nil, &breaker{ s, false }
         }
 
@@ -271,12 +271,15 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
 
         switch t := targetVal.(type) {
         case *types.File: targetFile = t
-        case *types.Barefile:
-                //fmt.Printf("barefile: %v %v\n", t, t.Strval())
+        case *types.Barefile: 
                 targetFile = values.File(t, t.Strval())
+        case *types.RuleEntry:
+                if t.Class() == types.FileRuleEntry {
+                        targetFile = values.File(t, t.Strval())
+                }
         }
         if targetFile == nil {
-                err = &breaker{ fmt.Sprintf("`compare' expects `*types.File' instead of `%T' (%v)", targetVal, targetVal), false }
+                err = &breaker{ fmt.Sprintf("compare: expects `*types.File' instead of `%T' (%v)", targetVal, targetVal), false }
                 goto DoneCompare
         } else if nargs == 1 {
                 // Replace the "@" value
