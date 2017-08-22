@@ -28,7 +28,8 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 symDxi = prog.scope.Find("docker-exec-image")
-                symWd = prog.scope.Find("/" /*"."*/)
+                //symWd = prog.scope.Find("/" /*"."*/)
+                wd = prog.Getwd()
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value
@@ -74,7 +75,7 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                                 dxi = v.Strval()
                         } 
                 }
-                if symWd != nil {
+                /*if symWd != nil {
                         if v, e := symWd.(types.Caller).Call(); e != nil {
                                 err = e; return
                         } else if v != nil {
@@ -82,6 +83,9 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                                         src = fmt.Sprintf("cd '%s' && %s", s, source)
                                 }
                         }
+                }*/
+                if s := wd; s != "" {
+                        src = fmt.Sprintf("cd '%s' && %s", s, source)
                 }
 
                 var (
