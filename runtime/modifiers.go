@@ -315,8 +315,10 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                 }
                         case *types.RuleEntry:
                                 switch d.Class() {
-                                case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                        Fail("compare: %v: unhandled file depend %v (%v)", targetVal, d, d.Class())
+                                case types.PatternFileRuleEntry:
+                                        Fail("compare: %v: discarded file depend %v (%v)", targetVal, d, d.Class())
+                                case types.FileRuleEntry:
+                                        files.Append(values.File(d, d.Strval()))
                                 case types.GeneralRuleEntry, types.PatternRuleEntry:
                                         nonfiles.Append(d)
                                 default:
@@ -324,7 +326,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                 }
                         case *types.String:
                                 if prog.project.IsFile(d.Strval()) {
-                                        Fail("compare: %v: unhandled file depend %v (%T)", targetVal, depend, depend)
+                                        Fail("compare: %v: discarded file depend %v (%T)", targetVal, depend, depend)
                                 } else {
                                         nonfiles.Append(d)
                                 }
