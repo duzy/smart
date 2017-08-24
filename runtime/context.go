@@ -65,7 +65,7 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
                         var m = mm
                         if names := strings.Split(target, "."); len(names)>1 {
                                 for _, s := range names[0:len(names)-1] {
-                                        var obj = m.Scope().Lookup(s)
+                                        var obj = m.Scope().Find(s)
                                         switch t := obj.(type) {
                                         case *types.ProjectName:
                                                 m = t.Project()
@@ -89,7 +89,7 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
                                 args = strings.Split(target, ":")
                         )
                         target, args = args[0], args[1:]
-                        switch t := m.Scope().Lookup(target).(type) {
+                        switch t := m.Scope().Find(target).(type) {
                         case *types.ProjectName: entry = t.Project().DefaultEntry()
                         case *types.RuleEntry:   entry = t
                         case nil:
