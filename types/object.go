@@ -401,11 +401,13 @@ func (entry *RuleEntry) Programs() []Program { return entry.programs }
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
-func (entry *RuleEntry) ExecutePrograms(a... Value) (result []Value, err error) {
+func (entry *RuleEntry) ExecutePrograms(context *Scope, a... Value) (result []Value, err error) {
         if entry.IsPattern() {
                 return nil, errors.New(fmt.Sprintf("Calling pattern entry `%s'.", entry.Name()))
         }
-        context := entry.Project().Scope()
+        if context == nil {
+                context = entry.Project().Scope()
+        }
         for _, program := range entry.programs {
                 if v, e := program.Execute(context, entry, a, false); e != nil {
                         //fmt.Printf("failed: %v: %v\n", entry.Name(), e)

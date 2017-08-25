@@ -131,6 +131,7 @@ func CommandLine() {
         var (
                 base, _ = os.Getwd()
                 rel, _ = filepath.Rel(base, base)
+                sp = filepath.Join(base, ".smart", "modules")
 
                 i = New()
                 at = i.Globe().NewProject(nil, base, rel, ".", "@")
@@ -138,6 +139,10 @@ func CommandLine() {
 
                 targets []string
         )
+
+        if _, e := os.Stat(sp); e == nil {
+                i.AddSearchPaths(sp)
+        }
 
         //absDir, baseName := filepath.Split(at.AbsPath())
         saveLoadingInfo(i, at.Spec(), at.AbsPath(), "")

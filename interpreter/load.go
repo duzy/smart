@@ -434,7 +434,7 @@ func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
                         if entry, _ = obj.(*types.RuleEntry); entry == nil {
                                 return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' entry (%T).", project.Name(), obj))
                         } else {
-                                results, err := entry.ExecutePrograms(/*values.Any(i.project)*/)
+                                results, err := entry.ExecutePrograms(i.scope)
                                 if err != nil {
                                         return err
                                 }

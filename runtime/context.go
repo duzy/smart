@@ -56,7 +56,7 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
         if len(targets) == 0 {
                 ctx.outdated = make(map[string]time.Time)
                 if entry := mm.DefaultEntry(); entry != nil {
-                        if _, err = entry.ExecutePrograms(); err == nil {
+                        if _, err = entry.ExecutePrograms(nil); err == nil {
                                 updated += 1
                         }
                 }
@@ -106,7 +106,7 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
                                 for _, a := range args {
                                         v = append(v, values.String(a))
                                 }
-                                if _, err = entry.ExecutePrograms(v...); err == nil {
+                                if _, err = entry.ExecutePrograms(nil, v...); err == nil {
                                         updated += 1
                                 } else {
                                         //fmt.Printf("%v\n", err)
