@@ -79,9 +79,15 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         }
                 }
                 if s := wd; s != "" {
-                        // Insert a "\n" before the right paren ')' to ensure that
-                        // it's working with something like "true #comment...".
-                        src = fmt.Sprintf("cd '%s' && (%s\n)", s, source)
+                        if t := strings.TrimSpace(source); t == "" {
+                                src = fmt.Sprintf("cd '%s'", s)
+                        } else if strings.HasPrefix(t, "#") {
+                                src = fmt.Sprintf("cd '%s' %s", s, t)
+                        } else {
+                                // Insert a "\n" before the right paren ')' to ensure that
+                                // it's working with something like "true #comment...".
+                                src = fmt.Sprintf("cd '%s' && (%s\n)", s, t)
+                        }
                 }
 
                 var (
