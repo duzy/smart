@@ -18,7 +18,7 @@ type dialectPlain struct {
 }
 
 func (t *dialectPlain) dialect() string { return "plain" }
-func (t *dialectPlain) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectPlain) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         result = values.Group(targetPlainKind, 
                 values.String(joinRecipesString(recipes...)))
         return

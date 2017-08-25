@@ -20,7 +20,7 @@ type dialectDefault struct {
 }
 
 func (t *dialectDefault) dialect() string { return "default" }
-func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []types.Value) (types.Value, error) {
+func (t *dialectDefault) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (types.Value, error) {
         var (
                 list = values.List()
                 err error

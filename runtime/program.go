@@ -70,7 +70,7 @@ func (prog *Program) interpret(context *types.Scope, pcd bool, i interpreter, ou
                 recipes = append(recipes, recipe) // types.EvalElems
         }
         
-        value, err = i.evaluate(prog, args, recipes)
+        value, err = i.evaluate(prog, context, args, recipes)
         if err == nil && value != nil {
                 out.Assign(value)
         }
@@ -283,14 +283,18 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
         return
 }
 
-func (prog *Program) Getwd() string {
+func (prog *Program) Getwd(context *types.Scope) string {
         for _, m := range prog.pipline {
                 if g, ok := m.(*types.Group); ok && g != nil {
                         if n := len(g.Elems); n > 0 && g.Elems[0].Strval() == "cd" {
                                 var s string
                                 if n > 1 {
-                                        s = filepath.Clean(g.Elems[1].Strval())
-                                        if s == "-" { s = "" }
+                                        if v, e := types.Disclose(context, g.Elems[1]); e != nil {
+                                                // TODO: error...
+                                        } else if v != nil {
+                                                s = filepath.Clean(v.Strval())
+                                                if s == "-" { s = "" }
+                                        }
                                 }
                                 return s
                         }
@@ -307,7 +311,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 fmt.Printf("Program.Execute: %v: %v\n", entry.Name(), args)
         }*/
         var pcd = entry.Class() != types.UseRuleEntry
-        if workdir := prog.Getwd(); workdir != "" {
+        if workdir := prog.Getwd(context); workdir != "" {
                 if wd, _ := os.Getwd(); workdir != filepath.Clean(wd) {
                         // print-change-directory
                         if pcd {

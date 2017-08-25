@@ -22,14 +22,12 @@ type dialectDock struct {
         monoInterpreter
 }
 func (s *dialectDock) dialect() string { return "dock" }
-func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
-                _, symDxi = prog.scope.Find("docker-exec-image")
-                //symWd = prog.scope.Find("/" /*"."*/)
-                wd = prog.Getwd()
+                wd = prog.Getwd(context)
                 stdout bytes.Buffer
                 stderr bytes.Buffer
                 status types.Value
@@ -65,27 +63,25 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                 }
 
                 var (
-                        dxi = "default-dock-image"
                         src = source
+                        dxi = "default-dock-image"
+                        dxiName = "docker-exec-image"
+                        _, obj = context.Find(dxiName)
                 )
-                if symDxi != nil {
-                        if v, e := symDxi.(types.Caller).Call(); e != nil {
+                if obj == nil { _, obj = prog.scope.Find(dxiName) }
+                if obj != nil {
+                        if v, e := obj.(types.Caller).Call(); e != nil {
                                 err = e; return
-                        } else if v != nil {
-                                dxi = v.Strval()
-                        } 
-                }
-                /*if symWd != nil {
-                        if v, e := symWd.(types.Caller).Call(); e != nil {
-                                err = e; return
-                        } else if v != nil {
-                                if s := v.Strval(); s != "" {
-                                        src = fmt.Sprintf("cd '%s' && %s", s, source)
-                                }
+                        } else if v == nil {
+                                // nothing changed
+                        } else if s := strings.TrimSpace(v.Strval()); s != "" {
+                                dxi = s
                         }
-                }*/
+                }
                 if s := wd; s != "" {
-                        src = fmt.Sprintf("cd '%s' && %s", s, source)
+                        // Insert a "\n" before the right paren ')' to ensure that
+                        // it's working with something like "true #comment...".
+                        src = fmt.Sprintf("cd '%s' && (%s\n)", s, source)
                 }
 
                 var (

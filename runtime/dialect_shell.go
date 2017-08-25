@@ -43,7 +43,7 @@ func isTrueValue(s string) (res bool) {
 }
 
 func (s *dialectShell) dialect() string { return "shell" }
-func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
                 statusOpt, _ = prog.scope.Lookup("shell-status").(*types.Def)
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)

@@ -22,7 +22,7 @@ const (
 type interpreter interface {
         dialect() string
         mode() interpretMode
-        evaluate(prog *Program, args []types.Value, recipes []types.Value) (types.Value, error)
+        evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (types.Value, error)
 }
 
 type monoInterpreter struct {
