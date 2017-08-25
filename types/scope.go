@@ -6,7 +6,6 @@
 package types
 
 import (
-        "github.com/duzy/smart/token"
         "github.com/duzy/smart/ast"
         "strings"
         "bytes"
@@ -24,12 +23,11 @@ type Scope struct {
         chain []*Scope
         children []*Scope
         elems map[string]Object
-        pos, end token.Pos
         comment string
 }
 
-func NewScope(outer *Scope, pos, end token.Pos, comment string) *Scope {
-        scope := &Scope{ outer, nil, nil, nil, pos, end, comment }
+func NewScope(outer *Scope, comment string) *Scope {
+        scope := &Scope{ outer, nil, nil, nil, comment }
  	// Don't add children to Universe scope!
 	if outer != nil && outer != universe {
 		outer.children = append(outer.children, scope)
@@ -79,43 +77,52 @@ func (s *Scope) Lookup(name string) Object {
 	return s.elems[name]
 }
 
-// FindChainUp follows the outer chain of scopes starting with s until
+// findouter follows the outer chain of scopes starting with s until
 // it finds a scope where Lookup(name) returns a non-nil object, and then
-// returns that scope and object. If a valid position pos is provided,
-// only objects that were declared at or before pos are considered.
-// If no such scope and object exists, the result is (nil, nil).
+// returns that scope and object. If no such scope and object exists, the
+// result is (nil, nil).
 //
 // Note that obj.Outer() may be different from the returned scope if the
 // object was inserted into the scope and already had a outer at that
 // time (see Insert, below). This can only happen for dot-imported objects
 // whose scope is the scope of the package that exported them.
-func (s *Scope) FindChainUp(name string, pos token.Pos) (*Scope, Object) {
+func (s *Scope) findouter(name string) (*Scope, Object) {
         // 1. Lookup outer scopes.
-	for p := s; p != nil; p = p.outer {
-		if obj := p.Lookup(name); obj != nil && (!pos.IsValid() || obj.scopePos() <= pos) {
-			return p, obj
-		}
-	}
+        if false {
+                for p := s; p != nil; p = p.outer {
+                        if obj := p.Lookup(name); obj != nil /*&& (!pos.IsValid() || obj.scopePos() <= pos)*/ {
+                                return p, obj
+                        }
+                }
+        } else {
+                if s.outer != nil {
+                        if p, obj := s.outer.Find(name); obj != nil {
+                                return p, obj
+                        }
+                }
+        }
         // 2. Lookup chained scopes.
         for _, p := range s.chain {
-                if p, obj := p.FindAt(pos, name); obj != nil {
+                if p, obj := p.Find(name); obj != nil {
                         return p, obj
                 }
         }
 	return nil, nil
 }
 
-func (s *Scope) FindAt(pos token.Pos, name string) (*Scope, Object) {
+func (s *Scope) Find(name string) (*Scope, Object) {
         if obj := s.Lookup(name); obj == nil {
-                return s.FindChainUp(name, pos)
+                return s.findouter(name)
         } else {
                 return s, obj
         }
 }
 
-func (s *Scope) Find(name string) (obj Object) {
-        _, obj = s.FindAt(token.NoPos, name)
-        return 
+func (s *Scope) Resolve(name string) (sym ast.Symbol) {
+        if _, obj := s.Find(name); obj != nil {
+                sym = obj.(ast.Symbol)
+        }
+        return
 }
 
 // Insert attempts to insert an object obj into scope s.
@@ -140,47 +147,6 @@ func (s *Scope) replace(name string, obj Object) {
 	if obj.Parent() == nil {
 		obj.setParent(s)
 	}
-}
-
-// Pos and End describe the scope's source code extent [pos, end).
-// The results are guaranteed to be valid only if the type-checked
-// AST has complete position information. The extent is undefined
-// for Universe and package scopes.
-func (s *Scope) Pos() token.Pos { return s.pos }
-func (s *Scope) End() token.Pos { return s.end }
-
-// Contains returns true if pos is within the scope's extent.
-// The result is guaranteed to be valid only if the type-checked
-// AST has complete position information.
-func (s *Scope) Contains(pos token.Pos) bool {
-	return s.pos <= pos && pos < s.end
-}
-
-// Innermost returns the innermost (child) scope containing
-// pos. If pos is not within any scope, the result is nil.
-// The result is also nil for the Universe scope.
-// The result is guaranteed to be valid only if the type-checked
-// AST has complete position information.
-func (s *Scope) Innermost(pos token.Pos) *Scope {
-	// Package scopes do not have extents since they may be
-	// discontiguous, so iterate over the package's files.
-	if s.outer == universe {
-		for _, s := range s.children {
-			if inner := s.Innermost(pos); inner != nil {
-				return inner
-			}
-		}
-	}
-
-	if s.Contains(pos) {
-		for _, s := range s.children {
-			if s.Contains(pos) {
-				return s.Innermost(pos)
-			}
-		}
-		return s
-	}
-	return nil
 }
 
 // WriteTo writes a string representation of the scope to w,
@@ -219,11 +185,4 @@ func (s *Scope) String() string {
 	var buf bytes.Buffer
 	s.WriteTo(&buf, 0, false)
 	return buf.String()
-}
-
-func (s *Scope) Resolve(name string) (sym ast.Symbol) {
-        if obj := s.Find(name); obj != nil {
-                sym = obj.(ast.Symbol)
-        }
-        return
 }

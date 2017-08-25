@@ -15,30 +15,30 @@ CC = gcc
 CFLAGS =
 CPPFLAGS =
 
-COMPILE-c = &CC &CFLAGS &CPPFLAGS &TARGET_ARCH -c
-COMPILE-s = &AS &ASFLAGS &TARGET_MACH
+COMPILE-c = &(CC) &(CFLAGS) &(CPPFLAGS) &(TARGET_ARCH) -c
+COMPILE-s = &(AS) &(ASFLAGS) &(TARGET_MACH)
 COMPILE = $(COMPILE-c)
 
-LINK-s = &CC &LDFLAGS &TARGET_ARCH
-LINK-o = &CC &LDFLAGS &TARGET_ARCH
-LINK-c = &CC &CFLAGS &CPPFLAGS &LDFLAGS &TARGET_ARCH
+LINK-s = &(CC) &(LDFLAGS) &(TARGET_ARCH)
+LINK-o = &(CC) &(LDFLAGS) &(TARGET_ARCH)
+LINK-c = &(CC) &(CFLAGS) &(CPPFLAGS) &(LDFLAGS) &(TARGET_ARCH)
 LINK = $(LINK-c)
 
 AR = ar
 #ARFLAGS = rv #crus
 ARFLAGS = rvs
-ARCHIVE = &AR &ARFLAGS
+ARCHIVE = &(AR) &(ARFLAGS)
 
 ignore:
 
-program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: $objects
-	$LINK $^ &LOADLIBES &LDLIBS -o $bin
-lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $objects
-	$LINK -shared $^ &LOADLIBES &LDLIBS -o $lib
-lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $objects
-	$ARCHIVE $lib $^
+program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: $(objects)
+	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
+lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $(objects)
+	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
+lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $(objects)
+	$(ARCHIVE) $(lib) $^
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.c
-	$COMPILE -o $@ $<
+	$(COMPILE) -o $@ $<
 
 # TODO:
 #.c:

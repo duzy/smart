@@ -158,7 +158,7 @@ func (m *Project) FindPatterns(s string) (res []*PatternStem) {
 
 // Find rule entry by name or create new one.
 func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
-        obj := m.scope.Find(name)
+        _, obj := m.scope.Find(name)
         if obj != nil {
                 if entry, _ = obj.(*RuleEntry); entry != nil {
                         return

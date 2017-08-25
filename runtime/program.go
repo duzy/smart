@@ -192,6 +192,8 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                                 return errors.New(fmt.Sprintf("%v: '%v' requies update actions (%v)\n", entry, d, d.Class()))
                                         }
                                         break DependSwitch
+                                } else if p == prog {
+                                        return errors.New(fmt.Sprintf("Depends on itself (%v).", entry))
                                 }
                                 
                                 scope := context
@@ -252,7 +254,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                 }
 
                 //fmt.Printf("Program.prepare: %s (%T %v) (%v)\n", file, depend, depend, context)
-                if obj := context.Find(file); obj != nil {
+                if _, obj := context.Find(file); obj != nil {
                         if obj != depend { // ignore the same one
                                 depend, isFileEntry = obj, true
                                 goto DependSwitch

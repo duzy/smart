@@ -497,6 +497,8 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 }
         }
 
+        //fmt.Printf("select: %T.%T (%v %v)\n", x, s, x, s)
+
         // Deal with lhs of '.', convert x into an Ident or Barefile
         var (
                 operand types.Value
@@ -576,8 +578,15 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                         p.error(x.Pos(), "Selection `%s.%s' failed.", operandName, valueName)
                 } else if value == nil {
                         p.error(s.Pos(), "No such property `%s' in `%s'.", valueName, operandName)
-                } else {
-                        goto DoneSelect
+                } else if pn, _ := o.(*types.ProjectName); pn != nil {
+                        // Detect diverged scope ().
+                        switch v := value.(type) {
+                        case *types.RuleEntry:
+                                if false && pn.Project() != v.Project() {
+                                        p.error(s.Pos(), "Name diverged `%v' (%v != %v).", valueName, pn.Project().Name(), v.Project().Name())
+                                }
+                        case *types.Def:
+                        }
                 }
         default:
                 goto DoneSelect
@@ -587,7 +596,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 p.error(s.Pos(), "No such property `%v' (%T) in `%s'.", valueName, s, operandName)
         }
 
-        //fmt.Printf("select: %T . %T -> %s.%s\n", x, s, operandName, valueName)
+        //fmt.Printf("select: %T.%T -> %s.%s\n", x, s, operandName, valueName)
         //fmt.Printf("select: %T %v . %T %v\n", operand, operand, value, value)
         //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
         //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
@@ -780,8 +789,14 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         }
                         rpos = p.expect(token.RPAREN)
                 default:
-                        // Parse name without composing expressions
-                        name = p.checkExpr(p.parseExpr0(false))
+                        // Only support $(...), disable $name.
+                        if false {
+                                // Parse name without composing expressions
+                                name = p.checkExpr(p.parseExpr0(false))
+                        } else {
+                                p.error(p.pos, "Expecting `%v'.", token.LPAREN)
+                                return &ast.BadExpr{ From:p.pos, To:p.pos }
+                        }
                 }
 
                 var resolved RuntimeObj
@@ -1536,6 +1551,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         var (
                 doc = p.leadComment
                 pos = p.expect(tok)
+                entries []*types.RuleEntry
                 modifier *ast.ModifierExpr
                 program *ast.ProgramExpr
                 depends []ast.Expr
@@ -1575,6 +1591,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         /*} else if entry.Programs() != nil {
                                 p.error(target.Pos(), "Rule `%s' already defined (%v).", name, entry.Class())*/
                         } else if ok {
+                                //fmt.Printf("entry: %v already defined\n", entry)
                                 tarent = entry
                         } else {
                                 p.error(target.Pos(), "Invalid rule `%s'.", name)
@@ -1600,6 +1617,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         }
                 }
                 tarent.SetClass(class)
+                entries = append(entries, tarent)
 
                 if scopeComment != "" {
                         scopeComment += " "
@@ -1626,7 +1644,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 p.next()
         }
 
-        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("rule %s", scopeComment))
+        scope := p.runtime.OpenScope(fmt.Sprintf("rule %s", scopeComment))
         for _, s := range automatics {
                 if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
                         p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
@@ -1665,10 +1683,19 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         } else if depval == nil {
                                 p.error(depend.Pos(), "Invalid depend `%T'.", depend)
                                 continue
+                        } else {
+                                // Detecting self dependency.
+                                for _, entry := range entries {
+                                        if entry == depval {
+                                                //fmt.Printf("depend: %p %v (%v)\n", entry, depval, entry.Project().Name())
+                                                p.error(depend.Pos(), "Depends on itself `%v' (%T).", entry, depend)
+                                        }
+                                }
                         }
 
                         //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
-                        //if scopeComment == "lib.a" || scopeComment == "libbitcoin_crypto.a" {
+
+                        //if scopeComment == "lib.a" {
                         //        fmt.Printf("parseRuleClause: %s: %T -> %T %v\n", scopeComment, depend, depval, depval)
                         //}
 
@@ -1789,7 +1816,7 @@ func (p *parser) parseFile() *ast.File {
                 pos = p.pos
         )
 
-        scope := p.runtime.OpenScope(p.pos, fmt.Sprintf("file %s", filename))
+        scope := p.runtime.OpenScope(fmt.Sprintf("file %s", filename))
         if scope != nil {
                 defer p.closeScope(scope)
                 var (

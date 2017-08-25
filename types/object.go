@@ -7,7 +7,6 @@
 package types
 
 import (
-        "github.com/duzy/smart/token"
         "os/exec"
         "strings"
         "errors"
@@ -21,8 +20,6 @@ import (
 // 
 type Object interface {
         Value
-
-        Pos() *token.Position // position or nil
 
         Parent() *Scope
         Project() *Project
@@ -39,12 +36,6 @@ type Object interface {
 
 	// setParent sets the parent scope of the object.
 	setParent(*Scope)
-
-	// scopePos returns the start position of the scope of this Object
-	scopePos() token.Pos
-
-	// setScopePos sets the start position of the scope for this Object.
-	setScopePos(pos token.Pos) // FIXME: it's not applied
 }
 
 // An object implements the common parts of an Object.
@@ -55,13 +46,11 @@ type object struct {
         name string
         typ Type
         ord uint32
-        scopos token.Pos
 }
 
 func (obj *object) Parent() *Scope        { return obj.parent }
 func (obj *object) Project() *Project     { return obj.project }
 func (obj *object) Name() string          { return obj.name }
-func (obj *object) Pos() *token.Position  { return nil /*obj.scopos*/ }
 
 func (obj *object) Type() Type            { return obj.typ }
 func (obj *object) Strval() string        { return obj.String() }
@@ -72,11 +61,9 @@ func (obj *object) Get(name string) (Value, error) {
 }
 
 func (obj *object) order() uint32         { return obj.ord }
-func (obj *object) scopePos() token.Pos   { return obj.scopos }
 
 func (obj *object) setParent(parent *Scope)   { obj.parent = parent }
 func (obj *object) setOrder(order uint32)     { /*assert(order > 0);*/ obj.ord = order }
-func (obj *object) setScopePos(pos token.Pos) { obj.scopos = pos }
 
 type ProjectName struct {
         object
@@ -96,30 +83,38 @@ func (n *ProjectName) Strval() string  {
 }
 
 func (n *ProjectName) Get(name string) (Value, error) {
-        if sym := n.project.Scope().Resolve(name); sym != nil {
-                value, _ := sym.(Value)
-                return value, nil
+        if scope, sym := n.project.scope.Find(name); scope != nil && sym != nil {
+                if false {
+                        if o, _ := sym.(Object); o != nil && o.Project() != n.project {
+                                //fmt.Printf("diverged: %v (%v != %v)\n", name, o.Project().Name(), n.project.Name())
+                                //fmt.Printf("%v\n", n.project.scope)
+                                //fmt.Printf("%v\n", n.project.scope.chain)
+                                //fmt.Printf("%v\n", scope)
+                                return nil, errors.New(fmt.Sprintf("Symbol diverged `%s'", name))
+                        } else if value, _ := sym.(Value); value != nil {
+                                return value, nil
+                        } else {
+                                return nil, errors.New(fmt.Sprintf("Symbol `%s' is not value (%T)", name, sym))
+                        } 
+                } else {
+                        value, _ := sym.(Value); return value, nil
+                }
         }
-        return nil, errors.New(fmt.Sprintf("undefined %s in project %s", name, n.project.Name()))
-}
-
-func (scope *Scope) NewProjectName(container *Project, name string, project *Project) *ProjectName {
-	return &ProjectName{
-                object{
-                        parent:  scope,
-                        project: container,
-                        name:    name,
-                        typ:     ProjectNameType,
-                        ord:     0,
-                        scopos:  token.NoPos,
-                },
-                project,
-        }
+        return nil, errors.New(fmt.Sprintf("Undefined `%s' in project `%s'.", name, n.project.Name()))
 }
 
 func (scope *Scope) InsertProjectName(container *Project, name string, project *Project) (pn *ProjectName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
-                pn = scope.NewProjectName(container, name, project)
+                pn = &ProjectName{
+                        object{
+                                parent:  scope,
+                                project: container,
+                                name:    name,
+                                typ:     ProjectNameType,
+                                ord:     0,
+                        },
+                        project,
+                }
                 scope.replace(name, pn)
         }
         return
@@ -147,27 +142,22 @@ func (n *ScopeName) Get(name string) (Value, error) {
                 value, _ := sym.(Value)
                 return value, nil
         }
-        return nil, errors.New(fmt.Sprintf("undefined %s in scope %s", name, n.Name()))
+        return nil, errors.New(fmt.Sprintf("Undefined `%s' in scope `%s'.", name, n.Name()))
 }
 
-func (scope *Scope) NewScopeName(project *Project, name string, s *Scope) *ScopeName {
-	return &ScopeName{
-                object{
-                        parent:  scope,
-                        project: project,
-                        name:    name,
-                        typ:     InvalidType, //ScopeNameType,
-                        ord:     0,
-                        scopos:  token.NoPos,
-                },
-                s,
-        }
-}
-
-func (scope *Scope) InsertScopeName(project *Project, name string, s *Scope) (pn *ScopeName, alt Object) {
+func (scope *Scope) InsertScopeName(project *Project, name string, s *Scope) (sn *ScopeName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
-                pn = scope.NewScopeName(project, name, s)
-                scope.replace(name, pn)
+                sn = &ScopeName{
+                        object{
+                                parent:  scope,
+                                project: project,
+                                name:    name,
+                                typ:     ScopeNameType,
+                                ord:     0,
+                        },
+                        s,
+                }
+                scope.replace(name, sn)
         }
         return
 }
@@ -208,11 +198,11 @@ func (d *Def) referencing(o Object) bool {
 }
 
 func (d *Def) String() string {
-        s := d.name
+        s := "define " + d.name
         if d.origin == ImmediateDef {
-                s += ":="
+                s += " := "
         } else {
-                s += "="
+                s += " = "
         }
         if d.Value == nil {
                 s += "<nil>"
@@ -222,7 +212,6 @@ func (d *Def) String() string {
         return s
 }
 func (d *Def) Strval() string {
-        fmt.Printf("Def.Strval: %p %p\n", d, d.Value)
         s := d.name + "="
         if d.Value == nil {
                 s += "<nil>"
@@ -308,23 +297,18 @@ func (d *Def) Get(name string) (Value, error) {
         return nil, errors.New(fmt.Sprintf("No such property `%s' (Def)", name))
 }
 
-func (scope *Scope) NewDef(project *Project, name string, value Value) *Def {
-	return &Def{
-                object{
-                        parent:  scope,
-                        project: project,
-                        name:    name,
-                        typ:     DefType,
-                        ord:     0,
-                        scopos:  token.NoPos,
-                },
-                TrivialDef, value,
-        }
-}
-
 func (scope *Scope) InsertDef(project *Project, name string, value Value) (def *Def, alt Object) {
         if alt = scope.elems[name]; alt == nil {
-                def = scope.NewDef(project, name, value)
+                def = &Def{
+                        object{
+                                parent:  scope,
+                                project: project,
+                                name:    name,
+                                typ:     DefType,
+                                ord:     0,
+                        },
+                        TrivialDef, value,
+                }
                 scope.replace(name, def)
         } else if name == "use" {
                 if sn, ok := alt.(*ScopeName); ok && sn != nil {
@@ -346,23 +330,18 @@ func (p *Builtin) Call(a... Value) (Value, error) {
         return p.f(p.parent, a...)
 }
 
-func (scope *Scope) NewBuiltin(name string, f BuiltinFunc) *Builtin {
-        return &Builtin{
-                object{
-                        parent:  scope,
-                        project: nil,
-                        name:    name, 
-                        typ:     BuiltinType,
-                        ord:     0,
-                        scopos:  token.NoPos,
-                },
-                f,
-        }
-}
-
 func (scope *Scope) InsertBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
         if alt = scope.elems[name]; alt == nil {
-                bui = scope.NewBuiltin(name, f)
+                bui = &Builtin{
+                        object{
+                                parent:  scope,
+                                project: nil,
+                                name:    name, 
+                                typ:     BuiltinType,
+                                ord:     0,
+                        },
+                        f,
+                }
                 scope.replace(name, bui)
         }
         return
@@ -456,28 +435,18 @@ func (p *PatternEntry) MakeConcreteEntry(stem string) (*RuleEntry, error) {
         return p.Pattern.MakeConcreteEntry(p.RuleEntry, stem)
 }
 
-/*type ArgumentedEntry struct {
-        *RuleEntry
-        Args []Value
-}*/
-
-func (scope *Scope) NewRuleEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry) {
-        return &RuleEntry{
-                object{
-                        parent:  scope,
-                        project: project,
-                        name:    name,
-                        typ:     RuleEntryType,
-                        ord:     0,
-                        scopos:  token.NoPos,
-                },
-                kind, nil, "",
-        }
-}
-
 func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry, alt Object) {
         if alt = scope.elems[name]; alt == nil {
-                entry = scope.NewRuleEntry(project, kind, name)
+                entry = &RuleEntry{
+                        object{
+                                parent:  scope,
+                                project: project,
+                                name:    name,
+                                typ:     RuleEntryType,
+                                ord:     0,
+                        },
+                        kind, nil, "",
+                }
                 scope.replace(name, entry)
         } else if name == "use" {
                 if sn, ok := alt.(*ScopeName); ok && sn != nil {

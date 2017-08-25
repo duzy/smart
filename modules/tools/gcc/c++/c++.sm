@@ -11,40 +11,40 @@ CPPFLAGS += -std=c++1z
 CXXFLAGS =
 
 # FIXME: naming COMPILE.cc, COMPILE.cpp, COMPILE.C
-COMPILE-cc = &CXX &CFLAGS &CXXFLAGS &CPPFLAGS &TARGET_ARCH -c
-COMPILE-cpp = $COMPILE-cc
-COMPILE-C = $COMPILE-cc
-COMPILE = $COMPILE-cc
+COMPILE-cc = &(CXX) &(CFLAGS) &(CXXFLAGS) &(CPPFLAGS) &(TARGET_ARCH) -c
+COMPILE-cpp = $(COMPILE-cc)
+COMPILE-C = $(COMPILE-cc)
+COMPILE = $(COMPILE-cc)
 
 LDFLAGS =
 
-LINK-cc = &CXX &CXXFLAGS &CPPFLAGS &LDFLAGS &TARGET_ARCH
-LINK-o = &CXX &LDFLAGS &TARGET_ARCH
-LINK = $LINK-cc
+LINK-cc = &(CXX) &(CXXFLAGS) &(CPPFLAGS) &(LDFLAGS) &(TARGET_ARCH)
+LINK-o = &(CXX) &(LDFLAGS) &(TARGET_ARCH)
+LINK = $(LINK-cc)
 
 ignore:
 
-program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: $objects
-	$LINK $^ &LOADLIBES &LDLIBS -o $bin
-lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $objects
-	$LINK -shared $^ &LOADLIBES &LDLIBS -o $lib
-lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $objects
-	$ARCHIVE $lib $^
+program:[(cd) ((bin objects)) (compare bin) (stdout) (stderr) (shell)]: $(objects)
+	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
+lib.so:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $(objects)
+	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
+lib.a:[(cd) ((lib objects)) (compare lib) (stdout) (stderr) (shell)]: $(objects)
+	$(ARCHIVE) $(lib) $^
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cpp
-	$COMPILE $^ -o $@
+	$(COMPILE) $^ -o $@
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cc
-	$COMPILE $^ -o $@
+	$(COMPILE) $^ -o $@
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.C
-	$COMPILE $^ -o $@
+	$(COMPILE) $^ -o $@
 
 # TODO:
 #.cc:
 #	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 use:
-	LINK = $LINK
-	COMPILE = $COMPILE
-	ARCHIVE = $ARCHIVE
+	LINK = $(LINK)
+	COMPILE = $(COMPILE)
+	ARCHIVE = $(ARCHIVE)
 	
-	LOADLIBES = $LOADLIBES
-	LDLIBS = $LDLIBS
+	LOADLIBES = $(LOADLIBES)
+	LDLIBS = $(LDLIBS)

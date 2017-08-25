@@ -707,7 +707,7 @@ func (p *closure) Float() float64       { return p.o.Float() }
 func (p *closure) disclose(scope *Scope) (Value, error) {
         //fmt.Printf("closure.disclose: %T %v\n", p.o, p.o)
         var obj = p.o
-        if o := scope.Find(p.o.Name()); o != nil {
+        if _, o := scope.Find(p.o.Name()); o != nil {
                 obj = o
         }
 
@@ -763,12 +763,23 @@ func (p *pattern) Float() float64    { return 0 }
 func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
         switch patent.class {
         case PatternRuleEntry, PatternFileRuleEntry:
-                scope := patent.parent
-                entry = scope.NewRuleEntry(patent.project, patent.class, name)
-                entry.parent = patent.parent
-                entry.project = patent.project
-                entry.programs = patent.programs[:]
+                /*entry = &RuleEntry{
+                        object{
+                                parent:  patent.parent,
+                                project: patent.project,
+                                typ:     patent.typ,
+                                ord:     patent.ord,
+                                name:    name,
+                        },
+                        patent.class, patent.programs[:], stem,
+                }*/
+                entry = new(RuleEntry); *entry = *patent
+                entry.name = name
                 entry.stem = stem
+                /*
+                if entry.object != patent.object { panic("copy") }
+                if entry.typ != patent.typ { panic("copy") }
+                if entry.parent != patent.parent { panic("copy") } */
         default:
                 err = errors.New(fmt.Sprintf("make entry `%s' (%s): invalid class `%v'", name, stem, patent.class))
         }

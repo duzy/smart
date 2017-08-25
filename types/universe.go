@@ -9,7 +9,6 @@
 package types
 
 import (
-        "github.com/duzy/smart/token"
         "fmt"
 )
 
@@ -114,7 +113,7 @@ func defUniverseBuiltins() {
 }
 
 func init() {
-        universe = NewScope(nil, token.NoPos, token.NoPos, "universe")
+        universe = NewScope(nil, "universe")
         //unsafe = NewModule(token.ILLEGAL, "unsafe", "unsafe")
         //unsafe.complete = true
 
@@ -144,6 +143,10 @@ func (g *Globe) Main() *Project { return g.main }
         g.main = m 
 } */
 
+func (g *Globe) SetScopeOuter(scope *Scope) {
+        scope.outer = g.scope
+}
+
 // NewProject returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
@@ -152,7 +155,7 @@ func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m
                 outer = g.scope
         }
         
-	scope := NewScope(outer, token.NoPos, token.NoPos, fmt.Sprintf("project %q", name/*specPath*/))
+	scope := NewScope(outer, fmt.Sprintf("project %q", name))
 	m = &Project{
                 absPath: absPath,
                 relPath: relPath, 
@@ -168,7 +171,7 @@ func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m
 
 // NewGlobe creates a new Globe context.
 func NewGlobe(name string) *Globe {
-        scope := NewScope(universe, token.NoPos, token.NoPos, fmt.Sprintf("globe %q", name))
+        scope := NewScope(universe, fmt.Sprintf("globe %q", name))
         return &Globe{
                 scope: scope,
                 main: nil,

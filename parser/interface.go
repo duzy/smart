@@ -72,7 +72,7 @@ type RuntimeContext interface {
         DeclareProject(name *ast.Bareword, params types.Value) error
         CloseCurrentProject(name *ast.Bareword) error
 
-        OpenScope(pos token.Pos, comment string) ast.Scope
+        OpenScope(comment string) ast.Scope
         CloseScope(scope ast.Scope) error
 
         WithScope(scope ast.Scope, f func() error) error
@@ -201,7 +201,7 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 			// *ast.File
 			f = &ast.File{
 				Name:  new(ast.Bareword),
-				Scope: c.runtime.OpenScope(token.NoPos, s),
+				Scope: c.runtime.OpenScope(s),
 			}
                         c.runtime.CloseScope(f.Scope)
 		}
@@ -260,15 +260,16 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
         }
         //fmt.Printf("ParseDir: %v %v %v\n", path, len(list), list[0].Name())
 
-        scope := c.runtime.OpenScope(token.NoPos, fmt.Sprintf("dir %s", path))
+        scope := c.runtime.OpenScope(fmt.Sprintf("dir %s", path))
         defer func() {
                 if err := c.runtime.CloseScope(scope); err != nil {
                         if first == nil {
                                 first = err
                         }
                 }
+                //fmt.Printf("ParseDir: %v\n%v\n", scope, scope.(*types.Scope).Outer())
         }()
-        
+
 	mods = make(map[string]*ast.Project)
 	for _, d := range list {
                 sm := strings.HasSuffix(d.Name(), ".smart") || strings.HasSuffix(d.Name(), ".sm")

@@ -560,7 +560,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                                 res, _ = op.Call(a...)
                         }
                 default:
-                        if _, obj := i.scope.FindAt(spec.EndPos, op.Strval()); obj != nil {
+                        if _, obj := i.scope.Find(op.Strval()); obj != nil {
                                 if f, _ := obj.(types.Caller); f != nil {
                                         if a, err := i.exprs(spec.Props[1:]); err != nil {
                                                 return nil, err
@@ -702,14 +702,19 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         return nil
 }
 
-func (i *Interpreter) openScope(pos token.Pos, comment string) ast.Scope {
-        i.scope = types.NewScope(i.scope, pos, token.NoPos, comment)
+func (i *Interpreter) openScope(comment string) ast.Scope {
+        i.scope = types.NewScope(i.scope, comment)
         return i.scope
 }
 
 func (i *Interpreter) closeScope(as ast.Scope) (err error) {
         if scope, ok := as.(*types.Scope); ok {
                 i.scope = scope.Outer()
+                // Must change the outer of dir scope to globe to avoid Finding symbols
+                // recursively.
+                if s := scope.Comment(); strings.HasPrefix(s, "dir ") /*|| strings.HasPrefix(s, "file ")*/ {
+                        i.Globe().SetScopeOuter(scope)
+                }
         } else {
                 err = errors.New(fmt.Sprintf("bad runtime scope (%T)", as))
         }
@@ -772,6 +777,7 @@ func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (e
         //fmt.Printf("declareProject: %v (%v) %v, %v\n", ident.Value, linfo.absPath(), i.scope, i.project)
         if !ok {
                 var (
+                        outer = i.scope
                         absDir = linfo.absDir
                         relPath string
                 )
@@ -781,8 +787,13 @@ func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (e
                 }
                 relPath, _ = filepath.Rel(i.Getwd(), absDir)
 
+                // Avoid nesting project scopes!
+                for strings.HasPrefix(outer.Comment(), "project \"") {
+                        outer = outer.Outer()
+                }
+
                 dec = &declare{
-                        project: i.Globe().NewProject(i.scope, absDir, relPath, linfo.specName, name),
+                        project: i.Globe().NewProject(outer, absDir, relPath, linfo.specName, name),
                 }
                 
                 i.loaded[linfo.absPath()] = dec.project
@@ -791,7 +802,7 @@ func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (e
                 var (
                         p = dec.project
                         s = p.Scope()
-                        use = types.NewScope(s, token.NoPos, token.NoPos, "use")
+                        use = types.NewScope(s, "use")
                 )
                 if obj, alt := s.InsertScopeName(p, "use", use); alt != nil {
                         if _, ok := alt.(*types.ScopeName); !ok {
@@ -992,8 +1003,8 @@ func (pc *parseContext) CloseCurrentProject(ident *ast.Bareword) error {
         return pc.closeCurrentProject(ident)
 }
 
-func (pc *parseContext) OpenScope(pos token.Pos, comment string) ast.Scope {
-        return pc.openScope(pos, comment)
+func (pc *parseContext) OpenScope(comment string) ast.Scope {
+        return pc.openScope(comment)
 }
 
 func (pc *parseContext) CloseScope(as ast.Scope) error {
@@ -1087,33 +1098,33 @@ func (pc *parseContext) Resolve(name string, bits parser.ResolveBits) parser.Run
                 // If resolving @ in a rule (program) scope selection context,
                 // e.g. '$(@.FOO)', Resolve have to ensure @ is pointing to the global
                 // @ package.
-                obj := pc.Globe().Scope().Find(name)
+                _, obj := pc.Globe().Scope().Find(name)
                 if obj != nil {
                         return obj.(parser.RuntimeObj)
                 }
         }
         if bits&parser.FromBase != 0 && pc.project != nil {
                 for _, base := range pc.project.Bases() {
-                        if obj := base.Scope().Find(name); obj != nil {
+                        if _, obj := base.Scope().Find(name); obj != nil {
                                 return obj.(parser.RuntimeObj)
                         }
                 }
         }
         if bits&parser.FromProject != 0 && pc.project != nil {
-                obj := pc.project.Scope().Find(name)
+                _, obj := pc.project.Scope().Find(name)
                 if obj != nil {
                         return obj.(parser.RuntimeObj)
                 }
         }
         if bits&parser.FromHere != 0 && pc.scope != nil {
-                obj := pc.scope.Find(name)
+                _, obj := pc.scope.Find(name)
                 if obj != nil {
                         return obj.(parser.RuntimeObj)
                 }
                 if obj == nil && name != "use" {
                         // TODO: add this search path into Scope.Find
                         for _, base := range pc.project.Bases() {
-                                if obj = base.Scope().Find(name); obj != nil {
+                                if _, obj = base.Scope().Find(name); obj != nil {
                                         return obj.(parser.RuntimeObj)
                                 }
                         }
@@ -1157,6 +1168,7 @@ func (pc *parseContext) Symbol(name string, t types.Type) (obj, alt parser.Runti
                 if entry != nil {
                         obj = entry
                 }
+                //fmt.Printf("entry: %v (%v) (%v)\n", name, pc.project.Name(), alt)
         }
         return
 }
