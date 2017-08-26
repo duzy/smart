@@ -272,7 +272,9 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 
 	mods = make(map[string]*ast.Project)
 	for _, d := range list {
-                sm := strings.HasSuffix(d.Name(), ".smart") || strings.HasSuffix(d.Name(), ".sm")
+                sm :=  !strings.HasPrefix(d.Name(), ".#") &&
+                        strings.HasSuffix(d.Name(), ".smart") || 
+                        strings.HasSuffix(d.Name(), ".sm")
 		if sm && (filter == nil || filter(d)) {
 			filename := filepath.Join(path, d.Name())
 			if src, err := c.ParseFile(fset, filename, nil, mode|parsingDir); err == nil {
