@@ -13,7 +13,7 @@ import (
         //"path/filepath"
         "hash/crc64"
         "strings"
-        //"errors"
+        "errors"
         "fmt"
         "os"
         "io"
@@ -225,7 +225,17 @@ func modifierSetArgs(prog *Program, value types.Value, args... types.Value) (res
 }
 
 func modifierSetEnv(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
-        // TODO: preserve env for interpreter
+        var envars = values.List()
+        _ = prog.auto("shell-envars", envars)
+        for _, a := range types.Join(args...) {
+                if _, ok := a.(*types.Pair); ok {
+                        envars.Append(a)
+                } else {
+                        err = errors.New(fmt.Sprintf("Invalid env `%v' (%T)", a, a))
+                        return
+                }
+        }
+        result = envars
         return
 }
 

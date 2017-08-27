@@ -24,6 +24,7 @@ type dialectDock struct {
 func (s *dialectDock) dialect() string { return "dock" }
 func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
+                envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
@@ -67,6 +68,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         dxi = "default-dock-image"
                         dxiName = "docker-exec-image"
                         _, obj = context.Find(dxiName)
+                        envars []types.Value // disclosed values
                 )
                 if obj == nil { _, obj = prog.scope.Find(dxiName) }
                 if obj != nil {
@@ -78,6 +80,17 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 dxi = s
                         }
                 }
+                if envarsOpt != nil {
+                        if l, _ := envarsOpt.Value.(*types.List); l != nil {
+                                for _, v := range l.Elems {
+                                        if v, err = types.Disclose(context, v); err != nil {
+                                                return
+                                        } else {
+                                                envars = append(envars, v)
+                                        }
+                                }
+                        }
+                }
                 if s := wd; s != "" {
                         if t := strings.TrimSpace(source); t == "" {
                                 src = fmt.Sprintf("cd '%s'", s)
@@ -87,6 +100,16 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 // Insert a "\n" before the right paren ')' to ensure that
                                 // it's working with something like "true #comment...".
                                 src = fmt.Sprintf("cd '%s' && (%s\n)", s, t)
+                        }
+                        if s = ""; len(envars) > 0 {
+                                for i, env := range envars {
+                                        if i > 0 { s += " && " }
+                                        p := env.(*types.Pair)
+                                        s += "export "
+                                        s += p.Key.Strval() + "=\""
+                                        s += p.Value.Strval() + "\""
+                                }
+                                src = fmt.Sprintf("%s && %s", s, src)
                         }
                 }
 
@@ -103,6 +126,9 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 var sh *exec.Cmd
                 sh = exec.Command("docker", args...)
                 sh.Stdout, sh.Stderr = &stdout, &stderr
+                for _, env := range envars {
+                        sh.Env = append(sh.Env, env.Strval())
+                }
                 if stdoutOpt != nil && stdoutOpt.Value.Strval() == "on" {
                         sh.Stdout = os.Stdout
                 }

@@ -260,7 +260,10 @@ type Barecomp struct {
 }
 func (p *Barecomp) String() (s string) {
         for _, e := range p.Elems {
-                s += e.String()
+                switch t := e.(type) {
+                case *String: s += t.Value
+                default: s += t.String()
+                }
         }
         return
 }
@@ -442,7 +445,10 @@ type Compound struct {
 func (p *Compound) String() (s string) {
         s = "\""
         for _, e := range p.Elems {
-                s += e.String()
+                switch t := e.(type) {
+                case *String: s += t.Value
+                default: s += t.String()
+                }
         }
         s += "\""
         return
@@ -584,8 +590,7 @@ type delegate struct {
 func (p *delegate) Type() Type         { return DelegateType }
 func (p *delegate) String() (s string) {
         var na = len(p.a)
-        s = "$"
-        if na > 0 { s += "(" }
+        s = "$("
         // FIXME: needs the original name value to represent the original form
         s += p.o.Name()
         if na > 0 {
@@ -594,8 +599,8 @@ func (p *delegate) String() (s string) {
                         if i > 0 { s += "," }
                         s += a.String()
                 }
-                s += ")" 
         }
+        s += ")" 
         return
 }
 func (p *delegate) Strval() string   { return p.Value().Strval() }

@@ -45,6 +45,7 @@ func isTrueValue(s string) (res bool) {
 func (s *dialectShell) dialect() string { return "shell" }
 func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var (
+                envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
                 statusOpt, _ = prog.scope.Lookup("shell-status").(*types.Def)
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
@@ -90,6 +91,17 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                         sh = exec.Command(s.interpreter, a...)
                 }
                 sh.Stdout, sh.Stderr = &stdout, &stderr
+                if envarsOpt != nil {
+                        if l, _ := envarsOpt.Value.(*types.List); l != nil {
+                                for _, v := range l.Elems {
+                                        if v, err = types.Disclose(context, v); err != nil {
+                                                return
+                                        } else {
+                                                sh.Env = append(sh.Env, v.Strval())
+                                        }
+                                }
+                        }
+                }
                 if stdoutOpt != nil && stdoutOpt.Value.Strval() == "on" {
                         sh.Stdout = os.Stdout
                 }
