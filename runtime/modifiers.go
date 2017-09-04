@@ -299,7 +299,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
         }
         if dependList != nil && dependList.Len() > 0 {
                 for _, depend := range dependList.Slice(0) {
-                        //fmt.Printf("modifierCompare: %T %v\n", depend, depend)
+                        //fmt.Printf("compare: %T %v\n", depend, depend)
                         DependSwitch: switch d := depend.(type) {
                         case *types.List:
                                 if depend = d.Take(0); depend != nil {
@@ -361,10 +361,14 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                 goto DoneCompare // target shall be updated
         }
 
+        // In case passing a unstated target file.
+        if targetFile.Info == nil {
+                targetFile.Info, _ = os.Stat(targetFile.Strval())
+        }
         if fi := targetFile.Info; fi != nil {
                 for _, depend := range files.Slice(0) {
-                        //fmt.Printf("modifierCompare: %v -> %v (%v)\n", targetVal, depend, prog.context.outdated)
-                        //fmt.Printf("modifierCompare: %v: %v (%T)\n", targetVal, depend, depend)
+                        //fmt.Printf("compare: %v -> %v (%v)\n", targetVal, depend, prog.context.outdated)
+                        //fmt.Printf("compare: %v: %v (%T)\n", targetVal, depend, depend)
                         if dependFile, okay := depend.(*types.File); okay {
                                 if t, ok := prog.context.outdated[dependFile.Strval()]; ok && t.After(fi.ModTime()) {
                                         goto DoneCompare // target is outdated
@@ -379,14 +383,14 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                         goto DoneCompare // target is outdated
                                 }
                         } else {
-                                fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", targetVal, depend, depend)
+                                fmt.Printf("compare: todo: %v -> %v (%T)\n", targetVal, depend, depend)
                         }
                 }
                 err = &breaker{ fmt.Sprintf("%s already up to date", targetVal), true }
         } else {
                 for _, depend := range files.Slice(0) {
-                        //fmt.Printf("modifierCompare: (nil) %v -> %v (%v)\n", targetVal, depend, prog.context.outdated)
-                        //fmt.Printf("modifierCompare: (nil) %v -> %v (%T)\n", targetVal, depend, depend)
+                        //fmt.Printf("compare: (nil) %v -> %v (%v)\n", targetVal, depend, prog.context.outdated)
+                        //fmt.Printf("compare: (nil) %v -> %v (%T)\n", targetVal, depend, depend)
                         if dependFile, okay := depend.(*types.File); okay {
                                 if dependFile.Info == nil {
                                         dependFile.Info, _ = os.Stat(dependFile.Strval())
@@ -397,7 +401,7 @@ func modifierCompare(prog *Program, value types.Value, args... types.Value) (res
                                         goto DoneCompare
                                 }
                         } else {
-                                fmt.Printf("modifierCompare: todo: %v -> %v (%T)\n", targetVal, depend, depend)
+                                fmt.Printf("compare: todo: %v -> %v (%T)\n", targetVal, depend, depend)
                         }
                 }
                 goto DoneCompare // target shall be updated
