@@ -418,6 +418,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.ListExpr: panic("unreachable")
         case *ast.Barecomp:
         case *ast.Barefile:
+	case *ast.Globfile:
         case *ast.EvaluatedExpr:
         case *ast.FlagExpr:
         case *ast.KeyValueExpr:
@@ -431,7 +432,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	default:
 		// all other nodes are not proper expressions
                 //p.warn(x.Pos(), "bad expression (%T)\n", x)
-		p.errorExpected(x.Pos(), "bad expression")
+		p.errorExpected(x.Pos(), "bad expression (%T)", x)
 		x = &ast.BadExpr{From: x.Pos(), To: p.safePos(x.End())}
 	}
 	return x
@@ -489,11 +490,15 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
         s := p.checkExpr(p.parseExpr(lhs))
         switch t := s.(type) {
         case *ast.Bareword:
-                if bw, ok := x.(*ast.Bareword); ok && p.runtime.IsFileName(bw.Value+"."+t.Value) {
-                        //if bw.Value == "lib.a" {
-                        //        fmt.Printf("parseSelect: barefile: %v.%v (%v)\n", bw.Value, t.Value, p.tok)
-                        //}
-                        return &ast.Barefile{ x, t.Pos(), t.Value }
+                switch l := x.(type) {
+                case *ast.Bareword:
+                        if p.runtime.IsFileName(l.Value+"."+t.Value) {
+                                return &ast.Barefile{ x, t.Pos(), t.Value }
+                        }
+                case *ast.GlobExpr:
+                        if p.runtime.IsFileName("a."+t.Value) {
+                                return &ast.Globfile{ l, t.Pos(), t.Value }
+                        }
                 }
         }
 
@@ -1381,8 +1386,8 @@ func (p *parser) parseBuiltinRecipeExpr(elems []ast.Expr) (x ast.Expr) {
                 x = &ast.RecipeRuleClause{ d }
 
         default:
-                if v, e := p.runtime.Eval(x, disclosure); e != nil {
-                        p.error(x.Pos(), e)
+                if v, e := p.runtime.Eval(x, delegation/*disclosure*/); e != nil {
+                        p.error(x.Pos(), "%v (%T)", e, x)
                 } else if v != nil {
                         if len(elems) == 0 {
                                 if name := v.Strval(); name == "" {

@@ -7,7 +7,6 @@
 package runtime
 
 import (
-        //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "path/filepath"
@@ -22,6 +21,63 @@ type dependPatternUnfit struct {
 }
 
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
+
+type workinfo struct {
+        dir, backdir string
+        print bool
+        num int
+}
+
+var workstack []*workinfo
+
+func enterWorkdir(dir string, print bool) (wi *workinfo) {
+        if wd, _ := os.Getwd(); dir != filepath.Clean(wd) {
+                if nws := len(workstack); nws > 0 {
+                        if p := workstack[nws-1]; p.dir == dir {
+                                //fmt.Printf("renter: %s (%v, %v)\n", p.dir, p.num, print)
+                                fmt.Printf("renter: %s (%s)\n", wd, p.backdir)
+                                if p.num <= 0 {
+                                        workstack, print = workstack[0:nws-1], false
+                                } else {
+                                        p.backdir = wd
+                                        p.num += 1
+                                        return p
+                                }
+                        }
+                }
+                if print {
+                        fmt.Printf("smart: Entering directory '%s'\n", dir)
+                }
+                if err := os.Chdir(dir); err == nil {
+                        if wi == nil {
+                                wi = &workinfo{
+                                        dir: dir, backdir: wd, 
+                                        print: print, 
+                                        num: 1,
+                                }
+                        }
+                        workstack = append(workstack, wi)
+                } else {
+                        // TODO: error...
+                }
+        }
+        return
+}
+
+func leaveWorkdir(wi *workinfo) {
+        if /*nws := len(workstack); nws > 0 &&*/ wi != nil {
+                //assert(wi == workstack[nws-1])
+                if wi.print {
+                        fmt.Printf("smart: Leaving  directory '%s'\n", wi.dir)
+                }
+                if err := os.Chdir(wi.backdir); err == nil {
+                        // ...
+                } else {
+                        // TODO: error...
+                }
+                wi.num -= 1
+        }
+}
 
 // Program (TODO: moving program into `types` package)
 type Program struct {
@@ -50,13 +106,7 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) interpret(context *types.Scope, pcd bool, i interpreter, out *types.Def, args... types.Value) (err error) {
-        /* if pcd {
-                workdir := filepath.Clean(prog.project.AbsPath())
-                fmt.Printf("smart: Entering directory '%s'\n", workdir)
-                defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
-        } */
-        
+func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.Def, args... types.Value) (err error) {
         var (
                 value types.Value
                 recipes []types.Value
@@ -77,7 +127,7 @@ func (prog *Program) interpret(context *types.Scope, pcd bool, i interpreter, ou
         return
 }
 
-func (prog *Program) modify(context *types.Scope, pcd bool, g *types.Group, out *types.Def) (err error) {
+func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -90,7 +140,7 @@ func (prog *Program) modify(context *types.Scope, pcd bool, g *types.Group, out 
                         out.Assign(value)
                 }
         } else if i, _ := interpreters[name]; i != nil {
-                err = prog.interpret(context, pcd, i, out, g.Slice(1)...)
+                err = prog.interpret(context, i, out, g.Slice(1)...)
         } else {
                 err = errors.New(fmt.Sprintf("no modifier or dialect '%s'", name))
         }
@@ -227,13 +277,17 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                         continue ProgramsLoop
                                 } else {
                                         //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
-                                        var s = err.Error()
-                                        if strings.HasPrefix(s, "Updating ") {
-                                                s = "->" + strings.TrimPrefix(s, "Updating ")
+                                        if false {
+                                                var s = err.Error()
+                                                if strings.HasPrefix(s, "Updating ") {
+                                                        s = "->" + strings.TrimPrefix(s, "Updating ")
+                                                } else {
+                                                        s = ", " + s
+                                                }
+                                                err = errors.New(fmt.Sprintf("Updating %v%v", entry.Name(), s))
                                         } else {
-                                                s = ", " + s
+                                                err = errors.New(fmt.Sprintf("Updating `%v' failed (%v)", entry.Name(), prog.project.AbsPath()))
                                         }
-                                        err = errors.New(fmt.Sprintf("Updating %v%v", entry.Name(), s))
                                         break DependsLoop
                                 }
                         }
@@ -310,24 +364,11 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 //fmt.Printf("Program.Execute: %v: %v\n", entry.Name(), context)
                 fmt.Printf("Program.Execute: %v: %v\n", entry.Name(), args)
         }*/
-        var pcd = entry.Class() != types.UseRuleEntry
         if workdir := prog.Getwd(context); workdir != "" {
-                if wd, _ := os.Getwd(); workdir != filepath.Clean(wd) {
-                        // print-change-directory
-                        if pcd {
-                                fmt.Printf("smart: Entering directory '%s'\n", workdir)
-                        }
-                        if err = os.Chdir(workdir); err == nil {
-                                if pcd {
-                                        defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
-                                }
-                                defer os.Chdir(wd)
-                        } else {
-                                return
-                        }
-                }
+                var pcd = entry.Class() != types.UseRuleEntry
+                defer leaveWorkdir(enterWorkdir(workdir, pcd))
         }
-
+        
         for i, a := range args {
                 // TODO: handle with Pair, map 'key => value' into
                 // parameters.
@@ -343,11 +384,6 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 return
         }
 
-        /* if pcd {
-                fmt.Printf("smart: Entering directory '%s'\n", workdir)
-                defer fmt.Printf("smart: Leaving directory '%s'\n", workdir)
-        } */
-        
         if s := entry.Name(); prog.project.IsFile(s) {
                 file := prog.project.SearchFile(context, values.File(entry, s))
                 prog.auto("@", file)
@@ -369,7 +405,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 if i, _ := interpreters[``]; i == nil {
                         err = errors.New("no default dialect")
                         return
-                } else if err = prog.interpret(context, pcd, i, out, args...); err != nil {
+                } else if err = prog.interpret(context, i, out, args...); err != nil {
                         // ...
                 }
                 return
@@ -379,7 +415,7 @@ pipelineLoop:
         for _, v := range prog.pipline {
                 switch op := v.(type) {
                 case *types.Group:
-                        if err = prog.modify(context, pcd, op, out); err != nil {
+                        if err = prog.modify(context, op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
                                                 err = nil
@@ -393,7 +429,7 @@ pipelineLoop:
                         if i, _ := interpreters[op.Strval()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 return
-                        } else if err = prog.interpret(context, pcd, i, out, args...); err != nil {
+                        } else if err = prog.interpret(context, i, out, args...); err != nil {
                                 //fmt.Printf("interpret: %v\n", err)
                                 break pipelineLoop
                         }

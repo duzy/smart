@@ -140,6 +140,10 @@ func Barefile(name types.Value, ext string) (v *types.Barefile) {
         return &types.Barefile{name, ext}
 }
 
+func Globfile(tok token.Token, ext string) (v *types.Globfile) {
+        return &types.Globfile{tok, ext}
+}
+
 func PercentPattern(prefix, suffix types.Value) types.Pattern {
         if prefix == nil { prefix = None }
         if suffix == nil { suffix = None }

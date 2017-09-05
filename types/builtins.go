@@ -560,9 +560,17 @@ func builtinRename(context *Scope, args... Value) (res Value, err error) {
 }
 
 func builtinRemove(context *Scope, args... Value) (res Value, err error) {
-        for _, a := range args {
-                if err = os.Remove(a.Strval()); err != nil {
+        var names []string
+        ArgsLoop: for _, a := range args {
+                if names, err = filepath.Glob(a.Strval()); err != nil {
                         break
+                } else {
+                        for _, s := range names {
+                                //fmt.Printf("remove %s\n", s)
+                                if err = os.Remove(s); err != nil {
+                                        break ArgsLoop
+                                }
+                        }
                 }
         }
         return

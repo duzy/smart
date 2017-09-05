@@ -307,7 +307,6 @@ func (p *Barefile) Strval() string {
 }
 func (p *Barefile) Integer() int64 { return 0 }
 func (p *Barefile) Float() float64 { return float64(p.Integer()) }
-
 func (p *Barefile) disclose(scope *Scope) (Value, error) {
         if name, err := p.Name.disclose(scope); err != nil {
                 return nil, err
@@ -316,9 +315,36 @@ func (p *Barefile) disclose(scope *Scope) (Value, error) {
         }
         return nil, nil
 }
-
 func (p *Barefile) referencing(o Object) bool {
         return p.Name.referencing(o)
+}
+
+type Globfile struct {
+        Tok token.Token
+        Ext string
+}
+func (p *Globfile) Type() Type { return GlobfileType }
+func (p *Globfile) String() (s string) {
+        s += p.Tok.String()
+        if p.Ext != "" {
+                s += "." + p.Ext
+        }
+        return
+}
+func (p *Globfile) Strval() string {
+        s := p.Tok.String()
+        if p.Ext != "" {
+                s += "." + p.Ext
+        }
+        return s
+}
+func (p *Globfile) Integer() int64 { return 0 }
+func (p *Globfile) Float() float64 { return float64(p.Integer()) }
+func (p *Globfile) disclose(scope *Scope) (Value, error) {
+        return nil, nil
+}
+func (p *Globfile) referencing(o Object) bool {
+        return false
 }
 
 type Path struct {

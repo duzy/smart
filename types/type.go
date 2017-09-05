@@ -44,6 +44,7 @@ const (
         StringKind
         BarewordKind
         BarefileKind
+        GlobfileKind
         PathSegKind
         PathKind
         FileKind
@@ -90,6 +91,7 @@ var (
                 StringKind:     "String",
                 BarewordKind:   "Bareword",
                 BarefileKind:   "Barefile",
+                GlobfileKind:   "Globfile",
                 PathSegKind:    "PathSeg",
                 PathKind:       "Path",
                 FileKind:       "File",
@@ -143,6 +145,7 @@ const (
         IsUri
         IsBareword
         IsBarefile
+        IsGlobfile
         IsPathSeg
         IsPath
 
@@ -221,6 +224,7 @@ func (t *Basic) IsDateTime() bool { return t.info&IsDateTime != 0 }
 func (t *Basic) IsUri() bool      { return t.info&IsUri != 0 }
 func (t *Basic) IsBareword() bool { return t.info&IsBareword != 0 }
 func (t *Basic) IsBarefile() bool { return t.info&IsBarefile != 0 }
+func (t *Basic) IsGlobfile() bool { return t.info&IsGlobfile != 0 }
 func (t *Basic) IsPathSeg() bool  { return t.info&IsPathSeg != 0 }
 func (t *Basic) IsPath() bool     { return t.info&IsPath != 0 }
 func (t *Basic) IsFile() bool     { return t.info&IsFile != 0 }

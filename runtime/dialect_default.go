@@ -7,11 +7,11 @@
 package runtime
 
 import (
-        //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "errors"
         "fmt"
+        "os"
 )
 
 // dialectDefault evaluates smart statements
@@ -70,6 +70,7 @@ evaluationLoop:
                                 }
                                 break evaluationLoop
                         } else if e != nil {
+                                fmt.Fprintf(os.Stderr, "%v\n", e)
                                 err = e; break evaluationLoop
                         }
                 default:

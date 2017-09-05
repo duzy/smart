@@ -326,6 +326,8 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 } else {
                         v = values.Barefile(a, x.Ext)
                 }
+        case *ast.Globfile:
+                v = values.Globfile(x.Glob.Tok, x.Ext)
         case *ast.PathExpr:
                 if a, err := i.exprs(x.Segments); err != nil {
                         return nil, err
