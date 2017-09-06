@@ -214,13 +214,18 @@ func CommandLine() {
 
         restoreLoadingInfo(i)
 
-        var s3 = filepath.Join(base, "build.smart")
-        if fi, err := os.Stat(s3); err == nil && fi.Mode().IsRegular() {
-                if err = i.Load(s3, nil); err != nil {
+        if false {
+                var s3 = filepath.Join(base, "build.smart")
+                if fi, err := os.Stat(s3); err == nil && fi.Mode().IsRegular() {
+                        if err = i.Load(s3, nil); err != nil {
+                                scanner.PrintError(os.Stderr, err)
+                                return
+                        }
+                } else if err = i.LoadDir(base, nil); err != nil {
                         scanner.PrintError(os.Stderr, err)
                         return
                 }
-        } else if err = i.LoadDir(base, nil); err != nil {
+        } else if err := i.LoadDir(base, nil); err != nil {
                 scanner.PrintError(os.Stderr, err)
                 return
         }
