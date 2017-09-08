@@ -476,9 +476,15 @@ func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (r
 func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                filename = targetDef.Value.Strval()
+                nargs = len(args)
+                filename string 
                 content string
         )
+        if nargs == 0 {
+                targetDef.Value.Strval()
+        } else {
+                filename = args[0].Strval()
+        }
 
         switch v := value.(type) {
         case *types.Group:

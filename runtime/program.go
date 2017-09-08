@@ -35,7 +35,7 @@ func enterWorkdir(dir string, print bool) (wi *workinfo) {
                 if nws := len(workstack); nws > 0 {
                         if p := workstack[nws-1]; p.dir == dir {
                                 //fmt.Printf("renter: %s (%v, %v)\n", p.dir, p.num, print)
-                                fmt.Printf("renter: %s (%s)\n", wd, p.backdir)
+                                fmt.Printf("renter: %s (%v %s)\n", wd, p.num, p.backdir)
                                 if p.num <= 0 {
                                         workstack, print = workstack[0:nws-1], false
                                 } else {

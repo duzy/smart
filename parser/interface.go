@@ -272,7 +272,8 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 
 	mods = make(map[string]*ast.Project)
 	for _, d := range list {
-                sm :=  !strings.HasPrefix(d.Name(), ".#") &&
+                sm := d.Mode().IsRegular() &&
+                       !strings.HasPrefix(d.Name(), ".#") &&
                         strings.HasSuffix(d.Name(), ".smart") || 
                         strings.HasSuffix(d.Name(), ".sm")
 		if sm && (filter == nil || filter(d)) {

@@ -732,7 +732,14 @@ func (p *closure) String() (s string) {
         }
         return
 }
-func (p *closure) Strval() string       { return "&" + p.o.Name() }
+func (p *closure) Strval() string {
+        if o, _ := p.o.(Caller); o != nil {
+                if v, e := o.Call(/* No arguments! */); e == nil {
+                        return v.Strval()
+                }
+        }
+        return p.o.Strval() 
+}
 func (p *closure) Integer() int64       { return p.o.Integer() }
 func (p *closure) Float() float64       { return p.o.Float() }
 func (p *closure) disclose(scope *Scope) (Value, error) {
@@ -743,7 +750,6 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
         }
 
         switch o := obj.(type) {
-        //case *RuleEntry:
         case Caller:
                 var (
                         scope = p.o.Parent()

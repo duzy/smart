@@ -40,7 +40,7 @@ func (ctx *Context) defineBuiltins() {
         }
 }
 
-func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error) {
+func (ctx *Context) Run(targets... string) (err error) {
         var (
                 value types.Value
                 updated int
@@ -106,7 +106,11 @@ func (ctx *Context) Run(contextScope *types.Scope, targets... string) (err error
                                 for _, a := range args {
                                         v = append(v, values.String(a))
                                 }
-                                if _, err = entry.ExecutePrograms(nil, v...); err == nil {
+                                
+                                // The the base project scope as execution context. For
+                                // example of 'base.test', the entry 'test' can resolve
+                                // '&(FOO)', '&(BAR)', etc.
+                                if _, err = entry.ExecutePrograms(m.Scope(), v...); err == nil {
                                         updated += 1
                                 } else {
                                         //fmt.Printf("%v\n", err)

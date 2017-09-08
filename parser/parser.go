@@ -1479,7 +1479,15 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         switch elem.(type) {
                                         case *ast.Bareword, *ast.Barecomp:
                                                 if v, e := p.runtime.Eval(elem, disclosure); e == nil {
-                                                        params = append(params, v.Strval())
+                                                        var name = v.Strval()
+                                                        if sym, alt := p.runtime.Symbol(name, types.DefType); alt != nil {
+                                                                p.error(p.pos, "Name `%s' already taken, not parameter (%T).", name, alt)
+                                                        } else if sym == nil {
+                                                                // TODO: errors
+                                                        } else {
+                                                                //sym.(*types.Def).Assign(values.String("xxxxxxxxxx"))
+                                                        }
+                                                        params = append(params, name)
                                                 } else {
                                                         p.error(elem.Pos(), "bad parameter (%T, %v)", elem, e)
                                                 }
@@ -1630,6 +1638,22 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 scopeComment += name
         }
 
+        scope := p.runtime.OpenScope(fmt.Sprintf("rule %s", scopeComment))
+        for _, s := range automatics {
+                if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
+                        p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
+                } else if sym == nil {
+                        // TODO: errors
+                }
+        }
+        for i := 1; i < 10; i += 1 {
+                if sym, alt := p.runtime.Symbol(strconv.Itoa(i), types.DefType); alt != nil {
+                        p.error(p.pos, "Name `%v' already taken, not numberred (%T).", i, alt)
+                } else if sym == nil {
+                        // TODO: errors
+                }
+        }
+
         switch p.tok {
         case token.MINUS: // a '-' modifier is defining a rule as modifier
                 p.next()
@@ -1647,31 +1671,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
 
         if p.tok == token.COLON {
                 p.next()
-        }
-
-        scope := p.runtime.OpenScope(fmt.Sprintf("rule %s", scopeComment))
-        for _, s := range automatics {
-                if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
-                        p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
-                } else if sym == nil {
-                        // TODO: errors
-                }
-        }
-        for _, s := range params {
-                if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
-                        p.error(p.pos, "Name `%s' already taken, not parameter (%T).", s, alt)
-                } else if sym == nil {
-                        // TODO: errors
-                } else {
-                        //sym.(*types.Def).Assign(values.String("xxxxxxxxxx"))
-                }
-        }
-        for i := 1; i < 10; i += 1 {
-                if sym, alt := p.runtime.Symbol(strconv.Itoa(i), types.DefType); alt != nil {
-                        p.error(p.pos, "Name `%v' already taken, not numberred (%T).", i, alt)
-                } else if sym == nil {
-                        // TODO: errors
-                }
         }
 
         // Parsing depends after automatics and parameters are defined, so that
