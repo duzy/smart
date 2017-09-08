@@ -477,13 +477,17 @@ func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 nargs = len(args)
+                perm = os.FileMode(0650) // sys default 0666
                 filename string 
                 content string
         )
         if nargs == 0 {
-                targetDef.Value.Strval()
+                filename = targetDef.Value.Strval()
         } else {
                 filename = args[0].Strval()
+                if nargs > 1 {
+                        perm = os.FileMode(args[1].Integer() & 0777)
+                }
         }
 
         switch v := value.(type) {
@@ -509,6 +513,11 @@ func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (
         f, err := os.Open(filename)
         if err == nil && f != nil {
                 defer f.Close()
+                if st, _ := f.Stat(); st.Mode().Perm() != perm {
+                        if err = f.Chmod(perm); err != nil {
+                                return
+                        }
+                }
                 w1 := crc64.New(crc64Table)
                 w2 := crc64.New(crc64Table)
                 if _, err = io.Copy(w1, f); err != nil {
@@ -532,7 +541,8 @@ func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (
         }
 
         // Create or update the file with new content
-        f, err = os.Create(filename)
+        
+        f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, perm)
         if err == nil && f != nil {
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {

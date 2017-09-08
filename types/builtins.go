@@ -435,11 +435,11 @@ func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
                         name = t.Key.Strval()
-                        perm = os.FileMode(t.Value.Integer())
+                        perm = os.FileMode(t.Value.Integer() & 0777)
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
                                 name = t.Get(0).Strval()
-                                perm = os.FileMode(t.Get(1).Integer())
+                                perm = os.FileMode(t.Get(1).Integer() & 0777)
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
@@ -447,7 +447,7 @@ func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
                                 name = t.Get(0).Strval()
-                                perm = os.FileMode(t.Get(1).Integer())
+                                perm = os.FileMode(t.Get(1).Integer() & 0777)
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
@@ -455,7 +455,7 @@ func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
                 default: // mkdir name perm, name perm, ...
                         name = args[i].Strval()
                         if i+1 < nargs {
-                                perm = os.FileMode(args[i+1].Integer())
+                                perm = os.FileMode(args[i+1].Integer() & 0777)
                                 i += 1
                         }
                 }
@@ -476,11 +476,11 @@ func builtinMkdirAll(context *Scope, args... Value) (res Value, err error) {
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
                         name = t.Key.Strval()
-                        perm = os.FileMode(t.Value.Integer())
+                        perm = os.FileMode(t.Value.Integer() & 0777)
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
                                 name = t.Get(0).Strval()
-                                perm = os.FileMode(t.Get(1).Integer())
+                                perm = os.FileMode(t.Get(1).Integer() & 0777)
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
@@ -488,7 +488,7 @@ func builtinMkdirAll(context *Scope, args... Value) (res Value, err error) {
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
                                 name = t.Get(0).Strval()
-                                perm = os.FileMode(t.Get(1).Integer())
+                                perm = os.FileMode(t.Get(1).Integer() & 0777)
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
@@ -496,7 +496,7 @@ func builtinMkdirAll(context *Scope, args... Value) (res Value, err error) {
                 default: // mkdir name perm, name perm, ...
                         name = args[i].Strval()
                         if i+1 < nargs {
-                                perm = os.FileMode(args[i+1].Integer())
+                                perm = os.FileMode(args[i+1].Integer() & 0777)
                                 i += 1
                         }
                 }
@@ -777,7 +777,7 @@ func builtinWriteFile(context *Scope, args... Value) (res Value, err error) {
                                         data = t.Get(1).Strval()
                                 }
                                 if n > 2 {
-                                        perm = os.FileMode(t.Get(2).Integer())
+                                        perm = os.FileMode(t.Get(2).Integer() & 0777)
                                 }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
@@ -790,7 +790,7 @@ func builtinWriteFile(context *Scope, args... Value) (res Value, err error) {
                                         data = t.Get(1).Strval()
                                 }
                                 if n > 2 {
-                                        perm = os.FileMode(t.Get(2).Integer())
+                                        perm = os.FileMode(t.Get(2).Integer() & 0777)
                                 }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
@@ -803,7 +803,7 @@ func builtinWriteFile(context *Scope, args... Value) (res Value, err error) {
                                 i += 1
                         }
                         if i+1 < nargs {
-                                perm = os.FileMode(args[i+1].Integer())
+                                perm = os.FileMode(args[i+1].Integer() & 0777)
                                 i += 1
                         }
                 }
