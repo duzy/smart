@@ -749,6 +749,13 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
                 obj = o
         }
 
+        // Disclose the p.o, it's value may have disclosures.
+        if v, e := obj.disclose(scope); e != nil {
+                return nil, e
+        } else if o, _ := v.(Object); o != nil {
+                obj = o
+        }
+
         switch o := obj.(type) {
         case Caller:
                 var (

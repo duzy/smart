@@ -112,7 +112,7 @@ func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.D
                 recipes []types.Value
         )
         for _, recipe := range prog.recipes {
-                if v, e := types.Disclose(context/*prog.scope*/, recipe); e != nil {
+                if v, e := types.Disclose(context, recipe); e != nil {
                         return e
                 } else if v != nil {
                         recipe = v
