@@ -41,12 +41,14 @@ func enterWorkdir(dir string, print bool) (wi *workinfo) {
                                 } else {
                                         p.backdir = wd
                                         p.num += 1
-                                        return p
                                 }
                         }
                 }
                 if print {
                         fmt.Printf("smart: Entering directory '%s'\n", dir)
+                }
+                if wi != nil {
+                        return
                 }
                 if err := os.Chdir(dir); err == nil {
                         if wi == nil {
@@ -68,7 +70,7 @@ func leaveWorkdir(wi *workinfo) {
         if /*nws := len(workstack); nws > 0 &&*/ wi != nil {
                 //assert(wi == workstack[nws-1])
                 if wi.print {
-                        fmt.Printf("smart: Leaving  directory '%s'\n", wi.dir)
+                        fmt.Printf("smart:  Leaving directory '%s'\n", wi.dir)
                 }
                 if err := os.Chdir(wi.backdir); err == nil {
                         // ...
