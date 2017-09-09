@@ -993,15 +993,17 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 if joint && p.bits&composingPCON == 0 {
                         p.bits |= composingPCON
                         pat := &ast.PathExpr{ 
-                                PosBeg: p.pos, 
-                                Segments: []ast.Expr{x}, 
+                                PosBeg: p.pos,
+                                Segments: []ast.Expr{x},
                                 PosEnd: p.pos,
                         }
+                        //fmt.Printf("path: %v (%T)\n", x, x)
                         // Drop continual '/' tokens.
                         ConcatPath: for p.tok == token.PCON { p.next() }
                         y := p.checkExpr(p.parseExpr(lhs))
                         pat.Segments = append(pat.Segments, y)
                         pat.PosEnd = y.End()
+                        //fmt.Printf("path: %v (%T)\n", y, y)
                         if p.tok == token.PCON {
                                 goto ConcatPath
                         }

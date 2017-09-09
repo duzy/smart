@@ -328,6 +328,8 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 }
         case *ast.Globfile:
                 v = values.Globfile(x.Glob.Tok, x.Ext)
+        case *ast.GlobExpr: // Just "*"
+                v = values.Globfile(x.Tok, "")
         case *ast.PathExpr:
                 if a, err := i.exprs(x.Segments); err != nil {
                         return nil, err
@@ -408,6 +410,9 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
 
                         v = def
                 }
+        }
+        if v == nil {
+                fmt.Printf("expr: nil: %T %v\n", expr, expr)
         }
         return
 }

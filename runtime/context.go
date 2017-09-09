@@ -17,9 +17,9 @@ import (
 )
 
 type Context struct {
-        globe      *types.Globe
-        outdated   map[string]time.Time
-        workdir    string
+        globe    *types.Globe
+        outdated map[string]time.Time
+        workdir  string
 }
 func (ctx *Context) Getwd() string { return ctx.workdir }
 func (ctx *Context) Globe() *types.Globe { return ctx.globe }

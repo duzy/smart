@@ -108,23 +108,34 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.Def, args... types.Value) (err error) {
-        var (
-                value types.Value
-                recipes []types.Value
-        )
+func (prog *Program) discloseRecipes(context *types.Scope) (recipes []types.Value, err error) {
         for _, recipe := range prog.recipes {
                 if v, e := types.Disclose(context, recipe); e != nil {
-                        return e
+                        return nil, e
                 } else if v != nil {
                         recipe = v
                 }
                 recipes = append(recipes, recipe) // types.EvalElems
         }
-        
-        value, err = i.evaluate(prog, context, args, recipes)
-        if err == nil && value != nil {
-                out.Assign(value)
+        return
+}
+
+func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.Def, args... types.Value) (err error) {
+        var (
+                recipes []types.Value
+                target, value types.Value
+        )
+        if recipes, err = prog.discloseRecipes(context); err != nil {
+                return
+        }
+        if value, err = i.evaluate(prog, context, args, recipes); err == nil {
+                if value != nil {
+                        out.Assign(value)
+                }
+                def := prog.scope.Lookup("@").(*types.Def)
+                if target, err = def.Call(); err == nil {
+                        _, _, err = prog.project.UpdateCmdHash(target, recipes)
+                }
         }
         return
 }
@@ -138,7 +149,7 @@ func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def
                 // does nothing
         } else if f, ok := modifiers[name]; ok {
                 var value = out.Value
-                if value, err = f(prog, value, g.Slice(1)...); err == nil && value !=  nil {
+                if value, err = f(prog, context, value, g.Slice(1)...); err == nil && value !=  nil {
                         out.Assign(value)
                 }
         } else if i, _ := interpreters[name]; i != nil {

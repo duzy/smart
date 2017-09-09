@@ -7,3 +7,4 @@
     + or recipe record differs
 * TODO Add 'env' modifier
 * TODO show file position of entries when update failed 
+* TODO Compare search into .h/.c/.cpp files for includes

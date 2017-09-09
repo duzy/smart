@@ -7,12 +7,16 @@ package types
 
 import (
         //"github.com/duzy/smart/token"
+        "crypto/sha256"
         "path/filepath"
         "strings"
         "errors"
+        "bytes"
         "fmt"
         "os"
 )
+
+type HashBytes [sha256.Size]byte
 
 type Program interface {
         Scope() *Scope
@@ -20,19 +24,19 @@ type Program interface {
 }
 
 type Project struct {
-	absPath   string
-	relPath   string
-	spec      string
-	name      string
-        bases     []*Project
-        scope     *Scope
-        uses      []*Use
+	absPath string
+	relPath string
+	spec    string
+	name    string
+        bases   []*Project
+        scope   *Scope
+        uses    []*Use
 
-        files     map[string][]string
+        files   map[string][]string
 
         // Rule Registry (orderred)
         concrete []*RuleEntry
-        patterns  []*PatternEntry
+        patterns []*PatternEntry
 
         filescopes []*Scope
 }
@@ -227,6 +231,64 @@ func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryCla
                 entry.programs = append(entry.programs, prog)
                 patent = &PatternEntry{ entry, p }
                 m.patterns = append(m.patterns, patent)
+        }
+        return
+}
+
+func (m *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes) {
+        var (
+                key = sha256.New()
+                val = sha256.New()
+        )
+        fmt.Fprintf(key, "%s", m.AbsPath())
+        fmt.Fprintf(key, "%s", target.Strval())
+        //fmt.Fprintf(key, "%s", depend.Strval())
+        for _, recipe := range recipes {
+                fmt.Fprintf(val, "%v", Eval(recipe).Strval())
+        }
+        copy(k[:], key.Sum(nil))
+        copy(v[:], val.Sum(nil))
+        return
+}
+
+func (m *Project) hashDir(k []byte) string {
+        s := fmt.Sprintf("%x", k[:2])
+        return filepath.Join(m.AbsPath(), ".smart", "hash", 
+                s[0:1], s[1:2], s[2:3], s[3:])
+}
+
+func (m *Project) CheckCmdHash(target Value, recipes []Value) (same bool, err error) {
+        var (
+                k, v = m.CmdHash(target, recipes)
+                dir = m.hashDir(k[:])
+        )
+        if f, e := os.Open(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
+                var h []byte
+                if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
+                        err = e; return
+                } else if n == 1 {
+                        same = bytes.Equal(v[:], h)
+                        //fmt.Printf("CheckCmdHash: %x -> %x (%x)\n", k, v, h)
+                }
+                err = f.Close()
+        } else {
+                err = e
+        }
+        return
+}
+
+func (m *Project) UpdateCmdHash(target Value, recipes []Value) (k, v HashBytes, err error) {
+        k, v = m.CmdHash(target, recipes)
+        dir := m.hashDir(k[:])
+        if err = os.MkdirAll(dir, 0700); err != nil {
+                return
+        }
+        if f, e := os.Create(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
+                //fmt.Printf("UpdateCmdHash: %x -> %x (%s)\n", k, v, target.Strval())
+                fmt.Fprintf(f, "%x", v)
+                err = f.Close()
+        } else {
+                err = e
         }
         return
 }
