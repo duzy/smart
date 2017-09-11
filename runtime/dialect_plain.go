@@ -8,7 +8,7 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        //"github.com/duzy/smart/values"
         //"encoding/json"
         //"io"
 )
@@ -19,7 +19,15 @@ type dialectPlain struct {
 
 func (t *dialectPlain) dialect() string { return "plain" }
 func (t *dialectPlain) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        result = values.Group(targetPlainKind, 
-                values.String(joinRecipesString(recipes...)))
+        //result = values.Group(targetPlainKind, 
+        //        values.String(joinRecipesString(recipes...)))
+        var name string
+        if len(args) > 0 {
+                name = args[0].Strval()
+        }
+        result = &types.Plain{
+                joinRecipesString(recipes...),
+                name,
+        }
         return
 }

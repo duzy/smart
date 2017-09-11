@@ -263,17 +263,19 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 if entry.Project() != d.Project() {
                                         scope = entry.Project().Scope()
                                 }
-                                if res, err = p.Execute(scope, d, args, false); err == nil {
+                                if res, err = p.Execute(scope, d, args); err == nil {
                                         //var fromOther = p != nil && p.project != prog.project
                                         //fmt.Printf("Program.prepare: %T %v (isFileEntry: %v) (res: %v) (err: %v) (%v)\n", depend, depend, isFileEntry, res, err, fromOther)
                                         dd, _ := p.scope.Lookup("@").(*types.Def).Call()
                                         //fmt.Printf("Program.prepare: updated %v\n", dd)
                                         if isFileEntry {
-                                                dependList.Append(values.Group(targetRegularKind, dd))
+                                                //dependList.Append(values.Group(targetRegularKind, dd))
+                                                dependList.Append(values.File(dd, dd.Strval()))
                                         } else {
                                                 switch d.Class() {
                                                 case types.FileRuleEntry, types.PatternFileRuleEntry:
-                                                        dependList.Append(values.Group(targetRegularKind, dd))
+                                                        //dependList.Append(values.Group(targetRegularKind, dd))
+                                                        dependList.Append(values.File(dd, dd.Strval()))
                                                 default:
                                                         if res != nil && res != values.None {
                                                                 dependList.Append(res)
@@ -290,7 +292,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                         continue ProgramsLoop
                                 } else {
                                         //fmt.Printf("Program.prepare: %T %v (%v)\n", depend, depend, err)
-                                        if false {
+                                        if true {
                                                 var s = err.Error()
                                                 if strings.HasPrefix(s, "Updating ") {
                                                         s = "->" + strings.TrimPrefix(s, "Updating ")
@@ -370,7 +372,7 @@ func (prog *Program) Getwd(context *types.Scope) string {
         return filepath.Clean(prog.project.AbsPath())
 }
 
-func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value, forced bool) (result types.Value, err error) {
+func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
         /*if entry.Name() == "lib.a" {
                 //fmt.Printf("Program.Execute: %v: %v %v\n", entry, args, prog.depends)
                 //fmt.Printf("Program.Execute: %v: %v %v\n", entry, args, prog.pipline)

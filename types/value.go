@@ -13,6 +13,7 @@ import (
         "strconv"
         "strings"
         "errors"
+        "bytes"
         "fmt"
         "os"
 )
@@ -185,7 +186,7 @@ func (p *String) String() string {
 }
 func (p *String) Strval() string   { return p.Value }
 func (p *String) Integer() int64   { i, _ := strconv.ParseInt(p.Value, 10, 64); return i }
-func (p *String) Float() float64   { return float64(p.Integer()) }
+func (p *String) Float() float64   { f, _ := strconv.ParseFloat(p.Value, 64); return f }
 
 type Bareword struct {
         Value string
@@ -662,29 +663,24 @@ func (p *delegate) Value() (res Value) {
 }
 
 func (p *delegate) disclose(scope *Scope) (Value, error) {
-        /*value := p.Value()
-        if v, e := value.disclose(scope); e != nil {
-                return nil, e
-        } else if v != nil {
-                //fmt.Printf("delegate.disclose: %T %v -> %T %v -> %T %v\n", p.o, p.o, value, value, v, v)
-                value = v
-        }
-        return value, nil /**/
-
         var (
                 o Object
                 a []Value
                 n = 0
         )
+
         if v, e := p.o.disclose(scope); e != nil {
                 return nil, e
         } else if v != nil {
                 o, _ = v.(Object)
+        } else {
+                o = p.o
         }
 
         //fmt.Printf("delegate.disclose: %T -> %T\n", p.o, o)
 
         for _, t := range p.a {
+                //fmt.Printf("delegate.disclose: a: %T %v\n", t, t)
                 if v, e := t.disclose(scope); e != nil {
                         return nil, e
                 } else if v != nil {
@@ -756,22 +752,29 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
                 obj = o
         }
 
+        var (
+                //scope = p.o.Parent()
+                args []Value
+        )
+        for _, a := range p.a {
+                if v, e := a.disclose(scope); e != nil {
+                        return nil, e
+                } else if v != nil {
+                        //fmt.Printf("delegate.value: %v -> %v\n", a, v)
+                        a = v
+                }
+                args = append(args, a)
+        }
+
         switch o := obj.(type) {
         case Caller:
-                var (
-                        scope = p.o.Parent()
-                        args []Value
-                )
-                for _, a := range p.a {
-                        if v, e := a.disclose(scope); e != nil {
-                                return nil, e
-                        } else if v != nil {
-                                //fmt.Printf("delegate.value: %v -> %v\n", a, v)
-                                a = v
-                        }
-                        args = append(args, a)
-                }
                 return o.Call(args...)
+        case Executer:
+                if result, err := o.Execute(scope, args...); err == nil {
+                        return &List{Elements{result}}, nil
+                } else {
+                        return nil, err
+                }
         default:
                 err := errors.New(fmt.Sprintf("Unsupported closure object `%T' (%v)", obj, obj))
                 return nil, err
@@ -790,6 +793,74 @@ func (p *closure) referencing(o Object) bool {
         }
         return false
 }
+
+// Value returned by (plain) modifier.
+type Plain struct {
+        Value string
+        Name string
+}
+func (*Plain) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Plain) referencing(_ Object) bool { return false }
+func (p *Plain) Type() Type  { return PlainType }
+func (p *Plain) String() string {
+        s := "(plain"
+        if p.Name != "" {
+                s += "(" + p.Name + ")"
+        } 
+        s += " " + p.Value + ")"
+        return s
+}
+func (p *Plain) Strval() string   { return p.Value }
+func (p *Plain) Integer() int64   { i, _ := strconv.ParseInt(p.Value, 10, 64); return i }
+func (p *Plain) Float() float64   { f, _ := strconv.ParseFloat(p.Value, 64); return f }
+
+type JSON struct {
+        Value Value
+}
+func (*JSON) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*JSON) referencing(_ Object) bool { return false }
+func (p *JSON) Type() Type { return JSONType }
+func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
+func (p *JSON) Strval() string { return p.Value.Strval() }
+func (p *JSON) Integer() int64 { return 0 }
+func (p *JSON) Float() float64 { return 0 }
+
+type XML struct {
+        Value Value
+}
+func (*XML) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*XML) referencing(_ Object) bool { return false }
+func (p *XML) Type() Type { return XMLType }
+func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
+func (p *XML) Strval() string { return p.Value.Strval() }
+func (p *XML) Integer() int64 { return 0 }
+func (p *XML) Float() float64 { return 0 }
+
+type YAML struct {
+        Value Value
+}
+func (*YAML) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*YAML) referencing(_ Object) bool { return false }
+func (p *YAML) Type() Type { return YAMLType }
+func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
+func (p *YAML) Strval() string { return p.Value.Strval() }
+func (p *YAML) Integer() int64 { return 0 }
+func (p *YAML) Float() float64 { return 0 }
+
+type ExecResult struct {
+        Stdout bytes.Buffer
+        Stderr bytes.Buffer
+        Status int
+}
+func (*ExecResult) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*ExecResult) referencing(_ Object) bool { return false }
+func (p *ExecResult) Type() Type  { return ExecResultType }
+func (p *ExecResult) String() string {
+        return fmt.Sprintf("(shell %d %s %s)", p.Status, p.Stdout, p.Stderr)
+}
+func (p *ExecResult) Strval() string   { return p.Stdout.String() }
+func (p *ExecResult) Integer() int64   { return int64(p.Status) }
+func (p *ExecResult) Float() float64   { return float64(p.Status) }
 
 // Pattern
 type Pattern interface {
@@ -904,6 +975,10 @@ type Caller interface {
         Call(args... Value) (Value, error)
 }
 
+type Executer interface {
+        Execute(context *Scope, a... Value) (result []Value, err error)
+}
+
 type Poser interface {
         Pos() *token.Position
 }
@@ -1002,5 +1077,8 @@ func Delegate(obj Object, args... Value) Value {
 }
 
 func Closure(obj Object, args... Value) Value {
+        if obj == nil {
+                panic("closure of nil")
+        }
         return &closure{ obj, args }
 }

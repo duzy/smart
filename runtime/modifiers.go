@@ -9,11 +9,12 @@ package runtime
 import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        //"path/filepath"
+        "path/filepath"
         "hash/crc64"
         "strings"
         "errors"
         //"bytes"
+        "bufio"
         "time"
         "fmt"
         "os"
@@ -83,6 +84,7 @@ var (
                 `cd`:           modifierCD,
 
                 `compare`:      modifierCompare,
+                `grep-depends`: modifierGrepDepends,
                 
                 `check-dir`:    modifierCheckDir,
                 `check-file`:   modifierCheckFile,
@@ -93,6 +95,7 @@ var (
                 `update-file`:  modifierUpdateFile,
         }
 
+        /*
         // Phony targets (always outdate the target)
         targetPhonyKind     = values.Bareword("phony")    // (phony example)
 
@@ -105,6 +108,7 @@ var (
         targetJsonKind      = values.Bareword("json")     // (json (array a b c 1 2 3 null))
         targetXmlKind       = values.Bareword("xml")      // (xml ((book (title book one)) (book (title book two)) (book (title book three))))
         targetShellKind     = values.Bareword("shell")    // (shell 0 'output' 'error')
+        */
 
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
@@ -249,14 +253,14 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
         depends = values.List()
         for _, depend := range dependList.Elems {
                 //fmt.Printf("compare: depend: %T %v\n", depend, depend)
-                DependSwitch: switch d := depend.(type) {
+                switch d := depend.(type) {
                 case *types.List:
                         if dl, e := parseDependList(prog, context, d); e != nil {
                                 err = e; return
                         } else {
                                 depends.Elems = append(depends.Elems, dl.Elems...)
                         }
-                case *types.Group:
+                /*case *types.Group:
                         switch d.Get(0).(*types.Bareword) {
                         case targetRegularKind, targetDirectoryKind:
                                 switch d1 := d.Get(1).(type) {
@@ -271,6 +275,13 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
                                 }
                                 fallthrough // append it
                         default: 
+                                depends.Append(d)
+                        }*/
+                case *types.ExecResult:
+                        if d.Status != 0 {
+                                err = &breaker{ "got shell failure", false }
+                                return // target shall be updated
+                        } else {
                                 depends.Append(d)
                         }
                 case *types.RuleEntry:
@@ -334,6 +345,10 @@ func compareTargetDepend(prog *Program, context *types.Scope, target, depend typ
                         if same, e := prog.project.CheckCmdHash(target, recipes); e == nil {
                                 outdated = !same
                         }
+                }
+                if !outdated {
+                        //ent, _ := prog.project.Entry(depend.Strval())
+                        //fmt.Printf("compare: %v\n", ent)
                 }
         } else {
                 fmt.Printf("compare: todo: %v -> %v (%T)\n", target, depend, depend)
@@ -419,13 +434,52 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
         return
 }
 
-func modifierCheckDir(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        var targetVal, _ = prog.scope.Lookup("@").(types.Caller).Call()
-        if fi, _ := os.Stat(targetVal.Strval()); fi != nil && fi.Mode().IsDir() {
-                result = values.Group(targetDirectoryKind, targetVal)
+func modifierGrepDepends(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+        // if vargs[0] == '-c' { ... }
+        var (
+                targetVal, _ = prog.scope.Lookup("@").(types.Caller).Call()
+                targetName = targetVal.Strval()
+                f *os.File
+        )
+        if f, err = os.Open(targetName); err != nil {
+                fmt.Printf("grep-depends: %v\n", err)
+                return
         } else {
-                err = &breaker{ fmt.Sprintf("directory %s not exists", targetVal),
-                        false }
+                defer func() {
+                        err = f.Close()
+                }()
+        }
+        
+        scanner := bufio.NewScanner(f)
+        scanner.Split(bufio.ScanLines)
+        for scanner.Scan() {
+                s := scanner.Text()
+                if strings.HasPrefix(s, "#include") {
+                        fmt.Printf("todo: grep-depends: %v\n", s)
+                }
+        }
+        return
+}
+
+func modifierCheckDir(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+        var (
+                targetDef, _ = prog.scope.Lookup("@").(*types.Def)
+                targetVal types.Value
+                filename string
+        )
+        if targetVal, err = targetDef.Call(); err != nil {
+                return
+        } else {
+                filename = targetVal.Strval()
+        }
+        if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsDir() {
+                var segments []types.Value
+                for _, seg := range filepath.SplitList(filename) {
+                        segments = append(segments, values.String(seg))
+                }
+                result = values.Path(segments...)
+        } else {
+                err = &breaker{ fmt.Sprintf("file %s not exists", targetVal), false }
         }
         return
 }
@@ -433,13 +487,18 @@ func modifierCheckDir(prog *Program, context *types.Scope, value types.Value, ar
 func modifierCheckFile(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                filename = targetDef.Value.Strval()
+                targetVal types.Value
+                filename string
         )
-        if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
-                result = values.Group(targetRegularKind, targetDef.Value)
+        if targetVal, err = targetDef.Call(); err != nil {
+                return
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not exists", targetDef.Value), 
-                        false }
+                filename = targetVal.Strval()
+        }
+        if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
+                result = values.File(targetVal, filename)
+        } else {
+                err = &breaker{ fmt.Sprintf("file %s not exists", targetVal), false }
         }
         return
 }
@@ -447,31 +506,18 @@ func modifierCheckFile(prog *Program, context *types.Scope, value types.Value, a
 func modifierWriteFile(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
-                filename = targetDef.Value.Strval()
+                targetVal types.Value
+                filename string
         )
+        if targetVal, err = targetDef.Call(); err != nil {
+                return
+        } else {
+                filename = targetVal.Strval()
+        }
         if f, err := os.Create(filename); err == nil {
                 defer f.Close()
-                var content string
-                switch v := value.(type) {
-                case *types.Group:
-                        switch t, _ := v.Get(0).(*types.Bareword); t {
-                        case targetPlainKind:
-                                content = v.Get(1).Strval()
-                        case targetJsonKind:
-                                // TODO: convert to json value
-                                content = v.Get(1).Strval()
-                        case targetXmlKind:
-                                // TODO: convert to xml value
-                                content = v.Get(1).Strval()
-                        default:
-                                // TODO: convert value
-                                content = v.Get(1).String()
-                        }
-                default:
-                        content = v.Strval()
-                }
-                if _, err = f.WriteString(content); err == nil {
-                        result = values.Group(targetRegularKind, targetDef.Value)
+                if _, err = f.WriteString(value.Strval()); err == nil {
+                        result = values.File(targetVal, filename)
                 } else {
                         os.Remove(filename)
                 }
@@ -487,11 +533,14 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 nargs = len(args)
                 perm = os.FileMode(0650) // sys default 0666
-                filename string 
-                content string
+                targetVal types.Value
+                filename string
         )
+        if targetVal, err = targetDef.Call(); err != nil {
+                return
+        }
         if nargs == 0 {
-                filename = targetDef.Value.Strval()
+                filename = targetVal.Strval()
         } else {
                 filename = args[0].Strval()
                 if nargs > 1 {
@@ -499,26 +548,8 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
                 }
         }
 
-        switch v := value.(type) {
-        case *types.Group:
-                switch t, _ := v.Get(0).(*types.Bareword); t {
-                case targetPlainKind:
-                        content = v.Get(1).Strval()
-                case targetJsonKind:
-                        // TODO: convert to json value
-                        content = v.Get(1).Strval()
-                case targetXmlKind:
-                        // TODO: convert to xml value
-                        content = v.Get(1).Strval()
-                default:
-                        // TODO: convert value
-                        content = v.Get(1).String()
-                }
-        default:
-                content = v.Strval()
-        }
-
         // Check existed file content checksum
+        var content = value.Strval()
         f, err := os.Open(filename)
         if err == nil && f != nil {
                 defer f.Close()
@@ -539,7 +570,7 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
                         if false {
                                 fmt.Printf("%s already up to date\n", filename)
                         }
-                        result = values.Group(targetRegularKind, targetDef.Value)
+                        result = values.File(targetVal, filename)
                         return
                 }
         }
@@ -555,7 +586,7 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
         if err == nil && f != nil {
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
-                        result = values.Group(targetRegularKind, targetDef.Value)
+                        result = values.File(targetVal, filename)
                         if !slient {
                                 fmt.Printf(". (ok)\n")
                         }

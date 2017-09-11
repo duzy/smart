@@ -56,7 +56,7 @@ func (ctx *Context) Run(targets... string) (err error) {
         if len(targets) == 0 {
                 ctx.outdated = make(map[string]time.Time)
                 if entry := mm.DefaultEntry(); entry != nil {
-                        if _, err = entry.ExecutePrograms(nil); err == nil {
+                        if _, err = entry.Execute(mm.Scope()); err == nil {
                                 updated += 1
                         }
                 }
@@ -110,7 +110,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 // The the base project scope as execution context. For
                                 // example of 'base.test', the entry 'test' can resolve
                                 // '&(FOO)', '&(BAR)', etc.
-                                if _, err = entry.ExecutePrograms(m.Scope(), v...); err == nil {
+                                if _, err = entry.Execute(m.Scope(), v...); err == nil {
                                         updated += 1
                                 } else {
                                         //fmt.Printf("%v\n", err)

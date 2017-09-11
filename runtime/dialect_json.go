@@ -178,10 +178,9 @@ func (t *dialectJson) dialect() string { return "json" }
 func (t *dialectJson) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeJSON(source); err == nil {
-                result = values.Group(targetJsonKind, result, values.None)
+                result = &types.JSON{ result }
         } else {
-                result = values.Group(targetJsonKind, 
-                        values.None, values.String(err.Error()))
+                result = &types.JSON{ values.None }
         }
         return
 }

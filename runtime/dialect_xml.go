@@ -117,10 +117,9 @@ func (t *dialectXml) dialect() string { return "xml" }
 func (t *dialectXml) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeXML(source, t.whitespace); err == nil {
-                result = values.Group(targetXmlKind, result, values.None)
+                result = &types.XML{ result }
         } else {
-                result = values.Group(targetXmlKind,
-                        values.None, values.String(err.Error()))
+                result = &types.XML{ values.None }
         }
         return
 }

@@ -8,12 +8,12 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        //"github.com/duzy/smart/values"
         "os/exec"
         "strings"
         "errors"
         "unicode"
-        "bytes"
+        //"bytes"
         "fmt"
         "os"
 )
@@ -50,9 +50,10 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 //stdinOpt, _ = prog.scope.Lookup("shell-stdin").(*types.Def)
-                stdout bytes.Buffer
-                stderr bytes.Buffer
-                status types.Value
+                exeres = new(types.ExecResult)
+                //stdout bytes.Buffer
+                //stderr bytes.Buffer
+                //status types.Value
                 source string
         )
 
@@ -90,7 +91,7 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                         a = append(a, s.xopt, source)
                         sh = exec.Command(s.interpreter, a...)
                 }
-                sh.Stdout, sh.Stderr = &stdout, &stderr
+                sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
                 if envarsOpt != nil {
                         if l, _ := envarsOpt.Value.(*types.List); l != nil {
                                 for _, v := range l.Elems {
@@ -110,21 +111,17 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                 }
                 err = sh.Run()
                 if err == nil {
-                        status, source = values.Int(0), ""
+                        exeres.Status, source = 0, ""
                 } else {
-                        var (
-                                s = err.Error()
-                                code int64
-                        )
-                        if n, e := fmt.Sscanf(s, "exit status %v", &code); n == 1 && e == nil {
-                                status = values.Int(code)
+                        var s = err.Error()
+                        if n, e := fmt.Sscanf(s, "exit status %v", &exeres.Status); n == 1 && e == nil {
                                 if statusOpt != nil && statusOpt.Value.Strval() == "on" {
                                         err = nil
                                 } else {
                                         err = errors.New(fmt.Sprintf("%v (%s)", err, source))
                                 }
                         } else {
-                                status = values.String(s)
+                                exeres.Status = -1 //values.String(s)
                         }
                         source = ""
                         break
@@ -132,11 +129,12 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
         }
         
         if /* TODO: using `--verbose-shell` to control this */false {
-                fmt.Printf("%v", stdout.String())
+                fmt.Printf("%v", exeres.Stdout.String())
         }
         
-        result = values.Group(targetShellKind, status,
+        /*result = values.Group(targetShellKind, status,
                 values.String(stdout.String()),
-                values.String(stderr.String()))
+                values.String(stderr.String()))*/
+        result = exeres
         return
 }

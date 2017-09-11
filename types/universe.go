@@ -24,6 +24,11 @@ var (
         CoreTypes = []*Core {
                 DefKind:         {DefKind, IsDef, "Def"},
                 DefinerKind:     {DefinerKind, IsDefiner, "Definer"},
+                PlainKind:       {PlainKind, IsPlain, "Plain"},
+                JSONKind:        {JSONKind, IsJSON, "JSON"},
+                XMLKind:         {XMLKind, IsXML, "XML"},
+                YAMLKind:        {YAMLKind, IsYAML, "YAML"},
+                ExecResultKind:  {ExecResultKind, IsExecResult, "ExecResult"},
                 ScopeNameKind:   {ScopeNameKind, IsScopeName, "ScopeName"},
                 ProjectNameKind: {ProjectNameKind, IsProjectName, "ProjectName"},
                 BuiltinKind:     {BuiltinKind, IsBuiltin, "Builtin"},
@@ -67,6 +72,11 @@ var (
         // Shortcuts of core types
         DefType         = CoreTypes[DefKind]
         DefinerType     = CoreTypes[DefinerKind]
+        PlainType       = CoreTypes[PlainKind]
+        JSONType        = CoreTypes[JSONKind]
+        XMLType         = CoreTypes[XMLKind]
+        YAMLType        = CoreTypes[YAMLKind]
+        ExecResultType  = CoreTypes[ExecResultKind]
         BuiltinType     = CoreTypes[BuiltinKind]
         RuleEntryType   = CoreTypes[RuleEntryKind]
         ScopeNameType   = CoreTypes[ScopeNameKind]

@@ -624,7 +624,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
         if p.lineComment != nil {
                 return true
         }
-        if p.tok == token.RPAREN || p.tok == token.LBRACK /*|| p.tok == token.COLON_RBK*/ {
+        if p.tok == token.RPAREN || p.tok == token.RBRACK /*|| p.tok == token.COLON_RBK*/ {
                 return true
         }
         if p.tok.IsRuleDelim() {
@@ -781,25 +781,29 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         tokLp  token.Token
                 )
                 switch p.next(); p.tok {
-                case token.LPAREN:
+                case token.LPAREN, token.LBRACE:
                         lpos, tokLp = p.pos, p.tok
                         p.next()
                         name = p.checkExpr(p.parseExpr(false))
-                        if p.tok != token.RPAREN {
+                        if (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
+                           (tokLp == token.LBRACE && p.tok != token.RBRACE) {
                                 rest = append(rest, p.parseListExpr(false))
                                 for p.tok == token.COMMA {
                                         p.next()
                                         rest = append(rest, p.parseListExpr(false))
                                 }
                         }
-                        rpos = p.expect(token.RPAREN)
+                        switch tokLp {
+                        case token.LPAREN: rpos = p.expect(token.RPAREN)
+                        case token.LBRACE: rpos = p.expect(token.RBRACE)
+                        }
                 default:
                         // Only support $(...), disable $name.
                         if false {
                                 // Parse name without composing expressions
                                 name = p.checkExpr(p.parseExpr0(false))
                         } else {
-                                p.error(p.pos, "Expecting `%v'.", token.LPAREN)
+                                p.error(p.pos, "Expecting `%v' or `%v'.", token.LPAREN, token.LBRACE)
                                 return &ast.BadExpr{ From:p.pos, To:p.pos }
                         }
                 }
@@ -821,6 +825,16 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                                 p.error(name.Pos(), "Undefined reference `%v' (%T).", v.Strval(), name)
                         } else {
                                 name = a
+                                switch tokLp {
+                                case token.LPAREN:
+                                        if _, ok := resolved.(types.Caller); !ok {
+                                                p.error(name.Pos(), "Uncallable resolved `%v' (%T).", v.Strval(), name)
+                                        }
+                                case token.LBRACE:
+                                        if _, ok := resolved.(types.Executer); !ok {
+                                                p.error(name.Pos(), "Unexecutible resolved `%v' (%T).", v.Strval(), name)
+                                        }
+                                }
                         }
                 }
 
@@ -911,14 +925,13 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
                         p.next()
 
-                        var where = anywhere
-                        //if s == "/" || s == "." {
-                        //        where = local
-                        //}
-                        resolved := p.runtime.Resolve(s, where)
+                        resolved := p.runtime.Resolve(s, anywhere)
                         if resolved == nil {
                                 p.error(pos, "Undefined reference `%v' (%v).", s, tok)
+                        } else if _, ok := resolved.(types.Caller); !ok {
+                                p.error(pos, "Uncallable resolved `%T'.", resolved)
                         }
+                        
                         cd := ast.ClosureDelegate{
                                 TokPos: pos,
                                 Lparen: token.NoPos,
@@ -951,7 +964,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         //fmt.Printf("composing:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
         var joint = x.End() == p.pos && p.lineComment == nil
         switch p.tok {
-        case token.COMPOSED, token.RPAREN, token.RBRACK, token.COMMA, token.COLON, token.LINEND:
+        case token.COMPOSED, token.RPAREN, token.RBRACK, token.RBRACE, token.COMMA, token.COLON, token.LINEND:
         case token.ILLEGAL:
                 p.error(p.pos, "illegal token")
         case token.ARROW, token.ASSIGN:
@@ -1030,8 +1043,8 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         x = &ast.Barecomp{ []ast.Expr{ x, y } }
                         if x.End() == p.pos && p.lineComment == nil {
                                 switch p.tok {
-                                case token.COMPOSED, token.RPAREN, token.RBRACK, token.COMMA, token.COLON, token.LINEND:
-                                case /*token.LPAREN, */token.PERIOD, token.DOTDOT, token.PCON, token.PERC:
+                                case token.COMPOSED, token.RPAREN, token.RBRACK, token.RBRACE, token.COMMA, token.COLON, token.LINEND:
+                                case token.PERIOD, token.DOTDOT, token.PCON, token.PERC:
                                 case token.ARROW, token.ASSIGN:
                                 case token.ILLEGAL:
                                 default:
@@ -1168,9 +1181,10 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
         props = append(props, x)
 
         // Parse the parameters.
-        for p.tok != token.EOF {
-                if p.tok == token.COMMA || p.tok == token.LINEND || p.tok == token.RPAREN {
-                        break
+        ParamsParseLoop: for p.tok != token.EOF {
+                switch p.tok {
+                case token.COMMA, token.LINEND, token.RPAREN, token.RBRACE:
+                        break ParamsParseLoop
                 }
                 if p.lineComment != nil {
                         // found a line comment at the end

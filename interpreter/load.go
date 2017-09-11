@@ -211,21 +211,50 @@ func (i *Interpreter) closuredelegate(x *ast.ClosureDelegate) (obj types.Object,
                 return nil, nil, err
         }
         if x.Resolved == nil {
-                //i.parseWarn(x.Name.Pos(), fmt.Sprintf("Unresolved reference `%s'.", name))
                 err = errors.New(fmt.Sprintf("Unresolved reference `%s'.", name))
                 return
         }
 
-        def, _ := x.Resolved.(types.Caller)
-        if def == nil {
-                //i.parseWarn(x.Pos(), fmt.Sprintf("uncallable resolved %s (%T)", name, x.Resolved))
-                err = errors.New(fmt.Sprintf("Uncallable `%s' resolved (%T).", name, x.Resolved))
-                return
-        } else if obj = def.(types.Object); obj == nil {
-                err = errors.New(fmt.Sprintf("Non-object callable `%s' resolved (%T).", name, def))
-                return
+        tok := token.ILLEGAL
+        switch x.TokLp {
+        case token.LPAREN: tok = token.LPAREN
+        case token.LBRACE: tok = token.LBRACE
+        case token.ILLEGAL:
+                if x.Tok.IsClosure() || x.Tok.IsDelegate() {
+                        tok = token.LPAREN
+                } else {
+                        err = errors.New(fmt.Sprintf("Unregonized closure/delegate (%v).", x.Tok))
+                }
+        default:
+                err = errors.New(fmt.Sprintf("Unregonized closure/delegate (%v, %v).", x.TokLp, x.Tok))
         }
 
+        switch tok {
+        case token.LPAREN:
+                def, _ := x.Resolved.(types.Caller)
+                if def == nil {
+                        err = errors.New(fmt.Sprintf("Uncallable `%s' resolved (%T).", name, x.Resolved))
+                        return
+                } else if obj = def.(types.Object); obj == nil {
+                        err = errors.New(fmt.Sprintf("Non-object callable `%s' resolved (%T).", name, def))
+                        return
+                }
+        case token.LBRACE:
+                exe, _ := x.Resolved.(types.Executer)
+                if exe == nil {
+                        err = errors.New(fmt.Sprintf("Unexecutible `%s' resolved (%T).", name, x.Resolved))
+                        return
+                } else if obj = exe.(types.Object); obj == nil {
+                        err = errors.New(fmt.Sprintf("Non-object executible `%s' resolved (%T).", name, exe))
+                        return
+                }
+        default:
+                if err == nil {
+                        err = errors.New(fmt.Sprintf("Unregonized closure/delegate (%v, %v).", x.TokLp, x.Tok))
+                }
+                return
+        }
+        
         for _, x := range x.Args {
                 if a,e := i.expr(x); e != nil {
                         err = e
@@ -441,7 +470,7 @@ func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
                         if entry, _ = obj.(*types.RuleEntry); entry == nil {
                                 return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' entry (%T).", project.Name(), obj))
                         } else {
-                                results, err := entry.ExecutePrograms(i.scope)
+                                results, err := entry.Execute(i.scope)
                                 if err != nil {
                                         return err
                                 }

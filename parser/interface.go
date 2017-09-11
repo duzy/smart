@@ -45,7 +45,7 @@ const (
         KeepDelegates
         CastDepends
 
-        // Expends delegates and disclose closures.
+        // Expends delegates and closures.
         disclosure = 0
 
         // Keeps closures

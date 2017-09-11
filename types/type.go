@@ -71,8 +71,13 @@ const (
         ProjectNameKind
         ScopeNameKind
 
-        // definer (special)
+        // special types
         DefinerKind
+        PlainKind
+        JSONKind
+        XMLKind
+        YAMLKind
+        ExecResultKind
 
         // type for expressions compute to nothing/empty
         NoneKind
@@ -111,6 +116,11 @@ var (
                 ProjectNameKind: "ProjectName",
                 ScopeNameKind:  "ScopeName",
                 DefinerKind:    "Definer",
+                PlainKind:      "Plain",
+                JSONKind:       "JSON",
+                XMLKind:        "XML",
+                YAMLKind:       "YAML",
+                ExecResultKind: "ExecResult",
                 NoneKind:       "None",
         }
 )
@@ -171,6 +181,11 @@ const (
         IsProjectName
 
         IsDefiner // 30
+        IsPlain
+        IsJSON
+        IsXML
+        IsYAML
+        IsExecResult
 
         IsDateTime  = IsDate | IsTime
 	IsNumeric   = IsBin | IsOct | IsInt | IsHex | IsFloat

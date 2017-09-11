@@ -20,7 +20,7 @@ type HashBytes [sha256.Size]byte
 
 type Program interface {
         Scope() *Scope
-        Execute(context *Scope, entry *RuleEntry, args []Value, forced bool) (result Value, err error)
+        Execute(context *Scope, entry *RuleEntry, args []Value) (result Value, err error)
 }
 
 type Project struct {

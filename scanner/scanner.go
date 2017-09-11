@@ -98,8 +98,9 @@ const (
 const (
         isCompoundLine    context = 1 << iota
         isCompoundString
-        isCompoundCallIdent
-        isCompoundCallParen
+        isCompoundCallIdent // $.....
+        isCompoundCallParen // $(...)
+        isCompoundCallBrace // ${...}
 )
 
 // Init prepares the scanner s to tokenize the text src by setting the
@@ -240,7 +241,8 @@ func isUntermPunct(ch rune) bool {
 
 func isDatetimeTerminator(ch rune) bool {
         return  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || 
-                ch == '(' || ch == ')' || ch == '$' || ch == '#' || ch == '\\'
+                ch == '(' || ch == ')' || ch == '{' || ch == '}' || 
+                ch == '$' || ch == '#' || ch == '\\'
 }
 
 func (s *Scanner) scanIdentifier() string {
@@ -768,7 +770,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 
         if s.context&(isCompoundLine|isCompoundString) != 0 {
                 //fmt.Printf("context: '%v' (%v)\n", string(s.ch), s.context)
-                if s.context&(isCompoundCallIdent|isCompoundCallParen) == 0 {
+                if s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace) == 0 {
                         switch {
                         case s.context&isCompoundLine != 0:
                                 tok, lit = s.scanCompoundLine()
@@ -915,10 +917,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 lit = string(ch)
                                 s.next() // eat special
                         } else if s.context&(isCompoundString|isCompoundLine) != 0 {
-                                if ch == '(' {
+                                switch ch {
+                                case '(':
                                         s.callParenDepths = append(s.callParenDepths, s.parenDepth)
                                         s.context |= isCompoundCallParen
-                                } else {
+                                case '{':
+                                        s.context |= isCompoundCallBrace
+                                default:
                                         s.context |= isCompoundCallIdent
                                 }
                         }
@@ -1016,6 +1021,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.LBRACE
                 case '}':
                         tok = token.RBRACE
+                        s.context &= ^isCompoundCallBrace
                 default:
 			// next reports unexpected BOMs - don't repeat
 			if ch != bom {
@@ -1028,7 +1034,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 
         // eat consequence spaces
         if s.context&(isCompoundLine|isCompoundString) == 0 || 
-                s.context&isCompoundCallParen != 0 {
+           s.context&(isCompoundCallParen|isCompoundCallBrace) != 0 {
                 s.skipUselessWhitespace(false)
         }
 	return
