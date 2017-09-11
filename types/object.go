@@ -379,6 +379,7 @@ type RuleEntry struct {
         class RuleEntryClass
         programs []Program
         stem string // only applied for PatternRuleEntry
+        Creator *PatternEntry
 }
 
 func (entry *RuleEntry) String() string { return fmt.Sprintf("entry %v", entry.name) }
@@ -395,6 +396,15 @@ func (entry *RuleEntry) IsPattern() bool {
 func (entry *RuleEntry) IsFile() bool {
         return entry.class == FileRuleEntry || entry.class == PatternFileRuleEntry;
 }
+
+/*func (entry *RuleEntry) HasRecipes() bool {
+        for _, prog := range entry.programs {
+                if len(prog.recipes) > 0 {
+                        return true
+                }
+        }
+        return false
+}*/
 
 // RuleEntry.Program returns the rule program.
 func (entry *RuleEntry) Programs() []Program { return entry.programs }
@@ -433,8 +443,11 @@ type PatternEntry struct {
         Pattern Pattern
 }
 
-func (p *PatternEntry) MakeConcreteEntry(stem string) (*RuleEntry, error) {
-        return p.Pattern.MakeConcreteEntry(p.RuleEntry, stem)
+func (p *PatternEntry) MakeConcreteEntry(stem string) (entry *RuleEntry, err error) {
+        if entry, err = p.Pattern.MakeConcreteEntry(p.RuleEntry, stem); err == nil && entry != nil {
+                entry.Creator = p
+        }
+        return
 }
 
 func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry, alt Object) {
@@ -447,7 +460,7 @@ func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name stri
                                 typ:     RuleEntryType,
                                 ord:     0,
                         },
-                        kind, nil, "",
+                        kind, nil, "", nil,
                 }
                 scope.replace(name, entry)
         } else if name == "use" {

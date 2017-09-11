@@ -37,7 +37,7 @@ lib.a:[(cd) ((lib objects)) (compare $(lib)) (stdout) (stderr) (shell)]: $(objec
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.C
 	$(COMPILE) $^ -o $@
 
-%.cpp %cc %C:[(cd) (grep-depends '\\s*#\\s*include\\s*<.*>' $*.d)]
+%.cpp %.cc %.C:[(cd) (grep-files '\\s*#\\s*include\\s*<.*>' $*.d)]
 
 # TODO:
 #.cc:

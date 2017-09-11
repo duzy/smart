@@ -84,7 +84,7 @@ var (
                 `cd`:           modifierCD,
 
                 `compare`:      modifierCompare,
-                `grep-depends`: modifierGrepDepends,
+                `grep-files`:   modifierGrepFiles,
                 
                 `check-dir`:    modifierCheckDir,
                 `check-file`:   modifierCheckFile,
@@ -434,7 +434,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
         return
 }
 
-func modifierGrepDepends(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierGrepFiles(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
         // if vargs[0] == '-c' { ... }
         var (
                 targetVal, _ = prog.scope.Lookup("@").(types.Caller).Call()
@@ -442,7 +442,10 @@ func modifierGrepDepends(prog *Program, context *types.Scope, value types.Value,
                 f *os.File
         )
         if f, err = os.Open(targetName); err != nil {
-                fmt.Printf("grep-depends: %v\n", err)
+                if false {
+                        s, _ := os.Getwd()
+                        fmt.Fprintf(os.Stderr, "grep-files: %v (%v)\n", err, s)
+                }
                 return
         } else {
                 defer func() {
@@ -455,7 +458,7 @@ func modifierGrepDepends(prog *Program, context *types.Scope, value types.Value,
         for scanner.Scan() {
                 s := scanner.Text()
                 if strings.HasPrefix(s, "#include") {
-                        fmt.Printf("todo: grep-depends: %v\n", s)
+                        fmt.Printf("todo: grep-files: %v\n", s)
                 }
         }
         return

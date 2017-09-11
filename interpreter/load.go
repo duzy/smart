@@ -196,7 +196,7 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
                 }
                 err = i.useProject(spec.Props[0].Pos(), loaded)
         } else {
-                fmt.Printf("%v (%v)\n", specName, absPath)
+                //fmt.Printf("%v (%v)\n", specName, absPath)
                 for k, v := range i.loaded {
                         fmt.Printf("  loaded: %v (%v)\n", v.Name(), k)
                 }
@@ -441,7 +441,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
                 }
         }
         if v == nil {
-                fmt.Printf("expr: nil: %T %v\n", expr, expr)
+                err = errors.New(fmt.Sprintf("Expr value is nil `%T'", expr))
         }
         return
 }

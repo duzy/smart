@@ -213,18 +213,28 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                 case *types.PercentPattern:
                         if stem := entry.Stem(); stem != "" {
                                 name := d.MakeString(stem)
-                                MapPatent: if p, e := project.Entry(name); e != nil {
-                                        return e
-                                } else if p != nil {
-                                        depend = p; goto DependSwitch
+                                FindEntry: if _, obj := project.Scope().Find(name); obj != nil {
+                                        if entry, _ := obj.(*types.RuleEntry); entry != nil {
+                                                depend = entry
+                                                goto DependSwitch
+                                        }
+                                }
+                                if pss := project.FindPatterns(name); pss != nil {
+                                        for _, ps := range pss {
+                                                if entry, err = ps.MakeConcreteEntry(); err != nil {
+                                                        return
+                                                } else if entry != nil {
+                                                        fmt.Printf("%v: %T %v -> %v\n", name, depend, depend, entry)
+                                                        depend = entry
+                                                        goto DependSwitch
+                                                }
+                                        }
                                 }
 
-                                //fmt.Printf("%v\n%v\n%v\n", context.Outer(), context, prog.project.Scope())
-
-                                // Mapping entry from the context project
+                                // Find entry in the context project.
                                 if proj := context.FindProject(); proj != nil {
                                         if proj != project {
-                                                project = proj; goto MapPatent
+                                                project = proj; goto FindEntry
                                         } else if proj.IsFile(name) {
                                                 //fmt.Printf("file: %s (%s)\n", name, proj.Name())
                                                 project, file = proj, name
@@ -233,7 +243,7 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err 
                                 }
                                 return errors.New(fmt.Sprintf("No such rule `%v' (required by `%s' via `%v').", d.MakeString(stem), entry.Name(), d))
                         } else {
-                                return errors.New(fmt.Sprintf("empty stem (%s, dependency %v)", entry, d))
+                                return errors.New(fmt.Sprintf("Empty stem (%s, dependency %v)", entry, d))
                         }
                 case *types.RuleEntry:
                         //fmt.Printf("Program.prepare: %v %v\n", d, d.Class())

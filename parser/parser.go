@@ -1540,7 +1540,7 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                 } else if p.runtime.IsModifier(name) {
                         goto addModifier
                 } else {
-                        p.error(pos, "no dialect or modifier '%s'", name)
+                        p.error(pos, "No such dialect or modifier `%s'", name)
                         goto next
                 }
                 

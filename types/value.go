@@ -878,23 +878,9 @@ func (p *pattern) Float() float64    { return 0 }
 func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
         switch patent.class {
         case PatternRuleEntry, PatternFileRuleEntry:
-                /*entry = &RuleEntry{
-                        object{
-                                parent:  patent.parent,
-                                project: patent.project,
-                                typ:     patent.typ,
-                                ord:     patent.ord,
-                                name:    name,
-                        },
-                        patent.class, patent.programs[:], stem,
-                }*/
                 entry = new(RuleEntry); *entry = *patent
                 entry.name = name
                 entry.stem = stem
-                /*
-                if entry.object != patent.object { panic("copy") }
-                if entry.typ != patent.typ { panic("copy") }
-                if entry.parent != patent.parent { panic("copy") } */
         default:
                 err = errors.New(fmt.Sprintf("make entry `%s' (%s): invalid class `%v'", name, stem, patent.class))
         }
