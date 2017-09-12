@@ -19,8 +19,13 @@ import (
 type HashBytes [sha256.Size]byte
 
 type Program interface {
-        Scope() *Scope
         Execute(context *Scope, entry *RuleEntry, args []Value) (result Value, err error)
+        Params() []string // parameter names
+        Project() *Project
+        Depends() []Value
+        Recipes() []Value
+        Pipeline() []Value
+        Scope() *Scope
 }
 
 type Project struct {
@@ -147,8 +152,11 @@ func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
         return ps.Patent.MakeConcreteEntry(ps.Stem)
 }
 
+func (ps *PatternStem) String() string {
+        return ps.Patent.Strval() + "(" + ps.Stem + ")"
+}
+
 func (m *Project) FindPatterns(s string) (res []*PatternStem) {
-        //fmt.Printf("FindPatterns: %v (%v %v %v)\n", s, m.Name(), m.patterns, m.bases)
         for _, p := range m.patterns {
                 if found, stem := p.Pattern.Match(s); found && stem != "" {
                         res = append(res, &PatternStem{ p, stem })
@@ -157,6 +165,7 @@ func (m *Project) FindPatterns(s string) (res []*PatternStem) {
         for _, base := range m.bases {
                 res = append(res, base.FindPatterns(s)...)
         }
+        //fmt.Printf("%s: %s: %v\n", s, m.Name(), res)
         return
 }
 
@@ -209,6 +218,8 @@ func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (e
 }
 
 func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryClass, prog Program) (patent *PatternEntry, err error) {
+        //fmt.Printf("SetPercentPatternProgram: %v %v -> %v\n", p, class, prog.Depends())
+        
         switch class {
         case GeneralRuleEntry: class = PatternRuleEntry
         case FileRuleEntry: class = PatternFileRuleEntry
@@ -244,7 +255,7 @@ func (m *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes) {
         fmt.Fprintf(key, "%s", target.Strval())
         //fmt.Fprintf(key, "%s", depend.Strval())
         for _, recipe := range recipes {
-                fmt.Fprintf(val, "%v", Eval(recipe).Strval())
+                fmt.Fprintf(val, "%v", Reveal(recipe).Strval())
         }
         copy(k[:], key.Sum(nil))
         copy(v[:], val.Sum(nil))

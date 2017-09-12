@@ -236,7 +236,7 @@ func (d *Def) Assign(v Value) (Value, error) {
                 d.Value = v // Keeps delegates and closures.
         case ImmediateDef:
                 // Eval expends delegates in the value.
-                d.Value = Eval(v)
+                d.Value = Reveal(v)
         }
         return d.Value, nil
 }
@@ -284,7 +284,6 @@ func (d *Def) AssignExec(a... Value) (Value, error) {
 
 func (d *Def) Call(a... Value) (Value, error) {
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
-        //return Eval(d.Value), nil
         return d.Value, nil
 }
 
@@ -406,8 +405,14 @@ func (entry *RuleEntry) IsFile() bool {
         return false
 }*/
 
-// RuleEntry.Program returns the rule program.
+// RuleEntry.Programs returns the rule programs.
 func (entry *RuleEntry) Programs() []Program { return entry.programs }
+func (entry *RuleEntry) Depends() (depends []Value) {
+        for _, prog := range entry.programs {
+                depends = append(depends, prog.Depends()...)
+        }
+        return
+}
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.

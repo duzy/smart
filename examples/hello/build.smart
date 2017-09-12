@@ -36,5 +36,5 @@ hello.cpp:[(plain c++) (update-file)]
 	    return 0;
 	}
 
-clean:[shell]
-	rm -f hello hello.o hello.cpp hello.c
+clean:
+	remove hello hello.o hello.cpp hello.c

@@ -1097,7 +1097,7 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
                 }
         }
         if ec&parser.KeepDelegates == 0 {
-                if res = types.Eval(res); res == nil {
+                if res = types.Reveal(res); res == nil {
                         return
                 }
         }
@@ -1105,7 +1105,7 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
                 return
         }
 
-        //fmt.Printf("Eval: depend: %T %v (%v)\n", res, res, res.Strval())
+        //fmt.Printf("Reveal: depend: %T %v (%v)\n", res, res, res.Strval())
         
         // Cast depends so that it's could be easily used.
 

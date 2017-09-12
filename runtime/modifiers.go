@@ -311,7 +311,7 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
 func getCompareDepends(prog *Program, context *types.Scope, targetVal types.Value) (depends *types.List, err error) {
         def := prog.scope.Lookup("^").(*types.Def)
         dependVal, _ := def.Call()
-        dependVal = types.Eval(dependVal)
+        dependVal = types.Reveal(dependVal)
         if dependList, _ := dependVal.(*types.List); dependList != nil && dependList.Len() > 0 {
                 if depends, err = parseDependList(prog, context, dependList); err != nil {
                         return
@@ -372,9 +372,9 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 return nil, &breaker{ s, false }
         }
 
-        //fmt.Printf("compare: %v -> %v\n", targetVal, types.Eval(targetVal))
+        //fmt.Printf("compare: %v -> %v\n", targetVal, types.Reveal(targetVal))
 
-        if targetVal = types.Eval(targetVal); targetVal == nil || targetVal.Type() == types.NoneType {
+        if targetVal = types.Reveal(targetVal); targetVal == nil || targetVal.Type() == types.NoneType {
                 return nil, &breaker{ "compare: no target", false }
         }
 
@@ -458,7 +458,7 @@ func modifierGrepFiles(prog *Program, context *types.Scope, value types.Value, a
         for scanner.Scan() {
                 s := scanner.Text()
                 if strings.HasPrefix(s, "#include") {
-                        fmt.Printf("todo: grep-files: %v\n", s)
+                        //fmt.Printf("todo: grep-files: %v\n", s)
                 }
         }
         return
@@ -580,7 +580,7 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
 
         var slient = len(args) > 0 && args[0].Strval() == "slient"
         if !slient {
-                fmt.Printf("update %v ..", filename)
+                fmt.Printf("update file `%v' ..", filename)
         }
 
         // Create or update the file with new content

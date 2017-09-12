@@ -180,7 +180,7 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
                 }
                 if len(pats) > 0 {
                         var elems []Value
-                        for _, v := range EvalElems(args[1:]...) {
+                        for _, v := range JoinReveal(args[1:]...) {
                                 var okay = f(v)
                                 if neg { okay = !okay }
                                 if okay { elems = append(elems, v) }
@@ -208,7 +208,7 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
         // $(patsubst pattern,replacement,text)
         var list []Value
         if nargs := len(args); nargs > 2 {
-                for _, arg := range EvalElems(args[2:]...) {
+                for _, arg := range JoinReveal(args[2:]...) {
                         var (
                                 s string // stemp
                                 m bool // matched
@@ -560,9 +560,13 @@ func builtinRename(context *Scope, args... Value) (res Value, err error) {
 }
 
 func builtinRemove(context *Scope, args... Value) (res Value, err error) {
+        if args, err = JoinEval(context, args...); err != nil {
+                return
+        }
         var names []string
         ArgsLoop: for _, a := range args {
                 if names, err = filepath.Glob(a.Strval()); err != nil {
+                        fmt.Fprintf(os.Stderr, "error: remove: %s\n", err)
                         break
                 } else {
                         for _, s := range names {
@@ -577,9 +581,26 @@ func builtinRemove(context *Scope, args... Value) (res Value, err error) {
 }
 
 func builtinRemoveAll(context *Scope, args... Value) (res Value, err error) {
-        for _, a := range args {
+        if args, err = JoinEval(context, args...); err != nil {
+                return
+        }
+        /*for _, a := range args {
                 if err = os.RemoveAll(a.Strval()); err != nil {
                         break
+                }
+        }*/
+        var names []string
+        ArgsLoop: for _, a := range args {
+                if names, err = filepath.Glob(a.Strval()); err != nil {
+                        fmt.Fprintf(os.Stderr, "error: remove-all: %s\n", err)
+                        break
+                } else {
+                        for _, s := range names {
+                                //fmt.Printf("remove-all %s\n", s)
+                                if err = os.RemoveAll(s); err != nil {
+                                        break ArgsLoop
+                                }
+                        }
                 }
         }
         return

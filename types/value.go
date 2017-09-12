@@ -1010,30 +1010,45 @@ func NameScope(name string, scope *Scope) NameScoper {
         return &namescoper{ name, scope }
 }
 
-// Eval recursively expends delegates and join lists in the value,
-// converts Valuer.
-func Eval(v Value) (res Value) {
+// Reveal expends delegates and Valuer recursively.
+func Reveal(v Value) (res Value) {
         switch t := v.(type) {
         case *List:
+                var (
+                        elems []Value
+                        num = 0 // number of revealed elements
+                )
                 for i, elem := range t.Elems {
-                        t.Elems[i] = Eval(elem)
+                        elems = append(elems, Reveal(elem))
+                        if elems[i] != t.Elems[i] {
+                                num += 1
+                        }
                 }
-                res = t
+                if num > 0 {
+                        res = &List{Elements{elems}}
+                } else {
+                        res = t
+                }
         case Valuer:
-                res = Eval(t.Value())
+                res = Reveal(t.Value())
         default:
                 res = v
         }
         return
 }
 
-func EvalElems(args... Value) (elems []Value) {
-        for _, elem := range Join(args...) {
-                elems = append(elems, Join(Eval(elem))...)
+// Disclose expends closures to normal value recursively.
+func Disclose(scope *Scope, value Value) (Value, error) {
+        //fmt.Printf("Disclose: %T %v\n", value, value)
+        if v, err := value.disclose(scope); err != nil {
+                return nil, err
+        } else if v != nil {
+                value = v
         }
-        return
+        return value, nil
 }
 
+// Join combines lists recursively into one list.
 func Join(args... Value) (elems []Value) {
         for _, arg := range args {
                 switch t := arg.(type) {
@@ -1048,14 +1063,23 @@ func Join(args... Value) (elems []Value) {
         return
 }
 
-func Disclose(scope *Scope, value Value) (Value, error) {
-        //fmt.Printf("Disclose: %T %v\n", value, value)
-        if v, err := value.disclose(scope); err != nil {
-                return nil, err
-        } else if v != nil {
-                value = v
+// JoinReveal join revealed elements into one list.
+func JoinReveal(args... Value) (elems []Value) {
+        for _, elem := range args {
+                elems = append(elems, Join(Reveal(elem))...)
         }
-        return value, nil
+        return
+}
+
+// JoinEval join evaluated (disclosed and revealed) elements into one list.
+func JoinEval(scope *Scope, args... Value) (elems []Value, err error) {
+        for _, elem := range args {
+                if elem, err = Disclose(scope, elem); err != nil {
+                        break
+                }
+                elems = append(elems, Join(Reveal(elem))...)
+        }
+        return
 }
 
 func Delegate(obj Object, args... Value) Value {
