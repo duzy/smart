@@ -165,9 +165,7 @@ func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def
         return
 }
 
-func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry) (err error) {
-        dependList := values.List()
-        prog.auto("^", dependList)
+func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry, dependList *types.List) (err error) {
         for _, depend := range prog.depends {
                 if v, e := types.Disclose(context, depend); e != nil {
                         return e
@@ -236,7 +234,7 @@ func (prog *Program) prepareHandleEntry(project *types.Project, context *types.S
                 if deprog == prog {
                         return errors.New(fmt.Sprintf("Depends on itself (%v).", entry))
                 }
-                if err = prog.prepareExecuteProgram(project, context, entry, isFile, depend, deprog, args, dependList); err == nil {
+                if err = prog.prepareExecuteDeprog(project, context, entry, isFile, depend, deprog, args, dependList); err == nil {
                         isDependUpdated = true
                         break ProgramsLoop
                 } else if _, ok := err.(*dependPatternUnfit); ok {
@@ -344,7 +342,7 @@ func (prog *Program) prepareHandleFilePatterns(project *types.Project, context *
                         if false {
                                 fmt.Printf("%v: %v -> %v -> %v\n", name, ps.Patent.RuleEntry.Strval(), depent.Strval(), depentProg.Depends())
                         }
-                        if err = prog.prepareExecuteProgram(project, context, entry, true, depent, depentProg, args, dependList); err == nil {
+                        if err = prog.prepareExecuteDeprog(project, context, entry, true, depent, depentProg, args, dependList); err == nil {
                                 //v := dependList.Elems[len(dependList.Elems)-1]
                                 //fmt.Printf("%s: %v -> %v (executed)\n", name, depentProg.Depends(), v.Strval())
                                 return
@@ -354,7 +352,7 @@ func (prog *Program) prepareHandleFilePatterns(project *types.Project, context *
         return
 }
 
-func (prog *Program) prepareExecuteProgram(project *types.Project, context *types.Scope, entry *types.RuleEntry, isFile bool, depend *types.RuleEntry, deprog types.Program, args []types.Value, dependList *types.List) (err error) {
+func (prog *Program) prepareExecuteDeprog(project *types.Project, context *types.Scope, entry *types.RuleEntry, isFileDepend bool, depend *types.RuleEntry, deprog types.Program, args []types.Value, dependList *types.List) (err error) {
         scope := context
         if entry.Project() != depend.Project() {
                 scope = entry.Project().Scope()
@@ -363,17 +361,24 @@ func (prog *Program) prepareExecuteProgram(project *types.Project, context *type
         var res types.Value
         if res, err = deprog.Execute(scope, depend, args); err == nil {
                 dd, _ := deprog.Scope().Lookup("@").(*types.Def).Call()
-                if isFile {
+                if isFileDepend {
                         dependList.Append(values.File(dd, dd.Strval()))
                 } else {
                         switch depend.Class() {
                         case types.FileRuleEntry, types.PatternFileRuleEntry:
                                 dependList.Append(values.File(dd, dd.Strval()))
                         default:
-                                if res != nil && res != values.None {
-                                        dependList.Append(res)
+                                if res != nil && res.Type() != types.NoneType {
+                                        dependList.Append(res); return
                                 } else {
                                         dependList.Append(depend)
+                                }
+                        }
+                }
+                if res != nil && res.Type() != types.NoneType {
+                        for _, elem := range types.Join(res) {
+                                switch elem.(type) {
+                                case *types.File: dependList.Append(elem)
                                 }
                         }
                 }
@@ -438,16 +443,19 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 }
         }
 
-        // Calculate and prepare depends and files.
-        if err = prog.prepare(context, entry); err != nil {
-                return
-        }
-
         if s := entry.Name(); prog.project.IsFile(s) {
                 file := prog.project.SearchFile(context, values.File(entry, s))
                 prog.auto("@", file)
         } else {
                 prog.auto("@", entry)
+        }
+
+        dependList := values.List()
+        prog.auto("^", dependList)
+
+        // Calculate and prepare depends and files.
+        if err = prog.prepare(context, entry, dependList); err != nil {
+                return
         }
 
         var out = prog.auto("-", values.None)
@@ -458,7 +466,6 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         //      some-modifier : - :
         //              smart statments going here...
         //              
-        
         if len(prog.pipline) == 0 {
                 // Using the default statements interpreter.
                 if i, _ := interpreters[``]; i == nil {
@@ -469,9 +476,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 }
                 return
         }
-
-pipelineLoop:
-        for _, v := range prog.pipline {
+        LoopPipeline: for _, v := range prog.pipline {
                 switch op := v.(type) {
                 case *types.Group:
                         if err = prog.modify(context, op, out); err != nil {
@@ -482,19 +487,19 @@ pipelineLoop:
                                                 fmt.Printf("%s, required by '%s' (from %v)\n", p.message, entry.Name(), prog.project.RelPath())
                                         }
                                 }
-                                break pipelineLoop
+                                break LoopPipeline
                         }
                 case *types.Bareword:
                         if i, _ := interpreters[op.Strval()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
-                                return
+                                break LoopPipeline
                         } else if err = prog.interpret(context, i, out, args...); err != nil {
                                 //fmt.Printf("interpret: %v\n", err)
-                                break pipelineLoop
+                                break LoopPipeline
                         }
                 default:
                         err = errors.New(fmt.Sprintf("unsupported modifier '%s'", v))
-                        break pipelineLoop
+                        break LoopPipeline
                 }
         }
         return

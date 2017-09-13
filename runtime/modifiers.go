@@ -12,6 +12,7 @@ import (
         "path/filepath"
         "hash/crc64"
         "strings"
+        "regexp"
         "errors"
         //"bytes"
         "bufio"
@@ -84,7 +85,8 @@ var (
                 `cd`:           modifierCD,
 
                 `compare`:      modifierCompare,
-                `grep-files`:   modifierGrepFiles,
+                `grep-compare`: modifierGrepCompare,
+                `grep-dependents`: modifierGrepDependents,
                 
                 `check-dir`:    modifierCheckDir,
                 `check-file`:   modifierCheckFile,
@@ -94,21 +96,6 @@ var (
                 `write-file`:   modifierWriteFile,
                 `update-file`:  modifierUpdateFile,
         }
-
-        /*
-        // Phony targets (always outdate the target)
-        targetPhonyKind     = values.Bareword("phony")    // (phony example)
-
-        // Filesystem targets
-        targetRegularKind   = values.Bareword("regular")  // (regular example.cpp)
-        targetDirectoryKind = values.Bareword("directoy") // (directory sources)
-
-        // Interpreter targets
-        targetPlainKind     = values.Bareword("plain")    // (plain 'plain text')
-        targetJsonKind      = values.Bareword("json")     // (json (array a b c 1 2 3 null))
-        targetXmlKind       = values.Bareword("xml")      // (xml ((book (title book one)) (book (title book two)) (book (title book three))))
-        targetShellKind     = values.Bareword("shell")    // (shell 0 'output' 'error')
-        */
 
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
@@ -260,23 +247,6 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
                         } else {
                                 depends.Elems = append(depends.Elems, dl.Elems...)
                         }
-                /*case *types.Group:
-                        switch d.Get(0).(*types.Bareword) {
-                        case targetRegularKind, targetDirectoryKind:
-                                switch d1 := d.Get(1).(type) {
-                                case *types.File: depends.Append(d1)
-                                case *types.RuleEntry: depend = d1; goto DependSwitch
-                                default: Fail("compare: unsupported group depend %v (%T)", d, d1)
-                                }
-                        case targetShellKind:
-                                if d1 := d.Get(1); d1.Integer() != 0 {
-                                        err = &breaker{ "got shell failure", false }
-                                        return // target shall be updated
-                                }
-                                fallthrough // append it
-                        default: 
-                                depends.Append(d)
-                        }*/
                 case *types.ExecResult:
                         if d.Status != 0 {
                                 err = &breaker{ "got shell failure", false }
@@ -291,7 +261,7 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
                         case types.GeneralRuleEntry, types.PatternRuleEntry:
                                 depends.Append(d)
                         default:
-                                Fail("compare: unsupported entry depend %v (%v)", d.Class())
+                                Fail("compare: unsupported entry depend `%v' (%v)", d.Strval(), d.Class())
                         }
                 case *types.String:
                         if prog.project.IsFile(d.Strval()) {
@@ -434,13 +404,52 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
         return
 }
 
-func modifierGrepFiles(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        // if vargs[0] == '-c' { ... }
+func modifierGrepCompare(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+        if v, e := modifierGrepDependents(prog, context, value, args...); e != nil {
+                err = e; return
+        } else if v != nil {
+                def := prog.scope.Lookup("^").(*types.Def)
+                old := def.Value
+                def.Assign(v)
+                result, err = modifierCompare(prog, context, value)
+                def.Assign(old)
+        }
+        return
+}
+
+func modifierGrepDependents(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetVal, _ = prog.scope.Lookup("@").(types.Caller).Call()
                 targetName = targetVal.Strval()
+                rxs []*regexp.Regexp                
                 f *os.File
+                optDiscardMissing = false
         )
+
+        if len(args) == 0 {
+                return nil, errors.New("No arguments provided.")
+        } else if args, err = types.JoinEval(context, args...); err != nil {
+                return
+        }
+
+        for _, arg := range args {
+                switch a := arg.(type) {
+                case *types.Flag:
+                        switch a.Strval() {
+                        case "-discard-missing": optDiscardMissing = true
+                        }
+                case *types.Pair:
+                        //fmt.Printf("todo: grep-dependents: %v\n", a)
+                default:
+                        // https://github.com/google/re2/wiki/Syntax
+                        if x, e := regexp.Compile(a.Strval()); e != nil {
+                                err = e; return
+                        } else {
+                                rxs = append(rxs, x)
+                        }
+                }
+        }
+        
         if f, err = os.Open(targetName); err != nil {
                 if false {
                         s, _ := os.Getwd()
@@ -452,15 +461,32 @@ func modifierGrepFiles(prog *Program, context *types.Scope, value types.Value, a
                         err = f.Close()
                 }()
         }
-        
+
+        project := prog.project
+        /*if p := context.FindProject(); p != nil {
+                project = p
+        }*/
+
+        // if vargs[0] == '-c' { ... }
+        dependList := values.List()
         scanner := bufio.NewScanner(f)
         scanner.Split(bufio.ScanLines)
         for scanner.Scan() {
                 s := scanner.Text()
-                if strings.HasPrefix(s, "#include") {
-                        //fmt.Printf("todo: grep-files: %v\n", s)
+                for _, x := range rxs { //if x.MatchString(s) {
+                        if sm := x.FindStringSubmatch(s); len(sm) == 2 && sm[1] != "" {
+                                v := values.File(values.String(sm[1]), sm[1])
+                                v = project.SearchFile(context, v)
+                                if v.Info == nil && optDiscardMissing {
+                                        continue
+                                }
+                                //fmt.Printf("todo: %v %v\n", v, v.Info.Name())
+                                dependList.Append(v)
+                                break
+                        }
                 }
         }
+        result = dependList
         return
 }
 

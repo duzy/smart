@@ -37,7 +37,10 @@ lib.a:[(cd) ((lib objects)) (compare $(lib)) (stdout) (stderr) (shell)]: $(objec
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.C
 	$(COMPILE) $^ -o $@
 
-%.cpp %.cc %.C:[(cd) (grep-files '\\s*#\\s*include\\s*<.*>' $*.d)]
+# https://github.com/google/re2/wiki/Syntax
+%.cpp %.cc %.C:[(cd) (grep-compare -discard-missing \
+    '\s*#\s*include\s*<(.*)>' \
+    '\s*#\s*include\s*"(.*)"')]
 
 # TODO:
 #.cc:
