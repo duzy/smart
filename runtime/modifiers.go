@@ -561,7 +561,7 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 nargs = len(args)
-                perm = os.FileMode(0650) // sys default 0666
+                perm = os.FileMode(0640) // sys default 0666
                 targetVal types.Value
                 filename string
         )

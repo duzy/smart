@@ -1,10 +1,14 @@
 # -*- org -*-
-* TODO Update target whenever recipe command changed
+* VERIFY Update target whenever recipe command changed
   - save recipe record in file .smart/recipe/target
   - before updating target, check the recipe record
   - execute the command when:
     + target outdated
     + or recipe record differs
-* TODO Add 'env' modifier
-* TODO show file position of entries when update failed 
-* TODO Compare search into .h/.c/.cpp files for includes
+* VERIFY Add 'env' modifier
+* VERIFY Show file position of entries when update failed 
+* VERIFY Compare search into .h/.c/.cpp files for includes
+* TODO Entry dependents:
+  - Don't resolve immediately, resolve when it's used.
+  - 
+* TODO Modifier (require name)

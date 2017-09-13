@@ -77,8 +77,12 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 err = e; return
                         } else if v == nil {
                                 // nothing changed
-                        } else if s := strings.TrimSpace(v.Strval()); s != "" {
-                                dxi = s
+                        } else {
+                                if v, err = types.Disclose(context, v); err != nil {
+                                        return
+                                } else if s := strings.TrimSpace(v.Strval()); s != "" {
+                                        dxi = s
+                                }
                         }
                 }
                 if envarsOpt != nil {
