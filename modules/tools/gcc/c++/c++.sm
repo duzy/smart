@@ -30,6 +30,7 @@ lib.so:[(cd) ((lib objects)) (compare $(lib)) (stdout) (stderr) (shell)]: $(obje
 	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
 lib.a:[(cd) ((lib objects)) (compare $(lib)) (stdout) (stderr) (shell)]: $(objects)
 	$(ARCHIVE) $(lib) $^
+
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cpp
 	$(COMPILE) $^ -o $@
 %.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cc
@@ -38,7 +39,7 @@ lib.a:[(cd) ((lib objects)) (compare $(lib)) (stdout) (stderr) (shell)]: $(objec
 	$(COMPILE) $^ -o $@
 
 # https://github.com/google/re2/wiki/Syntax
-%.cpp %.cc %.C:[(cd) (grep-compare -discard-missing \
+%.cpp %.cc %.C %.h %.hpp %.hh %.H:[(cd) (grep-compare -discard-missing \
     '\s*#\s*include\s*<(.*)>' \
     '\s*#\s*include\s*"(.*)"')]
 
