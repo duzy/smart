@@ -22,14 +22,15 @@ import (
 type parsingBits uint
 const (
         composing parsingBits = 1<<iota
+        composingSELECT
         composingPERIOD
         composingDOTDOT
         composingPCON
         composingPERC
         
         // Bits to disable parsing ArgumentedExpr 
-        composingNoArg = composingPERIOD | composingDOTDOT | composingPCON | composingPERC
-        composingNoKeyword = composingPERIOD | composingPCON | composingPERC
+        composingNoArg = composingSELECT | composingPERIOD | composingDOTDOT | composingPCON | composingPERC
+        composingNoKeyword = composingSELECT | composingPERIOD | composingPCON | composingPERC
 )
 
 type parser struct {
@@ -488,7 +489,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
 
         // Parse rhs of '.'...
         s := p.checkExpr(p.parseExpr(lhs))
-        switch t := s.(type) {
+        /*switch t := s.(type) {
         case *ast.Bareword:
                 switch l := x.(type) {
                 case *ast.Bareword:
@@ -500,7 +501,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                                 return &ast.Globfile{ l, t.Pos(), t.Value }
                         }
                 }
-        }
+        }*/
 
         //fmt.Printf("select: %T.%T (%v %v)\n", x, s, x, s)
 
@@ -607,10 +608,12 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
         //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
 
         res = &ast.EvaluatedExpr{ s, value }
-        if p.tok == token.PERIOD {
+        if p.tok == token.SELECT {
                 p.next() // Drop '.' before continuing selecting.
                 // Continue the selection recursivly
                 res = p.parseSelect(lhs, res)
+        } else if p.tok == token.PERIOD {
+                p.warn(p.pos, "Replaced PERIOD by SELECT (->)")
         }
         return
 }
@@ -863,7 +866,7 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 return &ast.PathSegExpr{ pos, tok }
         case token.PERIOD, token.DOTDOT:
                 pos, tok := p.pos, p.tok; p.next()
-                if p.tok == token.PCON {
+                /*if p.tok == token.PCON {
                         return &ast.PathSegExpr{ pos, tok }
                 } else if tok == token.PERIOD {
                         // TODO: select from the current context
@@ -871,7 +874,8 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 } else {
                         // TODO: select from the parent context
                         return &ast.Bareword{ pos, ".." }
-                }
+                }*/
+                return &ast.PathSegExpr{ pos, tok }
                 
         case token.PERC:
                 var (
@@ -985,11 +989,11 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         y := p.parseGroupExpr().(*ast.GroupExpr)
                         x = &ast.ArgumentedExpr{ x, y.Elems, y.End() }
                 }
-        case token.PERIOD:
+        case token.SELECT: // token.PERIOD
                 // If it's selecting, don't enter parseSelect again.
                 // The parseSelect procedure will check this '.'
-                if joint && p.bits&composingPERIOD == 0 {
-                        p.bits |= composingPERIOD
+                //if joint && p.bits&composingSELECT == 0 {
+                        p.bits |=  composingSELECT
                         p.next() // Drop the '.' token.
                         x = p.parseSelect(lhs, p.checkExpr(x))
                         //fmt.Printf("parseSelect: select: %T %v (%v %v)\n", x, x, x.End(), p.pos)
@@ -1000,10 +1004,26 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                                 x = &ast.ArgumentedExpr{ x, y.Elems, y.End() }
                                 //fmt.Printf("parseSelect: composed: %T %v\n", x, x)
                         }
+                        p.bits &= ^composingSELECT
+                //}
+        case token.PERIOD:
+                //if joint && p.bits&composingPERIOD == 0 {
+                        p.bits |=  composingPERIOD
+                        comp, pos := &ast.Barecomp{ []ast.Expr{ x } }, p.pos
+                        comp.Elems = append(comp.Elems, &ast.Bareword{ pos, "." })
+                        AddPeriod: for p.next(); p.tok == token.PERIOD; {
+                                p.error(p.pos, "Multiple period used")
+                                p.next()
+                        }
+                        comp.Elems = append(comp.Elems, p.checkExpr(p.parseExpr(lhs)))
+                        if p.tok == token.PERIOD {
+                                goto AddPeriod
+                        }
                         p.bits &= ^composingPERIOD
-                }
+                        x = comp
+                //}
         case token.PCON:
-                if joint && p.bits&composingPCON == 0 {
+                //if joint && p.bits&composingPCON == 0 {
                         p.bits |= composingPCON
                         pat := &ast.PathExpr{ 
                                 PosBeg: p.pos,
@@ -1020,11 +1040,11 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         if p.tok == token.PCON {
                                 goto ConcatPath
                         }
-                        x = pat
                         p.bits &= ^composingPCON
-                }
+                        x = pat
+                //}
         case token.PERC:
-                if joint && p.bits&composingPERC == 0 {
+                //if joint && p.bits&composingPERC == 0 {
                         p.bits |= composingPERC
                         x = &ast.PercExpr{
                                 X: x,
@@ -1032,7 +1052,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                                 Y: p.checkExpr(p.parseExpr(lhs)),
                         }
                         p.bits &= ^composingPERC
-                }
+                //}
         default:
                 if joint && p.bits&composing == 0 {
                         var y ast.Expr
@@ -1044,7 +1064,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         if x.End() == p.pos && p.lineComment == nil {
                                 switch p.tok {
                                 case token.COMPOSED, token.RPAREN, token.RBRACK, token.RBRACE, token.COMMA, token.COLON, token.LINEND:
-                                case token.PERIOD, token.DOTDOT, token.PCON, token.PERC:
+                                case token.SELECT, token.PERIOD, token.DOTDOT, token.PCON, token.PERC:
                                 case token.ARROW, token.ASSIGN:
                                 case token.ILLEGAL:
                                 default:
@@ -1056,6 +1076,8 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         }
                         p.bits &= ^composing
                         return x
+                } else if p.tok == token.PERIOD {
+                        p.info(p.pos, "'.' replaced by '->'")
                 }
         }
         return x

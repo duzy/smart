@@ -46,6 +46,7 @@ const (
 	COMMA     // ,
 	PERIOD    // .
         DOTDOT    // ..
+        SELECT    // ->
 
 	RPAREN    // )
 	RBRACK    // ]
@@ -162,6 +163,7 @@ var tokens = [...]string{
 	COMMA:  ",",
 	PERIOD: ".",
         DOTDOT: "..",
+        SELECT: "->",
 
 	RPAREN:    ")",
 	RBRACK:    "]",

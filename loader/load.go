@@ -781,6 +781,8 @@ func (l *Loader) loadProjectBases(linfo *loadinfo, params types.Value) (err erro
                         break ParamsLoop
                 }
 
+                //fmt.Printf("base: %v %v (%T) %v\n", l.project.Name(), elem, elem, absPath)
+
                 if isDir {
                         err = l.loadDir(specName, absPath, nil)
                 } else {
@@ -792,7 +794,7 @@ func (l *Loader) loadProjectBases(linfo *loadinfo, params types.Value) (err erro
 
                 loaded, _ := l.loaded[absPath]
                 if loaded == nil {
-                        fmt.Printf("loadProjectBases: project %v (%s -> %s)\n", l.project.Name(), elem, absPath)
+                        //fmt.Printf("loadProjectBases: project %v (%s -> %s)\n", l.project.Name(), elem, absPath)
                         err = errors.New(fmt.Sprintf("Project `%v' not loaded. (%T, %s)", elem, elem, absPath))
                         break
                 } else {

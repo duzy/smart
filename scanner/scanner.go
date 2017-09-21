@@ -53,7 +53,7 @@ func (s *Scanner) next() {
 			s.lineOffset = s.offset
 			s.file.AddLine(s.offset)
 		}
-		r, w := rune(s.src[s.readOffset]), 1
+		/*r, w := rune(s.src[s.readOffset]), 1
 		switch {
 		case r == 0:
 			s.error(s.offset, "illegal character NUL")
@@ -65,7 +65,8 @@ func (s *Scanner) next() {
 			} else if r == bom && s.offset > 0 {
 				s.error(s.offset, "illegal byte order mark")
 			}
-		}
+		}*/
+                r, w := s.pick(s.readOffset)
 		s.readOffset += w
 		s.ch = r
 	} else {
@@ -76,6 +77,28 @@ func (s *Scanner) next() {
 		}
 		s.ch = -1 // eof
 	}
+}
+
+func (s *Scanner) pickNext() (ch rune, w int) {
+	if n := s.readOffset + 1; n < len(s.src) {
+                ch, w = s.pick(n)
+        }
+        return
+}
+
+func (s *Scanner) pick(offset int) (ch rune, w int) {
+        switch ch, w = rune(s.src[offset]), 1; {
+        case ch == 0:
+                s.error(offset, "illegal character NUL")
+        case ch >= 0x80: // Not ASCII!
+                ch, w = utf8.DecodeRune(s.src[offset:])
+                if ch == utf8.RuneError && w == 1 {
+                        s.error(offset, "illegal UTF-8 encoding")
+                } else if ch == bom && offset > 0 {
+                        s.error(offset, "illegal byte order mark")
+                }
+        }
+        return
 }
 
 // An ErrorHandler may be provided to Scanner.Init. If a syntax error is
@@ -248,20 +271,30 @@ func isDatetimeTerminator(ch rune) bool {
 func (s *Scanner) scanIdentifier() string {
         // first char is letter (ensured)
 	offs := s.offset
-//loop:
-	for isLetter(s.ch) || isDigit(s.ch) || isUntermPunct(s.ch) /*|| s.ch == '\\'*/ {
+	Loop: for isLetter(s.ch) || isDigit(s.ch) || isUntermPunct(s.ch) /*|| s.ch == '\\'*/ {
                 /* if ident && (isUntermPunct(s.ch) || s.ch == '\\') {
                         ident = false
                 } */
-                /* if s.ch == '\\' {
+                switch {
+                /*case s.ch == '-' && ch == '>': // ->
+                        break*/
+                /*case s.ch == '\\':
                         switch s.next(); s.ch {
                         case '\n': break loop
                         default:
 				s.error(s.offset-1, fmt.Sprintf("illegal ident escape %#U", s.ch))
                                 break loop
+                        }*/
+                default:
+                        switch s.next(); s.ch { // Accept one char here.
+                        case '-': // Looking at SELECT operators, need to stop at '->'
+                                if n := s.offset + 1; n < len(s.src) {
+                                        // No need UTF8 decoding!
+                                        if ch := rune(s.src[n]); ch == '>' {
+                                                break Loop
+                                        }
+                                }
                         }
-                } else */ {
-                        s.next()
                 }
 	}
 	return string(s.src[offs:s.offset])
@@ -857,7 +890,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.next()
                         }
                 case '-':
-                        tok = token.MINUS
+                        if s.ch == '>' {
+                                tok = token.SELECT
+                                s.next()
+                                //s.skipPostLineFeeds = true
+                        } else {
+                                tok = token.MINUS
+                        }
                 case '/':
                         tok = token.PCON
                         /*
@@ -987,7 +1026,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         } else {
                                 tok = token.PERIOD
                         }
-                        s.skipPostLineFeeds = true
+                        //s.skipPostLineFeeds = true
                 case ':':
                         if s.parenDepth == 0 {
                                 switch s.ch {
