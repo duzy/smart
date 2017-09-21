@@ -802,9 +802,9 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
 
 func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (err error) {
         var name = ident.Value
-        if i.project != nil && i.project.Name() == ident.Value {
+        /*if i.project != nil && i.project.Name() == ident.Value {
                 return errors.New(fmt.Sprintf("already in project %s", i.project.Name()))
-        }
+        }*/
 
         var (
                 linfo = i.loads[len(i.loads)-1]
