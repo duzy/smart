@@ -3,7 +3,7 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
-package interpreter
+package loader
 
 import (
         "github.com/duzy/smart/token"
@@ -56,7 +56,7 @@ func (li *loadinfo) absPath() string {
         return filepath.Join(li.absDir, li.baseName)
 }
 
-type Interpreter struct {
+type Loader struct {
         *runtime.Context
         pc       *parser.Context
         fset     *token.FileSet
@@ -68,24 +68,24 @@ type Interpreter struct {
 }
 
 type parseContext struct {
-        *Interpreter
+        *Loader
 }
 
-// Create and initialize a new interpreter.
-func New() (interpreter *Interpreter) {
-        interpreter = &Interpreter{
-                Context:  runtime.NewContext("interpreter"),
+// Create and initialize a new loader.
+func New() (loader *Loader) {
+        loader = &Loader{
+                Context:  runtime.NewContext("loader"),
                 fset:     token.NewFileSet(), 
                 paths:    []string(globalPaths),
                 loaded:   make(map[string]*types.Project),
         }
-        scope := interpreter.Globe().Scope()
-        interpreter.pc = parser.NewContext(&parseContext{ interpreter }, scope)
-        interpreter.scope = scope
+        scope := loader.Globe().Scope()
+        loader.pc = parser.NewContext(&parseContext{ loader }, scope)
+        loader.scope = scope
         return
 }
 
-func (i *Interpreter) AddSearchPaths(paths... string) (err error) {
+func (i *Loader) AddSearchPaths(paths... string) (err error) {
         for _, s := range paths {
                 if s, err = filepath.Abs(s); err != nil {
                         break

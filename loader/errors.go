@@ -4,7 +4,7 @@
 //  found in the LICENSE file.
 //
 
-package interpreter
+package loader
 
 import (
         //"github.com/duzy/smart/runtime"

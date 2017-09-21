@@ -4,7 +4,7 @@
 //  found in the LICENSE file.
 //
 
-package interpreter
+package loader
 
 import (
         "github.com/duzy/smart/ast"
@@ -28,7 +28,7 @@ const (
 
 var parseMode = parser.DeclarationErrors //|parser.Trace
 
-func restoreLoadingInfo(i *Interpreter) {
+func restoreLoadingInfo(i *Loader) {
         var (
                 last = len(i.loads)-1
                 linfo = i.loads[last]
@@ -51,7 +51,7 @@ func restoreLoadingInfo(i *Interpreter) {
         } */
 }
 
-func saveLoadingInfo(i *Interpreter, specName, absDir, baseName string) *Interpreter {
+func saveLoadingInfo(i *Loader, specName, absDir, baseName string) *Loader {
         //absDir, baseName := filepath.Split(filepath.Clean(absPath))
         i.loads = append(i.loads, &loadinfo{
                 absDir: absDir,
@@ -64,15 +64,15 @@ func saveLoadingInfo(i *Interpreter, specName, absDir, baseName string) *Interpr
         return i
 }
 
-func (i *Interpreter) parseInfo(pos token.Pos, s string, a... interface{}) {
+func (i *Loader) parseInfo(pos token.Pos, s string, a... interface{}) {
         i.pc.ParseInfo(pos, s, a...)
 }
 
-func (i *Interpreter) parseWarn(pos token.Pos, s string, a... interface{}) {
+func (i *Loader) parseWarn(pos token.Pos, s string, a... interface{}) {
         i.pc.ParseWarn(pos, s, a...)
 }
 
-func (i *Interpreter) searchSpecPath(linfo *loadinfo, specName string) (absPath string, isDir bool, err error) {
+func (i *Loader) searchSpecPath(linfo *loadinfo, specName string) (absPath string, isDir bool, err error) {
         var fi os.FileInfo
         if abs := filepath.IsAbs(specName); abs || 
                 strings.HasPrefix(specName, "../") ||
@@ -121,7 +121,7 @@ func (i *Interpreter) searchSpecPath(linfo *loadinfo, specName string) (absPath 
         return
 }
 
-func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
+func (i *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
         var (
                 //scope = i.Scope()
                 linfo = i.loads[len(i.loads)-1]
@@ -205,7 +205,7 @@ func (i *Interpreter) loadImportSpec(spec *ast.ImportSpec) (err error) {
         return
 }
 
-func (i *Interpreter) closuredelegate(x *ast.ClosureDelegate) (obj types.Object, args []types.Value, err error) {
+func (i *Loader) closuredelegate(x *ast.ClosureDelegate) (obj types.Object, args []types.Value, err error) {
         name, err := i.expr(x.Name)
         if err != nil {
                 return nil, nil, err
@@ -269,7 +269,7 @@ func (i *Interpreter) closuredelegate(x *ast.ClosureDelegate) (obj types.Object,
         return
 }
 
-func (i *Interpreter) closure(x *ast.ClosureExpr) (types.Value, error) {
+func (i *Loader) closure(x *ast.ClosureExpr) (types.Value, error) {
         if obj, args, err := i.closuredelegate(&x.ClosureDelegate); err == nil {
                 return types.Closure(obj, args...), nil
         } else {
@@ -277,7 +277,7 @@ func (i *Interpreter) closure(x *ast.ClosureExpr) (types.Value, error) {
         }
 }
 
-func (i *Interpreter) delegate(x *ast.DelegateExpr) (v types.Value, err error) {
+func (i *Loader) delegate(x *ast.DelegateExpr) (v types.Value, err error) {
         if obj, args, err := i.closuredelegate(&x.ClosureDelegate); err == nil {
                 return types.Delegate(obj, args...), nil
         } else {
@@ -285,7 +285,7 @@ func (i *Interpreter) delegate(x *ast.DelegateExpr) (v types.Value, err error) {
         }
 }
 
-func (i *Interpreter) recipe(x *ast.RecipeExpr) (v types.Value, err error) {
+func (i *Loader) recipe(x *ast.RecipeExpr) (v types.Value, err error) {
         if len(x.Elems) == 0 {
                 v = values.None
         } else if x.Dialect == "" {
@@ -311,7 +311,7 @@ func (i *Interpreter) recipe(x *ast.RecipeExpr) (v types.Value, err error) {
         return
 }
 
-func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
+func (i *Loader) expr(expr ast.Expr) (v types.Value, err error) {
         if expr == nil {
                 //err = errors.New("nil expr")
                 return
@@ -446,7 +446,7 @@ func (i *Interpreter) expr(expr ast.Expr) (v types.Value, err error) {
         return
 }
 
-func (i *Interpreter) exprs(exprs []ast.Expr) (values []types.Value, err error) {
+func (i *Loader) exprs(exprs []ast.Expr) (values []types.Value, err error) {
         for _, x := range exprs {
                 if v, err := i.expr(x); err != nil {
                         return nil, err
@@ -457,7 +457,7 @@ func (i *Interpreter) exprs(exprs []ast.Expr) (values []types.Value, err error) 
         return
 }
 
-func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
+func (i *Loader) useProject(pos token.Pos, project *types.Project) error {
         var entry *types.RuleEntry
         use := project.Scope().Lookup("use")
         if use == nil {
@@ -510,7 +510,7 @@ func (i *Interpreter) useProject(pos token.Pos, project *types.Project) error {
         return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' package (%T).", project.Name(), use))
 }
 
-func (i *Interpreter) useProjectName(pos token.Pos, pn *types.ProjectName) error {
+func (i *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
         var (
                 scope = i.project.Scope()
                 project = pn.Project()
@@ -539,7 +539,7 @@ func (i *Interpreter) useProjectName(pos token.Pos, pn *types.ProjectName) error
         return i.useProject(pos, project)
 }
 
-func (i *Interpreter) use(spec *ast.UseSpec) (err error) {
+func (i *Loader) use(spec *ast.UseSpec) (err error) {
         var (
                 name types.Value
                 params []types.Value
@@ -582,7 +582,7 @@ func (i *Interpreter) use(spec *ast.UseSpec) (err error) {
         return errors.New(fmt.Sprintf("'%s' is not a usee (%T)", name, name))
 }
 
-func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
+func (i *Loader) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         if num := len(spec.Props); num > 0 {
                 var v types.Value
                 if v, err = i.expr(spec.Props[0]); err != nil {
@@ -612,7 +612,7 @@ func (i *Interpreter) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         return
 }
 
-func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
+func (i *Loader) rule(clause *ast.RuleClause) (err error) {
         var (
                 targets []types.Value
                 depends []types.Value
@@ -703,7 +703,7 @@ func (i *Interpreter) rule(clause *ast.RuleClause) (err error) {
         return
 }
 
-func (i *Interpreter) include(spec *ast.IncludeSpec) error {
+func (i *Loader) include(spec *ast.IncludeSpec) error {
         var (
                 linfo = i.loads[len(i.loads)-1]
                 specVal, err = i.expr(spec.Props[0])
@@ -738,12 +738,12 @@ func (i *Interpreter) include(spec *ast.IncludeSpec) error {
         return nil
 }
 
-func (i *Interpreter) openScope(comment string) ast.Scope {
+func (i *Loader) openScope(comment string) ast.Scope {
         i.scope = types.NewScope(i.scope, comment)
         return i.scope
 }
 
-func (i *Interpreter) closeScope(as ast.Scope) (err error) {
+func (i *Loader) closeScope(as ast.Scope) (err error) {
         if scope, ok := as.(*types.Scope); ok {
                 i.scope = scope.Outer()
                 // Must change the outer of dir scope to globe to avoid Finding symbols
@@ -757,7 +757,7 @@ func (i *Interpreter) closeScope(as ast.Scope) (err error) {
         return
 }
 
-func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err error) {
+func (i *Loader) loadProjectBases(linfo *loadinfo, params types.Value) (err error) {
         if params == nil {
                 return
         }
@@ -800,7 +800,7 @@ func (i *Interpreter) loadProjectBases(linfo *loadinfo, params types.Value) (err
         return
 }
 
-func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (err error) {
+func (i *Loader) declareProject(ident *ast.Bareword, params types.Value) (err error) {
         var name = ident.Value
         /*if i.project != nil && i.project.Name() == ident.Value {
                 return errors.New(fmt.Sprintf("already in project %s", i.project.Name()))
@@ -879,7 +879,7 @@ func (i *Interpreter) declareProject(ident *ast.Bareword, params types.Value) (e
         return
 }
 
-func (i *Interpreter) closeCurrentProject(ident *ast.Bareword) (err error) {
+func (i *Loader) closeCurrentProject(ident *ast.Bareword) (err error) {
         var (
                 name = ident.Value
                 linfo = i.loads[len(i.loads)-1]
@@ -903,8 +903,8 @@ func (i *Interpreter) closeCurrentProject(ident *ast.Bareword) (err error) {
         return
 }
 
-// Interpreter.Load loads script from a file or source code (string, []byte).
-func (i *Interpreter) load(specName, absPath string, source interface{}) error {
+// Loader.Load loads script from a file or source code (string, []byte).
+func (i *Loader) load(specName, absPath string, source interface{}) error {
         //fmt.Printf("load: %v (%v)\n", specName, absPath)
 
         if !filepath.IsAbs(absPath) {
@@ -942,7 +942,7 @@ func (i *Interpreter) load(specName, absPath string, source interface{}) error {
         return nil
 }
 
-func (i *Interpreter) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (err error) {
+func (i *Loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (err error) {
         //fmt.Printf("loadDir: %v: %v (%v)\n", i.project.Name(), specName, absDir)
 
         if !filepath.IsAbs(absDir) {
@@ -976,14 +976,14 @@ func (i *Interpreter) loadDir(specName, absDir string, filter func(os.FileInfo) 
         return
 }
 
-func (i *Interpreter) Load(filename string, source interface{}) error {
+func (i *Loader) Load(filename string, source interface{}) error {
         s, _ := filepath.Split(filename)
         s, _  = filepath.Rel(i.Getwd(), s)
         //fmt.Printf("Load: %v (%v)\n", s, filename)
         return i.load(s, filename, source)
 }
 
-func (i *Interpreter) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
+func (i *Loader) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
         s, _ := filepath.Rel(i.Getwd(), path)
         //fmt.Printf("LoadDir: %v (%v)\n", s, path)
         return i.loadDir(s, path, filter)
