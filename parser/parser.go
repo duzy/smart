@@ -721,6 +721,18 @@ func (p *parser) parseGroupExpr() ast.Expr {
         }
 }
 
+func (p *parser) parseArgumentedExpr(x ast.Expr) ast.Expr {
+        argumented := &ast.ArgumentedExpr{ X:x }
+        p.next() // skip token.LPAREN
+        argumented.Arguments = append(argumented.Arguments, p.parseListExpr(false))
+        for p.tok == token.COMMA {
+                p.next() // skip token.COMMA
+                argumented.Arguments = append(argumented.Arguments, p.parseListExpr(false))
+        }
+        argumented.EndPos = p.expect(token.RPAREN)
+        return argumented
+}
+
 func (p *parser) parseExpr0(lhs bool) ast.Expr {
         switch p.tok {
         case token.BAREWORD:
@@ -984,8 +996,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 // ArgumentedExpr: foo(xxx)
                 // Special: foo.o(xxx) - parse select, then argumented
                 if joint && p.bits&composingNoArg == 0 {
-                        y := p.parseGroupExpr().(*ast.GroupExpr)
-                        x = &ast.ArgumentedExpr{ x, y.Elems, y.End() }
+                        x = p.parseArgumentedExpr(x)
                 }
         case token.SELECT:
                 // If it's selecting, don't enter parseSelect again.
@@ -994,13 +1005,9 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         p.bits |=  composingSELECT
                         p.next() // Drop the '.' token.
                         x = p.parseSelect(lhs, p.checkExpr(x))
-                        //fmt.Printf("parseSelect: select: %T %v (%v %v)\n", x, x, x.End(), p.pos)
                         if p.tok == token.LPAREN && x.End() == p.pos {
-                                //fmt.Printf("parseSelect: compose: %T %v\n", x, x)
                                 //x = p.parseComposing(x, lhs)
-                                y := p.parseGroupExpr().(*ast.GroupExpr)
-                                x = &ast.ArgumentedExpr{ x, y.Elems, y.End() }
-                                //fmt.Printf("parseSelect: composed: %T %v\n", x, x)
+                                x = p.parseArgumentedExpr(x)
                         }
                         p.bits &= ^composingSELECT
                 //}
@@ -1028,7 +1035,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                                         if v, e := p.runtime.Eval(ext, disclosure); e == nil && v != nil {
                                                 comp.Elems = comp.Elems[0:len(comp.Elems)-2]
                                                 x = &ast.Barefile{ x, ext.Pos(), v.Strval() }
-                                                if p.tok == token.LPAREN {
+                                                if p.tok == token.LPAREN && x.End() == p.pos {
                                                         x = p.parseComposing(x, lhs)
                                                 }
                                         } else if e != nil {
