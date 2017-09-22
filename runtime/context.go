@@ -7,7 +7,6 @@
 package runtime
 
 import (
-        //"github.com/duzy/smart/token"
         "github.com/duzy/smart/values"
         "github.com/duzy/smart/types"
         "strings"
@@ -63,7 +62,7 @@ func (ctx *Context) Run(targets... string) (err error) {
         } else {
                 for _, target := range targets {
                         var m = mm
-                        if names := strings.Split(target, "."); len(names)>1 {
+                        if names := strings.Split(target, "->"); len(names)>1 {
                                 for _, s := range names[0:len(names)-1] {
                                         var _, obj = m.Scope().Find(s)
                                         switch t := obj.(type) {

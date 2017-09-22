@@ -451,9 +451,7 @@ func (p *parser) parseBareword() (x ast.Expr) {
                 if end := token.Pos(int(pos) + len(value)); end == p.pos {
                         switch p.tok {
                         case token.PERIOD, token.DOTDOT, token.PCON:
-                                //!< parseSelect will check IsFileName
-                                //v := p.runtime.IsFileName(value)
-                                //fmt.Printf("bareword: %v %v (%v) (%v)\n", value, p.lit, p.tok, v)
+                                //!< these operators will check for IsFileName
                         default:
                                 isFileName = p.runtime.IsFileName(value)
                         }
@@ -989,7 +987,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         y := p.parseGroupExpr().(*ast.GroupExpr)
                         x = &ast.ArgumentedExpr{ x, y.Elems, y.End() }
                 }
-        case token.SELECT: // token.PERIOD
+        case token.SELECT:
                 // If it's selecting, don't enter parseSelect again.
                 // The parseSelect procedure will check this '.'
                 //if joint && p.bits&composingSELECT == 0 {
@@ -1009,18 +1007,37 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         case token.PERIOD:
                 //if joint && p.bits&composingPERIOD == 0 {
                         p.bits |=  composingPERIOD
+                        var ext ast.Expr
                         comp, pos := &ast.Barecomp{ []ast.Expr{ x } }, p.pos
                         comp.Elems = append(comp.Elems, &ast.Bareword{ pos, "." })
                         AddPeriod: for p.next(); p.tok == token.PERIOD; {
                                 p.error(p.pos, "Multiple period used")
                                 p.next()
                         }
-                        comp.Elems = append(comp.Elems, p.checkExpr(p.parseExpr(lhs)))
+                        ext = p.checkExpr(p.parseExpr(lhs))
+                        comp.Elems = append(comp.Elems, ext)
                         if p.tok == token.PERIOD {
                                 goto AddPeriod
                         }
                         p.bits &= ^composingPERIOD
                         x = comp
+
+                        // Processing barefile 
+                        if v, e := p.runtime.Eval(x, disclosure); e == nil && v != nil {
+                                if s := v.Strval(); p.runtime.IsFileName(s) {
+                                        if v, e := p.runtime.Eval(ext, disclosure); e == nil && v != nil {
+                                                comp.Elems = comp.Elems[0:len(comp.Elems)-2]
+                                                x = &ast.Barefile{ x, ext.Pos(), v.Strval() }
+                                                if p.tok == token.LPAREN {
+                                                        x = p.parseComposing(x, lhs)
+                                                }
+                                        } else if e != nil {
+                                                p.error(ext.Pos(), e)
+                                        }
+                                }
+                        } else if e != nil {
+                                p.error(x.Pos(), e)
+                        }
                 //}
         case token.PCON:
                 //if joint && p.bits&composingPCON == 0 {
