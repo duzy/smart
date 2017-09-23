@@ -1435,7 +1435,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         }
 }
 
-func (p *parser) parseBuiltinRecipeExpr(elems []ast.Expr) (x ast.Expr) {
+func (p *parser) parseBuiltinRecipeExpr(first ast.Expr, elems []ast.Expr) (x ast.Expr) {
         // Do left-hand-side parsing if in use rule
         switch x = p.parseExpr(p.inUseRule); {
         case p.tok.IsAssign():
@@ -1443,6 +1443,9 @@ func (p *parser) parseBuiltinRecipeExpr(elems []ast.Expr) (x ast.Expr) {
                 x = &ast.RecipeDefineClause{ d }
 
         case p.tok.IsRuleDelim():
+                if first != nil {
+                        elems = append(elems, first)
+                }
                 elems = append(elems, x)
                 d := p.parseRuleClause(p.tok, elems).(*ast.RuleClause)
                 x = &ast.RecipeRuleClause{ d }
@@ -1451,19 +1454,6 @@ func (p *parser) parseBuiltinRecipeExpr(elems []ast.Expr) (x ast.Expr) {
                 if v, e := p.runtime.Eval(x, delegation/*disclosure*/); e != nil {
                         p.error(x.Pos(), "%v (%T)", e, x)
                 } else if v != nil {
-                        if len(elems) == 0 {
-                                switch v.(type) {
-                                case *types.RuleEntry:
-                                default:
-                                        if name := v.Strval(); name == "" {
-                                                p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
-                                        } else if sym := p.runtime.Resolve(name, anywhere); sym == nil {
-                                                p.error(x.Pos(), "Undefined recipe command `%v' (%v, %T).", name, v, v)
-                                        } else {
-                                                v = sym.(types.Value)
-                                        }
-                                }
-                        }
                         x = &ast.EvaluatedExpr{ x, v }
                 } else {
                         p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
@@ -1489,12 +1479,42 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE and parse in list mode
                 p.inUseRule = isUseRule
-                for p.tok != token.LINEND && p.tok != token.EOF {
-                        elems = append(elems, p.parseBuiltinRecipeExpr(elems[:]))
-                        if p.lineComment != nil {
-                                comment = p.lineComment
-                                break
+                if p.tok != token.LINEND && p.tok != token.EOF {
+                        x := p.parseExpr(p.inUseRule)
+                        if v, e := p.runtime.Eval(x, delegation/*disclosure*/); e != nil {
+                                p.error(x.Pos(), "%v (%T)", e, x)
+                        } else if v != nil {
+                                switch v.(type) {
+                                case *types.RuleEntry:
+                                default:
+                                        if name := v.Strval(); name == "" {
+                                                p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
+                                        } else if sym := p.runtime.Resolve(name, anywhere); sym == nil {
+                                                p.error(x.Pos(), "Undefined recipe command `%v' (%v, %T).", name, v, v)
+                                        } else {
+                                                v = sym.(types.Value)
+                                        }
+                                }
+                                x = &ast.EvaluatedExpr{ x, v }
+                        } else {
+                                p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
                         }
+                        
+                        cmdarg := new(ast.ListExpr)
+                        elems = append(elems, x)
+                        for p.tok != token.LINEND && p.tok != token.EOF {
+                                cmdarg.Elems = append(cmdarg.Elems, p.parseBuiltinRecipeExpr(elems[0], cmdarg.Elems))
+                                if p.tok == token.COMMA {
+                                        p.next()
+                                        elems = append(elems, cmdarg)
+                                        cmdarg = new(ast.ListExpr)
+                                }
+                                if p.lineComment != nil {
+                                        comment = p.lineComment
+                                        break
+                                }
+                        }
+                        elems = append(elems, cmdarg)
                 }
                 p.inUseRule = false
 
