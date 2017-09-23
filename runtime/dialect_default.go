@@ -44,6 +44,16 @@ evaluationLoop:
                         case types.Caller:
                                 v, e = t.Call(stmt.Slice(1)...)
 
+                        case types.Executer:
+                                var a []types.Value
+                                if a, e = t.Execute(context, stmt.Slice(1)...); e == nil {
+                                        if n := len(a); n == 1 {
+                                                v = a[0]
+                                        } else if n > 1 {
+                                                v = values.List(a...)
+                                        }
+                                }
+
                         /*case yield:
                                 if stmt.Len() == 1 {
                                         list.Append(v)

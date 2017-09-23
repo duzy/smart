@@ -1452,12 +1452,16 @@ func (p *parser) parseBuiltinRecipeExpr(elems []ast.Expr) (x ast.Expr) {
                         p.error(x.Pos(), "%v (%T)", e, x)
                 } else if v != nil {
                         if len(elems) == 0 {
-                                if name := v.Strval(); name == "" {
-                                        p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
-                                } else if sym := p.runtime.Resolve(name, anywhere); sym == nil {
-                                        p.error(x.Pos(), "Undefined recipe command `%v' (%v).", name, v)
-                                } else {
-                                        v = sym.(types.Value)
+                                switch v.(type) {
+                                case *types.RuleEntry:
+                                default:
+                                        if name := v.Strval(); name == "" {
+                                                p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
+                                        } else if sym := p.runtime.Resolve(name, anywhere); sym == nil {
+                                                p.error(x.Pos(), "Undefined recipe command `%v' (%v, %T).", name, v, v)
+                                        } else {
+                                                v = sym.(types.Value)
+                                        }
                                 }
                         }
                         x = &ast.EvaluatedExpr{ x, v }
