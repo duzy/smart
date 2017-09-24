@@ -1017,14 +1017,20 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 var ext ast.Expr
                 comp, pos := &ast.Barecomp{ []ast.Expr{ x } }, p.pos
                 comp.Elems = append(comp.Elems, &ast.Bareword{ pos, "." })
-                AddPeriod: for p.next(); p.tok == token.PERIOD; {
-                        p.error(p.pos, "Multiple period used")
-                        p.next()
+                AddPeriod: for p.next(); p.tok == token.PERIOD && p.pos == pos+1; {
+                        if false {
+                                p.error(p.pos, "Multiple period used")
+                                p.next()
+                        } else {
+                                break
+                        }
                 }
-                ext = p.checkExpr(p.parseExpr(lhs))
-                comp.Elems = append(comp.Elems, ext)
-                if p.tok == token.PERIOD {
-                        goto AddPeriod
+                if p.pos == pos+1 {
+                        ext = p.checkExpr(p.parseExpr(lhs))
+                        comp.Elems = append(comp.Elems, ext)
+                        if p.tok == token.PERIOD && ext.End() == p.pos {
+                                goto AddPeriod
+                        }
                 }
                 p.bits &= ^composingPERIOD
                 x = comp
@@ -1088,7 +1094,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         if x.End() == p.pos && p.lineComment == nil {
                                 switch p.tok {
                                 case token.COMPOSED, token.RPAREN, token.RBRACK, token.RBRACE, token.COMMA, token.COLON, token.LINEND:
-                                case token.SELECT, token.PERIOD, token.DOTDOT, token.PCON, token.PERC:
+                                case token.SELECT, token.PERIOD/*, token.DOTDOT*/, token.PCON, token.PERC:
                                 case token.ARROW, token.ASSIGN:
                                 case token.ILLEGAL:
                                 default:
