@@ -265,8 +265,7 @@ func (prog *Program) prepareHandleEntry(project *types.Project, context *types.S
 }
 
 func (prog *Program) prepareHandleName(project *types.Project, context *types.Scope, entry *types.RuleEntry, isFile bool, name string, depend types.Value, args []types.Value, dependList *types.List) (err error) {
-        FindEntry: 
-        if _, obj := project.Scope().Find(name); obj != nil {
+        FindEntry: if _, obj := project.Scope().Find(name); obj != nil {
                 if depent, _ := obj.(*types.RuleEntry); entry != nil {
                         return prog.prepareHandleEntry(project, context, entry, isFile, depent, args, dependList)
                 }
@@ -284,7 +283,7 @@ func (prog *Program) prepareHandleName(project *types.Project, context *types.Sc
                         project = proj; goto FindEntry
                 } else if isFile || proj.IsFile(name) {
                         // Search file in context's project.
-                        return prog.prepareSearchFile(proj, context, entry, name, depend, args, dependList)
+                        return prog.searchFile(proj, context, entry, name, depend, args, dependList)
                 }
         }
 
@@ -387,16 +386,20 @@ func (prog *Program) prepareExecuteDeprog(project *types.Project, context *types
         return
 }
 
-func (prog *Program) prepareSearchFile(project *types.Project, context *types.Scope, entry *types.RuleEntry, file string, depend types.Value, args []types.Value, dependList *types.List) (err error) {
+func (prog *Program) searchFile(project *types.Project, context *types.Scope, entry *types.RuleEntry, file string, depend types.Value, args []types.Value, dependList *types.List) (err error) {
         // Search file.
-        fv := project.SearchFile(context, values.File(depend, file))
+        var fv = values.File(depend, file)
+        if fv = project.SearchFile(context, fv); fv.Info == nil {
+                fv = prog.project.SearchFile(context, fv)
+        }
         if fv.Info != nil {
                 dependList.Append(fv)
         } else if depend.Type() == types.PatternType {
-                //fmt.Printf("%v: %v %v (no matched pattern file)\n", entry.Name(), depend, file)
                 return new(dependPatternUnfit)
         } else {
-                fmt.Printf("failed: %v: %T %v %v\n", entry.Name(), depend, depend, file)
+                if true /*verbose*/ {
+                        fmt.Fprintf(os.Stderr, "%v: No such file `%v'\n", entry.Name(), file)
+                }
                 return errors.New(fmt.Sprintf("No such file `%v' (required by `%v')", fv, entry.Name()))
         }
         return
