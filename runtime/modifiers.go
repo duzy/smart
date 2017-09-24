@@ -217,10 +217,14 @@ func modifierSetArgs(prog *Program, context *types.Scope, value types.Value, arg
 }
 
 func modifierSetEnv(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+        if args, err = types.JoinEval(context, args...); err != nil {
+                return
+        }
         var envars = values.List()
         _ = prog.auto("shell-envars", envars)
-        for _, a := range types.Join(args...) {
+        for _, a := range args {
                 if _, ok := a.(*types.Pair); ok {
+                        //fmt.Printf("env: %v\n", a)
                         envars.Append(a)
                 } else {
                         err = errors.New(fmt.Sprintf("Invalid env `%v' (%T)", a, a))
