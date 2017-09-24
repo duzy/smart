@@ -23,6 +23,10 @@ type dialectDock struct {
 }
 func (s *dialectDock) dialect() string { return "dock" }
 func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+        if args, err = types.JoinEval(context, args...); err != nil {
+                return
+        }
+
         var (
                 envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
                 stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
@@ -30,13 +34,9 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 wd = prog.Getwd(context)
                 exeres = new(types.ExecResult)
-                //stdout bytes.Buffer
-                //stderr bytes.Buffer
-                //status types.Value
                 source string
                 shi = "sh"
         )
-
         if len(args) > 0 {
                 shi = args[0].Strval()
         }
@@ -119,17 +119,17 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 }
 
                 var (
-                        args []string
+                        a []string
                         stdin = stdinOpt != nil && stdinOpt.Value.Strval() == "on"
                 )
                 if stdin {
-                        args = []string{ "exec", "-ti", dxi, shi, "-c", src }
+                        a = []string{ "exec", "-ti", dxi, shi, "-c", src }
                 } else {
-                        args = []string{ "exec", dxi, shi, "-c", src }
+                        a = []string{ "exec", dxi, shi, "-c", src }
                 }
 
                 var sh *exec.Cmd
-                sh = exec.Command("docker", args...)
+                sh = exec.Command("docker", a...)
                 sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
                 for _, env := range envars {
                         sh.Env = append(sh.Env, env.Strval())

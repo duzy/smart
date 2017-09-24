@@ -125,7 +125,7 @@ func (prog *Program) discloseRecipes(context *types.Scope) (recipes []types.Valu
         return
 }
 
-func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.Def, params, args []types.Value) (err error) {
+func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.Def, params []types.Value) (err error) {
         var (
                 recipes []types.Value
                 target, value types.Value
@@ -133,7 +133,7 @@ func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.D
         if recipes, err = prog.discloseRecipes(context); err != nil {
                 return
         }
-        if value, err = i.evaluate(prog, context, args, recipes); err == nil {
+        if value, err = i.evaluate(prog, context, params, recipes); err == nil {
                 if value != nil {
                         out.Assign(value)
                 }
@@ -145,7 +145,7 @@ func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.D
         return
 }
 
-func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def, args []types.Value) (err error) {
+func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -158,7 +158,7 @@ func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def
                         out.Assign(value)
                 }
         } else if i, _ := interpreters[name]; i != nil {
-                err = prog.interpret(context, i, out, g.Slice(1), args)
+                err = prog.interpret(context, i, out, g.Slice(1))
         } else {
                 err = errors.New(fmt.Sprintf("no modifier or dialect '%s'", name))
         }
@@ -471,17 +471,15 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 // Using the default statements interpreter.
                 if i, _ := interpreters[``]; i == nil {
                         err = errors.New("no default dialect")
-                        return
-                } else if err = prog.interpret(context, i, out, nil, args); err != nil {
-                        // ...
+                } else {
+                        err = prog.interpret(context, i, out, nil)
                 }
                 return
         }
         LoopPipeline: for _, v := range prog.pipline {
                 switch op := v.(type) {
                 case *types.Group:
-                        //fmt.Printf("modify: %v %v %v\n", entry.Name(), op, args)
-                        if err = prog.modify(context, op, out, args); err != nil {
+                        if err = prog.modify(context, op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
                                                 err = nil
@@ -495,7 +493,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                         if i, _ := interpreters[op.Strval()]; i == nil {
                                 err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
                                 break LoopPipeline
-                        } else if err = prog.interpret(context, i, out, nil, args); err != nil {
+                        } else if err = prog.interpret(context, i, out, nil); err != nil {
                                 //fmt.Printf("interpret: %v\n", err)
                                 break LoopPipeline
                         }

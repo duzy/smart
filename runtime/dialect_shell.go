@@ -44,6 +44,10 @@ func isTrueValue(s string) (res bool) {
 
 func (s *dialectShell) dialect() string { return "shell" }
 func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+        if args, err = types.JoinEval(context, args...); err != nil {
+                return
+        }
+
         var (
                 envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
                 statusOpt, _ = prog.scope.Lookup("shell-status").(*types.Def)
@@ -51,12 +55,8 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                 stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 //stdinOpt, _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 exeres = new(types.ExecResult)
-                //stdout bytes.Buffer
-                //stderr bytes.Buffer
-                //status types.Value
                 source string
         )
-
         for _, recipe := range recipes {
                 source += recipe.Strval() // trimRightSpaces(recipe.Strval())
                 if strings.HasSuffix(source, "\\") {
