@@ -51,8 +51,8 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
         var (
                 envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
                 statusOpt, _ = prog.scope.Lookup("shell-status").(*types.Def)
-                stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
-                stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
+                //stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
+                //stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 //stdinOpt, _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 exeres = new(types.ExecResult)
                 source string
@@ -80,12 +80,37 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                         fmt.Printf("%v\n", src)
                 }
 
-                var sh *exec.Cmd
+                var (
+                        verbout, verberr, stdin bool
+                        sh *exec.Cmd
+                )
                 if len(args) == 0 {
                         sh = exec.Command(s.interpreter, s.xopt, source)
                 } else {
                         var a []string
-                        for _, v := range args {
+                        LoopArgs: for _, v := range args {
+                                switch t := v.(type) {
+                                case *types.Pair:
+                                        if f, _ := t.Key.(*types.Flag); f != nil {
+                                                switch f.Name.Strval() {
+                                                case "dump": // -dump=xxx
+                                                        switch t.Value.Strval() {
+                                                        case "stdout": verbout = true
+                                                        case "stderr": verberr = true
+                                                        }
+                                                        continue LoopArgs
+                                                }
+                                        }
+                                case *types.Flag:
+                                        switch t.Name.Strval() {
+                                        case "i": stdin = true; continue LoopArgs
+                                        case "do": verbout = true; continue LoopArgs
+                                        case "de": verberr = true; continue LoopArgs
+                                        case "eo", "oe", "deo", "doe":
+                                                verbout, verberr = true, true
+                                                continue LoopArgs
+                                        }
+                                }
                                 a = append(a, v.Strval())
                         }
                         a = append(a, s.xopt, source)
@@ -103,14 +128,12 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                                 }
                         }
                 }
-                if stdoutOpt != nil && stdoutOpt.Value.Strval() == "on" {
-                        sh.Stdout = os.Stdout
-                }
-                if stderrOpt != nil && stderrOpt.Value.Strval() == "on" {
-                        sh.Stderr = os.Stderr
-                }
-                err = sh.Run()
-                if err == nil {
+                // TODO: ExecResult.VerboseStdout
+                // TODO: ExecResult.VerboseStderr
+                if verbout { sh.Stdout = os.Stdout }
+                if verberr { sh.Stderr = os.Stderr }
+                if stdin   { sh.Stdin = os.Stdin }
+                if err = sh.Run(); err == nil {
                         exeres.Status, source = 0, ""
                 } else {
                         var s = err.Error()

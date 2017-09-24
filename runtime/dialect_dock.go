@@ -29,9 +29,9 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
 
         var (
                 envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
-                stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
-                stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
-                stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
+                //stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
+                //stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
+                //stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 wd = prog.Getwd(context)
                 exeres = new(types.ExecResult)
                 source string
@@ -119,14 +119,37 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 }
 
                 var (
-                        a []string
-                        stdin = stdinOpt != nil && stdinOpt.Value.Strval() == "on"
+                        verbout, verberr, stdin bool
+                        a = []string{ "exec" }
                 )
-                if stdin {
-                        a = []string{ "exec", "-ti", dxi, shi, "-c", src }
-                } else {
-                        a = []string{ "exec", dxi, shi, "-c", src }
+                LoopArgs: for _, v := range args {
+                        switch t := v.(type) {
+                        case *types.Pair:
+                                if f, _ := t.Key.(*types.Flag); f != nil {
+                                        switch f.Name.Strval() {
+                                        case "dump": // -dump=xxx
+                                                switch t.Value.Strval() {
+                                                case "stdout": verbout = true
+                                                case "stderr": verberr = true
+                                                }
+                                                continue LoopArgs
+                                        }
+                                }
+                        case *types.Flag:
+                                switch t.Name.Strval() {
+                                case "do": verbout = true; continue LoopArgs
+                                case "de": verberr = true; continue LoopArgs
+                                case "eo", "oe", "deo", "doe":
+                                        verbout, verberr = true, true
+                                        continue LoopArgs
+                                case "i": 
+                                        a = append(a, "-ti")
+                                        stdin = true; continue LoopArgs
+                                }
+                        }
+                        a = append(a, v.Strval())
                 }
+                a = append(a, dxi, shi, "-c", src)
 
                 var sh *exec.Cmd
                 sh = exec.Command("docker", a...)
@@ -134,17 +157,12 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 for _, env := range envars {
                         sh.Env = append(sh.Env, env.Strval())
                 }
-                if stdoutOpt != nil && stdoutOpt.Value.Strval() == "on" {
-                        sh.Stdout = os.Stdout
-                }
-                if stderrOpt != nil && stderrOpt.Value.Strval() == "on" {
-                        sh.Stderr = os.Stderr
-                }
-                if stdin {
-                        sh.Stdin = os.Stdin
-                }
-                err = sh.Run()
-                if err == nil {
+                // TODO: ExecResult.VerboseStdout
+                // TODO: ExecResult.VerboseStderr
+                if verbout { sh.Stdout = os.Stdout }
+                if verberr { sh.Stderr = os.Stderr }
+                if stdin   { sh.Stdin = os.Stdin }
+                if err = sh.Run(); err == nil {
                         exeres.Status, source = 0, ""
                 } else {
                         var s = err.Error()

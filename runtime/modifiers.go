@@ -69,9 +69,9 @@ var (
 
         modifiers = map[string]modifier{
                 `status`:       modifierShellStatus,
-                `stdout`:       modifierShellStdout,
-                `stderr`:       modifierShellStderr,
-                `stdin`:        modifierShellStdin,
+                //`stdout`:       modifierShellStdout,
+                //`stderr`:       modifierShellStderr,
+                //`stdin`:        modifierShellStdin,
 
                 `status-equals`: modifierStatusEquals,
                 `stdout-equals`: modifierStdoutEquals,

@@ -848,8 +848,8 @@ func (p *YAML) Integer() int64 { return 0 }
 func (p *YAML) Float() float64 { return 0 }
 
 type ExecResult struct {
-        Stdout bytes.Buffer
-        Stderr bytes.Buffer
+        Stdout bytes.Buffer // TODO: ExecBuffer
+        Stderr bytes.Buffer // TODO: ExecBuffer
         Status int
 }
 func (*ExecResult) disclose(_ *Scope) (Value, error) { return nil, nil }
@@ -861,6 +861,8 @@ func (p *ExecResult) String() string {
 func (p *ExecResult) Strval() string   { return p.Stdout.String() }
 func (p *ExecResult) Integer() int64   { return int64(p.Status) }
 func (p *ExecResult) Float() float64   { return float64(p.Status) }
+// TODO: ExecResult.VerboseStdout
+// TODO: ExecResult.VerboseStderr
 
 // Pattern
 type Pattern interface {
