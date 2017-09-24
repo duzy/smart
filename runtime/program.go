@@ -455,11 +455,13 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         }
 
         dependList := values.List()
-        prog.auto("^", dependList)
 
         // Calculate and prepare depends and files.
         if err = prog.prepare(context, entry, dependList); err != nil {
                 return
+        } else if dependList.Len() > 0 {
+                prog.auto("<", dependList.Elems[0])
+                prog.auto("^", dependList)
         }
 
         var out = prog.auto("-", values.None)
