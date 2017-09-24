@@ -186,7 +186,7 @@ func (prog *Program) prepareDepend(project *types.Project, context *types.Scope,
         //fmt.Printf("Program.prepareDepend: %s: %T `%v'\n", entry.Name(), depend, depend)
         switch d := depend.(type) {
         case *types.Argumented:
-                fmt.Printf("Program.prepareDepend: argumented: %d %v\n", len(d.Args), d.Args)
+                //fmt.Printf("Program.prepareDepend: argumented: %d %v\n", len(d.Args), d.Args)
                 err = prog.prepareDepend(project, context, entry, isFile, d.Value, d.Args, dependList)
         case *types.Bareword:
                 err = prog.prepareHandleName(project, context, entry, isFile, d.Strval(), depend, args, dependList)

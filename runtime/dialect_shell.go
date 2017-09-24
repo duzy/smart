@@ -49,6 +49,7 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
         }
 
         var (
+                // TODO: parsing envars and status flags from `args'
                 envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
                 statusOpt, _ = prog.scope.Lookup("shell-status").(*types.Def)
                 //stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)

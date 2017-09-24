@@ -10,6 +10,7 @@ import (
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/token"
         "net/url"
+        "strings"
         "strconv"
         "time"
 )
@@ -68,11 +69,9 @@ func Hex(i int64) (v *types.Hex) {
         return
 }
 
-func FloatLit(s string) (v *types.Float) {
-        if f, e := strconv.ParseFloat(s, 64); e == nil {
-                v = Float(f)
-        }
-        return
+func FloatLit(s string) *types.Float {
+        f, _ := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64)
+        return Float(f)
 }
 func Float(f float64) (v *types.Float) {
         v = new(types.Float)
