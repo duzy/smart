@@ -205,12 +205,12 @@ type (
         // Closure expressions: &(foo a1,a2,a3), &(foo), &foo
         ClosureDelegate struct {
                 TokPos token.Pos  // position of $ or &
-                Lparen token.Pos  // left paren position
+                Lparen token.Pos  // left paren position (could be zero)
                 Name Expr         // name being referred
                 Resolved Symbol   // resolved symbol by name
                 Args []Expr       // *ListExpr
-                Rparen token.Pos  // right paren position
-                TokLp token.Token // left paren token
+                Rparen token.Pos  // right paren position (could be zero)
+                TokLp token.Token // left paren token (could be ILLEGAL)
                 Tok token.Token   // $, $/, $., $1, etc. or &
         }
 
@@ -302,7 +302,14 @@ func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End()
 func (d *PathExpr) End() token.Pos        { return d.PosEnd }
 func (d *PathSegExpr) End() token.Pos     { if d.Tok == token.DOTDOT { return d.TokPos+2 } else { return d.TokPos+1 } }
 func (d *GlobExpr) End() token.Pos        { return d.TokPos + 1 }
-func (d *ClosureDelegate) End() token.Pos { return d.Rparen + 1 }
+func (d *ClosureDelegate) End() token.Pos {
+        if d.TokLp == token.ILLEGAL {
+                switch d.Tok {
+                default: return d.TokPos + 2
+                }
+        }
+        return d.Rparen + 1 
+}
 func (d *ArgumentedExpr) End() token.Pos  { return d.EndPos }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }

@@ -1001,90 +1001,91 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
         case token.SELECT:
                 // If it's selecting, don't enter parseSelect again.
                 // The parseSelect procedure will check this '.'
-                //if joint && p.bits&composingSELECT == 0 {
-                p.bits |=  composingSELECT
-                p.next() // Drop the '.' token.
-                x = p.parseSelect(lhs, p.checkExpr(x))
-                if p.tok == token.LPAREN && x.End() == p.pos {
-                        //x = p.parseComposing(x, lhs)
-                        x = p.parseArgumentedExpr(x)
+                if joint /*&& p.bits&composingSELECT == 0*/ {
+                        p.bits |=  composingSELECT
+                        p.next() // Drop the '.' token.
+                        x = p.parseSelect(lhs, p.checkExpr(x))
+                        if p.tok == token.LPAREN && x.End() == p.pos {
+                                //x = p.parseComposing(x, lhs)
+                                x = p.parseArgumentedExpr(x)
+                        }
+                        p.bits &= ^composingSELECT
                 }
-                p.bits &= ^composingSELECT
-                //}
         case token.PERIOD:
-                //if joint && p.bits&composingPERIOD == 0 {
-                p.bits |=  composingPERIOD
-                var ext ast.Expr
-                comp, pos := &ast.Barecomp{ []ast.Expr{ x } }, p.pos
-                comp.Elems = append(comp.Elems, &ast.Bareword{ pos, "." })
-                AddPeriod: for p.next(); p.tok == token.PERIOD && p.pos == pos+1; {
-                        if false {
-                                p.error(p.pos, "Multiple period used")
-                                p.next()
-                        } else {
-                                break
-                        }
-                }
-                if p.pos == pos+1 {
-                        ext = p.checkExpr(p.parseExpr(lhs))
-                        comp.Elems = append(comp.Elems, ext)
-                        if p.tok == token.PERIOD && ext.End() == p.pos {
-                                goto AddPeriod
-                        }
-                }
-                p.bits &= ^composingPERIOD
-                x = comp
-
-                // Processing barefile 
-                if v, e := p.runtime.Eval(x, disclosure); e == nil && v != nil {
-                        if s := v.Strval(); p.runtime.IsFileName(s) {
-                                if v, e := p.runtime.Eval(ext, disclosure); e == nil && v != nil {
-                                        comp.Elems = comp.Elems[0:len(comp.Elems)-2]
-                                        x = &ast.Barefile{ x, ext.Pos(), v.Strval() }
-                                        if p.tok == token.LPAREN && x.End() == p.pos {
-                                                x = p.parseComposing(x, lhs)
-                                        }
-                                } else if e != nil {
-                                        p.error(ext.Pos(), e)
+                if joint /*&& p.bits&composingPERIOD == 0*/ {
+                        p.bits |=  composingPERIOD
+                        var ext ast.Expr
+                        comp, pos := &ast.Barecomp{ []ast.Expr{ x } }, p.pos
+                        comp.Elems = append(comp.Elems, &ast.Bareword{ pos, "." })
+                        AddPeriod: for p.next(); p.tok == token.PERIOD && p.pos == pos+1; {
+                                if false {
+                                        p.error(p.pos, "Multiple period used")
+                                        p.next()
+                                } else {
+                                        break
                                 }
                         }
-                } else if e != nil {
-                        p.error(x.Pos(), e)
+                        if p.pos == pos+1 {
+                                ext = p.checkExpr(p.parseExpr(lhs))
+                                comp.Elems = append(comp.Elems, ext)
+                                if p.tok == token.PERIOD && ext.End() == p.pos {
+                                        goto AddPeriod
+                                }
+                        }
+                        p.bits &= ^composingPERIOD
+                        x = comp
+
+                        // Processing barefile 
+                        if v, e := p.runtime.Eval(x, disclosure); e == nil && v != nil {
+                                if s := v.Strval(); p.runtime.IsFileName(s) {
+                                        if v, e := p.runtime.Eval(ext, disclosure); e == nil && v != nil {
+                                                comp.Elems = comp.Elems[0:len(comp.Elems)-2]
+                                                x = &ast.Barefile{ x, ext.Pos(), v.Strval() }
+                                                if p.tok == token.LPAREN && x.End() == p.pos {
+                                                        x = p.parseComposing(x, lhs)
+                                                }
+                                        } else if e != nil {
+                                                p.error(ext.Pos(), e)
+                                        }
+                                }
+                        } else if e != nil {
+                                p.error(x.Pos(), e)
+                        }
                 }
-                //}
         case token.PCON:
-                //if joint && p.bits&composingPCON == 0 {
-                p.bits |= composingPCON
-                pat := &ast.PathExpr{ 
-                        PosBeg: p.pos,
-                        Segments: []ast.Expr{x},
-                        PosEnd: p.pos,
+                //fmt.Printf("PCON: %T %v %v %v\n", x, x, x.End(), p.pos)
+                if joint /*&& p.bits&composingPCON == 0*/ {
+                        p.bits |= composingPCON
+                        pat := &ast.PathExpr{ 
+                                PosBeg: p.pos,
+                                Segments: []ast.Expr{x},
+                                PosEnd: p.pos,
+                        }
+                        //fmt.Printf("path: %v (%T)\n", x, x)
+                        // Drop continual '/' tokens.
+                        ConcatPath: for p.tok == token.PCON { p.next() }
+                        y := p.checkExpr(p.parseExpr(lhs))
+                        pat.Segments = append(pat.Segments, y)
+                        pat.PosEnd = y.End()
+                        //fmt.Printf("path: %v (%T)\n", y, y)
+                        if p.tok == token.PCON {
+                                goto ConcatPath
+                        }
+                        p.bits &= ^composingPCON
+                        x = pat
                 }
-                //fmt.Printf("path: %v (%T)\n", x, x)
-                // Drop continual '/' tokens.
-                ConcatPath: for p.tok == token.PCON { p.next() }
-                y := p.checkExpr(p.parseExpr(lhs))
-                pat.Segments = append(pat.Segments, y)
-                pat.PosEnd = y.End()
-                //fmt.Printf("path: %v (%T)\n", y, y)
-                if p.tok == token.PCON {
-                        goto ConcatPath
-                }
-                p.bits &= ^composingPCON
-                x = pat
-                //}
         case token.PERC:
-                //if joint && p.bits&composingPERC == 0 {
-                p.bits |= composingPERC
-                x = &ast.PercExpr{
-                        X: x,
-                        OpPos: p.pos,
-                        Y: p.checkExpr(p.parseExpr(lhs)),
+                if joint /*&& p.bits&composingPERC == 0*/ {
+                        p.bits |= composingPERC
+                        x = &ast.PercExpr{
+                                X: x,
+                                OpPos: p.pos,
+                                Y: p.checkExpr(p.parseExpr(lhs)),
+                        }
+                        p.bits &= ^composingPERC
                 }
-                p.bits &= ^composingPERC
-                //}
         default:
-                if joint && p.bits&composing == 0 {
+                if joint /*&& p.bits&composing == 0*/ {
                         var y ast.Expr
                         p.bits |= composing
                 Compose:
