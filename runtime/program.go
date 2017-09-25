@@ -498,7 +498,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                         break LoopPipeline
                 }
         }
-        if dialect == "" {
+        if err == nil && dialect == "" {
                 // Using the default statements interpreter.
                 if i, _ := interpreters[dialect]; i == nil {
                         err = errors.New("no default dialect")

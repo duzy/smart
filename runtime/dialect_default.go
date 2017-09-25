@@ -22,7 +22,7 @@ type dialectDefault struct {
 func (t *dialectDefault) dialect() string { return "default" }
 func (t *dialectDefault) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var list = values.List()
-evaluationLoop:
+LoopRecipes:
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {
                 case *types.None:
@@ -60,7 +60,7 @@ evaluationLoop:
 
                         default:
                                 err = errors.New(fmt.Sprintf("Unsupported recipe command `%v' (%T)", t, t))
-                                break evaluationLoop
+                                break LoopRecipes
                         }
                         if e == nil && v != nil {
                                 list.Append(v)
@@ -68,20 +68,20 @@ evaluationLoop:
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil &&
                                                 s.Strval() == "shell" && c.Integer() != 0 {
                                                 //fmt.Printf("evaluate: %v\n", v)
-                                                break evaluationLoop
+                                                break LoopRecipes
                                         }
                                 }
                         } else if p, _ := e.(*returner); p != nil {
                                 if p.value != nil {
                                         list.Append(p.value)
                                 }
-                                break evaluationLoop
+                                break LoopRecipes
                         } else if e != nil {
                                 fmt.Fprintf(os.Stderr, "%v\n", e)
-                                err = e; break evaluationLoop
+                                err = e; break LoopRecipes
                         }
                 default:
-                        fmt.Printf("recipe: %v (%T)\n", recipe, recipe)
+                        fmt.Fprintf(os.Stderr, "fatal: unsupported recipe: %v (%T)\n", recipe, recipe)
                         panic("unreachable")
                 }
         }
