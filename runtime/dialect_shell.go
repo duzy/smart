@@ -56,8 +56,20 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                 //stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
                 //stdinOpt, _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 exeres = new(types.ExecResult)
+                envars []types.Value // disclosed values
                 source string
         )
+        if envarsOpt != nil {
+                if l, _ := envarsOpt.Value.(*types.List); l != nil {
+                        for _, v := range l.Elems {
+                                if v, err = types.Disclose(context, v); err != nil {
+                                        return
+                                } else {
+                                        envars = append(envars, v)
+                                }
+                        }
+                }
+        }
         for _, recipe := range recipes {
                 source += recipe.Strval() // trimRightSpaces(recipe.Strval())
                 if strings.HasSuffix(source, "\\") {
@@ -80,6 +92,17 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                         src = strings.Replace(src, "\\\\n", "\\\n", -1)
                         fmt.Printf("%v\n", src)
                 }
+
+                /*if s := ""; len(envars) > 0 {
+                        for i, env := range envars {
+                                if i > 0 { s += " && " }
+                                p := env.(*types.Pair)
+                                s += "export "
+                                s += p.Key.Strval() + "=\""
+                                s += p.Value.Strval() + "\""
+                        }
+                        source = fmt.Sprintf("%s && %s", s, source)
+                }*/
 
                 var (
                         verbout, verberr, stdin bool
@@ -117,16 +140,12 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                         a = append(a, s.xopt, source)
                         sh = exec.Command(s.interpreter, a...)
                 }
-                sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
-                if envarsOpt != nil {
-                        if l, _ := envarsOpt.Value.(*types.List); l != nil {
-                                for _, v := range l.Elems {
-                                        if v, err = types.Disclose(context, v); err != nil {
-                                                return
-                                        } else {
-                                                sh.Env = append(sh.Env, v.Strval())
-                                        }
-                                }
+                sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
+                for _, v := range envars {
+                        if v, err = types.Disclose(context, v); err != nil {
+                                return
+                        } else {
+                                sh.Env = append(sh.Env, v.Strval())
                         }
                 }
                 // TODO: ExecResult.VerboseStdout

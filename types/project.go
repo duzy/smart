@@ -101,7 +101,7 @@ func (m *Project) SearchFile(context *Scope, fv *File) *File {
                                 fv.Info, fv.Dir = fi, p
                                 break LoopFiles
                         } else {
-                                fmt.Printf("SearchFile: %v (%v)\n", fv.Name, er)
+                                //fmt.Printf("SearchFile: %v (%v)\n", fv.Name, er)
                         }
                 }
         }

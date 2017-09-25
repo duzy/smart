@@ -154,8 +154,11 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 var sh *exec.Cmd
                 sh = exec.Command("docker", a...)
                 sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
-                for _, env := range envars {
-                        sh.Env = append(sh.Env, env.Strval())
+                if len(envars) > 0 {
+                        sh.Env = os.Environ()
+                        for _, env := range envars {
+                                sh.Env = append(sh.Env, env.Strval())
+                        }
                 }
                 // TODO: ExecResult.VerboseStdout
                 // TODO: ExecResult.VerboseStderr
