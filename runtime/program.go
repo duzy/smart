@@ -145,7 +145,7 @@ func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.D
         return
 }
 
-func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def) (err error) {
+func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def) (dialect string, err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -159,6 +159,7 @@ func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def
                 }
         } else if i, _ := interpreters[name]; i != nil {
                 err = prog.interpret(context, i, out, g.Slice(1))
+                dialect = name // return dialect name
         } else {
                 err = errors.New(fmt.Sprintf("no modifier or dialect '%s'", name))
         }
@@ -472,39 +473,37 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         //      some-modifier : - :
         //              smart statments going here...
         //              
-        if len(prog.pipline) == 0 {
-                // Using the default statements interpreter.
-                if i, _ := interpreters[``]; i == nil {
-                        err = errors.New("no default dialect")
-                } else {
-                        err = prog.interpret(context, i, out, nil)
-                }
-                return
-        }
+        var dialect string
         LoopPipeline: for _, v := range prog.pipline {
                 switch op := v.(type) {
                 case *types.Group:
-                        if err = prog.modify(context, op, out); err != nil {
+                        var lang string
+                        if lang, err = prog.modify(context, op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
-                                                err = nil
+                                                // Discard err and change dialect to
+                                                // avoid default interpreter being
+                                                // called.
+                                                err, dialect = nil, "--"
                                         } else {
                                                 fmt.Printf("%s, required by '%s' (from %v)\n", p.message, entry.Name(), prog.project.RelPath())
                                         }
                                 }
                                 break LoopPipeline
-                        }
-                case *types.Bareword:
-                        if i, _ := interpreters[op.Strval()]; i == nil {
-                                err = errors.New(fmt.Sprintf("no dialect '%s', required by '%s'", op, entry.Name()))
-                                break LoopPipeline
-                        } else if err = prog.interpret(context, i, out, nil); err != nil {
-                                //fmt.Printf("interpret: %v\n", err)
-                                break LoopPipeline
+                        } else if lang != "" && dialect == "" {
+                                dialect = lang
                         }
                 default:
-                        err = errors.New(fmt.Sprintf("unsupported modifier '%s'", v))
+                        err = errors.New(fmt.Sprintf("unsupported modifier `%s' (%T)", v, v))
                         break LoopPipeline
+                }
+        }
+        if dialect == "" {
+                // Using the default statements interpreter.
+                if i, _ := interpreters[dialect]; i == nil {
+                        err = errors.New("no default dialect")
+                } else {
+                        err = prog.interpret(context, i, out, nil)
                 }
         }
         return

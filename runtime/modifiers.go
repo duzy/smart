@@ -24,7 +24,7 @@ import (
 
 type breaker struct {
         message string
-        okay bool
+        okay bool // it's good to continue
 }
 
 func (p *breaker) Error() string {
@@ -346,7 +346,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 return nil, &breaker{ s, false }
         }
 
-        //fmt.Printf("compare: %v -> %v\n", targetVal, types.Reveal(targetVal))
+        //fmt.Printf("compare: %v (%v)\n", targetVal, types.Reveal(targetVal))
 
         if targetVal = types.Reveal(targetVal); targetVal == nil || targetVal.Type() == types.NoneType {
                 return nil, &breaker{ "compare: no target", false }
@@ -361,6 +361,8 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 prog.auto("<", depends.Get(0))
                 prog.auto("^", depends)
         }
+
+        //fmt.Printf("compare: %v: %v\n", targetVal.Strval(), depends)
         
         // Comparing target with depends.
 
@@ -368,7 +370,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 outdated = false
                 tt time.Time
         )
-        if targetVal != nil {
+        if targetVal != nil && targetVal.Type() != types.NoneType {
                 var targetFile *types.File
                 switch t := targetVal.(type) {
                 case *types.File: targetFile = t
@@ -399,6 +401,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 switch depend.(type) {
                 case *types.File:
                         outdated, err = compareTargetDepend(prog, context, targetVal, depend, tt)
+                        //fmt.Printf("compare-target-depend: %v (%v)\n", outdated, err)
                         if err != nil || outdated {
                                 return
                         }
