@@ -24,18 +24,18 @@ LINK = $(LINK-cc)
 
 ignore:
 
-program:[(cd) ((bin objects)) (compare $(bin)) (stdout) (stderr) (shell)]: $(objects)
+program:[(cd) ((bin objects)) (compare $(bin)) (shell -oe)]: $(objects)
 	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
-lib.so:[(cd) ((lib objects)) (compare $(lib)) (stdout) (stderr) (shell)]: $(objects)
+lib.so:[(cd) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
 	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
-lib.a:[(cd) ((lib objects)) (compare $(lib)) (stdout) (stderr) (shell)]: $(objects)
+lib.a:[(cd) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
 	$(ARCHIVE) $(lib) $^
 
-%.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cpp
+%.o:[(cd) (compare) (shell -oe)]: %.cpp
 	$(COMPILE) $^ -o $@
-%.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.cc
+%.o:[(cd) (compare) (shell -oe)]: %.cc
 	$(COMPILE) $^ -o $@
-%.o:[(cd) (compare) (stdout) (stderr) (shell)]: %.C
+%.o:[(cd) (compare) (shell -oe)]: %.C
 	$(COMPILE) $^ -o $@
 
 # https://github.com/google/re2/wiki/Syntax

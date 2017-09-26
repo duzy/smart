@@ -484,26 +484,11 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
 	if p.trace {
 		defer un(trace(p, "Selector"))
 	}
+        
+        // Parse rhs of '->'
+        var s = p.checkExpr(p.parseExpr(lhs))
 
-        // Parse rhs of '.'...
-        s := p.checkExpr(p.parseExpr(lhs))
-        /*switch t := s.(type) {
-        case *ast.Bareword:
-                switch l := x.(type) {
-                case *ast.Bareword:
-                        if p.runtime.IsFileName(l.Value+"."+t.Value) {
-                                return &ast.Barefile{ x, t.Pos(), t.Value }
-                        }
-                case *ast.GlobExpr:
-                        if p.runtime.IsFileName("a."+t.Value) {
-                                return &ast.Globfile{ l, t.Pos(), t.Value }
-                        }
-                }
-        }*/
-
-        //fmt.Printf("select: %T.%T (%v %v)\n", x, s, x, s)
-
-        // Deal with lhs of '.', convert x into an Ident or Barefile
+        // Deal with lhs of '->', convert x into an Ident or Barefile
         var (
                 operand types.Value
                 value types.Value
@@ -548,6 +533,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 goto DoneSelect
         }
 
+        //fmt.Printf("select: %T.%T (%v %v)\n", x, s, x, s)
         ComputeValueName: switch t := s.(type) {
         case *ast.Bareword: valueName = t.Value
         case *ast.GlobExpr: valueName = t.Tok.String()
@@ -998,15 +984,16 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 if joint && p.bits&composingNoArg == 0 {
                         x = p.parseArgumentedExpr(x)
                 }
-        case token.SELECT:
+        case token.SELECT: // TODO: improved selection, e.g. a->b->c->d
                 // If it's selecting, don't enter parseSelect again.
-                // The parseSelect procedure will check this '.'
-                if joint /*&& p.bits&composingSELECT == 0*/ {
+                // The parseSelect procedure will check this '->'
+                if joint && p.bits&composingSELECT == 0 {
                         p.bits |=  composingSELECT
-                        p.next() // Drop the '.' token.
+                        p.next() // Drop the '->' token.
+                        //fmt.Printf("%v->", x)
                         x = p.parseSelect(lhs, p.checkExpr(x))
+                        //fmt.Printf("%v (%T)\n", x, x)
                         if p.tok == token.LPAREN && x.End() == p.pos {
-                                //x = p.parseComposing(x, lhs)
                                 x = p.parseArgumentedExpr(x)
                         }
                         p.bits &= ^composingSELECT
@@ -1444,20 +1431,19 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
 
 func (p *parser) parseBuiltinRecipeExpr(first ast.Expr, elems []ast.Expr) (x ast.Expr) {
         // Do left-hand-side parsing if in use rule
-        switch x = p.parseExpr(p.inUseRule); {
+        switch {
         case p.tok.IsAssign():
-                d := p.parseDefineClause(p.tok, x).(*ast.DefineClause)
+                d := p.parseDefineClause(p.tok, first).(*ast.DefineClause)
                 x = &ast.RecipeDefineClause{ d }
 
         case p.tok.IsRuleDelim():
-                if first != nil {
-                        elems = append(elems, first)
-                }
-                elems = append(elems, x)
-                d := p.parseRuleClause(p.tok, elems).(*ast.RuleClause)
+                var names = []ast.Expr{ first }
+                names = append(names, elems...)
+                d := p.parseRuleClause(p.tok, names).(*ast.RuleClause)
                 x = &ast.RecipeRuleClause{ d }
 
         default:
+                x = p.parseExpr(p.inUseRule)
                 if v, e := p.runtime.Eval(x, delegation/*disclosure*/); e != nil {
                         p.error(x.Pos(), "%v (%T)", e, x)
                 } else if v != nil {
@@ -1495,9 +1481,9 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
                                 case *types.RuleEntry:
                                 default:
                                         if name := v.Strval(); name == "" {
-                                                p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
+                                                //p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
                                         } else if sym := p.runtime.Resolve(name, anywhere); sym == nil {
-                                                p.error(x.Pos(), "Undefined recipe command `%v' (%v, %T).", name, v, v)
+                                                //p.error(x.Pos(), "Undefined recipe command `%v' (%v, %T).", name, v, v)
                                         } else {
                                                 v = sym.(types.Value)
                                         }

@@ -59,7 +59,7 @@ LoopRecipes:
                                 }*/
 
                         default:
-                                err = errors.New(fmt.Sprintf("Unsupported recipe command `%v' (%T)", t, t))
+                                err = errors.New(fmt.Sprintf("Unknown recipe command `%v' (%T)", t, t))
                                 break LoopRecipes
                         }
                         if e == nil && v != nil {
