@@ -37,9 +37,6 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 source string
                 shi = "sh"
         )
-        if len(args) > 0 {
-                shi = args[0].Strval()
-        }
 
         for _, recipe := range recipes {
                 source += recipe.Strval()
@@ -146,6 +143,9 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                         a = append(a, "-ti")
                                         stdin = true; continue LoopArgs
                                 }
+                        default:
+                                shi = args[0].Strval()
+                                continue LoopArgs
                         }
                         a = append(a, v.Strval())
                 }
