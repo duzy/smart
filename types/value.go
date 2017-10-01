@@ -612,6 +612,7 @@ func (p *Pair) referencing(o Object) bool {
 type delegate struct {
         o Object
         a []Value
+        dc *Scope // disclosed context
 }
 
 func (p *delegate) Type() Type         { return DelegateType }
@@ -638,21 +639,20 @@ func (p *delegate) Value() (res Value) {
         //fmt.Printf("delegate.value: %p %p\n", p, p.o)
         switch o := p.o.(type) {
         case Caller:
-                var (
-                        scope = p.o.Parent()
-                        args []Value
-                )
-                for _, a := range p.a {
-                        if v, e := Disclose(scope, a); e != nil {
-                                // TODO: errors...
-                                return UniversalNone
-                        } else if v != nil {
-                                //fmt.Printf("delegate.value: %v -> %v\n", a, v)
-                                a = v
-                        }
-                        args = append(args, a)
+                if args, err := p.discloseArgs(p.o.Parent()); err == nil {
+                        res, _ = o.Call(args...)
                 }
-                res, _ = o.Call(args...)
+        case Executer:
+                // FIXME: disclosed context not applied?
+                var scope = p.dc
+                if scope == nil {
+                        scope = p.o.Parent()
+                }
+                if args, err := p.discloseArgs(scope); err == nil {
+                        if v, err := o.Execute(scope, args...); err == nil {
+                                res = &List{Elements{v}}
+                        }
+                }
         default:
                 fmt.Printf("delegate.value: unknown (%T %v)\n", p.o, p.o)
         }
@@ -690,9 +690,23 @@ func (p *delegate) disclose(scope *Scope) (Value, error) {
         }
 
         if o != nil || n > 0 {
-                return &delegate{ o, a }, nil
+                return &delegate{ o, a, scope }, nil
         }
         return nil, nil
+}
+
+func (p *delegate) discloseArgs(scope *Scope) (args []Value, err error) {
+        for _, a := range p.a {
+                if v, e := Disclose(scope, a); e != nil {
+                        // TODO: errors...
+                        return nil, e
+                } else if v != nil {
+                        //fmt.Printf("delegate.value: %v -> %v\n", a, v)
+                        a = v
+                }
+                args = append(args, a)
+        }
+        return
 }
 
 func (p *delegate) referencing(o Object) bool {
@@ -1085,7 +1099,7 @@ func JoinEval(scope *Scope, args... Value) (elems []Value, err error) {
 }
 
 func Delegate(obj Object, args... Value) Value {
-        return &delegate{ obj, args }
+        return &delegate{ obj, args, nil }
 }
 
 func Closure(obj Object, args... Value) Value {
