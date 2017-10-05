@@ -21,8 +21,8 @@ import (
 type BuiltinFunc func(context *Scope, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
-        /* TODO:
         `or`:    builtinLogicalOr,
+        /* TODO:
         `and`:   builtinLogicalAnd,
         `xor`:   builtinLogicalXor,
         `not`:   builtinLogicalNot,
@@ -90,6 +90,17 @@ func EscapedString(v Value) (s string) {
                 s = v.Strval()
         }
         return
+}
+
+func builtinLogicalOr(context *Scope, args... Value) (Value, error) {
+        for _, a := range args {
+                if val, err := Disclose(context, Reveal(a)); err != nil {
+                        return nil, err
+                } else if val != nil && val.String() != "" {
+                        return val, nil
+                }
+        }
+        return nil, nil
 }
 
 func builtinPrint(context *Scope, args... Value) (Value, error) {
