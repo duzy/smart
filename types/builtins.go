@@ -299,7 +299,7 @@ func builtinTitle(context *Scope, args... Value) (res Value, err error) {
                         return nil, err
                 } else if val == nil {
                         // discard
-                } else if s := val.String(); s != "" {
+                } else if s := val.Strval(); s != "" {
                         list = append(list, strval(strings.Title(s)))
                 }
         }
@@ -319,7 +319,7 @@ func builtinTrim(context *Scope, args... Value) (res Value, err error) {
                         return nil, err
                 } else if val == nil {
                         // discard
-                } else if s := val.String(); s != "" {
+                } else if s := val.Strval(); s != "" {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
@@ -345,7 +345,7 @@ func builtinTrimLeft(context *Scope, args... Value) (res Value, err error) {
                         return nil, err
                 } else if val == nil {
                         // discard
-                } else if s := val.String(); s != "" {
+                } else if s := val.Strval(); s != "" {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
@@ -371,7 +371,7 @@ func builtinTrimRight(context *Scope, args... Value) (res Value, err error) {
                         return nil, err
                 } else if val == nil {
                         // discard
-                } else if s := val.String(); s != "" {
+                } else if s := val.Strval(); s != "" {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
@@ -397,7 +397,7 @@ func builtinTrimPrefix(context *Scope, args... Value) (res Value, err error) {
                         return nil, err
                 } else if val == nil {
                         // discard
-                } else if s := val.String(); s != "" {
+                } else if s := val.Strval(); s != "" {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
@@ -423,7 +423,7 @@ func builtinTrimSuffix(context *Scope, args... Value) (res Value, err error) {
                         return nil, err
                 } else if val == nil {
                         // discard
-                } else if s := val.String(); s != "" {
+                } else if s := val.Strval(); s != "" {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
@@ -449,13 +449,13 @@ func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
                         return nil, err
                 } else if val == nil {
                         // discard
-                } else if s := val.String(); s != "" {
+                } else if s := val.Strval(); s != "" {
                         if i == 0 && len(args) > 1 {
                                 ext = s
                         } else if ext == "" {
                                 list = append(list, strval(strings.TrimSuffix(s, filepath.Ext(s))))
                         } else if ext == filepath.Ext(s) {
-                                list = append(list, strval(strings.TrimSuffix(s, ext)))
+                                list = append(list, strval(strings.TrimRight(s, ext)))
                         }
                 }
         }
