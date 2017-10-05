@@ -1108,3 +1108,16 @@ func Closure(obj Object, args... Value) Value {
         }
         return &closure{ obj, args }
 }
+
+func strval(s string) Value { return &String{s} }
+
+func toListOrValue(list []Value) (res Value) {
+        if x := len(list); x == 0 {
+                res = UniversalNone
+        } else if x == 1 {
+                res = list[0]
+        } else {
+                res = &List{Elements{list}}
+        }
+        return
+}

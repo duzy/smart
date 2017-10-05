@@ -12,6 +12,7 @@ import (
         "path/filepath"
         "io/ioutil"
         "strings"
+	"unicode"
         "errors"
         "bytes"
         "fmt"
@@ -37,6 +38,15 @@ var builtins = map[string]BuiltinFunc {
         `minus`:   builtinMinus,
 
         `string`:  builtinString,
+        `strip`:   builtinStrip,
+        `title`:       builtinTitle,
+        `trim`:        builtinTrim,
+        `trim-space`:  builtinTrimSpace,
+        `trim-left`:   builtinTrimLeft,
+        `trim-right`:  builtinTrimRight,
+        `trim-prefix`: builtinTrimPrefix,
+        `trim-suffix`: builtinTrimSuffix,
+        `trim-ext`:    builtinTrimExt,
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
         //`subst`:      builtinSubst,
@@ -196,9 +206,7 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
                                 if neg { okay = !okay }
                                 if okay { elems = append(elems, v) }
                         }
-                        if len(elems) > 0 {
-                                res = &List{Elements{elems}}
-                        }
+                        res = toListOrValue(elems)
                 }
         }
         if res == nil {
@@ -272,12 +280,188 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
                         }
                 }
         }
-        res = &List{Elements{list}}
+        res = toListOrValue(list)
         return
 }
 
 func builtinStrip(context *Scope, args... Value) (res Value, err error) {
-        // $(strip string)
+        return builtinTrimSpace(context, args...)
+}
+
+func builtinTrimSpace(context *Scope, args... Value) (res Value, err error) {
+        return builtinTrim(context, append([]Value{ UniversalNone }, args...)...)
+}
+
+func builtinTitle(context *Scope, args... Value) (res Value, err error) {
+        var list []Value
+        for _, a := range args {
+                if val, err := Disclose(context, Reveal(a)); err != nil {
+                        return nil, err
+                } else if val == nil {
+                        // discard
+                } else if s := val.String(); s != "" {
+                        list = append(list, strval(strings.Title(s)))
+                }
+        }
+        if err == nil {
+                res = toListOrValue(list)
+        }
+        return
+}
+
+func builtinTrim(context *Scope, args... Value) (res Value, err error) {
+        var (
+                list []Value
+                cutset string
+        )
+        for i, a := range args {
+                if val, err := Disclose(context, Reveal(a)); err != nil {
+                        return nil, err
+                } else if val == nil {
+                        // discard
+                } else if s := val.String(); s != "" {
+                        if i == 0 {
+                                cutset = s
+                        } else if cutset == "" {
+                                list = append(list, strval(strings.TrimSpace(s)))
+                        } else {
+                                list = append(list, strval(strings.Trim(s, cutset)))
+                        }
+                }
+        }
+        if err == nil {
+                res = toListOrValue(list)
+        }
+        return
+}
+
+func builtinTrimLeft(context *Scope, args... Value) (res Value, err error) {
+        var (
+                list []Value
+                cutset string
+        )
+        for i, a := range args {
+                if val, err := Disclose(context, Reveal(a)); err != nil {
+                        return nil, err
+                } else if val == nil {
+                        // discard
+                } else if s := val.String(); s != "" {
+                        if i == 0 {
+                                cutset = s
+                        } else if cutset == "" {
+                                list = append(list, strval(strings.TrimLeftFunc(s, unicode.IsSpace)))
+                        } else {
+                                list = append(list, strval(strings.TrimLeft(s, cutset)))
+                        }
+                }
+        }
+        if err == nil {
+                res = toListOrValue(list)
+        }
+        return
+}
+
+func builtinTrimRight(context *Scope, args... Value) (res Value, err error) {
+        var (
+                list []Value
+                cutset string
+        )
+        for i, a := range args {
+                if val, err := Disclose(context, Reveal(a)); err != nil {
+                        return nil, err
+                } else if val == nil {
+                        // discard
+                } else if s := val.String(); s != "" {
+                        if i == 0 {
+                                cutset = s
+                        } else if cutset == "" {
+                                list = append(list, strval(strings.TrimRightFunc(s, unicode.IsSpace)))
+                        } else {
+                                list = append(list, strval(strings.TrimRight(s, cutset)))
+                        }
+                }
+        }
+        if err == nil {
+                res = toListOrValue(list)
+        }
+        return
+}
+
+func builtinTrimPrefix(context *Scope, args... Value) (res Value, err error) {
+        var (
+                list []Value
+                cutset string
+        )
+        for i, a := range args {
+                if val, err := Disclose(context, Reveal(a)); err != nil {
+                        return nil, err
+                } else if val == nil {
+                        // discard
+                } else if s := val.String(); s != "" {
+                        if i == 0 {
+                                cutset = s
+                        } else if cutset == "" {
+                                list = append(list, strval(strings.TrimLeftFunc(s, unicode.IsSpace)))
+                        } else {
+                                list = append(list, strval(strings.TrimPrefix(s, cutset)))
+                        }
+                }
+        }
+        if err == nil {
+                res = toListOrValue(list)
+        }
+        return
+}
+
+func builtinTrimSuffix(context *Scope, args... Value) (res Value, err error) {
+        var (
+                list []Value
+                cutset string
+        )
+        for i, a := range args {
+                if val, err := Disclose(context, Reveal(a)); err != nil {
+                        return nil, err
+                } else if val == nil {
+                        // discard
+                } else if s := val.String(); s != "" {
+                        if i == 0 {
+                                cutset = s
+                        } else if cutset == "" {
+                                list = append(list, strval(strings.TrimRightFunc(s, unicode.IsSpace)))
+                        } else {
+                                list = append(list, strval(strings.TrimSuffix(s, cutset)))
+                        }
+                }
+        }
+        if err == nil {
+                res = toListOrValue(list)
+        }
+        return
+}
+
+func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
+        var (
+                list []Value
+                ext string
+        )
+        for i, a := range args {
+                if val, err := Disclose(context, Reveal(a)); err != nil {
+                        return nil, err
+                } else if val == nil {
+                        // discard
+                } else if s := val.String(); s != "" {
+                        if i == 0 && len(args) > 1 {
+                                ext = s
+                        } else if ext == "" {
+                                list = append(list, strval(strings.TrimSuffix(s, filepath.Ext(s))))
+                        } else if ext == filepath.Ext(s) {
+                                list = append(list, strval(strings.TrimSuffix(s, ext)))
+                        }
+                }
+        }
+        if err == nil {
+                res = toListOrValue(list)
+        }
         return
 }
 
@@ -353,13 +537,7 @@ func builtinDecodeBase64(context *Scope, args... Value) (res Value, err error) {
                                 return
                         }
                 }
-                if x := len(list); x == 0 {
-                        res = UniversalNone
-                } else if x == 1 {
-                        res = list[0]
-                } else {
-                        res = &List{Elements{list}}
-                }
+                res = toListOrValue(list)
         }
         return
 }
@@ -373,11 +551,7 @@ func builtinBase(context *Scope, args... Value) (Value, error) {
                 s = filepath.Base(a.Strval())
                 l = append(l, &String{s})
         }
-        if len(l) == 1 {
-                return l[0], nil
-        } else {
-                return &List{Elements{l}}, nil
-        }
+        return toListOrValue(l), nil
 }
 
 func builtinDirDir(context *Scope, args... Value) (Value, error) {
@@ -389,11 +563,7 @@ func builtinDirDir(context *Scope, args... Value) (Value, error) {
                 s = filepath.Dir(filepath.Dir(a.Strval()))
                 l = append(l, &String{s})
         }
-        if len(l) == 1 {
-                return l[0], nil
-        } else {
-                return &List{Elements{l}}, nil
-        }
+        return toListOrValue(l), nil
 }
 
 func builtinDir(context *Scope, args... Value) (Value, error) {
@@ -405,11 +575,7 @@ func builtinDir(context *Scope, args... Value) (Value, error) {
                 s = filepath.Dir(a.Strval())
                 l = append(l, &String{s})
         }
-        if len(l) == 1 {
-                return l[0], nil
-        } else {
-                return &List{Elements{l}}, nil
-        }
+        return toListOrValue(l), nil
 }
 
 func builtinNDir(context *Scope, args... Value) (Value, error) {
@@ -429,11 +595,7 @@ func builtinNDir(context *Scope, args... Value) (Value, error) {
                 }
                 l = append(l, &String{s})
         }
-        if len(l) == 1 {
-                return l[0], nil
-        } else {
-                return &List{Elements{l}}, nil
-        }
+        return toListOrValue(l), nil
 }
 
 func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
@@ -761,12 +923,8 @@ func builtinReadDir(context *Scope, args... Value) (res Value, err error) {
                         break //l = append(l, UniversalNone)
                 }
         }
-        if x := len(l); x == 0 {
-                //res = UniversalNone
-        } else if x == 1 {
-                res = l[0]
-        } else {
-                res = &List{Elements{l}}
+        if err == nil {
+                res = toListOrValue(l)
         }
         return
 }
@@ -781,12 +939,8 @@ func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
                         break //l = append(l, UniversalNone)
                 }
         }
-        if x := len(l); x == 0 {
-                //res = UniversalNone
-        } else if x == 1 {
-                res = l[0]
-        } else {
-                res = &List{Elements{l}}
+        if err == nil {
+                res = toListOrValue(l)
         }
         return
 }
