@@ -206,7 +206,7 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
                                 if neg { okay = !okay }
                                 if okay { elems = append(elems, v) }
                         }
-                        res = toListOrValue(elems)
+                        res = MakeListOrValue(elems)
                 }
         }
         if res == nil {
@@ -280,7 +280,7 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
                         }
                 }
         }
-        res = toListOrValue(list)
+        res = MakeListOrValue(list)
         return
 }
 
@@ -304,7 +304,7 @@ func builtinTitle(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(list)
+                res = MakeListOrValue(list)
         }
         return
 }
@@ -330,7 +330,7 @@ func builtinTrim(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(list)
+                res = MakeListOrValue(list)
         }
         return
 }
@@ -356,7 +356,7 @@ func builtinTrimLeft(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(list)
+                res = MakeListOrValue(list)
         }
         return
 }
@@ -382,7 +382,7 @@ func builtinTrimRight(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(list)
+                res = MakeListOrValue(list)
         }
         return
 }
@@ -408,7 +408,7 @@ func builtinTrimPrefix(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(list)
+                res = MakeListOrValue(list)
         }
         return
 }
@@ -434,7 +434,7 @@ func builtinTrimSuffix(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(list)
+                res = MakeListOrValue(list)
         }
         return
 }
@@ -460,7 +460,7 @@ func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(list)
+                res = MakeListOrValue(list)
         }
         return
 }
@@ -537,7 +537,7 @@ func builtinDecodeBase64(context *Scope, args... Value) (res Value, err error) {
                                 return
                         }
                 }
-                res = toListOrValue(list)
+                res = MakeListOrValue(list)
         }
         return
 }
@@ -551,7 +551,7 @@ func builtinBase(context *Scope, args... Value) (Value, error) {
                 s = filepath.Base(a.Strval())
                 l = append(l, &String{s})
         }
-        return toListOrValue(l), nil
+        return MakeListOrValue(l), nil
 }
 
 func builtinDirDir(context *Scope, args... Value) (Value, error) {
@@ -563,7 +563,7 @@ func builtinDirDir(context *Scope, args... Value) (Value, error) {
                 s = filepath.Dir(filepath.Dir(a.Strval()))
                 l = append(l, &String{s})
         }
-        return toListOrValue(l), nil
+        return MakeListOrValue(l), nil
 }
 
 func builtinDir(context *Scope, args... Value) (Value, error) {
@@ -575,7 +575,7 @@ func builtinDir(context *Scope, args... Value) (Value, error) {
                 s = filepath.Dir(a.Strval())
                 l = append(l, &String{s})
         }
-        return toListOrValue(l), nil
+        return MakeListOrValue(l), nil
 }
 
 func builtinNDir(context *Scope, args... Value) (Value, error) {
@@ -595,7 +595,7 @@ func builtinNDir(context *Scope, args... Value) (Value, error) {
                 }
                 l = append(l, &String{s})
         }
-        return toListOrValue(l), nil
+        return MakeListOrValue(l), nil
 }
 
 func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
@@ -924,7 +924,7 @@ func builtinReadDir(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(l)
+                res = MakeListOrValue(l)
         }
         return
 }
@@ -940,7 +940,7 @@ func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = toListOrValue(l)
+                res = MakeListOrValue(l)
         }
         return
 }

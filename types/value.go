@@ -1111,7 +1111,7 @@ func Closure(obj Object, args... Value) Value {
 
 func strval(s string) Value { return &String{s} }
 
-func toListOrValue(list []Value) (res Value) {
+func MakeListOrValue(list []Value) (res Value) {
         if x := len(list); x == 0 {
                 res = UniversalNone
         } else if x == 1 {

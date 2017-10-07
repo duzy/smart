@@ -339,6 +339,9 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
         if def := prog.scope.Lookup("@").(*types.Def); nargs == 0 {
                 targetVal, _ = def.Call()
         } else if nargs == 1 {
+                //switch targetVal = args[0]; t := targetVal.(type) {
+                //case *types.List: targetVal = t.Elems[0]
+                //}
                 targetVal = args[0]
                 def.Assign(targetVal)
         } else if nargs > 1 {
@@ -346,10 +349,20 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 return nil, &breaker{ s, false }
         }
 
-        //fmt.Printf("compare: %v (%v)\n", targetVal, types.Reveal(targetVal))
+        //fmt.Printf("compare: %v (%T)\n", targetVal, targetVal)
 
         if targetVal = types.Reveal(targetVal); targetVal == nil || targetVal.Type() == types.NoneType {
                 return nil, &breaker{ "compare: no target", false }
+        }
+
+        // deal with list.
+        switch t := targetVal.(type) {
+        case *types.List:
+                if n := t.Len(); n == 1 {
+                        targetVal = t.Elems[0]
+                } else {
+                        return nil, &breaker{ "wrong number of targets", false }
+                }
         }
 
         if depends, err = getCompareDepends(prog, context, targetVal); err != nil {
@@ -362,7 +375,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 prog.auto("^", depends)
         }
 
-        //fmt.Printf("compare: %v: %v\n", targetVal.Strval(), depends)
+        //fmt.Printf("compare: %v (%T), depends: %v\n", targetVal, targetVal, depends)
         
         // Comparing target with depends.
 
@@ -381,7 +394,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                         }
                 }
                 if targetFile == nil {
-                        err = &breaker{ fmt.Sprintf("compare: expects `*types.File' instead of `%T' (%v)", targetVal, targetVal), false }
+                        err = &breaker{ fmt.Sprintf("compare: expects `*types.File' target instead of `%T' (%v)", targetVal, targetVal), false }
                         return
                 } else if nargs == 1 {
                         // Replace the value of "$@"
