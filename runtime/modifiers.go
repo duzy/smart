@@ -367,10 +367,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
 
         if depends, err = getCompareDepends(prog, context, targetVal); err != nil {
                 return
-        } else if depends == nil || depends.Len() == 0 {
-                // Nothing to compare!
-                return
-        } else {
+        } else if depends != nil && depends.Len() > 0 {
                 prog.auto("<", depends.Get(0))
                 prog.auto("^", depends)
         }
@@ -408,15 +405,19 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 }
                 if fi := targetFile.Info; fi != nil {
                         tt = fi.ModTime()
+                } else {
+                        outdated = true; return
                 }
         }
-        for _, depend := range depends.Elems {
-                switch depend.(type) {
-                case *types.File:
-                        outdated, err = compareTargetDepend(prog, context, targetVal, depend, tt)
-                        //fmt.Printf("compare-target-depend: %v (%v)\n", outdated, err)
-                        if err != nil || outdated {
-                                return
+        if depends != nil {
+                for _, depend := range depends.Elems {
+                        switch depend.(type) {
+                        case *types.File:
+                                outdated, err = compareTargetDepend(prog, context, targetVal, depend, tt)
+                                //fmt.Printf("compare-target-depend: %v (%v)\n", outdated, err)
+                                if err != nil || outdated {
+                                        return
+                                }
                         }
                 }
         }
