@@ -49,7 +49,7 @@ var builtins = map[string]BuiltinFunc {
         `trim-ext`:    builtinTrimExt,
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-        //`subst`:      builtinSubst,
+        `subst`:      builtinSubst,
         `patsubst`:   builtinPatsubst,
 
         `filter`:     builtinFilter,
@@ -104,9 +104,12 @@ func EscapedString(v Value) (s string) {
 
 func builtinLogicalOr(context *Scope, args... Value) (Value, error) {
         for _, a := range args {
-                if val, err := Disclose(context, Reveal(a)); err != nil {
+                /*if val, err := Disclose(context, Reveal(a)); err != nil {
                         return nil, err
-                } else if val != nil && val.String() != "" {
+                } else if val == nil {*/
+                if val := Reveal(a); val == nil {
+                        // discard
+                } else if val.String() != "" {
                         return val, nil
                 }
         }
@@ -215,8 +218,21 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
         return
 }
 
+// $(subst from,to,text)
 func builtinSubst(context *Scope, args... Value) (res Value, err error) {
-        // $(subst from,to,text)
+        var list []Value
+        if nargs := len(args); nargs > 2 {
+                var (
+                        s1 = args[0].Strval()
+                        s2 = args[1].Strval()
+                )
+                for _, arg := range JoinReveal(args[2:]...) {
+                        list = append(list, &String{
+                                strings.Replace(arg.Strval(), s1, s2, -1),
+                        })
+                }
+        }
+        res = MakeListOrValue(list)
         return
 }
 
@@ -295,9 +311,10 @@ func builtinTrimSpace(context *Scope, args... Value) (res Value, err error) {
 func builtinTitle(context *Scope, args... Value) (res Value, err error) {
         var list []Value
         for _, a := range args {
-                if val, err := Disclose(context, Reveal(a)); err != nil {
+                /*if val, err := Disclose(context, Reveal(a)); err != nil {
                         return nil, err
-                } else if val == nil {
+                } else if val == nil {*/
+                if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
                         list = append(list, strval(strings.Title(s)))
@@ -315,9 +332,10 @@ func builtinTrim(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                if val, err := Disclose(context, Reveal(a)); err != nil {
+                /*if val, err := Disclose(context, Reveal(a)); err != nil {
                         return nil, err
-                } else if val == nil {
+                } else if val == nil {*/
+                if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
                         if i == 0 {
@@ -341,9 +359,10 @@ func builtinTrimLeft(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                if val, err := Disclose(context, Reveal(a)); err != nil {
+                /*if val, err := Disclose(context, Reveal(a)); err != nil {
                         return nil, err
-                } else if val == nil {
+                } else if val == nil {*/
+                if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
                         if i == 0 {
@@ -367,9 +386,10 @@ func builtinTrimRight(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                if val, err := Disclose(context, Reveal(a)); err != nil {
+                /*if val, err := Disclose(context, Reveal(a)); err != nil {
                         return nil, err
-                } else if val == nil {
+                } else if val == nil {*/
+                if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
                         if i == 0 {
@@ -393,9 +413,10 @@ func builtinTrimPrefix(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                if val, err := Disclose(context, Reveal(a)); err != nil {
+                /*if val, err := Disclose(context, Reveal(a)); err != nil {
                         return nil, err
-                } else if val == nil {
+                } else if val == nil {*/
+                if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
                         if i == 0 {
@@ -419,9 +440,10 @@ func builtinTrimSuffix(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                if val, err := Disclose(context, Reveal(a)); err != nil {
+                /*if val, err := Disclose(context, Reveal(a)); err != nil {
                         return nil, err
-                } else if val == nil {
+                } else if val == nil {*/
+                if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
                         if i == 0 {
@@ -445,9 +467,10 @@ func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
                 ext string
         )
         for i, a := range args {
-                if val, err := Disclose(context, Reveal(a)); err != nil {
+                /*if val, err := Disclose(context, Reveal(a)); err != nil {
                         return nil, err
-                } else if val == nil {
+                } else if val == nil {*/
+                if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
                         if i == 0 && len(args) > 1 {

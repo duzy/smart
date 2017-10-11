@@ -1544,14 +1544,39 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                 )
                 
                 switch t := x.(type) {
-                case *ast.Bareword:
+                /*case *ast.Bareword:
                         name, pos = t.Value, t.Pos()
-                        goto checkName
+                        goto checkName*/
                 case *ast.GroupExpr:
                         switch n := t.Elems[0].(type) {
                         case *ast.Bareword:
-                                name, pos = n.Value, n.Pos()
-                                goto checkName
+                                if name, pos = n.Value, n.Pos(); name != "var" {
+                                        goto checkName
+                                }
+                                for _, elem := range t.Elems[1:] {
+                                        //fmt.Printf("var: %T\n", elem)
+                                        kv, _ := elem.(*ast.KeyValueExpr)
+                                        if  kv == nil {
+                                                p.error(elem.Pos(), "bad var form (%T)", elem)
+                                                continue
+                                        }
+                                        v, e := p.runtime.Eval(kv.Key, disclosure)
+                                        if e == nil {
+                                                var name = v.Strval()
+                                                if sym, alt := p.runtime.Symbol(name, types.DefType); alt != nil {
+                                                        p.error(p.pos, "Name `%s' already taken (%T).", name, alt)
+                                                } else if sym == nil {
+                                                        // TODO: errors
+                                                } else if v, e = p.runtime.Eval(kv.Value, delegation); e == nil {
+                                                        sym.(*types.Def).Assign(v)
+                                                        //fmt.Printf("var: %v\n", sym)
+                                                }
+                                        }
+                                        if e != nil {
+                                                p.error(elem.Pos(), "bad var (%T, %v)", elem, e)
+                                        }
+                                }
+                                goto next
                         case *ast.GroupExpr:
                                 for _, elem := range n.Elems {
                                         //fmt.Printf("param: %T\n", elem)
@@ -1590,6 +1615,9 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                 p.error(n.Pos(), "unsupported dialect or modifier")
                                 goto next
                         }
+                default:
+                        p.error(x.Pos(), "unsupported modifier")
+                        goto next
                 }
                 goto addModifier
 
