@@ -109,7 +109,7 @@ func builtinLogicalOr(context *Scope, args... Value) (Value, error) {
                 } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
-                } else if val.String() != "" {
+                } else if strings.TrimSpace(val.Strval()) != "" {
                         return val, nil
                 }
         }
@@ -172,7 +172,7 @@ func builtinString(context *Scope, args... Value) (result Value, err error) {
         var s bytes.Buffer
         for i, a := range args {
                 if i > 0 { s.WriteString(" ") }
-                s.WriteString(a.String())
+                s.WriteString(a.Strval())
         }
         return &String{s.String()}, nil
 }
