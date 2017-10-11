@@ -73,8 +73,8 @@ var builtins = map[string]BuiltinFunc {
         // TODO: move these into builtin package `path', `filepath'
         `base`:       builtinBase,
         `dir`:        builtinDir,
+        `dirs`:       builtinDirs, // do `dir` n times
         `dirdir`:     builtinDirDir,
-        `ndir`:       builtinNDir,
 
         // TODO: move these into builtin package `os'
         `mkdir`:      builtinMkdir,     // os/file.go
@@ -578,15 +578,20 @@ func builtinDir(context *Scope, args... Value) (Value, error) {
         return MakeListOrValue(l), nil
 }
 
-func builtinNDir(context *Scope, args... Value) (Value, error) {
+func builtinDirs(context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
                 n = 0
         )
-        if len(args) > 0 {
-                n = int(args[0].Integer())
-                args = args[1:]
+        if x := len(args); x > 0 {
+                if v := Scalar(args[0], IntType); v != nil {
+                        args, n = args[1:], int(v.Integer())
+                } else if v := Scalar(args[x-1], IntType); v != nil {
+                        args, n = args[:x-1], int(v.Integer())
+                } else {
+                        return nil, errors.New("Require (first/last) integer argument")
+                }
         }
         for _, a := range args {
                 s = filepath.Dir(a.Strval())
