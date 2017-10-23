@@ -125,7 +125,6 @@ func (l *Loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
 
 func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
         var (
-                //scope = l.Scope()
                 linfo = l.loads[len(l.loads)-1]
                 specName string
                 params []types.Value
@@ -198,9 +197,9 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
                 }
                 err = l.useProject(spec.Props[0].Pos(), loaded)
         } else {
-                //fmt.Printf("%v (%v)\n", specName, absPath)
+                fmt.Printf("not loaded: %v (%v)\n", specName, absPath)
                 for k, v := range l.loaded {
-                        fmt.Printf("  loaded: %v (%v)\n", v.Name(), k)
+                        fmt.Printf("   loaded: %v (%v)\n", v.Name(), k)
                 }
                 unreachable()
         }

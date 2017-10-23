@@ -48,6 +48,8 @@ var builtins = map[string]BuiltinFunc {
         `trim-suffix`: builtinTrimSuffix,
         `trim-ext`:    builtinTrimExt,
 
+        `indent`:      builtinIndent,
+
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
         `subst`:      builtinSubst,
         `patsubst`:   builtinPatsubst,
@@ -485,6 +487,29 @@ func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
         if err == nil {
                 res = MakeListOrValue(list)
         }
+        return
+}
+
+func builtinIndent(context *Scope, args... Value) (res Value, err error) {
+        var (
+                l []Value
+                s string // indent
+        )
+        if x := len(args); x > 0 {
+                if v := Scalar(args[0], IntType); v != nil {
+                        args, s = args[1:], strings.Repeat(" ", int(v.Integer()))
+                } else {
+                        return nil, errors.New("Require (first/last) integer argument")
+                }
+        }
+        for _, a := range args {
+                var lines []string
+                for _, line := range strings.Split(a.Strval(), "\n") {
+                        lines = append(lines, s + line)
+                }
+                l = append(l, &String{strings.Join(lines, "\n")})
+        }
+        res = MakeListOrValue(l)
         return
 }
 

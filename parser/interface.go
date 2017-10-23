@@ -7,7 +7,6 @@ package parser
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -145,7 +144,7 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 			}
 			return buf.Bytes(), nil
 		}
-		return nil, errors.New("invalid source")
+		return nil, fmt.Errorf("invalid source")
 	}
 	return ioutil.ReadFile(filename)
 }
@@ -272,12 +271,26 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 
 	mods = make(map[string]*ast.Project)
 	for _, d := range list {
-                sm := d.Mode().IsRegular() &&
-                       !strings.HasPrefix(d.Name(), ".#") &&
+                filename, mo := filepath.Join(path, d.Name()), d.Mode()
+                if mo&os.ModeSymlink != 0 {
+                        if s, err := os.Readlink(filename); err != nil {
+                                return nil, err
+                        } else {
+                                if !filepath.IsAbs(s) {
+                                        s = filepath.Join(path, s)
+                                }
+                                if fi, err := os.Lstat(s); err != nil {
+                                        return nil, err
+                                } else {
+                                        mo = fi.Mode()
+                                }
+                        }
+                }
+                sm := mo.IsRegular() &&
+                        !strings.HasPrefix(d.Name(), ".#") &&
                         strings.HasSuffix(d.Name(), ".smart") || 
                         strings.HasSuffix(d.Name(), ".sm")
 		if sm && (filter == nil || filter(d)) {
-			filename := filepath.Join(path, d.Name())
 			if src, err := c.ParseFile(fset, filename, nil, mode|parsingDir); err == nil {
 				name := src.Name.Value
 				mod, found := mods[name]
