@@ -236,6 +236,9 @@ func (p *Elements) discloseElems(scope *Scope) ([]Value, int, error) {
         var num = 0 
         for _, elem := range p.Elems {
                 //fmt.Printf("discloseElems: %T %v\n", elem, elem)
+                if elem == nil {
+                        continue
+                }
                 if v, e := elem.disclose(scope); e != nil {
                         return nil, 0, e
                 } else if v != nil {

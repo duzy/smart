@@ -274,13 +274,13 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
                 filename, mo := filepath.Join(path, d.Name()), d.Mode()
                 if mo&os.ModeSymlink != 0 {
                         if s, err := os.Readlink(filename); err != nil {
-                                return nil, err
+                                continue
                         } else {
                                 if !filepath.IsAbs(s) {
                                         s = filepath.Join(path, s)
                                 }
                                 if fi, err := os.Lstat(s); err != nil {
-                                        return nil, err
+                                        continue
                                 } else {
                                         mo = fi.Mode()
                                 }
