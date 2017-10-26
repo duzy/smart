@@ -29,6 +29,8 @@ var builtins = map[string]BuiltinFunc {
         `not`:   builtinLogicalNot,
 
         `if`:    builtinBranchIf, */
+
+        `env`:     builtinEnv,
         
         `print`:   builtinPrint,
         `printl`:  builtinPrintl,
@@ -36,6 +38,9 @@ var builtins = map[string]BuiltinFunc {
 
         `plus`:    builtinPlus,
         `minus`:   builtinMinus,
+
+        `field`:   builtinField,
+        `fields`:  builtinFields,
 
         `string`:  builtinString,
         `strip`:   builtinStrip,
@@ -118,6 +123,18 @@ func builtinLogicalOr(context *Scope, args... Value) (Value, error) {
         return nil, nil
 }
 
+func builtinEnv(context *Scope, args... Value) (Value, error) {
+        var vals []Value
+        for _, a := range args {
+                if val := Reveal(a); val == nil {
+                        // discard
+                } else if s := strings.TrimSpace(val.Strval()); s != "" {
+                        vals = append(vals, &String{os.Getenv(s)})
+                }
+        }
+        return MakeListOrValue(vals), nil
+}
+
 func builtinPrint(context *Scope, args... Value) (Value, error) {
         var x = len(args)
         for i, a := range args {
@@ -168,6 +185,29 @@ func builtinMinus(context *Scope, args... Value) (result Value, err error) {
                 }
         }
         return &Int{integer{num}}, nil
+}
+
+func builtinField(context *Scope, args... Value) (Value, error) {
+        if l := len(args); l >= 2 {
+                n := int(args[0].Integer())
+                s := args[1].Strval()
+                var fields []string
+                if l > 2 {
+                        fields = strings.Split(s, args[2].Strval())
+                } else {
+                        fields = strings.Fields(s)
+                }
+                if 0 <= n && n < len(fields) {
+                        s = strings.TrimSpace(fields[n])
+                        return &String{s}, nil
+                }
+        }
+        return nil, nil
+}
+
+func builtinFields(context *Scope, args... Value) (Value, error) {
+        // TODO: ...
+        return nil, nil
 }
 
 func builtinString(context *Scope, args... Value) (result Value, err error) {
