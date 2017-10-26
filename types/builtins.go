@@ -189,7 +189,7 @@ func builtinMinus(context *Scope, args... Value) (result Value, err error) {
 
 func builtinField(context *Scope, args... Value) (Value, error) {
         if l := len(args); l >= 2 {
-                n := int(args[0].Integer())
+                n := int(args[0].Integer()) - 1 // starting from 1
                 s := args[1].Strval()
                 var fields []string
                 if l > 2 {
