@@ -126,7 +126,9 @@ func CommandLine() {
 		}
         }()
 
-        flag.Parse()
+        if !flag.Parsed() {
+                flag.Parse()
+        }
 
         var (
                 base, _ = os.Getwd()
@@ -134,6 +136,7 @@ func CommandLine() {
                 sp = filepath.Join(base, ".smart", "modules")
 
                 i = New()
+
                 at = i.Globe().NewProject(nil, base, rel, ".", "@")
                 as = at.Scope()
 
@@ -214,18 +217,7 @@ func CommandLine() {
 
         restoreLoadingInfo(i)
 
-        if false {
-                var s3 = filepath.Join(base, "build.smart")
-                if fi, err := os.Stat(s3); err == nil && fi.Mode().IsRegular() {
-                        if err = i.Load(s3, nil); err != nil {
-                                scanner.PrintError(os.Stderr, err)
-                                return
-                        }
-                } else if err = i.LoadDir(base, nil); err != nil {
-                        scanner.PrintError(os.Stderr, err)
-                        return
-                }
-        } else if err := i.LoadDir(base, nil); err != nil {
+        if err := i.LoadDir(base, nil); err != nil {
                 scanner.PrintError(os.Stderr, err)
                 return
         }

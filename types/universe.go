@@ -176,6 +176,17 @@ func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m
                 scope: scope,
         }
         if name != "@" && g.main == nil {
+                for outer != nil && outer != g.scope {
+                        if p := outer.FindProject(); p == nil {
+                                // fmt.Printf("NewProject: %v -> %v\n", outer, name)
+                        } else if p.Name() == "@" {
+                                // fmt.Printf("NewProject: @ -> %v\n", name)
+                                return
+                        } else {
+                                // fmt.Printf("NewProject: %v -> %v\n", p.Name(), name)
+                        }
+                        outer = outer.outer
+                }
                 g.main = m
         }
         return

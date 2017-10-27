@@ -192,8 +192,8 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
                                         def.Append(pn)
                                 }
                         }
-                        err = l.useProject(spec.Props[0].Pos(), loaded)
                 }
+                err = l.useProject(spec.Props[0].Pos(), loaded)
         } else {
                 fmt.Printf("not loaded: %v (%v)\n", specName, absPath)
                 for k, v := range l.loaded {

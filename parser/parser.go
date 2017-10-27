@@ -565,7 +565,7 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                 var err error
                 if value, err = o.Get(valueName); err != nil {
                         p.error(s.Pos(), err)
-                        p.error(x.Pos(), "Selection `%s.%s' failed.", operandName, valueName)
+                        p.error(x.Pos(), "Selection `%s->%s' failed.", operandName, valueName)
                 } else if value == nil {
                         p.error(s.Pos(), "No such property `%s' in `%s'.", valueName, operandName)
                 } else if pn, _ := o.(*types.ProjectName); pn != nil {
