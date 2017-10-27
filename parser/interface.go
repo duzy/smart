@@ -270,27 +270,33 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
         }()
 
 	mods = make(map[string]*ast.Project)
-	for _, d := range list {
-                filename, mo := filepath.Join(path, d.Name()), d.Mode()
-                if mo&os.ModeSymlink != 0 {
-                        if s, err := os.Readlink(filename); err != nil {
-                                continue
+	ListLoop: for _, d := range list {
+                filename, mo, linked := filepath.Join(path, d.Name()), d.Mode(), ""
+                for fn := filename; mo&os.ModeSymlink != 0; {
+                        if s, err := os.Readlink(fn); err != nil {
+                                continue ListLoop
                         } else {
                                 if !filepath.IsAbs(s) {
                                         s = filepath.Join(path, s)
                                 }
                                 if fi, err := os.Lstat(s); err != nil {
-                                        continue
+                                        continue ListLoop
                                 } else {
-                                        mo = fi.Mode()
+                                        mo, linked = fi.Mode(), s
+                                        fn = linked
                                 }
                         }
                 }
-                sm := mo.IsRegular() &&
-                        !strings.HasPrefix(d.Name(), ".#") &&
-                        strings.HasSuffix(d.Name(), ".smart") || 
-                        strings.HasSuffix(d.Name(), ".sm")
-		if sm && (filter == nil || filter(d)) {
+
+                if strings.HasPrefix(d.Name(), ".#") ||
+                        (!strings.HasSuffix(d.Name(), ".smart") &&
+                        !strings.HasSuffix(d.Name(), ".sm")) {
+                        continue
+                } else if d.Name() == "config.sm" && (len(linked) > 0 || mo.IsDir()) {
+                        //fmt.Printf
+                }
+
+		if mo.IsRegular() && (filter == nil || filter(d)) {
 			if src, err := c.ParseFile(fset, filename, nil, mode|parsingDir); err == nil {
 				name := src.Name.Value
 				mod, found := mods[name]
