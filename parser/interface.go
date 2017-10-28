@@ -12,10 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+        "unicode/utf8"
         "fmt"
         "github.com/duzy/smart/ast"
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
+        "github.com/duzy/smart/values"
 )
 
 const optSortErrors = false
@@ -71,10 +73,9 @@ type RuntimeContext interface {
         DeclareProject(name *ast.Bareword, params types.Value) error
         CloseCurrentProject(name *ast.Bareword) error
 
+        OpenNamedScope(name, comment string) (ast.Scope, error)
         OpenScope(comment string) ast.Scope
         CloseScope(scope ast.Scope) error
-
-        WithScope(scope ast.Scope, f func() error) error
 
         ClauseImport(spec *ast.ImportSpec) error
         ClauseInclude(spec *ast.IncludeSpec) error
@@ -221,6 +222,78 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 	return
 }
 
+func (c *Context) ParseConfigDir(pathname, linked string) (err error) {
+	fd, err := os.Open(linked)
+	if err != nil {
+		return
+	}
+	defer fd.Close()
+
+	list, err := fd.Readdir(-1)
+	if err != nil {
+		return
+	} else if len(list) == 0 {
+                return
+        }
+
+        var (
+                sym RuntimeObj
+                wd = c.runtime.Getwd()
+                rel , _ = filepath.Rel(wd, pathname)
+                ident = filepath.Base(pathname)
+        )
+        if ident == "_" {
+                return fmt.Errorf("invalid package name %s", ident)
+        }
+
+        scope, err := c.runtime.OpenNamedScope(ident, fmt.Sprintf("config %s", pathname))
+        if err != nil {
+                return
+        }
+        defer func() {
+                err = c.runtime.CloseScope(scope)
+        }()
+
+        sym, _ = c.runtime.Symbol("/", types.DefType)
+        sym.(*types.Def).Assign(values.String(pathname))
+
+        sym, _ = c.runtime.Symbol(".", types.DefType)
+        sym.(*types.Def).Assign(values.String(rel))
+
+	ListLoop: for _, d := range list {
+                var name = d.Name()
+                if strings.HasPrefix(name, ".#") || 
+                        strings.HasSuffix(name, "~") {
+                        // strings.HasSuffix(name, ".smart")
+                        // strings.HasSuffix(name, ".sm")
+                        continue ListLoop
+                }
+                var fullname = filepath.Join(linked, name)
+                if d.IsDir() {
+                        if err = c.ParseConfigDir(filepath.Join(pathname, name), fullname); err != nil {
+                                return
+                        }
+                } else if s, a := c.runtime.Symbol(name, types.DefType); a != nil {
+                        return fmt.Errorf("declare project: %v", err)
+                } else if def, _ := s.(*types.Def); def != nil {
+                        if v, e := ioutil.ReadFile(fullname); e == nil {
+                                if s := string(v); utf8.ValidString(s) {
+                                        def.SetOrigin(types.ImmediateDef)
+                                        def.Assign(values.String(s))
+                                        //fmt.Printf("%s: %v = %v\n", ident, name, s)
+                                } else {
+                                        return fmt.Errorf("%s: invalid UTF8 content", fullname)
+                                }
+                        } else {
+                                return e
+                        }
+                } else if s != nil {
+                        return fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
+                }
+        }
+        return
+}
+
 // ParseDir calls ParseFile for all files with names ending in ".go" in the
 // directory specified by path and returns a map of package name -> package
 // AST with all the packages found.
@@ -292,8 +365,14 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
                         (!strings.HasSuffix(d.Name(), ".smart") &&
                         !strings.HasSuffix(d.Name(), ".sm")) {
                         continue
-                } else if d.Name() == "config.sm" && (len(linked) > 0 || mo.IsDir()) {
-                        //fmt.Printf
+                } else if s := d.Name(); (s == "config.smart" || s == "config.sm") && (len(linked) > 0 || mo.IsDir()) {
+                        if err := c.ParseConfigDir(filepath.Dir(filename), linked); err != nil {
+                                if first == nil {
+                                        first = err
+                                }
+                                return
+                        }
+                        continue ListLoop
                 }
 
 		if mo.IsRegular() && (filter == nil || filter(d)) {

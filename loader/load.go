@@ -195,11 +195,10 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
                 }
                 err = l.useProject(spec.Props[0].Pos(), loaded)
         } else {
-                fmt.Printf("not loaded: %v (%v)\n", specName, absPath)
+                fmt.Fprintf(os.Stderr, "not loaded: %v (%v)\n", specName, absPath)
                 for k, v := range l.loaded {
-                        fmt.Printf("   loaded: %v (%v)\n", v.Name(), k)
+                        fmt.Fprintf(os.Stderr, "   loaded: %v (%v)\n", v.Name(), k)
                 }
-                unreachable()
         }
         return
 }
@@ -812,6 +811,7 @@ func (l *Loader) declareProject(ident *ast.Bareword, params types.Value) (err er
                 dec, ok = linfo.declares[name]
         )
         //fmt.Printf("declareProject: %v (%v) %v, %v\n", ident.Value, linfo.absPath(), l.scope, l.project)
+        //fmt.Printf("declareProject: %v->%v, %v\n", l.project.Name(), ident.Value, l.scope)
         if !ok {
                 var (
                         outer = l.scope
@@ -1040,21 +1040,32 @@ func (pc *parseContext) CloseCurrentProject(ident *ast.Bareword) error {
         return pc.closeCurrentProject(ident)
 }
 
+func (pc *parseContext) OpenNamedScope(name, comment string) (ast.Scope, error) {
+        if pc.scope == nil {
+                return nil, fmt.Errorf("no parent scope (%v)", comment)
+        }
+        
+        var (
+                outer = pc.scope
+                scope = types.NewScope(outer, comment)
+        )
+        if strings.HasPrefix(outer.Comment(), "dir ") {
+                outer = outer.Outer() // discard dir scope
+        }
+
+        //fmt.Printf("OpenNamedScope: %v %v %v\n", name, pc.scope, pc.scope.Outer())
+
+        outer.InsertScopeName(pc.project, name, scope)
+        pc.scope = scope
+        return pc.scope, nil
+}
+
 func (pc *parseContext) OpenScope(comment string) ast.Scope {
         return pc.openScope(comment)
 }
 
 func (pc *parseContext) CloseScope(as ast.Scope) error {
         return pc.closeScope(as)
-}
-
-func (pc *parseContext) WithScope(scope ast.Scope, f func() error) error {
-        restore := pc.scope
-        pc.scope = scope.(*types.Scope)
-        defer func() {
-                pc.scope = restore
-        }()
-        return f()
 }
 
 func (pc *parseContext) ClauseImport(spec *ast.ImportSpec) error {
