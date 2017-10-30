@@ -1612,7 +1612,7 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                 }
                                 goto checkName
                         default:
-                                p.error(n.Pos(), "unsupported dialect or modifier")
+                                p.error(n.Pos(), "unsupported dialect or modifier (%T)", t.Elems[0])
                                 goto next
                         }
                 default:

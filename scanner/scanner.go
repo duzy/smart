@@ -890,7 +890,11 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.next()
                         }
                 case '-':
-                        if s.ch == '>' {
+                        if s.ch == '-' { // "-->" => "-", "->"
+                                if s.readOffset < len(s.src) && s.src[s.readOffset] == '>' {
+                                        tok, lit = token.BAREWORD, "-"
+                                }
+                        } else if s.ch == '>' {
                                 tok = token.SELECT
                                 s.next()
                                 //s.skipPostLineFeeds = true
