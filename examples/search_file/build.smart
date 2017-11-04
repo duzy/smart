@@ -8,20 +8,20 @@ eval println /////opt///foobar
 eval println .///foo///bar
 
 files (
-    '*.cpp' => "$./src"
-    '*.o' => "$./obj"
-    'hello'
+    *.cpp => $./src
+    *.o => $./obj
+    hello
 )
 
-run:[(stderr) (stdout) (shell)]: hello
+run:[(shell -oe)]: hello
 	./hello
 
-hello:[(compare) (stderr) (shell)]: hello.o
+hello:[(compare) (shell -e)]: hello.o
 	$(LINK) $^ -o $@
 
-hello.o:[(compare) (stderr) (shell)]: hello.cpp
+hello.o:[(compare) (shell -e)]: hello.cpp
 	$(COMPILE) $< -o $@
 
 # TODO: using 'files' scheme
-clean:[shell]:
+clean:[(shell)]:
 	rm -f obj/*.o hello

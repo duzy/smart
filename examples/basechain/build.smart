@@ -2,11 +2,11 @@ project (./base)
 
 GREETING := 'Hello World!'
 
-eval println "test:" $a $b $c 
+eval println "test:" $(a) $(b) $(c) 
 eval println "test:" $/ 
 eval println "test:" $. 
 
-run:[(stderr) (stdout) (shell)]: hello
+run:[(shell -oe)]: hello
 	./bin/hello
 
 hello.cpp:[(plain c++) (update-file)]
@@ -16,5 +16,5 @@ hello.cpp:[(plain c++) (update-file)]
 	    return 0;
 	}
 
-clean:[(stderr) (stdout) (shell)]
+clean:[(shell -oe)]
 	@rm -vf bin/hello obj/*.o src/hello.cpp

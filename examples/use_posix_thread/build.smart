@@ -1,26 +1,26 @@
 project
 
 import (
-    'tools/gcc/c++'
-    'posix/thread'
+    tools/gcc/c++
+    posix/thread
 )
 
-files '*.o' '*.cpp' 'example'
+files *.o *.cpp example
 
 GREETING := 'Hello World!'
 
-eval println "CPPFLAGS = $CPPFLAGS"
+eval println "CPPFLAGS = $(CPPFLAGS)"
 
-run:[(stdout) (stderr) (shell)]: example
+run:[(shell -oe)]: example
 	./example
 
-example:[(compare) (stderr) (shell)]: example.o
-	$(LINK) $^ -o $@ $(LDLIBS)
+example:[(shell -oe)]: example.o
+	$(LINK) $^ -o $@ $(LDLIBS) $(LOADLIBES)
 
-example.o:[(compare) (stderr) (shell)]: example.cpp
+example.o:[(compare) (shell -e)]: example.cpp
 	$(COMPILE) $< -o $@
 
-example.cpp:[(plain) (update-file)]
+example.cpp:[(plain c++) (update-file)]
 	#include <iostream>
 	#include <pthread.h>
 	int main(int argc, char** argv) {

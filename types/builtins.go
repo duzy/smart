@@ -22,6 +22,10 @@ import (
 type BuiltinFunc func(context *Scope, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
+        `error`: builtinError,
+
+        `assert-valid`: builtinAssertValid,
+
         `or`:    builtinLogicalOr,
         /* TODO:
         `and`:   builtinLogicalAnd,
@@ -107,6 +111,24 @@ func EscapedString(v Value) (s string) {
                 s = v.Strval()
         }
         return
+}
+
+func builtinError(context *Scope, args... Value) (Value, error) {
+        var s bytes.Buffer
+        for _, a := range args {
+                fmt.Fprintf(&s, "%s", a.Strval())
+        }
+        fmt.Fprintf(os.Stderr, "error: %v\n", s.String())
+        return nil, fmt.Errorf("%v", s.String())
+}
+
+func builtinAssertValid(context *Scope, args... Value) (Value, error) {
+        for _, a := range args {
+                if s := a.Strval(); s == "" {
+                        return nil, fmt.Errorf("invalid value")
+                }
+        }
+        return nil, nil
 }
 
 func builtinLogicalOr(context *Scope, args... Value) (Value, error) {

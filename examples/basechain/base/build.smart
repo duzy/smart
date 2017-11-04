@@ -1,12 +1,12 @@
 project base
 
 import (
-    'tools/gcc/c++'
+    tools/gcc/c++
 )
 
 files (
-    '*.o' => obj
-    '*.cpp' => src
+    *.o => obj
+    *.cpp => src
     hello => bin
 )
 
@@ -14,8 +14,8 @@ a := value a
 b := value b
 c := value c
 
-hello:[(cd) (compare) (stderr) (shell)]: hello.o
+hello:[(cd) (compare) (shell -e)]: hello.o
 	$(LINK) $^ -o $@
 
-hello.o:[(cd) (compare) (stderr) (shell)]: hello.cpp
+hello.o:[(cd) (compare) (shell -e)]: hello.cpp
 	$(COMPILE) $< -o $@

@@ -1,0 +1,6 @@
+project
+
+dir = default-dir
+
+foo:[(cd &(dir))]: &(dir)/foobar
+	println &(dir)

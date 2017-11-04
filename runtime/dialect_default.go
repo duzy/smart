@@ -27,16 +27,13 @@ LoopRecipes:
                 switch stmt := recipe.(type) {
                 case *types.None:
                 case *types.List:
-                        if stmt.Len() == 0 {
-                                continue
-                        }
+                        if stmt.Len() == 0 { continue }
                         var (
                                 v = stmt.Get(0)
                                 e error
                         )
                         switch t := v.(type) {
-                        case *types.Def:
-                                // Noop, just return to the caller.
+                        case *types.Def: // Noop, just return v to the caller.
 
                         case types.Caller:
                                 v, e = t.Call(stmt.Slice(1)...)
@@ -51,17 +48,11 @@ LoopRecipes:
                                         }
                                 }
 
-                        /*case yield:
-                                if stmt.Len() == 1 {
-                                        list.Append(v)
-                                } else {
-                                        list.Append(recipe)
-                                }*/
-
                         default:
                                 err = errors.New(fmt.Sprintf("Unknown recipe command `%v' (%T)", t, t))
                                 break LoopRecipes
                         }
+
                         if e == nil && v != nil {
                                 list.Append(v)
                                 if g, _ := v.(*types.Group); g != nil {
@@ -80,6 +71,7 @@ LoopRecipes:
                                 fmt.Fprintf(os.Stderr, "%v\n", e)
                                 err = e; break LoopRecipes
                         }
+
                 default:
                         fmt.Fprintf(os.Stderr, "fatal: unsupported recipe: %v (%T)\n", recipe, recipe)
                         panic("unreachable")

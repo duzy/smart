@@ -1,8 +1,8 @@
 project
 
 files (
-    '*.o'
-    '*.c'
+    *.o
+    *.c
 )
 
 run: \
@@ -12,13 +12,13 @@ run: \
 	println "$@ $^"
 
 foo:[((arg)) (shell)]: foobar.o(test)
-	echo -n 'arg' $arg $(1)
+	echo -n 'arg' $(arg) $(1)
 
-foobar.o:[((arg)) (shell)]: print-arg($arg)
-	echo -n $arg
+foobar.o:[((arg)) (shell)]: print-arg($(arg))
+	echo -n $(arg)
 
 print-arg:[((arg))]
-	println "arg: $arg"
+	println "arg: $(arg)"
 
 clean:
 	println "clean..."

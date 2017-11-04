@@ -1,8 +1,8 @@
 project (tools/gcc/c)
 
 files (
-    '*.cpp' '*.cc' '*.C'
-    '*.hpp' '*.hh' '*.H'
+    *.cpp *.cc *.C
+    *.hpp *.hh *.H
 )
 
 CXX = g++
@@ -52,5 +52,9 @@ use:
 	COMPILE = $(COMPILE)
 	ARCHIVE = $(ARCHIVE)
 	
-	LOADLIBES = $(LOADLIBES)
+	CPPFLAGS = $(CPPFLAGS)
+	CXXFLAGS = $(CXXFLAGS)
+	
+	LDFLAGS = $(LDFLAGS)
 	LDLIBS = $(LDLIBS)
+	LOADLIBES = $(LOADLIBES)

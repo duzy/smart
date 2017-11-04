@@ -4,9 +4,9 @@
 package main
 
 import (
-        "github.com/duzy/smart/interpreter"
+        "github.com/duzy/smart/loader"
 )
 
 func main() {
-        interpreter.CommandLine()
+        loader.CommandLine()
 }

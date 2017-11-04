@@ -1,6 +1,10 @@
 *~
 *.6
 *.5
+
+.smart/
+_/
+
 /make/out
 /make/tests/work
 /smart
@@ -30,5 +34,3 @@
 
 /.emacs.desktop
 /.emacs.desktop.lock
-
-/_

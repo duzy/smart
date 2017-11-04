@@ -455,57 +455,61 @@ func (l *Loader) exprs(exprs []ast.Expr) (values []types.Value, err error) {
         return
 }
 
-func (l *Loader) useProject(pos token.Pos, project *types.Project) error {
-        var entry *types.RuleEntry
-        use := project.Scope().Lookup("use")
-        if use == nil {
-                return errors.New(fmt.Sprintf("Project `%v' has no 'use' package.", project.Name()))
+func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
+        var (
+                entry *types.RuleEntry
+                obj types.Object
+        )
+        if use := usee.Scope().Lookup("use"); use == nil {
+                return errors.New(fmt.Sprintf("Project `%v' has no 'use' package.", usee.Name()))
+        } else if sn, ok := use.(*types.ScopeName); !ok || sn == nil {
+                return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' package (%T).", usee.Name(), use))
+        } else if obj = sn.Scope().Lookup(":"); obj == nil {
+                return nil // The use entry is not defined.
         }
-        if sn, ok := use.(*types.ScopeName); ok && sn != nil {
-                // Get the 'use' rule entry in the 'use' scope. 
-                if obj := sn.Scope().Lookup(":"); obj != nil {
-                        //fmt.Printf("useProject: %T\n", obj)
-                        if entry, _ = obj.(*types.RuleEntry); entry == nil {
-                                return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' entry (%T).", project.Name(), obj))
-                        } else {
-                                results, err := entry.Execute(l.scope)
-                                if err != nil {
-                                        return err
-                                }
-                                for _, result := range results {
-                                        if result.Type() != types.ListType {
-                                                continue
-                                        }
-                                        for _, elem := range result.(*types.List).Elems {
-                                                def, ok := elem.(*types.Def)
-                                                if !ok || def == nil {
-                                                        continue
-                                                }
 
-                                                //fmt.Printf("%v: %v\n", l.project.Name(), elem)
-                                                newd, alt := l.project.Scope().InsertDef(l.project, def.Name(), values.None)
-                                                if alt != nil {
-                                                        if d, _ := alt.(*types.Def); d == nil {
-                                                                return errors.New(fmt.Sprintf("Name `%s' already taken in project `%s' (%T).", def.Name(), alt, l.project.Name()))
-                                                        } else {
-                                                                newd = d
-                                                        }
-                                                }
-                                                if newd != nil {
-                                                        // Append the delegate.
-                                                        newd.Append(types.Delegate(def))
-                                                }
-                                        }
-                                }
-                                return nil
+        //fmt.Printf("useProject: %T %v\n", obj, obj.Strval())
+        if entry, _ = obj.(*types.RuleEntry); entry == nil {
+                return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' entry (%T).", usee.Name(), obj))
+        }
+
+        results, err := entry.Execute(l.scope)
+        if err != nil {
+                return err
+        }
+
+        for _, result := range results {
+                if result.Type() != types.ListType {
+                        continue
+                }
+                for _, elem := range result.(*types.List).Elems {
+                        def, ok := elem.(*types.Def)
+                        if !ok || def == nil {
+                                continue
                         }
-                } else {
-                        //fmt.Printf("useProject: %v\n", sn.Scope())
-                        // The 'use' rule entry is not defined.
-                        return nil
+
+                        //fmt.Printf("%v: %v\n", l.project.Name(), elem)
+                        //fmt.Printf("useProject: %v: %v\n", l.project.Name(), def)
+
+                        newd, alt := l.project.Scope().InsertDef(l.project, def.Name(), values.None)
+                        if alt != nil {
+                                if d, _ := alt.(*types.Def); d == nil {
+                                        return errors.New(fmt.Sprintf("Name `%s' already taken in project `%s' (%T).", def.Name(), alt, l.project.Name()))
+                                } else {
+                                        newd = d
+                                }
+                        }
+                        if newd == nil {
+                                return errors.New(fmt.Sprintf("Cannot define `%s' in project `%s'.", def.Name(), l.project.Name()))
+                        }
+
+                        // Append the delegate.
+                        newd.Append(types.Delegate(def))
+
+                        //fmt.Printf("useProject: %v: %v (%s: %s)\n", l.project.Name(), newd, usee.Name(), def.Strval())
                 }
         }
-        return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' package (%T).", project.Name(), use))
+        return nil
 }
 
 func (l *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
