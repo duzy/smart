@@ -118,35 +118,65 @@ func (l *Loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
         return
 }
 
-func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
+func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
         var (
                 linfo = l.loads[len(l.loads)-1]
                 specName string
                 params []types.Value
+                useList []types.Value
                 nouse bool
         )
+        errArg = -1 // means no wrong args
         if 0 < len(spec.Props) {
                 if ee, ok := spec.Props[0].(*ast.EvaluatedExpr); ok && ee.Data != nil {
                         specName = ee.Data.(types.Value).Strval()
                 } else {
-                        return ErrorIllImport
+                        return ErrorIllImport, -1
                 }
-                for _, prop := range spec.Props[1:] {
+                for i, prop := range spec.Props[1:] {
                         if ee, ok := prop.(*ast.EvaluatedExpr); ok && ee.Data != nil {
+                                // -param
+                                // -param(value)
+                                // -param=value
                                 v := ee.Data.(types.Value)
-                                switch s := v.Strval(); s {
-                                case "nouse": nouse = true
-                                default: params = append(params, v)
+                                switch t := v.(type) {
+                                case *types.Flag:
+                                        switch s := t.Name.Strval(); s {
+                                        case "nouse": nouse = true
+                                        default: params = append(params, v)
+                                        }
+                                case *types.Pair: // -param=value
+                                        switch tt := t.Key.(type) {
+                                        case *types.Flag:
+                                                switch s := tt.Name.Strval(); s {
+                                                case "use": useList = append(useList, t.Value)
+                                                default: params = append(params, v)
+                                                }
+                                        default:
+                                                return fmt.Errorf("parameter `%v' unsupported (%T)", v, v), i+1
+                                        }
+                                case *types.Argumented: // -param(value)
+                                        switch tt := t.Value.(type) {
+                                        case *types.Flag:
+                                                switch s := tt.Name.Strval(); s {
+                                                case "use": useList = append(useList, t.Args...)
+                                                default: params = append(params, v)
+                                                }
+                                        default:
+                                                return fmt.Errorf("parameter `%v' unsupported (%T)", v, v), i+1
+                                        }
+                                default:
+                                        return fmt.Errorf("parameter `%v' unsupported (%T)", v, v), i+1
                                 }
                         } else {
-                                return ErrorIllImport
+                                return ErrorIllImport, i+1
                         }
                 }
         }
 
         if specName == "" {
                 //fmt.Printf("%v: import %v\n", doc.Name, spec.Props)
-                return ErrorIllImport
+                return ErrorIllImport, -1
         }
 
         var (
@@ -157,7 +187,7 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
                 return
         } else if absPath == "" {
                 l.parseWarn(spec.Pos(), "missing '%s' (in %v)", specName, l.paths)
-                return fmt.Errorf("'%s' not found", specName)
+                return fmt.Errorf("'%s' not found", specName), -1
         }
 
         //fmt.Printf("import: %s (%s,dir=%v) (%v)\n", specName, absPath, isDir, l.project.Name())
@@ -170,21 +200,33 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
         if err != nil || nouse {
                 return
         }
-        
+
         if loaded, _ := l.loaded[absPath]; loaded != nil {
                 scope := l.project.Scope()
                 pn, _ := scope.Lookup(loaded.Name()).(*types.ProjectName)
                 if pn == nil {
                         l.parseWarn(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, scope)
-                        return fmt.Errorf("'%s' not found (%s)", specName, loaded.Name())
+                        return fmt.Errorf("'%s' not found (%s)", specName, loaded.Name()), -1
                 }
+                // Add loaded project to the use list ('$(use->*)')
                 if sn, _ := scope.Lookup("use").(*types.ScopeName); sn != nil {
                         if alt := sn.Scope().Insert(pn); alt != nil {
-                                return fmt.Errorf("'%s' already defined in %v", specName, sn.Scope())
+                                return fmt.Errorf("'%s' already defined in %v", specName, sn.Scope()), -1
                         }
                         if _, alt := sn.Scope().InsertDef(l.project, "*"/* use list */, pn); alt != nil {
                                 if def, _ := alt.(*types.Def); def != nil {
-                                        def.Append(pn)
+                                        // If there's no explicit use list, we just add
+                                        // the ProjectName pn, so that the default entry
+                                        // will be executed. Or the specified use list
+                                        // will be used.
+                                        if len(useList) == 0 {
+                                                def.Append(pn)
+                                        } else {
+                                                for _, usee := range useList {
+                                                        // TODO: find usee in pn scope
+                                                        if usee == nil {}
+                                                }
+                                        }
                                 }
                         }
                 }
@@ -498,8 +540,10 @@ func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
                         return fmt.Errorf("Cannot define `%s' in project `%s'.", def.Name(), l.project.Name())
                 }
 
-                // Append the delegate.
-                newDef.Append(types.Delegate(def))
+                // Append the delegate if not referenced yet.
+                if !types.Refs(newDef, def) {
+                        newDef.Append(types.Delegate(def))
+                }
 
                 //fmt.Printf("useProject: %s: %s: %v (%s)\n", l.project.Name(), usee.Name(), newDef, def.Strval())
         }
@@ -510,6 +554,7 @@ func (l *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
         var (
                 scope = l.project.Scope()
                 project = pn.Project()
+                //useList []types.Value
         )
         if project == nil {
                 return fmt.Errorf("%v is nil", pn)
@@ -532,6 +577,7 @@ func (l *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
         } else {
                 return nil //fmt.Errorf("'use' scope is not in %s", scope)
         }
+
         return l.useProject(pos, project)
 }
 
@@ -1066,7 +1112,7 @@ func (pc *parseContext) CloseScope(as ast.Scope) error {
         return pc.closeScope(as)
 }
 
-func (pc *parseContext) ClauseImport(spec *ast.ImportSpec) error {
+func (pc *parseContext) ClauseImport(spec *ast.ImportSpec) (error, int) {
         return pc.loadImportSpec(spec)
 }
 

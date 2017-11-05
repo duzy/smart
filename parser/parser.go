@@ -1116,8 +1116,12 @@ func isValidImport(lit string) bool {
 
 func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
 	spec := &ast.ImportSpec{ p.parseDirectiveSpec() }
-        if err := p.runtime.ClauseImport(spec); err != nil {
-                p.error(spec.Pos(), err)
+        if err, n := p.runtime.ClauseImport(spec); err != nil {
+                if n < 0 {
+                        p.error(spec.Pos(), err)
+                } else {
+                        p.error(spec.Props[n].Pos(), err)
+                }
         } else {
                 p.imports = append(p.imports, spec)
         }

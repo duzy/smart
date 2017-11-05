@@ -194,7 +194,9 @@ func (prog *Program) prepareDepend(project *types.Project, context *types.Scope,
         case *types.Barefile, *types.File, *types.Path:
                 err = prog.prepareHandleName(project, context, entry, true, d.Strval(), depend, args, dependList)
         case *types.ProjectName:
-                if depent := d.Project().DefaultEntry(); depent != nil {
+                // Use the default entry of the project (if not 'use' (":") entry)
+                if depent := d.Project().DefaultEntry(); depent != nil && depent.Name() != ":" {
+                        //fmt.Printf("Program.prepareDepend: %T %v\n", depent, depent)
                         err = prog.prepareDepend(project, context, entry, isFile, depent, args, dependList)
                 }
         case *types.PercentPattern:
@@ -206,7 +208,7 @@ func (prog *Program) prepareDepend(project *types.Project, context *types.Scope,
         case *types.RuleEntry:
                 err = prog.prepareHandleEntry(project, context, entry, isFile, d, args, dependList)
         case *types.None:
-                // ...
+                // just discard it
         default:
                 err = errors.New(fmt.Sprintf("Unknown depend `%T' (%v) (by `%s').", d, d, entry.Name()))
         }

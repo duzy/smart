@@ -22,6 +22,8 @@ LINK-cc = &(CXX) &(CXXFLAGS) &(CPPFLAGS) &(LDFLAGS) &(TARGET_ARCH)
 LINK-o = &(CXX) &(LDFLAGS) &(TARGET_ARCH)
 LINK = $(LINK-cc)
 
+# TODO: Derived projects must use $(c++->LINK) now, should allow $(LINK).
+
 nothing:
 
 program:[(cd) ((bin objects)) (compare $(bin)) (shell -oe)]: $(objects)
@@ -48,7 +50,6 @@ lib.a:[(cd) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
 #	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 use:
-	foo = 
 	LINK = $(LINK)
 	COMPILE = $(COMPILE)
 	ARCHIVE = $(ARCHIVE)

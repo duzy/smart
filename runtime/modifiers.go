@@ -276,7 +276,7 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
                 case *types.File:
                         depends.Append(d)
                 default:
-                        Fail("compare: unsupported depend `%T' (%v)", depend, depend)
+                        Fail("compare: unsupported depend `%T' (%v) (%v)", depend, depend, prog.depends)
                 }
         }
         return

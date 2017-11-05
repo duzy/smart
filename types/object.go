@@ -194,6 +194,7 @@ func (d *Def) disclose(scope *Scope) (Value, error) {
 }
 
 func (d *Def) referencing(o Object) bool {
+        if d == o { return true }
         return d.Value.referencing(o)
 }
 

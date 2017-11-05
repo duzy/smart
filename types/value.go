@@ -621,7 +621,11 @@ func (p *delegate) Type() Type         { return DelegateType }
 func (p *delegate) String() (s string) {
         var na = len(p.a)
         s = "$("
-        // FIXME: needs the original name value to represent the original form
+        if sc := p.o.Parent(); sc != nil && sc.Comment() == "use"/*use scope*/ {
+                s += sc.Comment() + "->"
+        } else if pp := p.o.Project(); pp != nil {
+                s += pp.Name() + "->"
+        }
         s += p.o.Name()
         if na > 0 {
                 s += " "
@@ -712,7 +716,7 @@ func (p *delegate) discloseArgs(scope *Scope) (args []Value, err error) {
 }
 
 func (p *delegate) referencing(o Object) bool {
-        if p.o == o {
+        if p.o == o || p.o.referencing(o) {
                 return true
         }
         for _, a := range p.a {
@@ -1109,6 +1113,10 @@ func Closure(obj Object, args... Value) Value {
                 panic("closure of nil")
         }
         return &closure{ obj, args }
+}
+
+func Refs(a Value, o Object) bool {
+        return a.referencing(o)
 }
 
 func strval(s string) Value { return &String{s} }

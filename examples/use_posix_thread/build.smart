@@ -11,6 +11,7 @@ GREETING := 'Hello World!'
 
 eval println "CPPFLAGS: $(CPPFLAGS)"
 eval println "LDLIBS: $(LDLIBS)"
+eval println "LOADLIBES: $(LOADLIBES)"
 
 # If -lpthread is linked, the example prints "Hello World!".
 # If -lpthread is NOT linked, the pthread_self() is zero, it's an error!

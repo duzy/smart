@@ -77,7 +77,7 @@ type RuntimeContext interface {
         OpenScope(comment string) ast.Scope
         CloseScope(scope ast.Scope) error
 
-        ClauseImport(spec *ast.ImportSpec) error
+        ClauseImport(spec *ast.ImportSpec) (error, int) // (error, wrong arg num)
         ClauseInclude(spec *ast.IncludeSpec) error
         ClauseUse(spec *ast.UseSpec) error
         ClauseEval(spec *ast.EvalSpec) error
