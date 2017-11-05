@@ -22,7 +22,7 @@ LINK-cc = &(CXX) &(CXXFLAGS) &(CPPFLAGS) &(LDFLAGS) &(TARGET_ARCH)
 LINK-o = &(CXX) &(LDFLAGS) &(TARGET_ARCH)
 LINK = $(LINK-cc)
 
-ignore:
+nothing:
 
 program:[(cd) ((bin objects)) (compare $(bin)) (shell -oe)]: $(objects)
 	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
@@ -48,6 +48,7 @@ lib.a:[(cd) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
 #	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 use:
+	foo = 
 	LINK = $(LINK)
 	COMPILE = $(COMPILE)
 	ARCHIVE = $(ARCHIVE)

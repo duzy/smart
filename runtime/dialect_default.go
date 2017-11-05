@@ -33,7 +33,9 @@ LoopRecipes:
                                 e error
                         )
                         switch t := v.(type) {
-                        case *types.Def: // Noop, just return v to the caller.
+                        case *types.Def:
+                                // Noop, just return v to the caller.
+                                //fmt.Printf("dialectDefault: def: %s: %p %v (%s)\n", prog.project.Name(), t, t, t.Strval())
 
                         case types.Caller:
                                 v, e = t.Call(stmt.Slice(1)...)

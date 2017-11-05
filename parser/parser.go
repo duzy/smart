@@ -65,7 +65,6 @@ type parser struct {
 	// Non-syntactic parser control
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
-        inUseRule bool // parsing use recipe
 
         bits parsingBits
         
@@ -149,7 +148,7 @@ func (p *parser) consumeComment() (comment *ast.Comment, endline int) {
 	// /*-style comments may end on a different line than where they start.
 	// Scan the comment for '\n' chars and adjust endline accordingly.
 	endline = p.file.Line(p.pos)
-	if p.lit[1] == '*' {
+	if len(p.lit) > 1 && p.lit[1] == '*' {
 		// don't use range here - no need to decode Unicode code points
 		for i := 0; i < len(p.lit); i++ {
 			if p.lit[i] == '\n' {
@@ -159,7 +158,7 @@ func (p *parser) consumeComment() (comment *ast.Comment, endline int) {
 	}
 
 	comment = &ast.Comment{Sharp: p.pos, Text: p.lit}
-	p.next0()
+        p.next0()
 
 	return
 }
@@ -897,16 +896,6 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         Name: x,
                 }
 
-        /*case token.PLUS:
-                tok, pos := p.tok, p.pos
-                p.next()
-                x := p.checkExpr(p.parseExpr(false))
-                return &ast.UnaryExpr{
-                        OpPos: pos,
-                        Op: tok,
-                        X: x,
-                }*/
-
         case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, 
              token.IMPORT, token.INSTANCE, token.FILES:
                 if p.inRhs || p.bits&composingNoKeyword != 0 {
@@ -1324,20 +1313,25 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
 
         // Create the definition.
         if v, e := p.runtime.Eval(ident, disclosure); e == nil {
-                name := v.Strval()
+                var name string
+                switch t := v.(type) {
+                case types.Object: //*types.Def, *types.RuleEntry:
+                        name = t.Name() // name is previously defined (e.g. in another scope)
+                        ident = &ast.Bareword{ ident.Pos(), name }
+                default: //case *types.Bareword:
+                        name = v.Strval()
+                }
 
                 // If doing '+=', the assignment will concate the value of the
-                // symbol from the other scope with new one. But when working in
-                // 'use' rule, this concation will not applied.
-                if tok == token.ADD_ASSIGN && !p.inUseRule {
+                // symbol from the other scope with new one.
+                if tok == token.ADD_ASSIGN {
                         if sym := p.runtime.Resolve(name, anywhere); sym != nil {
                                 prev, _ = sym.(*types.Def)
                         }
                 }
                 
                 // Always work in the current runtime scope, so it won't affect
-                // any base symbols. If p.inUseRule is set, it will be defining
-                // a Definer in the 'use' rule scope. 
+                // any base symbols.
                 if s, a := p.runtime.Symbol(name, types.DefType); a != nil {
                         switch tok {
                         case token.ASSIGN, token.EXC_ASSIGN:
@@ -1359,11 +1353,13 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 } else {
                         p.error(ident.Pos(), "Failed defining `%s' (%v).", name, v)
                 }
+
+                //fmt.Printf("define: %s: %T %v\n", name, value, value)
         } else {
                 p.error(ident.Pos(), e)
                 p.error(ident.Pos(), "error declosing name %T", ident)
         }
-        
+       
         var bits = delegation // assumes types.DefaultDef
         switch tok {
         case token.ADD_ASSIGN: // +=
@@ -1386,7 +1382,6 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         def.SetOrigin(types.DefaultDef)
                 }
                 bits = delegation
-                // TODO: deal with p.inUseRule
         case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
                 if def != nil {
                         def.SetOrigin(types.ImmediateDef)
@@ -1396,6 +1391,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 p.error(pos, "Unsuported assign `%v'", tok)
                 def, bits = nil, EvalBits(-1)
         }
+
         if bits != EvalBits(-1) && def != nil {
                 if v, e := p.runtime.Eval(value, bits); e == nil {
                         switch tok {
@@ -1418,7 +1414,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 }
         }
 
-        return &ast.DefineClause{ 
+        return &ast.DefineClause{
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
@@ -1429,33 +1425,32 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         }
 }
 
-func (p *parser) parseBuiltinRecipeExpr(first ast.Expr, elems []ast.Expr) (x ast.Expr) {
-        // Do left-hand-side parsing if in use rule
-        switch {
-        case p.tok.IsAssign():
-                d := p.parseDefineClause(p.tok, first).(*ast.DefineClause)
-                x = &ast.RecipeDefineClause{ d }
+func (p *parser) parseRecipeDefineClause(x ast.Expr) ast.Expr {
+        // TODO: validate x ...
+        d := p.parseDefineClause(p.tok, x).(*ast.DefineClause)
+        return &ast.RecipeDefineClause{ d }
+}
 
-        case p.tok.IsRuleDelim():
-                var names = []ast.Expr{ first }
-                names = append(names, elems...)
-                d := p.parseRuleClause(p.tok, names).(*ast.RuleClause)
-                x = &ast.RecipeRuleClause{ d }
+func (p *parser) parseRecipeRuleClause(elems []ast.Expr) (x ast.Expr) {
+        var names = elems
+        d := p.parseRuleClause(p.tok, names).(*ast.RuleClause)
+        x = &ast.RecipeRuleClause{ d }
+        return
+}
 
-        default:
-                x = p.parseExpr(p.inUseRule)
-                if v, e := p.runtime.Eval(x, delegation/*disclosure*/); e != nil {
-                        p.error(x.Pos(), "%v (%T)", e, x)
-                } else if v != nil {
-                        x = &ast.EvaluatedExpr{ x, v }
-                } else {
-                        p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
-                }
+func (p *parser) parseRecipeBuiltin(elems []ast.Expr) (x ast.Expr) {
+        x = p.parseExpr(true) // Do left-hand-side parsing if in use rule
+        if v, e := p.runtime.Eval(x, delegation/*disclosure*/); e != nil {
+                p.error(x.Pos(), "%v (%T)", e, x)
+        } else if v != nil {
+                x = &ast.EvaluatedExpr{ x, v }
+        } else {
+                p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
         }
         return
 }
 
-func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
+func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
 	if p.trace {
 		defer un(trace(p, "Recipe"))
 	}
@@ -1467,36 +1462,36 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
                 pos = p.pos
         )
 
-        switch dialect {
+        SwitchDialect: switch dialect {
         case "":
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE and parse in list mode
-                p.inUseRule = isUseRule
                 if p.tok != token.LINEND && p.tok != token.EOF {
-                        x := p.parseExpr(p.inUseRule)
-                        if v, e := p.runtime.Eval(x, delegation/*disclosure*/); e != nil {
+                        x := p.parseExpr(true) // parse first expr of recipe
+                        if v, e := p.runtime.Eval(x, delegation); e != nil {
                                 p.error(x.Pos(), "%v (%T)", e, x)
-                        } else if v != nil {
-                                switch v.(type) {
-                                case *types.RuleEntry:
-                                default:
-                                        if name := v.Strval(); name == "" {
-                                                //p.error(x.Pos(), "Empty recipe command `%v' (%T).", v, x)
-                                        } else if sym := p.runtime.Resolve(name, anywhere); sym == nil {
-                                                //p.error(x.Pos(), "Undefined recipe command `%v' (%v, %T).", name, v, v)
-                                        } else {
-                                                v = sym.(types.Value)
-                                        }
-                                }
-                                x = &ast.EvaluatedExpr{ x, v }
-                        } else {
+                        } else if v == nil {
                                 p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
+                        } else {
+                                x = &ast.EvaluatedExpr{ x, v }
                         }
-                        
-                        cmdarg := new(ast.ListExpr)
+
+                        if p.tok.IsAssign() {
+                                elems = append(elems, p.parseRecipeDefineClause(x))
+                                break SwitchDialect
+                        }
+
                         elems = append(elems, x)
+                        cmdarg := new(ast.ListExpr)
                         for p.tok != token.LINEND && p.tok != token.EOF {
-                                cmdarg.Elems = append(cmdarg.Elems, p.parseBuiltinRecipeExpr(elems[0], cmdarg.Elems))
+                                if p.tok.IsRuleDelim() {
+                                        x = p.parseRecipeRuleClause(elems)
+                                        // assert(p.tok == token.LINEND || <DONE>)
+                                } else {
+                                        x = p.parseRecipeBuiltin(elems)
+                                }
+
+                                cmdarg.Elems = append(cmdarg.Elems, x)
                                 if p.tok == token.COMMA {
                                         p.next()
                                         elems = append(elems, cmdarg)
@@ -1509,7 +1504,6 @@ func (p *parser) parseRecipeExpr(dialect string, isUseRule bool) ast.Expr {
                         }
                         elems = append(elems, cmdarg)
                 }
-                p.inUseRule = false
 
         default:
                 p.next() // skip RECIPE and parse in line-string mode
@@ -1825,7 +1819,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         
         // Parse recipes in the program scope.
         for p.tok == token.RECIPE {
-                recipes = append(recipes, p.parseRecipeExpr(dialect, isUseRule))
+                recipes = append(recipes, p.parseRecipeExpr(dialect))
         }
 
         program = &ast.ProgramExpr{

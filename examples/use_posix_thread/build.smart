@@ -9,8 +9,11 @@ files *.o *.cpp example
 
 GREETING := 'Hello World!'
 
-eval println "CPPFLAGS = $(CPPFLAGS)"
+eval println "CPPFLAGS: $(CPPFLAGS)"
+eval println "LDLIBS: $(LDLIBS)"
 
+# If -lpthread is linked, the example prints "Hello World!".
+# If -lpthread is NOT linked, the pthread_self() is zero, it's an error!
 run:[(shell -oe)]: example
 	./example
 
@@ -25,8 +28,11 @@ example.cpp:[(plain c++) (update-file)]
 	#include <pthread.h>
 	int main(int argc, char** argv) {
 	    pthread_t self = pthread_self();
-	    std::cout << "$(GREETING)" << std::endl;
-	    std::cout << "self: " << self << std::endl;
+	    if (self == 0) {
+	        std::cout << __FILE__<<":"<<__LINE__ << ": pthread_self() is zero (-lpthread not linked)!" << std::endl;
+	    } else {
+	        std::cout << "$(GREETING)" << std::endl;
+	    }
 	    return 0;
 	}
 

@@ -16,14 +16,9 @@ import (
         "path/filepath"
         //"os/exec"
         "strings"
-        "errors"
         //"bytes"
         "fmt"
         "os"
-)
-
-const (
-        ignoreRuleName = "ignore"
 )
 
 var parseMode = parser.DeclarationErrors //|parser.Trace
@@ -75,7 +70,7 @@ func (l *Loader) parseWarn(pos token.Pos, s string, a... interface{}) {
 func (l *Loader) searchSpecPath(linfo *loadinfo, specName string) (absPath string, isDir bool, err error) {
         var fi os.FileInfo
         if specName == "." {
-                err = errors.New("Not possible to chain itself.")
+                err = fmt.Errorf("Not possible to chain itself.")
         } else if abs := filepath.IsAbs(specName); abs || 
                 strings.HasPrefix(specName, "../") || specName == ".." ||
                 strings.HasPrefix(specName, "./") {
@@ -162,7 +157,7 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
                 return
         } else if absPath == "" {
                 l.parseWarn(spec.Pos(), "missing '%s' (in %v)", specName, l.paths)
-                return errors.New(fmt.Sprintf("'%s' not found", specName))
+                return fmt.Errorf("'%s' not found", specName)
         }
 
         //fmt.Printf("import: %s (%s,dir=%v) (%v)\n", specName, absPath, isDir, l.project.Name())
@@ -181,11 +176,11 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error) {
                 pn, _ := scope.Lookup(loaded.Name()).(*types.ProjectName)
                 if pn == nil {
                         l.parseWarn(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, scope)
-                        return errors.New(fmt.Sprintf("'%s' not found (%s)", specName, loaded.Name()))
+                        return fmt.Errorf("'%s' not found (%s)", specName, loaded.Name())
                 }
                 if sn, _ := scope.Lookup("use").(*types.ScopeName); sn != nil {
                         if alt := sn.Scope().Insert(pn); alt != nil {
-                                return errors.New(fmt.Sprintf("'%s' already defined in %v", specName, sn.Scope()))
+                                return fmt.Errorf("'%s' already defined in %v", specName, sn.Scope())
                         }
                         if _, alt := sn.Scope().InsertDef(l.project, "*"/* use list */, pn); alt != nil {
                                 if def, _ := alt.(*types.Def); def != nil {
@@ -209,7 +204,7 @@ func (l *Loader) closuredelegate(x *ast.ClosureDelegate) (obj types.Object, args
                 return nil, nil, err
         }
         if x.Resolved == nil {
-                err = errors.New(fmt.Sprintf("Unresolved reference `%s'.", name))
+                err = fmt.Errorf("Unresolved reference `%s'.", name)
                 return
         }
 
@@ -221,34 +216,34 @@ func (l *Loader) closuredelegate(x *ast.ClosureDelegate) (obj types.Object, args
                 if x.Tok.IsClosure() || x.Tok.IsDelegate() {
                         tok = token.LPAREN
                 } else {
-                        err = errors.New(fmt.Sprintf("Unregonized closure/delegate (%v).", x.Tok))
+                        err = fmt.Errorf("Unregonized closure/delegate (%v).", x.Tok)
                 }
         default:
-                err = errors.New(fmt.Sprintf("Unregonized closure/delegate (%v, %v).", x.TokLp, x.Tok))
+                err = fmt.Errorf("Unregonized closure/delegate (%v, %v).", x.TokLp, x.Tok)
         }
 
         switch tok {
         case token.LPAREN:
                 def, _ := x.Resolved.(types.Caller)
                 if def == nil {
-                        err = errors.New(fmt.Sprintf("Uncallable `%s' resolved (%T).", name, x.Resolved))
+                        err = fmt.Errorf("Uncallable `%s' resolved (%T).", name, x.Resolved)
                         return
                 } else if obj = def.(types.Object); obj == nil {
-                        err = errors.New(fmt.Sprintf("Non-object callable `%s' resolved (%T).", name, def))
+                        err = fmt.Errorf("Non-object callable `%s' resolved (%T).", name, def)
                         return
                 }
         case token.LBRACE:
                 exe, _ := x.Resolved.(types.Executer)
                 if exe == nil {
-                        err = errors.New(fmt.Sprintf("Unexecutible `%s' resolved (%T).", name, x.Resolved))
+                        err = fmt.Errorf("Unexecutible `%s' resolved (%T).", name, x.Resolved)
                         return
                 } else if obj = exe.(types.Object); obj == nil {
-                        err = errors.New(fmt.Sprintf("Non-object executible `%s' resolved (%T).", name, exe))
+                        err = fmt.Errorf("Non-object executible `%s' resolved (%T).", name, exe)
                         return
                 }
         default:
                 if err == nil {
-                        err = errors.New(fmt.Sprintf("Unregonized closure/delegate (%v, %v).", x.TokLp, x.Tok))
+                        err = fmt.Errorf("Unregonized closure/delegate (%v, %v).", x.TokLp, x.Tok)
                 }
                 return
         }
@@ -258,7 +253,7 @@ func (l *Loader) closuredelegate(x *ast.ClosureDelegate) (obj types.Object, args
                         err = e
                         return
                 } else if a == nil {
-                        err = errors.New(fmt.Sprintf("nil closure arg `%T'", e))
+                        err = fmt.Errorf("nil closure arg `%T'", e)
                         return
                 } else {
                         args = append(args, a)
@@ -288,13 +283,6 @@ func (l *Loader) recipe(x *ast.RecipeExpr) (v types.Value, err error) {
                 v = values.None
         } else if x.Dialect == "" {
                 var elems []types.Value
-                /*switch t := x.Elems[0].(type) {
-                case *ast.Bareword:
-                case *ast.UseDefineClause:
-                default: 
-                        s := fmt.Sprintf("Unsupported recipe command (%T)", t)
-                        return nil, errors.New(s)
-                }*/
                 if a, err := l.exprs(x.Elems); err != nil {
                         return nil, err
                 } else {
@@ -311,7 +299,7 @@ func (l *Loader) recipe(x *ast.RecipeExpr) (v types.Value, err error) {
 
 func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
         if expr == nil {
-                //err = errors.New("nil expr")
+                //err = fmt.Errorf("nil expr")
                 return
         }
         switch x := expr.(type) {
@@ -319,7 +307,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 if x.Data != nil {
                         v = x.Data.(types.Value)
                 } else {
-                        err = errors.New(fmt.Sprintf("Expr `%T' evaluated to nil.", x.Expr))
+                        err = fmt.Errorf("Expr `%T' evaluated to nil.", x.Expr)
                         return
                 }
         case *ast.ArgumentedExpr:
@@ -368,7 +356,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 case token.PCON:   v = values.PathSeg('/')
                 case token.PERIOD: v = values.PathSeg('.')
                 case token.DOTDOT: v = values.PathSeg('^') // 
-                default: err := errors.New(fmt.Sprintf("Unsupported PathSeg `%v'.", x.Tok))
+                default: err := fmt.Errorf("Unsupported PathSeg `%v'.", x.Tok)
                         return nil, err
                 }
         case *ast.FlagExpr:
@@ -415,31 +403,36 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 }
         case *ast.RecipeDefineClause:
                 //fmt.Printf("RecipeDefineClause: %s: %T %v\n", l.project.Name(), x.Sym, x.Sym)
-                if name, err := l.expr(x.Name); err != nil {
+                var name types.Value
+                if name, err = l.expr(x.Name); err != nil {
                         return nil, err
-                } else if name != nil {
-                        def, _ := x.Sym.(*types.Def)
-                        if def == nil {
-                                err = errors.New(fmt.Sprintf("Symbol `%s' undefined in %v", def.Name(), def.Parent()))
-                                return nil, err
-                        }
-                        
-                        // TODO: check l.scope.Lookup(name.Strval()).(*Def)
-                        if def.Name() != name.Strval() {
-                                err = errors.New(fmt.Sprintf("Symbol `%s' differs from `%s'", name.Strval(), def.Name()))
-                                return nil, err
-                        }
-                        
-                        if o := def.Parent().Lookup(def.Name()); o != def {
-                                err = errors.New(fmt.Sprintf("Symbol `%s' undefined in %v", def.Name(), def.Parent()))
-                                return nil, err
-                        }
-
-                        v = def
+                } else if name == nil {
+                        err = fmt.Errorf("Expr value is nil `%T'", expr)
+                        return nil, err
                 }
+
+                def, _ := x.Sym.(*types.Def)
+                if def == nil {
+                        err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.Parent())
+                        return nil, err
+                }
+                
+                if def.Name() != name.Strval() {
+                        err = fmt.Errorf("Symbol `%s' differs from `%s'", name.Strval(), def.Name())
+                        return nil, err
+                }
+
+                // Double-check the symbol in the scope.
+                if o := def.Parent().Lookup(def.Name()); o != def {
+                        err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.Parent())
+                        return nil, err
+                }
+
+                //fmt.Printf("expr: RecipeDefineClause: %s: %p/%p %T %v\n", l.project.Name(), x.Sym, def, x.Sym, x.Sym)
+                v = def
         }
-        if v == nil {
-                err = errors.New(fmt.Sprintf("Expr value is nil `%T'", expr))
+        if v == nil && err == nil {
+                err = fmt.Errorf("Expr value is nil `%T'", expr)
         }
         return
 }
@@ -461,16 +454,16 @@ func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
                 obj types.Object
         )
         if use := usee.Scope().Lookup("use"); use == nil {
-                return errors.New(fmt.Sprintf("Project `%v' has no 'use' package.", usee.Name()))
+                return fmt.Errorf("Project `%v' has no 'use' package.", usee.Name())
         } else if sn, ok := use.(*types.ScopeName); !ok || sn == nil {
-                return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' package (%T).", usee.Name(), use))
+                return fmt.Errorf("Project `%v' has invalid 'use' package (%T).", usee.Name(), use)
         } else if obj = sn.Scope().Lookup(":"); obj == nil {
                 return nil // The use entry is not defined.
         }
 
         //fmt.Printf("useProject: %T %v\n", obj, obj.Strval())
         if entry, _ = obj.(*types.RuleEntry); entry == nil {
-                return errors.New(fmt.Sprintf("Project `%v' has invalid 'use' entry (%T).", usee.Name(), obj))
+                return fmt.Errorf("Project `%v' has invalid 'use' entry (%T).", usee.Name(), obj)
         }
 
         results, err := entry.Execute(l.scope)
@@ -478,36 +471,37 @@ func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
                 return err
         }
 
+        var defs []*types.Def
         for _, result := range results {
-                if result.Type() != types.ListType {
-                        continue
-                }
-                for _, elem := range result.(*types.List).Elems {
-                        def, ok := elem.(*types.Def)
-                        if !ok || def == nil {
-                                continue
-                        }
-
-                        //fmt.Printf("%v: %v\n", l.project.Name(), elem)
-                        //fmt.Printf("useProject: %v: %v\n", l.project.Name(), def)
-
-                        newd, alt := l.project.Scope().InsertDef(l.project, def.Name(), values.None)
-                        if alt != nil {
-                                if d, _ := alt.(*types.Def); d == nil {
-                                        return errors.New(fmt.Sprintf("Name `%s' already taken in project `%s' (%T).", def.Name(), alt, l.project.Name()))
-                                } else {
-                                        newd = d
+                switch result.Type() {
+                case  types.ListType:
+                        for _, elem := range result.(*types.List).Elems {
+                                if def, ok := elem.(*types.Def); ok && def != nil {
+                                        defs = append(defs, def)
                                 }
                         }
-                        if newd == nil {
-                                return errors.New(fmt.Sprintf("Cannot define `%s' in project `%s'.", def.Name(), l.project.Name()))
-                        }
-
-                        // Append the delegate.
-                        newd.Append(types.Delegate(def))
-
-                        //fmt.Printf("useProject: %v: %v (%s: %s)\n", l.project.Name(), newd, usee.Name(), def.Strval())
                 }
+        }
+        for _, def := range defs {
+                //fmt.Printf("%v: %v\n", l.project.Name(), elem)
+                //fmt.Printf("useProject: %v: %v\n", l.project.Name(), def)
+
+                newDef, alt := l.project.Scope().InsertDef(l.project, def.Name(), values.None)
+                if alt != nil {
+                        if d, _ := alt.(*types.Def); d == nil {
+                                return fmt.Errorf("Name `%s' already taken in project `%s' (%T).", def.Name(), alt, l.project.Name())
+                        } else {
+                                newDef = d
+                        }
+                }
+                if newDef == nil {
+                        return fmt.Errorf("Cannot define `%s' in project `%s'.", def.Name(), l.project.Name())
+                }
+
+                // Append the delegate.
+                newDef.Append(types.Delegate(def))
+
+                //fmt.Printf("useProject: %s: %s: %v (%s)\n", l.project.Name(), usee.Name(), newDef, def.Strval())
         }
         return nil
 }
@@ -518,7 +512,7 @@ func (l *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
                 project = pn.Project()
         )
         if project == nil {
-                return errors.New(fmt.Sprintf("%v is nil", pn))
+                return fmt.Errorf("%v is nil", pn)
         }
         
         // FIXME: defined used project in represented order
@@ -527,7 +521,7 @@ func (l *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
                         if alt.Type().Kind() == types.ProjectNameKind {
                                 l.parseInfo(pos, "'%s' already used", pn.Name())
                         } else {
-                                return errors.New(fmt.Sprintf("'%s' already defined in %s", pn.Name(), sn.Scope()))
+                                return fmt.Errorf("'%s' already defined in %s", pn.Name(), sn.Scope())
                         }
                 }
                 if _, alt := sn.Scope().InsertDef(l.project, "*"/* use list */, pn); alt != nil {
@@ -536,7 +530,7 @@ func (l *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
                         }
                 }
         } else {
-                return nil //errors.New(fmt.Sprintf("'use' scope is not in %s", scope))
+                return nil //fmt.Errorf("'use' scope is not in %s", scope)
         }
         return l.useProject(pos, project)
 }
@@ -547,13 +541,13 @@ func (l *Loader) use(spec *ast.UseSpec) (err error) {
                 params []types.Value
         )
         if len(spec.Props) == 0 {
-                return errors.New("Empty use spec.")
+                return fmt.Errorf("Empty use spec.")
         } else if name, err = l.expr(spec.Props[0]); err != nil {
                 return
         } else if name == nil {
-                return errors.New("Undefined `use' target.")
+                return fmt.Errorf("Undefined `use' target.")
         } else if  name == values.None {
-                return errors.New("None `use' target.")
+                return fmt.Errorf("None `use' target.")
         }
         for _, prop := range spec.Props[1:] {
                 if v, err := l.expr(prop); err != nil {
@@ -569,19 +563,19 @@ func (l *Loader) use(spec *ast.UseSpec) (err error) {
                 return l.useProjectName(spec.Props[0].Pos(), t)
         case *types.Def:
                 if alt := scope.Insert(t); alt != nil {
-                        return errors.New(fmt.Sprintf("'%s' already defined in %s", t.Name(), scope))
+                        return fmt.Errorf("'%s' already defined in %s", t.Name(), scope)
                 } else {
                         return nil // okay
                 }
         case *types.RuleEntry:
                 if alt := scope.Insert(t); alt != nil {
-                        return errors.New(fmt.Sprintf("'%s' already defined in %s", t.Name(), scope))
+                        return fmt.Errorf("'%s' already defined in %s", t.Name(), scope)
                 } else {
                         return nil // okay
                 }
         }
 
-        return errors.New(fmt.Sprintf("'%s' is not a usee (%T)", name, name))
+        return fmt.Errorf("'%s' is not a usee (%T)", name, name)
 }
 
 func (l *Loader) eval(spec *ast.EvalSpec) (res types.Value, err error) {
@@ -607,7 +601,7 @@ func (l *Loader) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                                         }
                                 }
                         } else {
-                                err = errors.New(fmt.Sprintf("Eval undefined `%s'", op.Strval()))
+                                err = fmt.Errorf("Eval undefined `%s'", op.Strval())
                         }
                 }
         }
@@ -627,7 +621,7 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
                 if depval, err = l.expr(depend); err != nil {
                         return
                 } else if depval == nil {
-                        err = errors.New(fmt.Sprintf("Invalid depend type `%T'.", depend))
+                        err = fmt.Errorf("Invalid depend type `%T'.", depend)
                         return
                 }
                 switch dep := depval.(type) {
@@ -640,7 +634,7 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
 
         if p, ok := clause.Program.(*ast.ProgramExpr); ok && p != nil {
                 if progScope, _ = p.Scope.(*types.Scope); progScope == nil {
-                        err = errors.New(fmt.Sprintf("Undefined program scope (%T).", p.Scope))
+                        err = fmt.Errorf("Undefined program scope (%T).", p.Scope)
                         return
                 }
                 if p.Recipes != nil {
@@ -650,7 +644,7 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
                 }
                 params = p.Params
         } else {
-                err = errors.New(fmt.Sprintf("unsupported program type (%T)", clause.Program))
+                err = fmt.Errorf("unsupported program type (%T)", clause.Program)
                 return
         }
         
@@ -676,7 +670,7 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
         var name string
         for n, target := range targets {
                 if target == nil {
-                        err = errors.New(fmt.Sprintf("nil target (%T)", clause.Targets[n]))
+                        err = fmt.Errorf("nil target (%T)", clause.Targets[n])
                         return
                 }
 
@@ -686,7 +680,7 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
                                 class = types.UseRuleEntry
                         } else {
                                 l.parseWarn(clause.Targets[n].Pos(), "'use' rule mixed with other targets")
-                                err = errors.New(fmt.Sprintf("mixes 'use' and normal targets"))
+                                err = fmt.Errorf("mixes 'use' and normal targets")
                                 return
                         }
                 } else if l.project.IsFile(name) {
@@ -754,7 +748,7 @@ func (l *Loader) closeScope(as ast.Scope) (err error) {
                         l.Globe().SetScopeOuter(scope)
                 }
         } else {
-                err = errors.New(fmt.Sprintf("bad runtime scope (%T)", as))
+                err = fmt.Errorf("bad runtime scope (%T)", as)
         }
         return
 }
@@ -766,7 +760,7 @@ func (l *Loader) loadProjectBases(linfo *loadinfo, params types.Value) (err erro
         
         g, _ := params.(*types.Group)
         if g == nil {
-                err = errors.New(fmt.Sprintf("invalid parameters (%T)", params))
+                err = fmt.Errorf("invalid parameters (%T)", params)
                 return
         }
 
@@ -795,7 +789,7 @@ func (l *Loader) loadProjectBases(linfo *loadinfo, params types.Value) (err erro
                 loaded, _ := l.loaded[absPath]
                 if loaded == nil {
                         //fmt.Printf("loadProjectBases: project %v (%s -> %s)\n", l.project.Name(), elem, absPath)
-                        err = errors.New(fmt.Sprintf("Project `%v' not loaded. (%T, %s)", elem, elem, absPath))
+                        err = fmt.Errorf("Project `%v' not loaded. (%T, %s)", elem, elem, absPath)
                         break
                 } else {
                         l.project.Chain(loaded)
@@ -807,7 +801,7 @@ func (l *Loader) loadProjectBases(linfo *loadinfo, params types.Value) (err erro
 func (l *Loader) declareProject(ident *ast.Bareword, params types.Value) (err error) {
         var name = ident.Value
         /*if l.project != nil && l.project.Name() == ident.Value {
-                return errors.New(fmt.Sprintf("already in project %s", l.project.Name()))
+                return fmt.Errorf("already in project %s", l.project.Name())
         }*/
 
         var (
@@ -847,11 +841,11 @@ func (l *Loader) declareProject(ident *ast.Bareword, params types.Value) (err er
                 )
                 if obj, alt := s.InsertScopeName(p, "use", use); alt != nil {
                         if _, ok := alt.(*types.ScopeName); !ok {
-                                err = errors.New(fmt.Sprintf("Name `use' already taken (%s).", s))
+                                err = fmt.Errorf("Name `use' already taken (%s).", s)
                                 return
                         }
                 } else if obj == nil {
-                        err = errors.New("Failed adding `use' scope.")
+                        err = fmt.Errorf("Failed adding `use' scope.")
                         return
                 }
         }
@@ -867,7 +861,7 @@ func (l *Loader) declareProject(ident *ast.Bareword, params types.Value) (err er
 
                 if _, a := loader.Scope().InsertProjectName(loader, name, dec.project); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
-                                err = errors.New(fmt.Sprintf("Name `%s' already taken (%T).", name, a))
+                                err = fmt.Errorf("Name `%s' already taken (%T).", name, a)
                                 return
                         }
                 }
@@ -891,14 +885,14 @@ func (l *Loader) closeCurrentProject(ident *ast.Bareword) (err error) {
                 dec, ok = linfo.declares[name]
         )
         if dec == nil || !ok {
-                return errors.New(fmt.Sprintf("no loaded project %s", name))
+                return fmt.Errorf("no loaded project %s", name)
         }
         if l.project == nil {
-                return errors.New("no current project")
+                return fmt.Errorf("no current project")
         } else if s := l.project.Name(); s != name {
-                return errors.New(fmt.Sprintf("current project is %s but %s", s, name))
+                return fmt.Errorf("current project is %s but %s", s, name)
         } else if l.project != dec.project {
-                return errors.New(fmt.Sprintf("project conflicts (%s, %s)", l.project.Name(), dec.project.Name()))
+                return fmt.Errorf("project conflicts (%s, %s)", l.project.Name(), dec.project.Name())
         }
 
         //fmt.Printf("closeCurrentProject: %v (%v) (%p -> %p)\n", ident.Value, linfo.absPath(), l.project, dec.backproj)
@@ -914,7 +908,7 @@ func (l *Loader) load(specName, absPath string, source interface{}) error {
 
         if !filepath.IsAbs(absPath) {
                 //panic(fmt.Sprintf("Invalid abs name `%s' (%s).", absPath, specName))
-                return errors.New(fmt.Sprintf("Invalid abs name `%s' (%s).", absPath, specName))
+                return fmt.Errorf("Invalid abs name `%s' (%s).", absPath, specName)
         }
         
         // Check already project.
@@ -926,7 +920,7 @@ func (l *Loader) load(specName, absPath string, source interface{}) error {
                 //fmt.Printf("loaded: %v (%v)\n", loaded.Name(), absPath)
                 if _, a := s.InsertProjectName(l.project, name, loaded); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
-                                return errors.New(fmt.Sprintf("Name `%s' already taken (%T).", name, a))
+                                return fmt.Errorf("Name `%s' already taken (%T).", name, a)
                         }
                 }
                 return nil
@@ -952,7 +946,7 @@ func (l *Loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
 
         if !filepath.IsAbs(absDir) {
                 panic(fmt.Sprintf("Invalid abs name `%s' (%s).", absDir, specName))
-                err = errors.New(fmt.Sprintf("Invalid abs name `%s' (%s).", absDir, specName))
+                err = fmt.Errorf("Invalid abs name `%s' (%s).", absDir, specName)
                 return
         }
 
@@ -965,7 +959,7 @@ func (l *Loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
                 //fmt.Printf("loaded: %v: %v (%v)\n", l.project.Name(), name, absDir)
                 if _, a := s.InsertProjectName(l.project, name, loaded); a != nil {
                         if v, ok := a.(*types.ProjectName); !ok || v == nil {
-                                err = errors.New(fmt.Sprintf("Name `%s' already taken (%T).", name, a))
+                                err = fmt.Errorf("Name `%s' already taken (%T).", name, a)
                         }
                 }
                 return nil
@@ -1099,7 +1093,7 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
                         if fault := runtime.GoFault(e); fault != nil {
                                 err = fault
                         } else if err, _ = e.(error); err == nil {
-                                err = errors.New(fmt.Sprintf("%v", e))
+                                err = fmt.Errorf("%v", e)
                         }
 		}
         }()
@@ -1140,7 +1134,7 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
         case types.RuleEntryType: // e.g. other.entry
         case types.ProjectNameType: // e.g. use.*
         default:
-                res, err = nil, errors.New(fmt.Sprintf("Unsupported depend type '%v' (%T) (%v).", res.Type(), res, res))
+                res, err = nil, fmt.Errorf("Unsupported depend type '%v' (%T) (%v).", res.Type(), res, res)
         }*/
         return
 }

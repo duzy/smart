@@ -1,11 +1,11 @@
 project (tools/gcc/generic)
 
 files (
-    '*.s'
-    '*.c' '*.h'
-    '*.o' '*.obj'
-    '*.a' '*.so'
-    'a.out'
+    *.s
+    *.c *.h
+    *.o *.obj
+    *.a *.so
+    a.out
 )
 
 AS = as

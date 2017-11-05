@@ -617,7 +617,6 @@ type delegate struct {
         a []Value
         dc *Scope // disclosed context
 }
-
 func (p *delegate) Type() Type         { return DelegateType }
 func (p *delegate) String() (s string) {
         var na = len(p.a)
