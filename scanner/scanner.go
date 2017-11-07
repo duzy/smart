@@ -330,12 +330,11 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                 }
                 return
         }
-loop:   
-        for s.ch != '"' {
+        LoopChar: for s.ch != '"' {
                 switch s.ch {
                 case '\\', '$', '&':
                         // just break it out, further scanning will decide escape
-                        break loop
+                        break LoopChar
                 default:
                         s.next()
                 }
@@ -380,21 +379,11 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                 }
                 return
         }
-loop:   
-        for s.ch != '\n' {
+        LoopChar: for s.ch != '\n' {
                 switch s.ch {
-                case '\\':
+                case '\\', '$', '&':
                         // just break it out, further scanning will decide
-                        break loop
-                case '$', '&':
-                        /*if n := s.offset + 1; n < len(s.src) && s.src[n] != '$' {
-                                // just break it out, further scanning will decide
-                                break loop
-                        } else {
-                                s.next() // '$'
-                                s.next() // '$'
-                        }*/
-                        break loop
+                        break LoopChar
                 default:
                         s.next()
                 }

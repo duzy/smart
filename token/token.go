@@ -31,7 +31,7 @@ const (
         TIME     // 07:32:00.999999 (internet time format - RFC3339)
         URI      // 'mailto:Duzy.Chan@example.com' (uniform resource identifier - RFC3986)
 	STRING   // 'abc'
-        ESCAPE   // \", \\n, etc.
+        ESCAPE   // \", \\n, etc. (see value.EscapeChar)
         COMPOUND // "abc $(foo) 123"
 	literal_end
 

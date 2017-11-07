@@ -726,12 +726,14 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
         case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
              token.DATETIME, token.DATE, token.TIME, 
              token.URI, token.STRING, token.ESCAPE:
+                //fmt.Printf("%s %s\n", p.tok, p.lit)
                 pos, tok, lit := p.pos, p.tok, p.lit
                 end := int(pos) + len(lit)
                 switch tok {
                 case token.STRING: end += 2
                 }
                 p.next()
+                // ESCAPE is handled in value.EscapeChar
                 return &ast.BasicLit{
                         ValuePos: pos,
                         Kind: tok,
