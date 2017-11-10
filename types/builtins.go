@@ -12,6 +12,7 @@ import (
         "path/filepath"
         "io/ioutil"
         "strings"
+        "strconv"
 	"unicode"
         "errors"
         "bytes"
@@ -43,6 +44,8 @@ var builtins = map[string]BuiltinFunc {
         `plus`:    builtinPlus,
         `minus`:   builtinMinus,
 
+        `joint-quote`: builtinJointQuote,
+        `join`:    builtinJoin,
         `field`:   builtinField,
         `fields`:  builtinFields,
 
@@ -207,6 +210,34 @@ func builtinMinus(context *Scope, args... Value) (result Value, err error) {
                 }
         }
         return &Int{integer{num}}, nil
+}
+
+func builtinJoin(context *Scope, args... Value) (res Value, err error) {
+        if args, err = JoinEval(context, args...); err != nil {
+                return
+        }
+        if l := len(args); l >= 2 {
+                var fields []string
+                for _, a := range args[:l-1] {
+                        fields = append(fields, a.Strval())
+                }
+                return &String{strings.Join(fields, args[l-1].Strval())}, nil
+        }
+        return nil, nil
+}
+
+func builtinJointQuote(context *Scope, args... Value) (res Value, err error) {
+        if args, err = JoinEval(context, args...); err != nil {
+                return
+        }
+        if l := len(args); l >= 3 {
+                var fields []string
+                for _, a := range args[:l-1] {
+                        fields = append(fields, strconv.Quote(a.Strval()))
+                }
+                return &String{strings.Join(fields, args[l-1].Strval())}, nil
+        }
+        return nil, nil
 }
 
 func builtinField(context *Scope, args... Value) (Value, error) {
