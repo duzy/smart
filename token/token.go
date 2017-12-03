@@ -127,6 +127,7 @@ const (
         MODULE     // module a
         USE        // use b
         EVAL       // evaluate a builtin immediately
+        DOCK       // docking setup: dock (...)
         EXPORT     // export ...
         INCLUDE    // include a.smart
         IMPORT     // import a.smart
@@ -231,6 +232,7 @@ var tokens = [...]string{
         MODULE:     "module",
         USE:        "use",
         EVAL:       "eval",
+        DOCK:       "dock",
         EXPORT:     "export",
         INCLUDE:    "include",
         IMPORT:     "import",

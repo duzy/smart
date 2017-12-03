@@ -18,6 +18,8 @@ import (
         "os"
 )
 
+const DockExecVarName = "dock->exec" // docker exec image
+
 type dialectDock struct {
         monoInterpreter
 }
@@ -64,11 +66,10 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 var (
                         src = source
                         dxi = "default-dock-image"
-                        dxiName = "docker-exec-image"
-                        _, obj = context.Find(dxiName)
+                        _, obj = context.Find(DockExecVarName)
                         envars []types.Value // disclosed values
                 )
-                if obj == nil { _, obj = prog.scope.Find(dxiName) }
+                if obj == nil { _, obj = prog.scope.Find(DockExecVarName) }
                 if obj != nil {
                         if v, e := obj.(types.Caller).Call(); e != nil {
                                 err = e; return

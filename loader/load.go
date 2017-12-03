@@ -654,6 +654,31 @@ func (l *Loader) eval(spec *ast.EvalSpec) (res types.Value, err error) {
         return
 }
 
+func (l *Loader) dock(spec *ast.DockSpec) (err error) {
+        var scope = l.scope
+        for scope != nil && !strings.HasPrefix(scope.Comment(), "file ") {
+                scope = scope.Outer()
+        }
+        
+        def, alt := scope.InsertDef(l.project, runtime.DockExecVarName, values.None)
+        if alt != nil {
+                if d, _ := alt.(*types.Def); d == nil {
+                        return fmt.Errorf("Name `%s' already taken in %v.", def.Name(), scope)
+                } else {
+                        def = d
+                }
+        }
+        if def != nil {
+                var val types.Value
+                if val, err = l.expr(spec.Props[0]); err == nil {
+                        def.Assign(val)
+                }
+        } else {
+                err = fmt.Errorf("Cannot define `%v' in %v", runtime.DockExecVarName, scope)
+        }
+        return
+}
+
 func (l *Loader) rule(clause *ast.RuleClause) (err error) {
         var (
                 targets []types.Value
@@ -1128,7 +1153,11 @@ func (pc *parseContext) ClauseEval(spec *ast.EvalSpec) error {
         _, err := pc.eval(spec)
         return err
 }
-        
+
+func (pc *parseContext) ClauseDock(spec *ast.DockSpec) error {
+        return pc.dock(spec)
+}
+
 func (pc *parseContext) Rule(clause *ast.RuleClause) (parser.RuntimeObj, error) {
         return nil, pc.rule(clause)
 }

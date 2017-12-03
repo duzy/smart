@@ -81,6 +81,7 @@ type RuntimeContext interface {
         ClauseInclude(spec *ast.IncludeSpec) error
         ClauseUse(spec *ast.UseSpec) error
         ClauseEval(spec *ast.EvalSpec) error
+        ClauseDock(spec *ast.DockSpec) error
         
         Rule(clause *ast.RuleClause) (RuntimeObj, error)
         

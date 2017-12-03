@@ -364,7 +364,7 @@ func sync(p *parser, tok token.Token) {
 func syncClause(p *parser) {
 	for {
 		switch p.tok {
-		case token.IMPORT, token.INCLUDE, token.FILES, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
+		case token.IMPORT, token.INCLUDE, token.FILES, token.INSTANCE, token.USE, token.EXPORT, token.EVAL, token.DOCK:
 			if p.pos == p.syncPos && p.syncCnt < 10 {
 				p.syncCnt++
 				return
@@ -443,8 +443,8 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 
 func (p *parser) parseBareword() (x ast.Expr) {
 	pos, value, isFileName := p.pos, "", false
-        switch p.tok {
-	case token.BAREWORD:
+        switch {
+	case p.tok == token.BAREWORD:
 		value = p.lit
 		p.next()
                 if end := token.Pos(int(pos) + len(value)); end == p.pos {
@@ -455,7 +455,7 @@ func (p *parser) parseBareword() (x ast.Expr) {
                                 isFileName = p.runtime.IsFileName(value)
                         }
                 }
-        case token.AT:
+        case p.tok.IsKeyword() || p.tok == token.AT || p.tok == token.PERIOD || p.tok == token.DOTDOT:
 		value = p.tok.String()
 		p.next()
         default:
@@ -936,10 +936,10 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         } else {
                                 return &ast.ClosureExpr{ cd }
                         }
-                } else if p.tok == token.USE {
-                        // Treat `use' here as a bareword.
+                } else if p.tok.IsKeyword() /*== token.USE*/ {
+                        // Treat keywords here as a bareword.
                         tok, pos := p.tok, p.pos
-                        p.next() // Drop `use'
+                        p.next() // Advanced behind the keyword
                         return &ast.Bareword{ pos, tok.String() }
                 }
 
@@ -1195,6 +1195,14 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
         return spec
 }
 
+func (p *parser) parseDockSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        spec := &ast.DockSpec{ p.parseDirectiveSpec() }
+        if err := p.runtime.ClauseDock(spec); err != nil {
+                p.error(spec.Pos(), err)
+        }
+        return spec
+}
+
 func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
 	if p.trace {
 		defer un(trace(p, "Spec"))
@@ -1326,6 +1334,10 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         ident = &ast.Bareword{ ident.Pos(), name }
                 default: //case *types.Bareword:
                         name = v.Strval()
+                }
+
+                if name == "docker-exec-image" {
+                        p.error(ident.Pos(), "deprecated, use dock instead")
                 }
 
                 // If doing '+=', the assignment will concate the value of the
@@ -1869,6 +1881,8 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseFilesSpec)
         case token.EVAL:
                 return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseEvalSpec)
+        case token.DOCK:
+                return p.parseGenericClause(p.tok, p.expect(p.tok), p.parseDockSpec)
 	case token.USE:
                 pos := p.expect(p.tok)
                 if p.tok.IsRuleDelim() {
