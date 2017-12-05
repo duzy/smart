@@ -361,7 +361,8 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 if n := t.Len(); n == 1 {
                         targetVal = t.Elems[0]
                 } else {
-                        return nil, &breaker{ "wrong number of targets", false }
+                        s := fmt.Sprintf("compare: multiple targets (%v)", targetVal)
+                        return nil, &breaker{ s, false }
                 }
         }
 

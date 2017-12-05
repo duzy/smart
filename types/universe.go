@@ -10,6 +10,7 @@ package types
 
 import (
         "fmt"
+        "os"
 )
 
 var (
@@ -129,6 +130,14 @@ func init() {
         //unsafe = NewModule(token.ILLEGAL, "unsafe", "unsafe")
         //unsafe.complete = true
 
+        bin, args := &String{ os.Args[0] }, new(List)
+        for _, a := range os.Args[1:] {
+                args.Elems = append(args.Elems, &String{ a })
+        }
+        _, _ = universe.InsertDef(nil, "SMART.BIN", bin)
+        _, _ = universe.InsertDef(nil, "SMART.ARGS", args)
+        _, _ = universe.InsertDef(nil, "SMART", bin)
+        
         defUniverseBuiltins()
 }
 

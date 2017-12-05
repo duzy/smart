@@ -143,6 +143,14 @@ func CommandLine() {
                 targets []string
         )
 
+        if _, obj := as.Find("SMART"); obj != nil {
+                def := obj.(*types.Def)
+                for _, s := range globalPaths {
+                        def.Append(values.String("-search"))
+                        def.Append(values.String(s))
+                }
+        }
+
         if _, e := os.Stat(sp); e == nil {
                 i.AddSearchPaths(sp)
         }
