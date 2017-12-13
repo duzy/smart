@@ -1457,7 +1457,6 @@ func (p *parser) parseRecipeRuleClause(elems []ast.Expr) (x ast.Expr) {
 }
 
 func (p *parser) parseRecipeBuiltin(elems []ast.Expr) (x ast.Expr) {
-        //var name string
         if elem, ok := elems[0].(*ast.EvaluatedExpr); ok {
                 // Resolve builtin names.
                 switch t := elem.Data.(type) {
