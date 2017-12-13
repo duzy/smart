@@ -881,6 +881,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         if s.ch == '-' { // "-->" => "-", "->"
                                 if s.readOffset < len(s.src) && s.src[s.readOffset] == '>' {
                                         tok, lit = token.BAREWORD, "-"
+                                } else {
+                                        tok = token.MINUS
                                 }
                         } else if s.ch == '>' {
                                 tok = token.SELECT
