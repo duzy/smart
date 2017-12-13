@@ -1457,6 +1457,19 @@ func (p *parser) parseRecipeRuleClause(elems []ast.Expr) (x ast.Expr) {
 }
 
 func (p *parser) parseRecipeBuiltin(elems []ast.Expr) (x ast.Expr) {
+        //var name string
+        if elem, ok := elems[0].(*ast.EvaluatedExpr); ok {
+                // Resolve builtin names.
+                switch t := elem.Data.(type) {
+                case *types.Bareword:
+                        if sym := p.runtime.Resolve(t.Value, anywhere); sym == nil {
+                                p.error(elem.Pos(), "undefined builtin %v", t.Value)
+                        } else {
+                                elem.Data = sym
+                        }
+                }
+        }
+        
         x = p.parseExpr(true) // Do left-hand-side parsing if in use rule
         if v, e := p.runtime.Eval(x, delegation/*disclosure*/); e != nil {
                 p.error(x.Pos(), "%v (%T)", e, x)
