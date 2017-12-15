@@ -184,9 +184,6 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 fmt.Printf("%v", exeres.Stdout.String())
         }
         
-        /*result = values.Group(targetShellKind, status,
-                values.String(stdout.String()),
-                values.String(stderr.String()))*/
         result = exeres
         return
 }
