@@ -156,7 +156,7 @@ var tokens = [...]string{
         COMPOUND: "COMPOUND",
         COMPOSED: "COMPOSED",
         RECIPE:   "RECIPE",
-        LINEND:   "LINEND",
+        LINEND:   "\\n", //"LINEND",
 
 	LPAREN: "(",
 	LBRACK: "[",

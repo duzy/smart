@@ -616,7 +616,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
         if p.tok.IsRuleDelim() {
                 return true
         }
-        return p.tok == token.EOF || p.tok == token.LINEND || 
+        return p.tok == token.EOF || p.tok == token.LINEND || p.lineComment != nil ||
                 p.tok == token.COMMA || (lhs && p.tok.IsAssign())
 }
 
@@ -890,13 +890,16 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 }
                 
         case token.MINUS:
-                pos := p.pos
-                p.next()
-                x := p.checkExpr(p.parseExpr(false))
-                return &ast.FlagExpr{
-                        DashPos: pos,
-                        Name: x,
+                var (
+                        pos = p.pos
+                        x ast.Expr
+                )
+                if p.next(); p.tok == token.LINEND || p.lineComment != nil {
+                        x = &ast.Bareword{ ValuePos: p.pos }
+                } else {
+                        x = p.checkExpr(p.parseExpr(false))
                 }
+                return &ast.FlagExpr{ DashPos: pos, Name: x }
 
         case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, 
              token.IMPORT, token.INSTANCE, token.FILES:
@@ -936,15 +939,14 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         } else {
                                 return &ast.ClosureExpr{ cd }
                         }
-                } else if p.tok.IsKeyword() /*== token.USE*/ {
-                        // Treat keywords here as a bareword.
+                } else if p.tok.IsKeyword() { // keywords here are barewords
                         tok, pos := p.tok, p.pos
                         p.next() // Advanced behind the keyword
                         return &ast.Bareword{ pos, tok.String() }
                 }
 
                 pos := p.pos
-                //p.warn(pos, "weird token '%v'\n", p.tok)
+                p.warn(pos, "weird '%v'\n", p.tok)
                 p.errorExpected(pos, "clause or expression")
                 p.next() // go to next token
                 return &ast.BadExpr{ From:pos, To:p.pos }
@@ -1786,18 +1788,12 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         }
 
         switch p.tok {
-        case token.MINUS: // a '-' modifier is defining a rule as modifier
-                p.next()
-                // TODO: '-' modifier
-        case token.EXC:
-                p.next()
-                // TODO: '!' modifier
-        case token.QUE:
-                p.next()
-                // TODO: '?' modifier
-        case token.LBRACK:
+        case token.LBRACK: // [
                 // Parse modifiers in the program scope.
                 dialect, params, modifier = p.parseModifierExpr()
+        case token.MINUS, token.EXC, token.QUE: // - ! ?
+                p.error(p.pos, "modifier '%v' unimplemented", p.tok)
+                p.next()
         }
 
         if p.tok == token.COLON {
