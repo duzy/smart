@@ -184,10 +184,11 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry, depen
 }
 
 func (prog *Program) prepareDepend(project *types.Project, context *types.Scope, entry *types.RuleEntry, isFile bool, depend types.Value, args []types.Value, dependList *types.List) (err error) {
-        //fmt.Printf("Program.prepareDepend: %s: %T `%v'\n", entry.Name(), depend, depend)
+        if false {
+                fmt.Printf("Program.prepareDepend: %s: %T `%v'\n", entry.Name(), depend, depend)
+        }
         switch d := depend.(type) {
         case *types.Argumented:
-                //fmt.Printf("Program.prepareDepend: argumented: %d %v\n", len(d.Args), d.Args)
                 err = prog.prepareDepend(project, context, entry, isFile, d.Value, d.Args, dependList)
         case *types.Bareword:
                 err = prog.prepareHandleName(project, context, entry, isFile, d.Strval(), depend, args, dependList)
@@ -234,17 +235,17 @@ func (prog *Program) prepareHandleEntry(project *types.Project, context *types.S
                 }
                 return
         }
-        ProgramsLoop: for _, deprog := range depend.Programs() {
+        ForPrograms: for _, deprog := range depend.Programs() {
                 if deprog == prog {
                         return errors.New(fmt.Sprintf("Depends on itself (%v).", entry))
                 }
                 if err = prog.prepareExecuteDeprog(project, context, entry, isFile, depend, deprog, args, dependList); err == nil {
                         isDependUpdated = true
-                        break ProgramsLoop
+                        break ForPrograms
                 } else if _, ok := err.(*dependPatternUnfit); ok {
                         //fmt.Printf("%s: %v (pattern not fit)\n", entry.Name(), depend)
                         isDependPatternUnfit = true
-                        continue ProgramsLoop
+                        continue ForPrograms
                 } else if true {
                         var s = err.Error()
                         if strings.HasPrefix(s, "Updating ") {
@@ -274,6 +275,8 @@ func (prog *Program) prepareHandleName(project *types.Project, context *types.Sc
                 }
         }
 
+        // fmt.Printf("Program.prepareHandleName: %v: %v\n", name, depend)
+
         // Find patterns.
         if pss := project.FindPatterns(name); pss != nil {
                 return prog.prepareHandlePatterns(project, context, entry, isFile, name, pss, depend, args, dependList)
@@ -287,6 +290,8 @@ func (prog *Program) prepareHandleName(project *types.Project, context *types.Sc
                 } else if isFile || proj.IsFile(name) {
                         // Search file in context's project.
                         return prog.searchFile(proj, context, entry, name, depend, args, dependList)
+                } else {
+                        // ...
                 }
         }
 
@@ -316,7 +321,6 @@ func (prog *Program) prepareHandlePatterns(project *types.Project, context *type
 }
 
 func (prog *Program) prepareHandleFilePatterns(project *types.Project, context *types.Scope, entry *types.RuleEntry, isFile bool, name string, pss []*types.PatternStem, depend types.Value, args []types.Value, dependList *types.List) (err error) {
-        //fmt.Printf("%v: %v\n", name, pss)
         for _, ps := range pss {
                 depent, e := ps.MakeConcreteEntry()
                 if e != nil {
@@ -325,43 +329,58 @@ func (prog *Program) prepareHandleFilePatterns(project *types.Project, context *
                         err = errors.New(fmt.Sprintf("No concrete entry for `%v' (%v)", ps.Patent, name))
                         return
                 }
+
                 if false {
                         fmt.Printf("%v: %v -> %v -> %v\n", name, ps.Patent.RuleEntry.Strval(), depent.Strval(), depent.Depends())
                 }
-
+                
                 // Only execute existing file depends.
-                LoopPrograms: for _, depentProg := range depent.Programs() {
+                ForPrograms: for _, depentProg := range depent.Programs() {
                         for _, depentDep := range depentProg.Depends() {
                                 switch dd := depentDep.(type) {
                                 case *types.PercentPattern:
-                                        ddName := dd.MakeString(ps.Stem)
-                                        if project.IsFile(ddName) {
-                                                if fi, e := os.Stat(ddName); fi == nil || e != nil {
-                                                        continue LoopPrograms // Discard the program if file depend is not statible.
+                                        if fn := dd.MakeString(ps.Stem); project.IsFile(fn) {
+                                                if fi, e := os.Stat(fn); fi == nil || e != nil {
+                                                        if _, sym := context.Find(fn); sym == nil {
+                                                                // Discard the program if file
+                                                                // depend is not existed.
+                                                                continue ForPrograms
+                                                        } else if ent, ok := sym.(*types.RuleEntry); ok && ent != nil {
+                                                                if false {
+                                                                        fmt.Printf("%v: %v -> %v -> %v (%v)\n", name, ps.Patent.RuleEntry.Strval(), depent.Strval(), depentDep, ent.Name())
+                                                                }
+
+                                                                // Update missing file (from pattern)
+                                                                err = prog.prepareHandleEntry(project, context, entry, isFile, ent, nil, dependList)
+                                                                return // Ignore the rest patterns
+                                                        }
                                                 }
                                         }
                                 }
                         }
+                        
                         if false {
                                 fmt.Printf("%v: %v -> %v -> %v\n", name, ps.Patent.RuleEntry.Strval(), depent.Strval(), depentProg.Depends())
                         }
-                        if err = prog.prepareExecuteDeprog(project, context, entry, true, depent, depentProg, args, dependList); err == nil {
-                                //v := dependList.Elems[len(dependList.Elems)-1]
-                                //fmt.Printf("%s: %v -> %v (executed)\n", name, depentProg.Depends(), v.Strval())
-                                return
-                        }
+                        
+                        err = prog.prepareExecuteDeprog(project, context, entry, true, depent, depentProg, args, dependList)
+                        //v := dependList.Elems[len(dependList.Elems)-1]
+                        //fmt.Printf("%s: %v -> %v (executed)\n", name, depentProg.Depends(), v.Strval())
+                        return // Ignore the rest patterns
                 }
         }
         return
 }
 
 func (prog *Program) prepareExecuteDeprog(project *types.Project, context *types.Scope, entry *types.RuleEntry, isFileDepend bool, depend *types.RuleEntry, deprog types.Program, args []types.Value, dependList *types.List) (err error) {
-        scope := context
+        var (
+                res types.Value
+                scope = context
+        )
         if entry.Project() != depend.Project() {
                 scope = entry.Project().Scope()
         }
 
-        var res types.Value
         if res, err = deprog.Execute(scope, depend, args); err == nil {
                 dd, _ := deprog.Scope().Lookup("@").(*types.Def).Call()
                 if isFileDepend {
@@ -429,12 +448,6 @@ func (prog *Program) Getwd(context *types.Scope) string {
 }
 
 func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
-        /*if entry.Name() == "lib.a" {
-                //fmt.Printf("Program.Execute: %v: %v %v\n", entry, args, prog.depends)
-                //fmt.Printf("Program.Execute: %v: %v %v\n", entry, args, prog.pipline)
-                //fmt.Printf("Program.Execute: %v: %v\n", entry.Name(), context)
-                fmt.Printf("Program.Execute: %v: %v\n", entry.Name(), args)
-        }*/
         if workdir := prog.Getwd(context); workdir != "" {
                 var pcd = entry.Class() != types.UseRuleEntry
                 defer leaveWorkdir(enterWorkdir(workdir, pcd))
@@ -486,7 +499,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         //              smart statments going here...
         //              
         var dialect string
-        LoopPipeline: for _, v := range prog.pipline {
+        ForPipeline: for _, v := range prog.pipline {
                 switch op := v.(type) {
                 case *types.Group:
                         var lang string
@@ -501,13 +514,13 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                                                 fmt.Printf("%s, required by '%s' (from %v)\n", p.message, entry.Name(), prog.project.RelPath())
                                         }
                                 }
-                                break LoopPipeline
+                                break ForPipeline
                         } else if lang != "" && dialect == "" {
                                 dialect = lang
                         }
                 default:
                         err = errors.New(fmt.Sprintf("unsupported modifier `%s' (%T)", v, v))
-                        break LoopPipeline
+                        break ForPipeline
                 }
         }
         if err == nil && dialect == "" {

@@ -1,0 +1,36 @@
+project
+
+import (
+    tools/gcc/c++
+)
+
+files (
+    *.o
+    *.c
+    *.cpp
+    hello
+)
+
+GREETING := 'Hello World!'
+
+run:[(shell -oe)]: hello
+	./hello
+
+hello: c++->program($@,$@.o)
+
+hello.c:[(plain c) (update-file)]
+	#include <stdio.h>
+	int main(int argc, char** argv) {
+	    printf("$(GREETING)\\n");
+	    return 0;
+	}
+
+hello.cpp:[(plain c++) (update-file)]
+	#include <iostream>
+	int main(int argc, char** argv) {
+	    std::cout <<"$(GREETING)" << std::endl;
+	    return 0;
+	}
+
+clean:
+	remove hello hello.o hello.cpp hello.c

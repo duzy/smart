@@ -22,22 +22,20 @@ LINK-cc = &(CXX) &(CXXFLAGS) &(CPPFLAGS) &(LDFLAGS) &(TARGET_ARCH)
 LINK-o = &(CXX) &(LDFLAGS) &(TARGET_ARCH)
 LINK = $(LINK-cc)
 
-# TODO: Derived projects must use $(c++->LINK) now, should allow $(LINK).
+dock -
 
-nothing:
-
-program:[(cd) ((bin objects)) (compare $(bin)) (shell -oe)]: $(objects)
+program:[(cd) ((bin objects)) (compare $(bin)) (dock shell -oe)]: $(objects)
 	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
-lib.so:[(cd) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
+lib.so:[(cd) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
 	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
-lib.a:[(cd) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
+lib.a:[(cd) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
 	$(ARCHIVE) $(lib) $^
 
-%.o:[(cd) (compare) (shell -oe)]: %.cpp
+%.o:[(cd) (compare) (dock shell -oe)]: %.cpp
 	$(COMPILE) $^ -o $@
-%.o:[(cd) (compare) (shell -oe)]: %.cc
+%.o:[(cd) (compare) (dock shell -oe)]: %.cc
 	$(COMPILE) $^ -o $@
-%.o:[(cd) (compare) (shell -oe)]: %.C
+%.o:[(cd) (compare) (dock shell -oe)]: %.C
 	$(COMPILE) $^ -o $@
 
 # https://github.com/google/re2/wiki/Syntax
