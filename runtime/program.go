@@ -463,6 +463,16 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         if err = prog.prepare(context, entry, dependList); err != nil {
                 return
         } else if dependList.Len() > 0 {
+                var elems = dependList.Elems[:]
+                for i := 0; i < len(elems); i += 1 {
+                        for j := i + 1; j < len(elems); j += 1 {
+                                if dependEquals(elems[i], elems[j]) {
+                                        elems = append(elems[:j], elems[j+1:]...)
+                                        j -= 1
+                                }
+                        }
+                }
+                dependList.Elems = elems
                 prog.auto("<", dependList.Elems[0])
                 prog.auto("^", dependList)
         }
@@ -525,4 +535,14 @@ func (context *Context) NewProgram(project *types.Project, params []string, scop
                 depends:     depends, // *types.RuleEntry, *types.Barefile
                 recipes:     recipes,
         }
+}
+
+func dependEquals(a, b types.Value) bool {
+        if a == b {
+                return true
+        }
+
+        // TODO: more advanced checking "the same depend"
+        
+        return a.Strval() == b.Strval()
 }

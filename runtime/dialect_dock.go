@@ -18,7 +18,10 @@ import (
         "os"
 )
 
-const DockExecVarName = "dock->exec" // docker exec image
+const (
+        DockImageVarName = "dock->image" // docker image
+        DockExecVarName = "dock->exec" // docker exec image
+)
 
 type dialectDock struct {
         monoInterpreter
@@ -37,7 +40,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 wd = prog.Getwd(context)
                 exeres = new(types.ExecResult)
                 source string
-                shi = "sh"
+                shi = "sh" // interpreter
         )
 
         for _, recipe := range recipes {
@@ -65,7 +68,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
 
                 var (
                         src = source
-                        dxi = "default-dock-image"
+                        dxi = "smart-dock-image" // context.Find(DockImageVarName)
                         _, obj = context.Find(DockExecVarName)
                         envars []types.Value // disclosed values
                 )
