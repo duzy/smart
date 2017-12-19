@@ -156,7 +156,9 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         shi = defaultShellInterpreter
                 }
 
-                if dxi == "" || dxi == "-" {
+                if dxi == "" {
+                        return nil, fmt.Errorf("unknown script interpreter")
+                } else if dxi == "-" {
                         cmd, a = shi, []string{ "-c", src }
                 } else {
                         cmd, a = "docker", append(a, dxi, shi, "-c", src)
