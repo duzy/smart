@@ -7,12 +7,9 @@
 package runtime
 
 import (
-        //"github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
-        //"github.com/duzy/smart/values"
         "os/exec"
         "strings"
-        "errors"
         //"bytes"
         "fmt"
         "os"
@@ -33,10 +30,6 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
         }
 
         var (
-                envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
-                //stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
-                //stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
-                //stdinOpt,  _ = prog.scope.Lookup("shell-stdin").(*types.Def)
                 wd = prog.Getwd(context)
                 exeres = new(types.ExecResult)
                 source string
@@ -84,7 +77,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         }
                 }
                 
-                if envarsOpt != nil {
+                if envarsOpt, _ := prog.scope.Lookup("shell-envars").(*types.Def); envarsOpt != nil {
                         if l, _ := envarsOpt.Value.(*types.List); l != nil {
                                 for _, v := range l.Elems {
                                         if v, err = types.Disclose(context, v); err != nil {
@@ -95,6 +88,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 }
                         }
                 }
+
                 if s := wd; s != "" {
                         if t := strings.TrimSpace(source); t == "" {
                                 src = fmt.Sprintf("cd '%s'", s)
@@ -182,7 +176,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 } else {
                         var s = err.Error()
                         if n, e := fmt.Sscanf(s, "exit status %v", &exeres.Status); n == 1 && e == nil {
-                                err = errors.New(fmt.Sprintf("%v (%s)", err, source))
+                                err = fmt.Errorf("%v", err) // , source
                         } else {
                                 exeres.Status = -1 //values.String(s)
                         }
