@@ -43,11 +43,10 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 shi = "sh" // interpreter
         )
 
-        for _, recipe := range recipes {
-                source += recipe.Strval()
-                if strings.HasSuffix(source, "\\") {
+        ForRecipes: for _, recipe := range recipes {
+                if source += recipe.Strval(); strings.HasSuffix(source, "\\") {
                         source += "\n" // give back the line feed
-                        continue
+                        continue ForRecipes
                 }
 
                 // Escape '$$' sequences.
@@ -78,14 +77,13 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 err = e; return
                         } else if v == nil {
                                 // nothing changed
-                        } else {
-                                if v, err = types.Disclose(context, v); err != nil {
-                                        return
-                                } else if s := strings.TrimSpace(v.Strval()); s != "" {
-                                        dxi = s
-                                }
+                        } else if v, err = types.Disclose(context, v); err != nil {
+                                return
+                        } else if s := strings.TrimSpace(v.Strval()); s != "" {
+                                dxi = s
                         }
                 }
+                
                 if envarsOpt != nil {
                         if l, _ := envarsOpt.Value.(*types.List); l != nil {
                                 for _, v := range l.Elems {
@@ -122,8 +120,9 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 var (
                         verbout, verberr, stdin bool
                         a = []string{ "exec" }
+                        cmd string
                 )
-                LoopArgs: for _, v := range args {
+                ForArgs: for _, v := range args {
                         switch t := v.(type) {
                         case *types.Pair:
                                 if f, _ := t.Key.(*types.Flag); f != nil {
@@ -133,30 +132,37 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                                 case "stdout": verbout = true
                                                 case "stderr": verberr = true
                                                 }
-                                                continue LoopArgs
+                                                continue ForArgs
                                         }
                                 }
                         case *types.Flag:
                                 switch t.Name.Strval() {
-                                case "do": verbout = true; continue LoopArgs
-                                case "de": verberr = true; continue LoopArgs
+                                case "do": verbout = true; continue ForArgs
+                                case "de": verberr = true; continue ForArgs
                                 case "eo", "oe", "deo", "doe":
                                         verbout, verberr = true, true
-                                        continue LoopArgs
+                                        continue ForArgs
                                 case "i": 
-                                        a = append(a, "-ti")
-                                        stdin = true; continue LoopArgs
+                                        stdin, a = true, append(a, "-ti")
+                                        continue ForArgs
                                 }
                         default:
                                 shi = args[0].Strval()
-                                continue LoopArgs
+                                continue ForArgs
                         }
                         a = append(a, v.Strval())
                 }
-                a = append(a, dxi, shi, "-c", src)
+                if shi == "shell" {
+                        shi = defaultShellInterpreter
+                }
 
-                var sh *exec.Cmd
-                sh = exec.Command("docker", a...)
+                if dxi == "" || dxi == "-" {
+                        cmd, a = shi, []string{ "-c", src }
+                } else {
+                        cmd, a = "docker", append(a, dxi, shi, "-c", src)
+                }
+
+                var sh = exec.Command(cmd, a...)
                 sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
                 if len(envars) > 0 {
                         sh.Env = os.Environ()
