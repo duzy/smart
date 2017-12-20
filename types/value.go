@@ -16,6 +16,7 @@ import (
         "bytes"
         "fmt"
         "os"
+        "io"
 )
 
 // Value represents a value of a type.
@@ -867,22 +868,53 @@ func (p *YAML) Strval() string { return p.Value.Strval() }
 func (p *YAML) Integer() int64 { return 0 }
 func (p *YAML) Float() float64 { return 0 }
 
+type ExecBuffer struct {
+        Tie io.Writer
+        Buf *bytes.Buffer
+}
+
+func (p *ExecBuffer) Write(b []byte) (n int, err error) {
+        if p.Tie != nil {
+                if n, err = p.Tie.Write(b); err != nil {
+                        return
+                }
+        }
+        if p.Buf != nil {
+                if n, err = p.Buf.Write(b); err != nil {
+                        return
+                }
+        }
+        return
+}
+
 type ExecResult struct {
-        Stdout bytes.Buffer // TODO: ExecBuffer
-        Stderr bytes.Buffer // TODO: ExecBuffer
+        Stdout ExecBuffer
+        Stderr ExecBuffer
         Status int
 }
-func (*ExecResult) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*ExecResult) referencing(_ Object) bool { return false }
-func (p *ExecResult) Type() Type  { return ExecResultType }
-func (p *ExecResult) String() string {
-        return fmt.Sprintf("(shell %d %s %s)", p.Status, p.Stdout, p.Stderr)
+func (p *ExecResult) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *ExecResult) referencing(_ Object) bool { return false }
+func (p *ExecResult) Type() Type { return ExecResultType }
+func (p *ExecResult) Integer() int64 { return int64(p.Status) }
+func (p *ExecResult) Float() float64 { return float64(p.Status) }
+func (p *ExecResult) Strval() (s string) {
+        if p.Stdout.Buf != nil {
+                s = p.Stdout.Buf.String()
+        }
+        return
 }
-func (p *ExecResult) Strval() string   { return p.Stdout.String() }
-func (p *ExecResult) Integer() int64   { return int64(p.Status) }
-func (p *ExecResult) Float() float64   { return float64(p.Status) }
-// TODO: ExecResult.VerboseStdout
-// TODO: ExecResult.VerboseStderr
+func (p *ExecResult) String() string {
+        var s bytes.Buffer
+        fmt.Fprintf(&s, "(ExecResult status=%d", p.Status)
+        if p.Stdout.Buf != nil {
+                fmt.Fprintf(&s, " stdout=%S", p.Stdout.Buf)
+        }
+        if p.Stderr.Buf != nil {
+                fmt.Fprintf(&s, " stdout=%S", p.Stderr.Buf)
+        }
+        fmt.Fprintf(&s, ")")
+        return s.String()
+}
 
 // Pattern
 type Pattern interface {

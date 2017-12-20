@@ -9,8 +9,8 @@ check: \
 check-status:[(shell -oe -s) (check status=123)]
 	exit 123
 
-check-stdout:[(shell) (check stdout='okay')]
+check-stdout:[(shell -so) (check stdout='okay')]
 	echo -n "okay"
 
-check-stderr:[(shell) (check stderr='okay')]
+check-stderr:[(shell -se) (check stderr='okay')]
 	echo -n "okay" > /dev/stderr

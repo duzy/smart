@@ -36,8 +36,6 @@ type modifier func(prog *Program, context *types.Scope, value types.Value, args.
 const (
         theShellEnvarsDef = "shell->envars"
         theShellStatusDef = "shell->status" // status code of execution
-        theShellOutputDef = "shell->output" // string of stdout
-        theShellErrorsDef = "shell->errors" // string of stderr
 )
 
 var (
@@ -479,24 +477,46 @@ func modifierGrepDependents(prog *Program, context *types.Scope, value types.Val
 // (check file=filename.txt)
 // (check dir=directory)
 func modifierCheck(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+        var exeres, _ = value.(*types.ExecResult)
+        if exeres == nil {
+                s := fmt.Sprintf("bad value (%T)", value)
+                err = &breaker{ s, false }
+                return
+        }
         ForArgs: for _, arg := range args {
                 switch t := arg.(type) {
                 case *types.Pair:
                         switch t.Key.Strval() {
                         case "status":
-                                if statusDef, _ := prog.scope.Lookup(theShellStatusDef).(*types.Def); statusDef != nil {
-                                        if statusDef.Value.Strval() != t.Value.Strval() {
-                                                s := fmt.Sprintf("bad status (%v, expects %v)", statusDef.Value, t.Value)
-                                                err = &breaker{ s, false }
-                                                break ForArgs
-                                        }
-                                } else {
-                                        s := fmt.Sprintf("bad status (expects %v)", t.Value)
+                                if exeres.Status != int(t.Value.Integer()) {
+                                        s := fmt.Sprintf("bad status (%v) (expects %v)", exeres.Status, t.Value)
                                         err = &breaker{ s, false }
                                         break ForArgs
                                 }
                         case "stdout":
+                                if v := exeres.Stdout.Buf; v != nil {
+                                        if v.String() != t.Value.Strval() {
+                                                s := fmt.Sprintf("bad stdout (%v) (expects %v)", v, t.Value)
+                                                err = &breaker{ s, false }
+                                                break ForArgs
+                                        }
+                                } else {
+                                        s := fmt.Sprintf("bad stdout (expects %v)", t.Value)
+                                        err = &breaker{ s, false }
+                                        break ForArgs
+                                }
                         case "stderr":
+                                if v := exeres.Stderr.Buf; v != nil {
+                                        if v.String() != t.Value.Strval() {
+                                                s := fmt.Sprintf("bad stderr (%v) (expects %v)", v, t.Value)
+                                                err = &breaker{ s, false }
+                                                break ForArgs
+                                        }
+                                } else {
+                                        s := fmt.Sprintf("bad stderr (expects %v)", t.Value)
+                                        err = &breaker{ s, false }
+                                        break ForArgs
+                                }
                         default:
                                 err = fmt.Errorf("unknown check '%v'", t.Key)
                                 break ForArgs

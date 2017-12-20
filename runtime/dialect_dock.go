@@ -8,10 +8,10 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        //"github.com/duzy/smart/values"
         "os/exec"
         "strings"
-        //"bytes"
+        "bytes"
         "fmt"
         "os"
 )
@@ -113,7 +113,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 }
 
                 var (
-                        verbout, verberr, stdin, silent bool
+                        verbout, verberr, saveout, saveerr, stdin, silent bool
                         a = []string{ "exec" }
                         cmd string
                 )
@@ -132,13 +132,18 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 }
                         case *types.Flag:
                                 switch t.Name.Strval() {
-                                case "s": silent = true; continue ForArgs
-                                case "do": verbout = true; continue ForArgs
-                                case "de": verberr = true; continue ForArgs
-                                case "eo", "oe", "deo", "doe":
+                                case "s" : silent = true;  continue ForArgs
+                                case "so": saveout = true; continue ForArgs
+                                case "se": saveerr = true; continue ForArgs
+                                case "soe", "seo":
+                                        saveout, saveerr = true, true
+                                        continue ForArgs
+                                case "vo": verbout = true; continue ForArgs
+                                case "ve": verberr = true; continue ForArgs
+                                case "veo", "voe", "eo", "oe":
                                         verbout, verberr = true, true
                                         continue ForArgs
-                                case "i": 
+                                case "i":
                                         stdin, a = true, append(a, "-ti")
                                         continue ForArgs
                                 }
@@ -161,26 +166,24 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 }
 
                 var sh = exec.Command(cmd, a...)
-                sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
-                if len(envars) > 0 {
-                        sh.Env = os.Environ()
-                        for _, env := range envars {
-                                sh.Env = append(sh.Env, env.Strval())
+                sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
+                for _, v := range envars {
+                        if v, err = types.Disclose(context, v); err != nil {
+                                return
+                        } else {
+                                sh.Env = append(sh.Env, v.Strval())
                         }
                 }
-                // TODO: ExecResult.VerboseStdout
-                // TODO: ExecResult.VerboseStderr
-                if verbout { sh.Stdout = os.Stdout }
-                if verberr { sh.Stderr = os.Stderr }
+                if verbout { exeres.Stdout.Tie = os.Stdout }
+                if verberr { exeres.Stderr.Tie = os.Stderr }
+                if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
+                if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
                 if stdin   { sh.Stdin = os.Stdin }
                 if err = sh.Run(); err == nil {
                         exeres.Status, source = 0, ""
                 } else {
                         var s = err.Error()
                         if n, e := fmt.Sscanf(s, "exit status %v", &exeres.Status); n == 1 && e == nil {
-                                if statusDef := prog.auto(theShellStatusDef, values.Int(int64(exeres.Status))); statusDef == nil {
-                                        // FIXME: error
-                                }
                                 if silent {
                                         err = nil
                                 } else {
@@ -192,10 +195,6 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         source = ""
                         break
                 }
-        }
-        
-        if /* TODO: using `--verbose-shell` to control this */false {
-                fmt.Printf("%v", exeres.Stdout.String())
         }
         
         result = exeres
