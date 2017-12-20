@@ -8,6 +8,7 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
+        "github.com/duzy/smart/values"
         "os/exec"
         "strings"
         //"bytes"
@@ -112,7 +113,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 }
 
                 var (
-                        verbout, verberr, stdin bool
+                        verbout, verberr, stdin, silent bool
                         a = []string{ "exec" }
                         cmd string
                 )
@@ -131,6 +132,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 }
                         case *types.Flag:
                                 switch t.Name.Strval() {
+                                case "s": silent = true; continue ForArgs
                                 case "do": verbout = true; continue ForArgs
                                 case "de": verberr = true; continue ForArgs
                                 case "eo", "oe", "deo", "doe":
@@ -176,7 +178,14 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 } else {
                         var s = err.Error()
                         if n, e := fmt.Sscanf(s, "exit status %v", &exeres.Status); n == 1 && e == nil {
-                                err = fmt.Errorf("%v", err) // , source
+                                if statusDef := prog.auto(theShellStatusDef, values.Int(int64(exeres.Status))); statusDef == nil {
+                                        // FIXME: error
+                                }
+                                if silent {
+                                        err = nil
+                                } else {
+                                        err = fmt.Errorf("%v", err) // , source
+                                }
                         } else {
                                 exeres.Status = -1 //values.String(s)
                         }

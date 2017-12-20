@@ -108,7 +108,7 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                         sh = exec.Command(s.interpreter, s.xopt, source)
                 } else {
                         var a []string
-                        LoopArgs: for _, v := range args {
+                        ForArgs: for _, v := range args {
                                 switch t := v.(type) {
                                 case *types.Pair:
                                         if f, _ := t.Key.(*types.Flag); f != nil {
@@ -118,18 +118,18 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                                                         case "stdout": verbout = true
                                                         case "stderr": verberr = true
                                                         }
-                                                        continue LoopArgs
+                                                        continue ForArgs
                                                 }
                                         }
                                 case *types.Flag:
                                         switch t.Name.Strval() {
-                                        case "s": silent = true; continue LoopArgs
-                                        case "i": stdin = true; continue LoopArgs
-                                        case "do": verbout = true; continue LoopArgs
-                                        case "de": verberr = true; continue LoopArgs
+                                        case "s": silent = true; continue ForArgs
+                                        case "i": stdin = true; continue ForArgs
+                                        case "do": verbout = true; continue ForArgs
+                                        case "de": verberr = true; continue ForArgs
                                         case "eo", "oe", "deo", "doe":
                                                 verbout, verberr = true, true
-                                                continue LoopArgs
+                                                continue ForArgs
                                         }
                                 }
                                 a = append(a, v.Strval())
@@ -155,8 +155,8 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                 } else {
                         var s = err.Error()
                         if n, e := fmt.Sscanf(s, "exit status %v", &exeres.Status); n == 1 && e == nil {
-                                if statusDef, _ := prog.scope.Lookup(theShellStatusDef).(*types.Def); statusDef != nil {
-                                        statusDef.Assign(values.Int(int64(n)))
+                                if statusDef := prog.auto(theShellStatusDef, values.Int(int64(exeres.Status))); statusDef == nil {
+                                        // FIXME: error
                                 }
                                 if silent {
                                         err = nil
