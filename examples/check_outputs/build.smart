@@ -1,4 +1,4 @@
-project check_outputs
+project
 
 check: \
   check-status \
@@ -6,11 +6,11 @@ check: \
   check-stderr
 	println done "$@ ($^)"
 
-check-status:[(status) (shell -oe) (status-equals 123)]
+check-status:[(shell -oe -s) (check status=123)]
 	exit 123
 
-check-stdout:[(shell) (stdout-equals 'okay')]
+check-stdout:[(shell) (check stdout='okay')]
 	echo -n "okay"
 
-check-stderr:[(shell) (stderr-equals 'okay')]
+check-stderr:[(shell) (check stderr='okay')]
 	echo -n "okay" > /dev/stderr

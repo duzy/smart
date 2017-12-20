@@ -33,6 +33,13 @@ func (p *breaker) Error() string {
 
 type modifier func(prog *Program, context *types.Scope, value types.Value, args... types.Value) (types.Value, error)
 
+const (
+        theShellEnvarsDef = "shell->envars"
+        theShellStatusDef = "shell->status" // status code of execution
+        theShellOutputDef = "shell->output" // string of stdout
+        theShellErrorsDef = "shell->errors" // string of stderr
+)
+
 var (
         interpreters = map[string]interpreter{
                 `plain`: &dialectPlain{
@@ -68,15 +75,6 @@ var (
         }
 
         modifiers = map[string]modifier{
-                `status`:       modifierShellStatus,
-                //`stdout`:       modifierShellStdout,
-                //`stderr`:       modifierShellStderr,
-                //`stdin`:        modifierShellStdin,
-
-                `status-equals`: modifierStatusEquals,
-                `stdout-equals`: modifierStdoutEquals,
-                `stderr-equals`: modifierStderrEquals,
-
                 `select`:       modifierSelect,
 
                 `args`:         modifierSetArgs, // interpreter args
@@ -87,7 +85,8 @@ var (
                 `compare`:      modifierCompare,
                 `grep-compare`: modifierGrepCompare,
                 `grep-dependents`: modifierGrepDependents,
-                
+
+                `check`:        modifierCheck,
                 `check-dir`:    modifierCheckDir,
                 `check-file`:   modifierCheckFile,
                 `dir-p`:        modifierCheckDir,
@@ -131,42 +130,6 @@ func promptShellResult(value types.Value, n int) {
                         }
                 }
         }
-}
-
-func modifierShellStatus(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        def := prog.auto("shell-status", "on")
-        if len(args) > 0 && args[0].Strval() == "off" {
-                def.Assign(args[0])
-        }
-        promptShellResult(value, 1)
-        return
-}
-
-func modifierShellStdout(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        def := prog.auto("shell-stdout", "on")
-        if len(args) > 0 && args[0].Strval() == "off" {
-                def.Assign(args[0])
-        }
-        promptShellResult(value, 2)
-        return
-}
-
-func modifierShellStderr(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        def := prog.auto("shell-stderr", "on")
-        if len(args) > 0 && args[0].Strval() == "off" {
-                def.Assign(args[0])
-        }
-        promptShellResult(value, 3)
-        return
-}
-
-func modifierShellStdin(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        def := prog.auto("shell-stdin", "on")
-        if len(args) > 0 && args[0].Strval() == "off" {
-                def.Assign(args[0])
-        }
-        //promptShellResult(value, ?)
-        return
 }
 
 func modifierStatusEquals(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
@@ -221,7 +184,7 @@ func modifierSetEnv(prog *Program, context *types.Scope, value types.Value, args
                 return
         }
         var envars = values.List()
-        _ = prog.auto("shell-envars", envars)
+        _ = prog.auto(theShellEnvarsDef, envars)
         for _, a := range args {
                 if _, ok := a.(*types.Pair); ok {
                         //fmt.Printf("env: %v\n", a)
@@ -509,6 +472,40 @@ func modifierGrepDependents(prog *Program, context *types.Scope, value types.Val
                 }
         }
         result = dependList
+        return
+}
+
+// (check status=1 stdout="foobar" stderr="")
+// (check file=filename.txt)
+// (check dir=directory)
+func modifierCheck(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+        ForArgs: for _, arg := range args {
+                switch t := arg.(type) {
+                case *types.Pair:
+                        switch t.Key.Strval() {
+                        case "status":
+                                if statusDef, _ := prog.scope.Lookup(theShellStatusDef).(*types.Def); statusDef != nil {
+                                        if statusDef.Value.Strval() != t.Value.Strval() {
+                                                s := fmt.Sprintf("bad status (%v, expects %v)", statusDef.Value, t.Value)
+                                                err = &breaker{ s, false }
+                                                break ForArgs
+                                        }
+                                } else {
+                                        s := fmt.Sprintf("bad status (expects %v)", t.Value)
+                                        err = &breaker{ s, false }
+                                        break ForArgs
+                                }
+                        case "stdout":
+                        case "stderr":
+                        default:
+                                err = fmt.Errorf("unknown check '%v'", t.Key)
+                                break ForArgs
+                        }
+                default:
+                        err = fmt.Errorf("unknown check '%v' (%T)", arg, arg)
+                        break ForArgs
+                }
+        }
         return
 }
 

@@ -8,10 +8,9 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
-        //"github.com/duzy/smart/values"
+        "github.com/duzy/smart/values"
         "os/exec"
         "strings"
-        "errors"
         "unicode"
         //"bytes"
         "fmt"
@@ -50,17 +49,14 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
 
         var (
                 // TODO: parsing envars and status flags from `args'
-                envarsOpt, _ = prog.scope.Lookup("shell-envars").(*types.Def)
-                statusOpt, _ = prog.scope.Lookup("shell-status").(*types.Def)
-                //stdoutOpt, _ = prog.scope.Lookup("shell-stdout").(*types.Def)
-                //stderrOpt, _ = prog.scope.Lookup("shell-stderr").(*types.Def)
-                //stdinOpt, _ = prog.scope.Lookup("shell-stdin").(*types.Def)
+                envarsDef, _ = prog.scope.Lookup(theShellEnvarsDef).(*types.Def)
                 exeres = new(types.ExecResult)
                 envars []types.Value // disclosed values
                 source string
+                silent bool
         )
-        if envarsOpt != nil {
-                if l, _ := envarsOpt.Value.(*types.List); l != nil {
+        if envarsDef != nil {
+                if l, _ := envarsDef.Value.(*types.List); l != nil {
                         for _, v := range l.Elems {
                                 if v, err = types.Disclose(context, v); err != nil {
                                         return
@@ -127,6 +123,7 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                                         }
                                 case *types.Flag:
                                         switch t.Name.Strval() {
+                                        case "s": silent = true; continue LoopArgs
                                         case "i": stdin = true; continue LoopArgs
                                         case "do": verbout = true; continue LoopArgs
                                         case "de": verberr = true; continue LoopArgs
@@ -158,13 +155,16 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                 } else {
                         var s = err.Error()
                         if n, e := fmt.Sscanf(s, "exit status %v", &exeres.Status); n == 1 && e == nil {
-                                if statusOpt != nil && statusOpt.Value.Strval() == "on" {
+                                if statusDef, _ := prog.scope.Lookup(theShellStatusDef).(*types.Def); statusDef != nil {
+                                        statusDef.Assign(values.Int(int64(n)))
+                                }
+                                if silent {
                                         err = nil
                                 } else {
-                                        err = errors.New(fmt.Sprintf("%v (%s)", err, source))
+                                        err = fmt.Errorf("%v", err) // , source
                                 }
                         } else {
-                                exeres.Status = -1 //values.String(s)
+                                exeres.Status = -1
                         }
                         source = ""
                         break

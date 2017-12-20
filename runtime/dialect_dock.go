@@ -77,8 +77,8 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         }
                 }
                 
-                if envarsOpt, _ := prog.scope.Lookup("shell-envars").(*types.Def); envarsOpt != nil {
-                        if l, _ := envarsOpt.Value.(*types.List); l != nil {
+                if envarsDef, _ := prog.scope.Lookup(theShellEnvarsDef).(*types.Def); envarsDef != nil {
+                        if l, _ := envarsDef.Value.(*types.List); l != nil {
                                 for _, v := range l.Elems {
                                         if v, err = types.Disclose(context, v); err != nil {
                                                 return
