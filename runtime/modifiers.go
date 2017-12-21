@@ -197,7 +197,24 @@ func modifierSetEnv(prog *Program, context *types.Scope, value types.Value, args
 }
 
 func modifierCD(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        // does nothing
+        if n := len(args); n == 1 {
+                dir := args[0].Strval()
+                if dir == "-" {
+                        if len(workstack) > 0 {
+                                dir = workstack[len(workstack)-1].backdir
+                        } else {
+                                // FIXME: ...
+                        }
+                }
+                if dir != "" {
+                        //fmt.Printf("cd: %v\n", dir)
+                        if err = os.Chdir(dir); err == nil {
+                                prog.auto("CWD", dir)
+                        }
+                }
+        } else {
+                err = fmt.Errorf("cd: wrong number of args (%v)", n)
+        }
         return
 }
 

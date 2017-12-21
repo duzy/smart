@@ -1688,7 +1688,7 @@ var automatics = []string{
         "@D", "%D", "<D", "?D", "^D", "+D", "|D", "*D", //
         "@F", "%F", "<F", "?F", "^F", "+F", "|F", "*F", //
         "@'", "%'", "<'", "?'", "^'", "+'", "|'", "*'", //
-        "-",
+        "-", "CWD"/* Current Work Directory */,
 }
 
 func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause {

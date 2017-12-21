@@ -150,9 +150,9 @@ func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
         var name = g.Get(0).Strval()
-        if name == "cd" {
+        /*if name == "cd" {
                 // does nothing
-        } else if f, ok := modifiers[name]; ok {
+        } else*/ if f, ok := modifiers[name]; ok {
                 var value = out.Value
                 if value, err = f(prog, context, value, g.Slice(1)...); err == nil && value !=  nil {
                         out.Assign(value)
@@ -428,7 +428,7 @@ func (prog *Program) searchFile(project *types.Project, context *types.Scope, en
 }
 
 func (prog *Program) Getwd(context *types.Scope) string {
-        for _, m := range prog.pipline {
+        /*for _, m := range prog.pipline {
                 if g, ok := m.(*types.Group); ok && g != nil {
                         if n := len(g.Elems); n > 0 && g.Elems[0].Strval() == "cd" {
                                 var s string
@@ -443,7 +443,7 @@ func (prog *Program) Getwd(context *types.Scope) string {
                                 return s
                         }
                 }
-        }
+        }*/
         return filepath.Clean(prog.project.AbsPath())
 }
 
@@ -451,15 +451,20 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         if workdir := prog.Getwd(context); workdir != "" {
                 var printCD = entry.Class() != types.UseRuleEntry
                 defer leaveWorkdir(enterWorkdir(workdir, printCD))
+                prog.auto("CWD", workdir)
         }
-        
-        for i, a := range args {
-                // TODO: handle with Pair, map 'key => value' into
-                // parameters.
-                prog.auto(strconv.Itoa(i+1), a)
-                if i < len(prog.params) {
-                        name := prog.params[i]
-                        prog.auto(name, a)
+
+        var argn = 0
+        for _, a := range args {
+                switch t := a.(type) {
+                case *types.Pair:
+                        prog.auto(t.Key.Strval(), t.Value)
+                default:
+                        prog.auto(strconv.Itoa(argn+1), a)
+                        if argn < len(prog.params) {
+                                prog.auto(prog.params[argn], a)
+                        }
+                        argn += 1
                 }
         }
 

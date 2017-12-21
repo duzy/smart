@@ -4,4 +4,6 @@ foo:[(cd -)]: &(dir)/foobar
 	println &(dir)
 
 %/foobar:[(cd -) (shell -veo)]
-	pwd && touch $@
+	@echo $(CWD)
+	@pwd
+	@touch $@
