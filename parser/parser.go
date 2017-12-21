@@ -894,7 +894,9 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                         pos = p.pos
                         x ast.Expr
                 )
-                if p.next(); p.tok == token.LINEND || p.lineComment != nil {
+                // Flag expressions, excluding "-)" "-]" "-}" "-\n"
+                if p.next(); p.tok == token.RPAREN || p.tok == token.RBRACK || p.tok == token.RBRACE ||
+                        p.tok == token.LINEND || p.lineComment != nil {
                         x = &ast.Bareword{ ValuePos: p.pos }
                 } else {
                         x = p.checkExpr(p.parseExpr(false))

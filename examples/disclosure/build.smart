@@ -1,6 +1,7 @@
 project
 
-dir = default-dir
+import ./test
 
-foo:[(cd &(dir))]: &(dir)/foobar
-	println &(dir)
+dir = default
+
+all: test->foo

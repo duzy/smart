@@ -449,8 +449,8 @@ func (prog *Program) Getwd(context *types.Scope) string {
 
 func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
         if workdir := prog.Getwd(context); workdir != "" {
-                var pcd = entry.Class() != types.UseRuleEntry
-                defer leaveWorkdir(enterWorkdir(workdir, pcd))
+                var printCD = entry.Class() != types.UseRuleEntry
+                defer leaveWorkdir(enterWorkdir(workdir, printCD))
         }
         
         for i, a := range args {
