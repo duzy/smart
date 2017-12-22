@@ -36,6 +36,7 @@ type modifier func(prog *Program, context *types.Scope, value types.Value, args.
 const (
         theShellEnvarsDef = "shell->envars"
         theShellStatusDef = "shell->status" // status code of execution
+        theCurrWorkDirDef = "CWD"
 )
 
 var (
@@ -216,7 +217,7 @@ func modifierCD(prog *Program, context *types.Scope, value types.Value, args... 
                                 fmt.Printf("cd: %v\n", r)
                         }*/
                         if err = os.Chdir(dir); err == nil {
-                                prog.auto("CWD", dir)
+                                prog.auto(theCurrWorkDirDef, dir)
                         }
                 }
         } else {

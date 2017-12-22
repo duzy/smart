@@ -457,10 +457,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         if workdir := prog.Getwd(context); workdir != "" {
                 var printCD = entry.Class() != types.UseRuleEntry
                 defer leaveWorkdir(enterWorkdir(workdir, printCD))
-                prog.auto("CWD", workdir)
-                //fmt.Printf("execute: %v: %v\n", entry.Name(), workdir)
-        } else {
-                //fmt.Printf("execute: %v\n", entry.Name())
+                prog.auto(theCurrWorkDirDef, workdir)
         }
 
         var argn = 0

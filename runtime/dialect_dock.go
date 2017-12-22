@@ -89,7 +89,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         }
                 }
 
-                wd := prog.scope.Lookup("CWD").(*types.Def)
+                wd := prog.scope.Lookup(theCurrWorkDirDef).(*types.Def)
                 if s := wd.Value.Strval(); s != "" {
                         if false {
                                 fmt.Printf("dialectDock.evaluate: %s\n", s)
