@@ -24,22 +24,22 @@ LINK = $(LINK-cc)
 
 dock -
 
-program:[(cd) ((bin objects)) (compare $(bin)) (dock shell -oe)]: $(objects)
-	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
-lib.so:[(cd) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
+program:[((bin objects)) (cd -) (compare $(bin)) (dock shell -voe)]: $(objects)
+	pwd && $(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
+lib.so:[((lib objects)) (cd -) (compare $(lib)) (dock shell -voe)]: $(objects)
 	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
-lib.a:[(cd) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
+lib.a:[((lib objects)) (cd -) (compare $(lib)) (dock shell -voe)]: $(objects)
 	$(ARCHIVE) $(lib) $^
 
-%.o:[(cd) (compare) (dock shell -oe)]: %.cpp
+%.o:[(cd -) (compare) (dock shell -voe)]: %.cpp
+	pwd && $(COMPILE) $^ -o $@
+%.o:[(cd -) (compare) (dock shell -voe)]: %.cc
 	$(COMPILE) $^ -o $@
-%.o:[(cd) (compare) (dock shell -oe)]: %.cc
-	$(COMPILE) $^ -o $@
-%.o:[(cd) (compare) (dock shell -oe)]: %.C
+%.o:[(cd -) (compare) (dock shell -voe)]: %.C
 	$(COMPILE) $^ -o $@
 
 # https://github.com/google/re2/wiki/Syntax
-%.cpp %.cc %.C %.h %.hpp %.hh %.H:[(cd) (grep-compare -discard-missing \
+%.cpp %.cc %.C %.h %.hpp %.hh %.H:[(cd -) (grep-compare -discard-missing \
     '\s*#\s*include\s*<(.*)>' \
     '\s*#\s*include\s*"(.*)"')]
 

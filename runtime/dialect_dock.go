@@ -31,7 +31,6 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
         }
 
         var (
-                wd = prog.Getwd(context)
                 exeres = new(types.ExecResult)
                 source string
                 shi = "sh" // interpreter
@@ -90,7 +89,11 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         }
                 }
 
-                if s := wd; s != "" {
+                wd := prog.scope.Lookup("CWD").(*types.Def)
+                if s := wd.Value.Strval(); s != "" {
+                        if false {
+                                fmt.Printf("dialectDock.evaluate: %s\n", s)
+                        }
                         if t := strings.TrimSpace(source); t == "" {
                                 src = fmt.Sprintf("cd '%s'", s)
                         } else if strings.HasPrefix(t, "#") {

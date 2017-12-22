@@ -29,15 +29,13 @@ AR = ar
 ARFLAGS = rvs
 ARCHIVE = &(AR) &(ARFLAGS)
 
-ignore:
-
-program:[(cd) ((bin objects)) (compare $(bin)) (shell -oe)]: $(objects)
+program:[(cd -) ((bin objects)) (compare $(bin)) (shell -oe)]: $(objects)
 	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
-lib.so:[(cd) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
+lib.so:[(cd -) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
 	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
-lib.a:[(cd) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
+lib.a:[(cd -) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
 	$(ARCHIVE) $(lib) $^
-%.o:[(cd) (compare) (shell -oe)]: %.c
+%.o:[(cd -) (compare) (shell -oe)]: %.c
 	$(COMPILE) -o $@ $<
 
 # TODO:

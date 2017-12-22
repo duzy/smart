@@ -35,7 +35,7 @@ func enterWorkdir(dir string, print bool) (wi *workinfo) {
                 if nws := len(workstack); nws > 0 {
                         if p := workstack[nws-1]; p.dir == dir {
                                 //fmt.Printf("renter: %s (%v, %v)\n", p.dir, p.num, print)
-                                fmt.Printf("renter: %s (%v %s)\n", wd, p.num, p.backdir)
+                                //fmt.Printf("renter: %s (%v %s)\n", wd, p.num, p.backdir)
                                 if p.num <= 0 {
                                         workstack, print = workstack[0:nws-1], false
                                 } else {
@@ -173,8 +173,10 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry, depen
                 } else if v != nil {
                         depend = v
                 }
-                for _, d := range types.JoinReveal(depend) { // types.Join(depend)
-                        //fmt.Printf("Program.prepare: %T `%v' -> %T `%v'\n", depend, depend, d, d)
+                for _, d := range types.JoinReveal(depend) {
+                        if false {
+                                fmt.Printf("Program.prepare: %T `%v' -> %T `%v'\n", depend, depend, d, d)
+                        }
                         if err = prog.prepareDepend(prog.project, context, entry, false, d, nil, dependList); err != nil {
                                 return
                         }
@@ -275,7 +277,9 @@ func (prog *Program) prepareHandleName(project *types.Project, context *types.Sc
                 }
         }
 
-        // fmt.Printf("Program.prepareHandleName: %v: %v\n", name, depend)
+        if false {
+                fmt.Printf("Program.prepareHandleName: %v: %v\n", name, depend)
+        }
 
         // Find patterns.
         if pss := project.FindPatterns(name); pss != nil {
@@ -285,7 +289,9 @@ func (prog *Program) prepareHandleName(project *types.Project, context *types.Sc
         // Find entry in the context project.
         if proj := context.FindProject(); proj != nil {
                 if proj != project {
-                        //fmt.Printf("prepareHandleName: %s -> %s\n", project.Name(), proj.Name())
+                        if false {
+                                fmt.Printf("prepareHandleName: %s -> %s\n", project.Name(), proj.Name())
+                        }
                         project = proj; goto FindEntry
                 } else if isFile || proj.IsFile(name) {
                         // Search file in context's project.
@@ -452,6 +458,9 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 var printCD = entry.Class() != types.UseRuleEntry
                 defer leaveWorkdir(enterWorkdir(workdir, printCD))
                 prog.auto("CWD", workdir)
+                //fmt.Printf("execute: %v: %v\n", entry.Name(), workdir)
+        } else {
+                //fmt.Printf("execute: %v\n", entry.Name())
         }
 
         var argn = 0
