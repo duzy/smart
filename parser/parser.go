@@ -479,76 +479,35 @@ func (p *parser) parseBareword() (x ast.Expr) {
         return x
 }
 
-func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
+func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
 	if p.trace {
 		defer un(trace(p, "Selector"))
 	}
         
-        // Parse rhs of '->'
-        var s = p.checkExpr(p.parseExpr(lhs))
-
-        // Deal with lhs of '->', convert x into an Ident or Barefile
         var (
-                operand types.Value
-                value types.Value
-                operandName string
-                valueName string
+                object types.Value
+                objectName string
+                fieldValue types.Value
+                fieldName string
                 where = anywhere
+                rhs = p.checkExpr(p.parseExpr(false))
         )
-        switch t := x.(type) {
-        case *ast.Bareword: operandName = t.Value
-        case *ast.EvaluatedExpr:
-                if t.Data != nil {
-                        if operand = t.Data.(types.Value); operand != nil {
-                                goto ComputeValueName
-                        }
-                }
-                // Error...
-                p.error(t.Pos(), "Evaluated select (left) operand `%T' invalid (%v).", t.Expr, t.Data)
-                goto DoneSelect
-        default:
-                if v, e := p.runtime.Eval(x, disclosure); e == nil && v != nil {
-                        operandName = v.Strval()
-                } else if v == nil {
-                        p.error(t.Pos(), "Select operand `%T' eval to nil.", t)
-                } else {
-                        p.error(t.Pos(), e)
-                        p.error(t.Pos(), "Invalid select operand (%T).", t)
-                }
-        }
-
-        if operandName == "@" {
-                // If resolving @ in a rule (program) scope selection context,
-                // e.g. '$(@.FOO)', Resolve have to ensure @ is pointing to the global
-                // @ package.
-                where = global
-        }
-        if sym := p.runtime.Resolve(operandName, where); sym != nil {
-                operand = sym.(types.Value)
-        }
-        
-        if operand == nil {
-                p.error(x.Pos(), "Undefined select operand `%s' (%T).", operandName, x)
-                goto DoneSelect
-        }
-
-        //fmt.Printf("select: %T.%T (%v %v)\n", x, s, x, s)
-        ComputeValueName: switch t := s.(type) {
-        case *ast.Bareword: valueName = t.Value
-        case *ast.GlobExpr: valueName = t.Tok.String()
-        case *ast.EvaluatedExpr:
+        switch t := rhs.(type) {
+        case *ast.Bareword: fieldName = t.Value        // foo->xxx
+        case *ast.GlobExpr: fieldName = t.Tok.String() // foo->*
+        case *ast.EvaluatedExpr: // foo->bar->xxx
                 if t.Data != nil {
                         if v, _ := t.Data.(types.Value); v != nil {
-                                valueName = v.Strval()
+                                fieldName = v.Strval()
                         }
                 }
-                if valueName == "" {
+                if fieldName == "" {
                         p.error(t.Pos(), "Evaluated select (right) operand `%T' invalid (%v).", t.Expr, t.Data)
                         goto DoneSelect
                 }
         default:
-                if v, e := p.runtime.Eval(s, disclosure); e == nil && v != nil {
-                        valueName = v.Strval()
+                if v, e := p.runtime.Eval(rhs, disclosure); e == nil && v != nil {
+                        fieldName = v.Strval()
                 } else if v == nil {
                         p.error(t.Pos(), "Select operand (%T) evals to nil.", t)
                         goto DoneSelect
@@ -557,44 +516,69 @@ func (p *parser) parseSelect(lhs bool, x ast.Expr) (res ast.Expr) {
                         p.error(t.Pos(), "Invalid select operand `%T'.", t)
                 }
         }
-        //fmt.Printf("select: %v.%v (%T %T)\n", operandName, valueName, x, s)
 
-        switch o := operand.(type) {
+        switch t := lhs.(type) {
+        case *ast.Bareword: objectName = t.Value
+        case *ast.EvaluatedExpr:
+                if t.Data != nil {
+                        if object = t.Data.(types.Value); object != nil {
+                                goto GetFieldValue
+                        }
+                }
+                // Error...
+                p.error(t.Pos(), "Evaluated select (left) operand `%T' invalid (%v).", t.Expr, t.Data)
+                goto DoneSelect
+        default:
+                if v, e := p.runtime.Eval(lhs, disclosure); e == nil && v != nil {
+                        objectName = v.Strval()
+                } else if v == nil {
+                        p.error(t.Pos(), "Select operand `%T' eval to nil.", t)
+                } else {
+                        p.error(t.Pos(), e)
+                        p.error(t.Pos(), "Invalid select operand (%T).", t)
+                }
+        }
+        if objectName == "@" {
+                // If resolving @ in a rule (program) scope selection context,
+                // e.g. '$(@.FOO)', Resolve have to ensure @ is pointing to the global
+                // @ package.
+                where = global
+        }
+        if sym := p.runtime.Resolve(objectName, where); sym != nil {
+                object = sym.(types.Value)
+        }
+        if object == nil {
+                p.error(lhs.Pos(), "Undefined select operand `%s' (%T).", objectName, lhs)
+                goto DoneSelect
+        }
+
+        GetFieldValue: switch o := object.(type) {
         case types.Object:
                 var err error
-                if value, err = o.Get(valueName); err != nil {
-                        p.error(s.Pos(), err)
-                        p.error(x.Pos(), "Selection `%s->%s' failed.", operandName, valueName)
-                } else if value == nil {
-                        p.error(s.Pos(), "No such property `%s' in `%s'.", valueName, operandName)
+                if fieldValue, err = o.Get(fieldName); err != nil {
+                        p.error(rhs.Pos(), err)
+                        p.error(lhs.Pos(), "Selection `%s->%s' failed.", objectName, fieldName)
+                } else if fieldValue == nil {
+                        p.error(rhs.Pos(), "No such property `%s' in `%s'.", fieldName, objectName)
                 } else if pn, _ := o.(*types.ProjectName); pn != nil {
                         // Detect diverged scope ().
-                        switch v := value.(type) {
+                        switch v := fieldValue.(type) {
                         case *types.RuleEntry:
                                 if false && pn.Project() != v.Project() {
-                                        p.error(s.Pos(), "Name diverged `%v' (%v != %v).", valueName, pn.Project().Name(), v.Project().Name())
+                                        p.error(rhs.Pos(), "Name diverged `%v' (%v != %v).", fieldName, pn.Project().Name(), v.Project().Name())
                                 }
                         case *types.Def:
                         }
                 }
         default:
-                goto DoneSelect
+                p.error(lhs.Pos(), "Not an object `%T'.", lhs)
         }
 
-        DoneSelect: if value == nil {
-                p.error(s.Pos(), "No such property `%v' (%T) in `%s'.", valueName, s, operandName)
-        }
-
-        //fmt.Printf("select: %T.%T -> %s.%s\n", x, s, operandName, valueName)
-        //fmt.Printf("select: %T %v . %T %v\n", operand, operand, value, value)
-        //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
-        //fmt.Printf("select: %v.%v (%v %v)\n", operandName, valueName, operand, value)
-
-        res = &ast.EvaluatedExpr{ s, value }
+        DoneSelect: res = &ast.EvaluatedExpr{ rhs, fieldValue }
         if p.tok == token.SELECT {
                 p.next() // Drop '.' before continuing selecting.
                 // Continue the selection recursivly
-                res = p.parseSelect(lhs, res)
+                res = p.parseSelect(res)
         } else if p.tok == token.PERIOD {
                 p.warn(p.pos, "Replaced PERIOD by SELECT (->)")
         }
@@ -986,7 +970,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         p.bits |=  composingSELECT
                         p.next() // Drop the '->' token.
                         //fmt.Printf("%v->", x)
-                        x = p.parseSelect(lhs, p.checkExpr(x))
+                        x = p.parseSelect(p.checkExpr(x))
                         //fmt.Printf("%v (%T)\n", x, x)
                         if p.tok == token.LPAREN && x.End() == p.pos {
                                 x = p.parseArgumentedExpr(x)
