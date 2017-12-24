@@ -89,34 +89,9 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         }
                 }
 
-                wd := prog.scope.Lookup(theCurrWorkDirDef).(*types.Def)
-                if s := wd.Value.Strval(); s != "" {
-                        if false {
-                                fmt.Printf("dialectDock.evaluate: %s\n", s)
-                        }
-                        if t := strings.TrimSpace(source); t == "" {
-                                src = fmt.Sprintf("cd '%s'", s)
-                        } else if strings.HasPrefix(t, "#") {
-                                src = fmt.Sprintf("cd '%s' %s", s, t)
-                        } else {
-                                // Insert a "\n" before the right paren ')' to ensure that
-                                // it's working with something like "true #comment...".
-                                src = fmt.Sprintf("cd '%s' && (%s\n)", s, t)
-                        }
-                        if s = ""; len(envars) > 0 {
-                                for i, env := range envars {
-                                        if i > 0 { s += " && " }
-                                        p := env.(*types.Pair)
-                                        s += "export "
-                                        s += p.Key.Strval() + "=\""
-                                        s += p.Value.Strval() + "\""
-                                }
-                                src = fmt.Sprintf("%s && %s", s, src)
-                        }
-                }
-
                 var (
                         verbout, verberr, saveout, saveerr, stdin, silent bool
+                        nocd bool
                         a = []string{ "exec" }
                         cmd string
                 )
@@ -149,6 +124,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 case "i":
                                         stdin, a = true, append(a, "-ti")
                                         continue ForArgs
+                                case "nocd": nocd = true; continue ForArgs
                                 }
                         default:
                                 shi = args[0].Strval()
@@ -156,6 +132,33 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                         }
                         a = append(a, v.Strval())
                 }
+
+                wd := prog.scope.Lookup(theCurrWorkDirDef).(*types.Def)
+                if s := wd.Value.Strval(); s != "" || nocd {
+                        if false {
+                                fmt.Printf("dialectDock.evaluate: %s\n", s)
+                        }
+                        if t := strings.TrimSpace(source); t == "" {
+                                src = fmt.Sprintf("cd '%s'", s)
+                        } else if strings.HasPrefix(t, "#") {
+                                src = fmt.Sprintf("cd '%s' %s", s, t)
+                        } else {
+                                // Insert a "\n" before the right paren ')' to ensure that
+                                // it's working with something like "true #comment...".
+                                src = fmt.Sprintf("cd '%s' && (%s\n)", s, t)
+                        }
+                        if s = ""; len(envars) > 0 {
+                                for i, env := range envars {
+                                        if i > 0 { s += " && " }
+                                        p := env.(*types.Pair)
+                                        s += "export "
+                                        s += p.Key.Strval() + "=\""
+                                        s += p.Value.Strval() + "\""
+                                }
+                                src = fmt.Sprintf("%s && %s", s, src)
+                        }
+                }
+
                 if shi == "shell" {
                         shi = defaultShellInterpreter
                 }
