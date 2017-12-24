@@ -1751,8 +1751,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         p.error(target.Pos(), "Entry name `%s' invalid.", name)
                         continue
                 }
-                
-                //p.warn(target.Pos(), "%v: %v (%T %v)", tarent, tarent.Class(), target, p.runtime.IsFileName(name))
 
                 // Guessing target entry class, e.g. general, file, etc.
                 var class = tarent.Class()
@@ -1827,10 +1825,6 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         }
 
                         //fmt.Printf("depend: %T -> %T %v\n", depend, depval, depval)
-
-                        //if scopeComment == "lib.a" {
-                        //        fmt.Printf("parseRuleClause: %s: %T -> %T %v\n", scopeComment, depend, depval, depval)
-                        //}
 
                         depends[i] = &ast.EvaluatedExpr{ depend, depval }
                         continue dependsLoop
