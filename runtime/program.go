@@ -453,11 +453,26 @@ func (prog *Program) Getwd(context *types.Scope) string {
         return filepath.Clean(prog.project.AbsPath())
 }
 
+func (prog *Program) hasCDDash() (res bool) {
+        for _, p := range prog.pipline {
+                if g, _ := p.(*types.Group); g != nil {
+                        if a := g.Elems; len(a) > 1 && a[0].Strval() == "cd" && a[1].Strval() == "-" {
+                                res = true
+                        }
+                }
+        }
+        return
+}
+
 func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
         if workdir := prog.Getwd(context); workdir != "" {
-                var printCD = entry.Class() != types.UseRuleEntry
+                var printCD = entry.Class() != types.UseRuleEntry && !prog.hasCDDash()
                 defer leaveWorkdir(enterWorkdir(workdir, printCD))
                 prog.auto(theCurrWorkDirDef, workdir)
+        }
+
+        if false {
+                fmt.Printf("execute: %v\n", entry.Name())
         }
 
         var argn = 0

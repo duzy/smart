@@ -25,14 +25,14 @@ LINK = $(LINK-cc)
 dock -
 
 program:[((bin objects)) (cd -) (compare $(bin)) (dock shell -voe)]: $(objects)
-	pwd && $(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
+	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
 lib.so:[((lib objects)) (cd -) (compare $(lib)) (dock shell -voe)]: $(objects)
 	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
 lib.a:[((lib objects)) (cd -) (compare $(lib)) (dock shell -voe)]: $(objects)
 	$(ARCHIVE) $(lib) $^
 
 %.o:[(cd -) (compare) (dock shell -voe)]: %.cpp
-	pwd && $(COMPILE) $^ -o $@
+	$(COMPILE) $^ -o $@
 %.o:[(cd -) (compare) (dock shell -voe)]: %.cc
 	$(COMPILE) $^ -o $@
 %.o:[(cd -) (compare) (dock shell -voe)]: %.C
