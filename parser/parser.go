@@ -548,7 +548,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                 object = sym.(types.Value)
         }
         if object == nil {
-                p.error(lhs.Pos(), "Undefined select operand `%s' (%T).", objectName, lhs)
+                p.error(lhs.Pos(), "Undefined select operand `%s' (%v).", objectName, lhs)
                 goto DoneSelect
         }
 
@@ -795,9 +795,9 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
                 var resolved RuntimeObj
                 if a, _ := name.(*ast.EvaluatedExpr); a != nil {
                         if a.Data == nil {
-                                p.error(name.Pos(), "Evaluated data is nil `%T'.", a.Expr)
+                                p.error(name.Pos(), "Evaluated data is nil (%v).", a.Expr)
                         } else if resolved = a.Data.(RuntimeObj); resolved == nil {
-                                p.error(name.Pos(), "Unresolved reference `%T'.", a.Expr)
+                                p.error(name.Pos(), "Unresolved reference (%v).", a.Expr)
                         }
                 } else if v, e := p.runtime.Eval(name, disclosure); e != nil {
                         p.error(pos, e)

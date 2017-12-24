@@ -349,7 +349,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 if x.Data != nil {
                         v = x.Data.(types.Value)
                 } else {
-                        err = fmt.Errorf("Expr `%T' evaluated to nil.", x.Expr)
+                        err = fmt.Errorf("Expr evaluated to nil (%v).", x.Expr)
                         return
                 }
         case *ast.ArgumentedExpr:
