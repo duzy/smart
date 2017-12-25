@@ -245,10 +245,11 @@ func (prog *Program) prepareHandleEntry(project *types.Project, context *types.S
                         isDependUpdated = true
                         break ForPrograms
                 } else if _, ok := err.(*dependPatternUnfit); ok {
-                        //fmt.Printf("%s: %v (pattern not fit)\n", entry.Name(), depend)
                         isDependPatternUnfit = true
                         continue ForPrograms
                 } else if true {
+                        fmt.Fprintf(os.Stdout, "%s: %s\n", depend.Position, err)
+                } else if false {
                         var s = err.Error()
                         if strings.HasPrefix(s, "Updating ") {
                                 s = "->" + strings.TrimPrefix(s, "Updating ")

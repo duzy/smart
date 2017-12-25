@@ -12,6 +12,7 @@ import (
         "errors"
         "bytes"
         "fmt"
+        "github.com/duzy/smart/token"
 )
 
 // Object is a value defined in a scope.
@@ -380,6 +381,7 @@ type RuleEntry struct {
         programs []Program
         stem string // only applied for PatternRuleEntry
         Creator *PatternEntry
+        Position token.Position
 }
 
 func (entry *RuleEntry) String() string { return fmt.Sprintf("entry %v", entry.name) }
@@ -466,7 +468,8 @@ func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name stri
                                 typ:     RuleEntryType,
                                 ord:     0,
                         },
-                        kind, nil, "", nil,
+                        kind, nil, "", nil, 
+                        token.Position{},
                 }
                 scope.replace(name, entry)
         } else if name == "use" {

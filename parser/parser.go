@@ -1736,6 +1736,8 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         continue
                 }
 
+                tarent.Position = p.file.Position(target.Pos())
+
                 // Guessing target entry class, e.g. general, file, etc.
                 var class = tarent.Class()
                 switch target.(type) {
