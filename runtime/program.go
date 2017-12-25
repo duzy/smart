@@ -25,59 +25,43 @@ func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 type workinfo struct {
         dir, backdir string
         print bool
-        num int
 }
 
 var workstack []*workinfo
 
 func enterWorkdir(dir string, print bool) (wi *workinfo) {
-        if wd, _ := os.Getwd(); dir != filepath.Clean(wd) {
-                if nws := len(workstack); nws > 0 {
-                        if p := workstack[nws-1]; p.dir == dir {
-                                //fmt.Printf("renter: %s (%v, %v)\n", p.dir, p.num, print)
-                                //fmt.Printf("renter: %s (%v %s)\n", wd, p.num, p.backdir)
-                                if p.num <= 0 {
-                                        workstack, print = workstack[0:nws-1], false
-                                } else {
-                                        p.backdir = wd
-                                        p.num += 1
-                                }
-                        }
+        if wd, err := os.Getwd(); err == nil {
+                if n := len(workstack); 0 < n && workstack[n-1].dir == dir {
+                        print = false
                 }
                 if print {
                         fmt.Printf("smart: Entering directory '%s'\n", dir)
                 }
-                if wi != nil {
-                        return
-                }
                 if err := os.Chdir(dir); err == nil {
-                        if wi == nil {
-                                wi = &workinfo{
-                                        dir: dir, backdir: wd, 
-                                        print: print, 
-                                        num: 1,
-                                }
+                        wi = &workinfo{
+                                dir: dir,
+                                backdir: filepath.Clean(wd),
+                                print: print,
                         }
                         workstack = append(workstack, wi)
                 } else {
-                        // TODO: error...
+                        fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
                 }
+        } else {
+                fmt.Fprintf(os.Stderr, "smart: %s\n", err)
         }
         return
 }
 
 func leaveWorkdir(wi *workinfo) {
-        if /*nws := len(workstack); nws > 0 &&*/ wi != nil {
-                //assert(wi == workstack[nws-1])
+        if n := len(workstack); 0 < n && workstack[n-1] == wi {
                 if wi.print {
                         fmt.Printf("smart:  Leaving directory '%s'\n", wi.dir)
                 }
-                if err := os.Chdir(wi.backdir); err == nil {
-                        // ...
-                } else {
-                        // TODO: error...
+                if err := os.Chdir(wi.backdir); err != nil {
+                        fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
                 }
-                wi.num -= 1
+                workstack = workstack[0:n-1]
         }
 }
 
