@@ -380,16 +380,29 @@ type RuleEntry struct {
         class RuleEntryClass
         programs []Program
         stem string // only applied for PatternRuleEntry
+        //filename string
         Creator *PatternEntry
         Position token.Position
 }
 
 func (entry *RuleEntry) String() string { return fmt.Sprintf("entry %v", entry.name) }
-func (entry *RuleEntry) Strval() string { return entry.name }
+func (entry *RuleEntry) Strval() (s string) {
+        /*if entry.class == FileRuleEntry && entry.filename != "" {
+                s = entry.filename
+        } else {
+                s = entry.name
+        }
+        return*/
+        return entry.name
+}
+
 func (entry *RuleEntry) Stem() string { return entry.stem }
 
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
+/*func (entry *RuleEntry) SetFileName(s string) {
+        entry.class, entry.filename = FileRuleEntry, s
+}*/
 
 func (entry *RuleEntry) IsPattern() bool {
         return entry.class == PatternRuleEntry || entry.class == PatternFileRuleEntry;
@@ -439,9 +452,10 @@ func (entry *RuleEntry) Execute(context *Scope, a... Value) (result []Value, err
 
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
-        case "name": return &String{entry.Name()}, nil
+        case "name": return &String{entry.name}, nil
+        //case "file": return &String{entry.filename}, nil
+        case "stem": return &String{entry.stem}, nil
         case "class": return &String{entry.class.String()}, nil
-        //case "stem": return &String{entry.stem}, nil
         }
         return nil, errors.New(fmt.Sprintf("no such entry property (%s)", name))
 }

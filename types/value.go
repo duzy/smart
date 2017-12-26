@@ -54,6 +54,10 @@ func (*value) Strval() string     { return "" }
 func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
 
+type prerequisite interface {
+        prepare(prog *Program, context *Scope) error
+}
+
 type Argumented struct {
         Value
         Args []Value
@@ -86,6 +90,7 @@ func (p *Argumented) Strval() (s string) {
 
 type None struct { value }
 func (p *None) Type() Type { return NoneType }
+func (p *None) prepare(prog *Program, context *Scope) error { return nil }
 
 type Any struct {
         Value interface{}
@@ -622,10 +627,12 @@ func (p *delegate) Type() Type         { return DelegateType }
 func (p *delegate) String() (s string) {
         var na = len(p.a)
         s = "$("
-        if sc := p.o.Parent(); sc != nil && sc.Comment() == "use"/*use scope*/ {
-                s += sc.Comment() + "->"
-        } else if pp := p.o.Project(); pp != nil {
-                s += pp.Name() + "->"
+        if false {
+                if sc := p.o.Parent(); sc != nil && sc.Comment() == "use"/*use scope*/ {
+                        s += sc.Comment() + "->"
+                } else if pp := p.o.Project(); pp != nil {
+                        s += pp.Name() + "->"
+                }
         }
         s += p.o.Name()
         if na > 0 {

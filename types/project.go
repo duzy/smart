@@ -76,7 +76,7 @@ func (m *Project) SearchFile(context *Scope, fv *File) *File {
                 firstMatched []string
         )
         //fmt.Printf("%v: SearchFile: %v (%v)\n", m.Name(), fv.Name, m.files)
-        LoopFiles: for pat, paths := range m.files {
+        ForFiles: for pat, paths := range m.files {
                 matched := false
                 if strings.ContainsAny(pat, "*?[") {
                         matched, _ = filepath.Match(pat, ss)
@@ -92,14 +92,14 @@ func (m *Project) SearchFile(context *Scope, fv *File) *File {
                 if filepath.IsAbs(fv.Name) {
                         fi, _ := os.Stat(fv.Name)
                         fv.Info, fv.Dir = fi, ""
-                        break LoopFiles
+                        break ForFiles
                 }
 
                 for _, p := range paths {
                         full := filepath.Join(p, fv.Name)
                         if fi, er := os.Stat(full); fi != nil && er == nil {
                                 fv.Info, fv.Dir = fi, p
-                                break LoopFiles
+                                break ForFiles
                         } else {
                                 //fmt.Printf("SearchFile: %v (%v)\n", fv.Name, er)
                         }
@@ -115,6 +115,9 @@ func (m *Project) SearchFile(context *Scope, fv *File) *File {
                         }
                 }
         }
+
+        // TODO: _, ctxPathDef := context.Find("/")
+
         return fv
 }
 
