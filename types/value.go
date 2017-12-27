@@ -55,22 +55,22 @@ func (*value) Strval() string     { return "" }
 func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
 
-const trace_prepare = true
+const trace_prepare = false
 
-// PrepareContext prepares prerequisites of targets.
-type PrepareContext struct {
+// Preparer prepares prerequisites of targets.
+type Preparer struct {
         program Program
         context *Scope
         entry *RuleEntry
         arguments []Value
-        depends *List
+        targets *List
 }
 
 type prerequisite interface {
-        prepare(pc *PrepareContext) error
+        prepare(pc *Preparer) error
 }
 
-func (pc *PrepareContext) Prepare(value interface{}) (err error) {
+func (pc *Preparer) Prepare(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
                         if err = pc.prepare(v.Index(i).Interface()); err != nil {
@@ -83,7 +83,7 @@ func (pc *PrepareContext) Prepare(value interface{}) (err error) {
         return
 }
 
-func (pc *PrepareContext) prepare(value interface{}) (err error) {
+func (pc *Preparer) prepare(value interface{}) (err error) {
         if p, _ := value.(prerequisite); p != nil {
                 err = p.prepare(pc)
         } else {
@@ -92,10 +92,10 @@ func (pc *PrepareContext) prepare(value interface{}) (err error) {
         return
 }
 
-func (pc *PrepareContext) Targets() *List { return pc.depends }
+func (pc *Preparer) Targets() *List { return pc.targets }
 
-func NewPrepareContext(prog Program, context *Scope, entry *RuleEntry, args []Value, depends *List) (pc *PrepareContext) {
-        return &PrepareContext{ prog, context, entry, args, depends }
+func NewPreparer(prog Program, context *Scope, entry *RuleEntry, args... Value) (pc *Preparer) {
+        return &Preparer{ prog, context, entry, args, new(List) }
 }
 
 type Argumented struct {
@@ -128,7 +128,7 @@ func (p *Argumented) Strval() (s string) {
         return
 }
 
-func (p *Argumented) prepare(pc *PrepareContext) error {
+func (p *Argumented) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Argumented: %v\n", p)
         }
@@ -138,7 +138,7 @@ func (p *Argumented) prepare(pc *PrepareContext) error {
 
 type None struct { value }
 func (p *None) Type() Type { return NoneType }
-func (p *None) prepare(pc *PrepareContext) error {
+func (p *None) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:None: %v <- %v\n", p, pc.entry)
         }
@@ -258,7 +258,7 @@ func (p *Bareword) Strval() string { return p.Value }
 func (p *Bareword) Integer() int64 { return 0 }
 func (p *Bareword) Float() float64 { return float64(p.Integer()) }
 
-func (p *Bareword) prepare(pc *PrepareContext) error {
+func (p *Bareword) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Bareword: %v <- %v\n", p, pc.entry)
         }
@@ -266,7 +266,7 @@ func (p *Bareword) prepare(pc *PrepareContext) error {
         return pc.prepareTarget(p.Value)
 }
 
-func (pc *PrepareContext) prepareTarget(target string) (err error) {
+func (pc *Preparer) prepareTarget(target string) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:Target: %v\n", target)
         }
@@ -283,7 +283,12 @@ func (pc *PrepareContext) prepareTarget(target string) (err error) {
                 if trace_prepare {
                         fmt.Printf("prepare:Target: %v %v\n", target, ps)
                 }
-                if err = pc.Prepare(ps); err != nil {
+                if err = pc.Prepare(ps); err == nil {
+                        return // Updated successfully!
+                } else if _, ok := err.(*preparePatternUnfit); ok {
+                        // Discard pattern unfit errors.
+                        err = nil; continue
+                } else {
                         return
                 }
         }
@@ -302,7 +307,7 @@ func (pc *PrepareContext) prepareTarget(target string) (err error) {
         return
 }
 
-func (pc *PrepareContext) searchFile(project *Project, name string) (err error) {
+func (pc *Preparer) searchFile(project *Project, name string) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:SearchFile: %v (%v)\n", name, project.Name())
         }
@@ -312,7 +317,7 @@ func (pc *PrepareContext) searchFile(project *Project, name string) (err error) 
                 f = pc.program.Project().SearchFile(pc.context, f)
         }
         if f.Info != nil {
-                pc.depends.Append(f)
+                pc.targets.Append(f)
         } else {
                 err = fmt.Errorf("No such file `%v'", name)
         }
@@ -443,7 +448,7 @@ func (p *Barefile) referencing(o Object) bool {
         return p.Name.referencing(o)
 }
 
-func (p *Barefile) prepare(pc *PrepareContext) error {
+func (p *Barefile) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Barefile: %v\n", p)
         }
@@ -527,7 +532,7 @@ func (p *Path) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
-func (p *Path) prepare(pc *PrepareContext) error {
+func (p *Path) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Path: %v <- %v\n", p, pc.entry)
         }
@@ -576,7 +581,7 @@ func (p *File) referencing(o Object) bool {
         return p.Value.referencing(o)
 }
 
-func (p *File) prepare(pc *PrepareContext) error {
+func (p *File) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v <- %v\n", p, pc.entry)
         }
@@ -870,7 +875,7 @@ func (p *delegate) referencing(o Object) bool {
         return false
 }
 
-func (p *delegate) prepare(pc *PrepareContext) (err error) {
+func (p *delegate) prepare(pc *Preparer) (err error) {
         for _, d := range Join(Reveal(p)) {
                 if err = pc.Prepare(d); err != nil {
                         break
@@ -966,7 +971,7 @@ func (p *closure) referencing(o Object) bool {
         return false
 }
 
-func (p *closure) prepare(pc *PrepareContext) (err error) {
+func (p *closure) prepare(pc *Preparer) (err error) {
         if v, e := p.disclose(pc.context); e != nil {
                 err = e
         } else if v == nil {
@@ -1147,11 +1152,11 @@ func (p *PercentPattern) referencing(o Object) bool {
         return p.Prefix.referencing(o) || p.Suffix.referencing(o)
 }
 
-func (p *PercentPattern) prepare(pc *PrepareContext) (err error) {
+func (p *PercentPattern) prepare(pc *Preparer) (err error) {
         if stem := pc.entry.Stem(); stem != "" {
                 var name = p.MakeString(stem)
                 if err = pc.prepareTarget(name); err != nil {
-                        err = &preparePatternError{ err }
+                        err = &preparePatternUnfit{ err }
                 }
         } else {
                 err = fmt.Errorf("Empty stem (%s, dependency %v)", pc.entry, p)

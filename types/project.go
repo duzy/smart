@@ -162,7 +162,7 @@ func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
         return ps.Patent.MakeConcreteEntry(ps.Stem)
 }
 
-func (ps *PatternStem) prepare(pc *PrepareContext) (err error) {
+func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:PatternStem: %v\n", ps)
         }

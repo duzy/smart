@@ -106,7 +106,7 @@ func (n *ProjectName) Get(name string) (Value, error) {
         return nil, errors.New(fmt.Sprintf("Undefined `%s' in project `%s'.", name, n.project.Name()))
 }
 
-func (p *ProjectName) prepare(pc *PrepareContext) (err error) {
+func (p *ProjectName) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:ProjectName: %v <- %v\n", p, pc.entry)
         }
@@ -390,31 +390,17 @@ func (c RuleEntryClass) String() string {
 type RuleEntry struct {
         object
         class RuleEntryClass
-        programs []Program
         stem string // only applied for PatternRuleEntry
-        //filename string
+        programs []Program
         Creator *PatternEntry
         Position token.Position
 }
 
 func (entry *RuleEntry) String() string { return fmt.Sprintf("entry %v", entry.name) }
-func (entry *RuleEntry) Strval() (s string) {
-        /*if entry.class == ExplicitFileEntry && entry.filename != "" {
-                s = entry.filename
-        } else {
-                s = entry.name
-        }
-        return*/
-        return entry.name
-}
-
+func (entry *RuleEntry) Strval() (s string) { return entry.name }
 func (entry *RuleEntry) Stem() string { return entry.stem }
-
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
-/*func (entry *RuleEntry) SetFileName(s string) {
-        entry.class, entry.filename = ExplicitFileEntry, s
-}*/
 
 func (entry *RuleEntry) IsPattern() bool {
         return entry.class == PatternRuleEntry || entry.class == StemmedFileEntry;
@@ -433,7 +419,6 @@ func (entry *RuleEntry) IsFile() bool {
         return false
 }*/
 
-// RuleEntry.Programs returns the rule programs.
 func (entry *RuleEntry) Programs() []Program { return entry.programs }
 func (entry *RuleEntry) Depends() (depends []Value) {
         for _, prog := range entry.programs {
@@ -465,22 +450,21 @@ func (entry *RuleEntry) Execute(context *Scope, a... Value) (result []Value, err
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
         case "name": return &String{entry.name}, nil
-        //case "file": return &String{entry.filename}, nil
         case "stem": return &String{entry.stem}, nil
         case "class": return &String{entry.class.String()}, nil
         }
         return nil, errors.New(fmt.Sprintf("no such entry property (%s)", name))
 }
 
-type preparePatternError struct {
+type preparePatternUnfit struct {
         error
 }
 
-func (*preparePatternError) Error() string {
+func (*preparePatternUnfit) Error() string {
         return "pattern unfit" 
 }
 
-func (entry *RuleEntry) prepare(pc *PrepareContext) (err error) {
+func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:RuleEntry: %v (%v)\n", entry, entry.class)
         }
@@ -532,32 +516,32 @@ func (entry *RuleEntry) prepare(pc *PrepareContext) (err error) {
         }
 
         ExecutePrograms: var (
-                isTargetPatternUnfit = false
-                isTargetUpdated = false
+                //isTargetPatternUnfit = false
+                //isTargetUpdated = false
         )
         ForPrograms: for _, prog := range entry.Programs() {
                 if prog == pc.program {
                         return fmt.Errorf("Depends on itself (%v).", pc.entry)
                 }
                 if err = pc.execute(entry, prog); err == nil {
-                        isTargetUpdated = true
+                        //isTargetUpdated = true
                         break ForPrograms
-                } else if _, ok := err.(*preparePatternError); ok {
-                        // Discard pattern errors.
-                        isTargetPatternUnfit, err = true, nil
-                        continue ForPrograms
+                /*} else if _, ok := err.(*preparePatternUnfit); ok {
+                        // Discard pattern unfit errors.
+                        isTargetPatternUnfit = true
+                        continue ForPrograms*/
                 }
         }
-        if isTargetPatternUnfit && !isTargetUpdated && err != nil {
+        /*if isTargetPatternUnfit && !isTargetUpdated && err != nil {
                 err = fmt.Errorf("Not applied for '%s'", entry.name)
-        }
+        }*/
         if err != nil {
                 fmt.Fprintf(os.Stdout, "%s: %v\n", entry.Position, err)
         }
         return
 }
 
-func (pc *PrepareContext) execute(entry *RuleEntry, prog Program) (err error) {
+func (pc *Preparer) execute(entry *RuleEntry, prog Program) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:Execute: %v (%v)\n", entry, entry.class)
         }
@@ -573,18 +557,18 @@ func (pc *PrepareContext) execute(entry *RuleEntry, prog Program) (err error) {
         if res, err = prog.Execute(scope, entry, pc.arguments); err == nil {
                 switch dd, _ := prog.Scope().Lookup("@").(*Def).Call(); entry.class {
                 case ExplicitFileEntry, StemmedFileEntry:
-                        pc.depends.Append(&File{ Value:dd, Name:dd.Strval() })
+                        pc.targets.Append(&File{ Value:dd, Name:dd.Strval() })
                 default:
                         if res != nil && res.Type() != NoneType {
-                                pc.depends.Append(res); return
+                                pc.targets.Append(res); return
                         } else {
-                                pc.depends.Append(entry)
+                                pc.targets.Append(entry)
                         }
                 }
                 if res != nil && res.Type() != NoneType {
                         for _, elem := range Join(res) {
                                 switch elem.(type) {
-                                case *File: pc.depends.Append(elem)
+                                case *File: pc.targets.Append(elem)
                                 }
                         }
                 }
@@ -614,7 +598,7 @@ func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name stri
                                 typ:     RuleEntryType,
                                 ord:     0,
                         },
-                        kind, nil, "", nil, 
+                        kind, "", nil, nil,
                         token.Position{},
                 }
                 scope.replace(name, entry)

@@ -213,9 +213,9 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         }
 
         // Calculate and prepare depends and files.
-        pc := types.NewPrepareContext(prog, context, entry, nil, values.List())
+        pc := types.NewPreparer(prog, context, entry)
         if err = pc.Prepare(prog.depends); err != nil {
-                fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
+                //fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 return
         } else if pc.Targets().Len() > 0 {
                 var elems = pc.Targets().Elems[:]
