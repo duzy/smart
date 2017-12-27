@@ -443,8 +443,8 @@ func modifierGrepDependents(prog *Program, context *types.Scope, value types.Val
         for _, arg := range args {
                 switch a := arg.(type) {
                 case *types.Flag:
-                        switch a.Strval() {
-                        case "-discard-missing": optDiscardMissing = true
+                        switch a.Name.Strval() {
+                        case "discard-missing": optDiscardMissing = true
                         }
                 case *types.Pair:
                         //fmt.Printf("todo: grep-dependents: %v\n", a)
@@ -462,6 +462,9 @@ func modifierGrepDependents(prog *Program, context *types.Scope, value types.Val
                 if false {
                         s, _ := os.Getwd()
                         fmt.Fprintf(os.Stderr, "grep-files: %v (%v)\n", err, s)
+                }
+                if optDiscardMissing {
+                        err = nil
                 }
                 return
         } else {

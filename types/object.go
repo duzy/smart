@@ -7,11 +7,13 @@
 package types
 
 import (
+        "path/filepath"
         "os/exec"
         "strings"
         "errors"
         "bytes"
         "fmt"
+        "os"
         "github.com/duzy/smart/token"
 )
 
@@ -102,6 +104,16 @@ func (n *ProjectName) Get(name string) (Value, error) {
                 }
         }
         return nil, errors.New(fmt.Sprintf("Undefined `%s' in project `%s'.", name, n.project.Name()))
+}
+
+func (p *ProjectName) prepare(pc *PrepareContext) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:ProjectName: %v <- %v\n", p, pc.entry)
+        }
+        if defent := p.project.DefaultEntry(); defent != nil && defent.Name() != ":" {
+                err = pc.Prepare(defent)
+        }
+        return
 }
 
 func (scope *Scope) InsertProjectName(container *Project, name string, project *Project) (pn *ProjectName, alt Object) {
@@ -354,7 +366,7 @@ const (
         GeneralRuleEntry RuleEntryClass = iota
         FileRuleEntry
         PatternRuleEntry
-        PatternFileRuleEntry
+        StemmedFileRuleEntry
         UseRuleEntry
 )
 
@@ -362,7 +374,7 @@ var ruleEntryClassNames = []string{
         GeneralRuleEntry:     "GeneralRuleEntry",
         FileRuleEntry:        "FileRuleEntry",
         PatternRuleEntry:     "PatternRuleEntry",
-        PatternFileRuleEntry: "PatternFileRuleEntry",
+        StemmedFileRuleEntry: "StemmedFileRuleEntry",
         UseRuleEntry:         "UseRuleEntry",
 }
 
@@ -405,11 +417,11 @@ func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 }*/
 
 func (entry *RuleEntry) IsPattern() bool {
-        return entry.class == PatternRuleEntry || entry.class == PatternFileRuleEntry;
+        return entry.class == PatternRuleEntry || entry.class == StemmedFileRuleEntry;
 }
 
 func (entry *RuleEntry) IsFile() bool {
-        return entry.class == FileRuleEntry || entry.class == PatternFileRuleEntry;
+        return entry.class == FileRuleEntry || entry.class == StemmedFileRuleEntry;
 }
 
 /*func (entry *RuleEntry) HasRecipes() bool {
@@ -458,6 +470,125 @@ func (entry *RuleEntry) Get(name string) (Value, error) {
         case "class": return &String{entry.class.String()}, nil
         }
         return nil, errors.New(fmt.Sprintf("no such entry property (%s)", name))
+}
+
+type preparePatternError struct {
+        error
+}
+
+func (*preparePatternError) Error() string {
+        return "pattern unfit" 
+}
+
+func (entry *RuleEntry) prepare(pc *PrepareContext) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:RuleEntry: %v (%v)\n", entry, entry.class)
+        }
+        if entry.Programs() == nil {
+                switch entry.class {
+                case FileRuleEntry:
+                        err = pc.prepareTarget(entry.name)
+                case StemmedFileRuleEntry:
+                        // A pattern entry without program can't
+                        // help to update the file.
+                        err = fmt.Errorf("No rule to make file `%v'", entry)
+                default:
+                        err = fmt.Errorf("%v: `%v' requies update actions (%v)\n", pc.entry, entry, entry.class)
+                }
+                return
+        }
+
+        if entry.class == StemmedFileRuleEntry {
+                // Delegate missing pattern file entry
+                var fi, _ = os.Stat(entry.name)
+                if fi != nil {
+                        goto ExecutePrograms 
+                }
+                if _, obj := pc.context.Find(entry.name); obj == nil {
+                        var _, obj = pc.context.Find("/")
+                        if def, _ := obj.(*Def); def != nil && !filepath.IsAbs(entry.name) {
+                                f := filepath.Join(def.Value.Strval(), entry.name)
+                                if fi, _ = os.Stat(f); fi != nil {
+                                        if trace_prepare {
+                                                fmt.Printf("prepare:RuleEntry: %v -> %v\n", entry.name, f)
+                                        }
+                                        // It's fine to reset entry fields directly,
+                                        // because a stemmed entry is just temporary.
+                                        // TODO: entry.project = obj.Project()
+                                        entry.parent = obj.Parent()
+                                        entry.name = f
+                                }
+                        }
+                } else if other, ok := obj.(*RuleEntry); ok && other != nil {
+                        if trace_prepare {
+                                fmt.Printf("prepare:RuleEntry: %v -> %v (%v)\n", entry, other, other.class)
+                        }
+                        err = pc.Prepare(other)
+                        return
+                } else {
+                        err = fmt.Errorf("No file %v\n", entry.name)
+                        return
+                }
+        }
+
+        ExecutePrograms: var (
+                isTargetPatternUnfit = false
+                isTargetUpdated = false
+        )
+        ForPrograms: for _, prog := range entry.Programs() {
+                if prog == pc.program {
+                        return fmt.Errorf("Depends on itself (%v).", pc.entry)
+                }
+                if err = pc.execute(entry, prog); err == nil {
+                        isTargetUpdated = true
+                        break ForPrograms
+                } else if _, ok := err.(*preparePatternError); ok {
+                        isTargetPatternUnfit, err = true, nil
+                        continue ForPrograms
+                } else if !isTargetUpdated {
+                        fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
+                }
+        }
+        if isTargetPatternUnfit && !isTargetUpdated {
+                err = fmt.Errorf("Not applied for '%s'", entry.name)
+                fmt.Fprintf(os.Stdout, "%s: %v\n", entry.Position, err)
+        }
+        return
+}
+
+func (pc *PrepareContext) execute(entry *RuleEntry, prog Program) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:Execute: %v (%v)\n", entry, entry.class)
+        }
+
+        var (
+                scope = pc.context
+                res Value
+        )
+        if pc.entry.Project() != entry.Project() {
+                scope = pc.entry.Project().Scope()
+        }
+
+        if res, err = prog.Execute(scope, entry, pc.arguments); err == nil {
+                switch dd, _ := prog.Scope().Lookup("@").(*Def).Call(); entry.class {
+                case FileRuleEntry, StemmedFileRuleEntry:
+                        pc.depends.Append(&File{ Value:dd, Name:dd.Strval() })
+                default:
+                        if res != nil && res.Type() != NoneType {
+                                pc.depends.Append(res); return
+                        } else {
+                                pc.depends.Append(entry)
+                        }
+                }
+                if res != nil && res.Type() != NoneType {
+                        for _, elem := range Join(res) {
+                                switch elem.(type) {
+                                case *File: pc.depends.Append(elem)
+                                }
+                        }
+                }
+        }
+        return
 }
 
 type PatternEntry struct {

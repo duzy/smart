@@ -54,8 +54,32 @@ func (*value) Strval() string     { return "" }
 func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
 
+const trace_prepare = true
+
+// PrepareContext prepares prerequisites of targets.
+type PrepareContext struct {
+        program Program
+        context *Scope
+        entry *RuleEntry
+        arguments []Value
+        depends *List
+}
+
 type prerequisite interface {
-        prepare(prog *Program, context *Scope) error
+        prepare(pc *PrepareContext) error
+}
+
+func (pc *PrepareContext) Prepare(value interface{}) (err error) {
+        if p, _ := value.(prerequisite); p != nil {
+                err = p.prepare(pc)
+        } else {
+                err = fmt.Errorf("Type '%T' is not prerequisite.", value)
+        }
+        return
+}
+
+func NewPrepareContext(prog Program, context *Scope, entry *RuleEntry, args []Value, depends *List) (pc *PrepareContext) {
+        return &PrepareContext{ prog, context, entry, args, depends }
 }
 
 type Argumented struct {
@@ -88,9 +112,22 @@ func (p *Argumented) Strval() (s string) {
         return
 }
 
+func (p *Argumented) prepare(pc *PrepareContext) error {
+        if trace_prepare {
+                fmt.Printf("prepare:Argumented: %v\n", p)
+        }
+        pc.arguments = p.Args // TODO: merge args with p.Args ??
+        return pc.Prepare(p.Value)
+}
+
 type None struct { value }
 func (p *None) Type() Type { return NoneType }
-func (p *None) prepare(prog *Program, context *Scope) error { return nil }
+func (p *None) prepare(pc *PrepareContext) error {
+        if trace_prepare {
+                fmt.Printf("prepare:None: %v <- %v\n", p, pc.entry)
+        }
+        return nil 
+}
 
 type Any struct {
         Value interface{}
@@ -197,14 +234,72 @@ func (p *String) Float() float64   { f, _ := strconv.ParseFloat(p.Value, 64); re
 type Bareword struct {
         Value string
 }
-func (*Bareword) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Bareword) referencing(_ Object) bool { return false }
+func (_ *Bareword) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (_ *Bareword) referencing(_ Object) bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
 func (p *Bareword) String() string { return p.Value }
 func (p *Bareword) Strval() string { return p.Value }
 func (p *Bareword) Integer() int64 { return 0 }
 func (p *Bareword) Float() float64 { return float64(p.Integer()) }
+
+func (p *Bareword) prepare(pc *PrepareContext) error {
+        if trace_prepare {
+                fmt.Printf("prepare:Bareword: %v <- %v\n", p, pc.entry)
+        }
+        //var isFile = prog.Project().IsFile(p.Value)
+        return pc.prepareTarget(p.Value)
+}
+
+func (pc *PrepareContext) prepareTarget(target string) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:Target: %v\n", target)
+        }
+
+        var project = pc.program.Project()
+
+        // Find concrete entry
+        FindEntry: if _, obj := project.Scope().Find(target); obj != nil {
+                return pc.Prepare(obj)
+        }
+
+        // Find patterns
+        for _, ps := range project.FindPatterns(target) {
+                if err = pc.Prepare(ps); err != nil {
+                        return
+                }
+        }
+
+        // Find entry in the context project.
+        if proj := pc.context.FindProject(); proj != nil {
+                if proj != project {
+                        project = proj; goto FindEntry
+                } else if proj.IsFile(target) {
+                        // Search file in context project.
+                        err = pc.searchFile(proj, target)
+                } else {
+                        err = fmt.Errorf("unknown target '%v'", target)
+                }
+        }
+        return
+}
+
+func (pc *PrepareContext) searchFile(project *Project, name string) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:SearchFile: %v (%v)\n", name, project.Name())
+        }
         
+        f := project.SearchFile(pc.context, &File{ Value:&String{name}, Name:name })
+        if f.Info == nil {
+                f = pc.program.Project().SearchFile(pc.context, f)
+        }
+        if f.Info != nil {
+                pc.depends.Append(f)
+        } else {
+                err = fmt.Errorf("No such file `%v'", name)
+        }
+        return
+}
+
 type Elements struct {
         Elems []Value
 }
@@ -329,6 +424,13 @@ func (p *Barefile) referencing(o Object) bool {
         return p.Name.referencing(o)
 }
 
+func (p *Barefile) prepare(pc *PrepareContext) error {
+        if trace_prepare {
+                fmt.Printf("prepare:Barefile: %v\n", p)
+        }
+        return pc.prepareTarget(p.Strval())
+}
+
 type Globfile struct {
         Tok token.Token
         Ext string
@@ -406,6 +508,13 @@ func (p *Path) disclose(scope *Scope) (Value, error) {
         return nil, nil
 }
 
+func (p *Path) prepare(pc *PrepareContext) error {
+        if trace_prepare {
+                fmt.Printf("prepare:Path: %v <- %v\n", p, pc.entry)
+        }
+        return pc.prepareTarget(p.Strval())
+}
+
 type PathSeg struct {
         Value rune 
         value
@@ -446,6 +555,13 @@ func (p *File) disclose(scope *Scope) (Value, error) {
 
 func (p *File) referencing(o Object) bool {
         return p.Value.referencing(o)
+}
+
+func (p *File) prepare(pc *PrepareContext) error {
+        if trace_prepare {
+                fmt.Printf("prepare:File: %v <- %v\n", p, pc.entry)
+        }
+        return pc.prepareTarget(p.Strval())
 }
 
 type Flag struct {
@@ -938,7 +1054,7 @@ func (p *pattern) Integer() int64    { return 0 }
 func (p *pattern) Float() float64    { return 0 }
 func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
         switch patent.class {
-        case PatternRuleEntry, PatternFileRuleEntry:
+        case PatternRuleEntry, StemmedFileRuleEntry:
                 entry = new(RuleEntry); *entry = *patent
                 entry.name = name
                 entry.stem = stem
@@ -990,6 +1106,18 @@ func (p *PercentPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entr
 
 func (p *PercentPattern) referencing(o Object) bool {
         return p.Prefix.referencing(o) || p.Suffix.referencing(o)
+}
+
+func (p *PercentPattern) prepare(pc *PrepareContext) (err error) {
+        if stem := pc.entry.Stem(); stem != "" {
+                var name = p.MakeString(stem)
+                if err = pc.prepareTarget(name); err != nil {
+                        err = &preparePatternError{ err }
+                }
+        } else {
+                err = fmt.Errorf("Empty stem (%s, dependency %v)", pc.entry, p)
+        }
+        return
 }
 
 type RegexpPattern struct {

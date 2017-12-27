@@ -150,6 +150,7 @@ func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def
 }
 
 func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry, dependList *types.List) (err error) {
+        var pc = types.NewPrepareContext(prog, context, entry, nil, dependList)
         ForDepends: for _, depend := range prog.depends {
                 if v, e := types.Disclose(context, depend); e != nil {
                         return e
@@ -163,13 +164,16 @@ func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry, depen
                         if false {
                                 fmt.Printf("Program.prepare: %T `%v' -> %T `%v'\n", depend, depend, d, d)
                         }
-                        if err = prog.prepareDepend(prog.project, context, entry, false, d, nil, dependList); err != nil {
+                        /*if err = prog.prepareDepend(prog.project, context, entry, false, d, nil, dependList); err != nil {
                                 return
+                        }*/
+                        if err = pc.Prepare(d); err != nil {
+                                        break ForDepends
                         }
                 }
         }
         if len(prog.depends)>0 && true {
-                fmt.Printf("Program.prepare: %s: %v -> %v\n", entry.Name(), prog.depends, dependList)
+                //fmt.Printf("Program.prepare: %s: %v -> %v\n", entry.Name(), prog.depends, dependList)
         }
         return
 }
@@ -220,7 +224,7 @@ func (prog *Program) prepareHandleEntry(project *types.Project, context *types.S
                 switch depend.Class() {
                 case types.FileRuleEntry:
                         err = prog.prepareHandleName(project, context, entry, true, depend.Strval(), depend, args, dependList)
-                case types.PatternFileRuleEntry:
+                case types.StemmedFileRuleEntry:
                         // A pattern entry without program can't
                         // help to update the file.
                         err = fmt.Errorf("No rule to make file `%v'", depend)
@@ -404,7 +408,7 @@ func (prog *Program) prepareExecuteDeprog(project *types.Project, context *types
                         dependList.Append(values.File(dd, dd.Strval()))
                 } else {
                         switch depend.Class() {
-                        case types.FileRuleEntry, types.PatternFileRuleEntry:
+                        case types.FileRuleEntry, types.StemmedFileRuleEntry:
                                 dependList.Append(values.File(dd, dd.Strval()))
                         default:
                                 if res != nil && res.Type() != types.NoneType {
@@ -438,21 +442,6 @@ func (prog *Program) searchFile(project *types.Project, context *types.Scope, en
         } else {
                 //fmt.Fprintf(os.Stderr, "%v: no such file\n", depend.Position)
                 return fmt.Errorf("No such file `%v'", fv)
-        }
-        return
-}
-
-func (prog *Program) addFile(project *types.Project, context *types.Scope, entry *types.RuleEntry, fullName string, fileInfo os.FileInfo, dependList *types.List) (err error) {
-        // Search file.
-        var fv = values.File(values.String(fileInfo.Name()), fullName)
-        if fv = project.SearchFile(context, fv); fv.Info == nil {
-                fv = prog.project.SearchFile(context, fv)
-        }
-        if fv.Info != nil {
-                dependList.Append(fv)
-        } else {
-                //fmt.Fprintf(os.Stderr, "%v: no such file\n", depend.Position)
-                return fmt.Errorf("No such file `%v' (required by `%v')", fv, entry.Name())
         }
         return
 }
