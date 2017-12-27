@@ -10,6 +10,7 @@ import (
         "path/filepath"
         "time"
         "net/url"
+        "reflect"
         "strconv"
         "strings"
         "errors"
@@ -70,6 +71,19 @@ type prerequisite interface {
 }
 
 func (pc *PrepareContext) Prepare(value interface{}) (err error) {
+        if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
+                for i := 0; i < v.Len(); i++ {
+                        if err = pc.prepare(v.Index(i).Interface()); err != nil {
+                                break
+                        }
+                }
+        } else {
+                err = pc.prepare(value)
+        }
+        return
+}
+
+func (pc *PrepareContext) prepare(value interface{}) (err error) {
         if p, _ := value.(prerequisite); p != nil {
                 err = p.prepare(pc)
         } else {
@@ -77,6 +91,8 @@ func (pc *PrepareContext) Prepare(value interface{}) (err error) {
         }
         return
 }
+
+func (pc *PrepareContext) Targets() *List { return pc.depends }
 
 func NewPrepareContext(prog Program, context *Scope, entry *RuleEntry, args []Value, depends *List) (pc *PrepareContext) {
         return &PrepareContext{ prog, context, entry, args, depends }
@@ -264,6 +280,9 @@ func (pc *PrepareContext) prepareTarget(target string) (err error) {
 
         // Find patterns
         for _, ps := range project.FindPatterns(target) {
+                if trace_prepare {
+                        fmt.Printf("prepare:Target: %v %v\n", target, ps)
+                }
                 if err = pc.Prepare(ps); err != nil {
                         return
                 }
@@ -851,6 +870,15 @@ func (p *delegate) referencing(o Object) bool {
         return false
 }
 
+func (p *delegate) prepare(pc *PrepareContext) (err error) {
+        for _, d := range Join(Reveal(p)) {
+                if err = pc.Prepare(d); err != nil {
+                        break
+                }
+        }
+        return
+}
+
 type closure struct {
         o Object
         a []Value
@@ -936,6 +964,17 @@ func (p *closure) referencing(o Object) bool {
                 }
         }
         return false
+}
+
+func (p *closure) prepare(pc *PrepareContext) (err error) {
+        if v, e := p.disclose(pc.context); e != nil {
+                err = e
+        } else if v == nil {
+                err = fmt.Errorf("preparing nil closure (%v)", p)
+        } else {
+                err = pc.Prepare(v)
+        }
+        return
 }
 
 // Value returned by (plain) modifier.
@@ -1054,7 +1093,7 @@ func (p *pattern) Integer() int64    { return 0 }
 func (p *pattern) Float() float64    { return 0 }
 func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
         switch patent.class {
-        case PatternRuleEntry, StemmedFileRuleEntry:
+        case PatternRuleEntry, StemmedFileEntry:
                 entry = new(RuleEntry); *entry = *patent
                 entry.name = name
                 entry.stem = stem

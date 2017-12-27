@@ -149,32 +149,6 @@ func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def
         return
 }
 
-func (prog *Program) prepare(context *types.Scope, entry *types.RuleEntry, dependList *types.List) (err error) {
-        var pc = types.NewPrepareContext(prog, context, entry, nil, dependList)
-        ForDepends: for _, depend := range prog.depends {
-                if v, e := types.Disclose(context, depend); e != nil {
-                        return e
-                } else if v != nil {
-                        depend = v
-                } else {
-                        err = fmt.Errorf("unsupported depend (%v)", depend)
-                        break ForDepends
-                }
-                for _, d := range types.JoinReveal(depend) {
-                        if false {
-                                fmt.Printf("Program.prepare: %T `%v' -> %T `%v'\n", depend, depend, d, d)
-                        }
-                        if err = pc.Prepare(d); err != nil {
-                                        break ForDepends
-                        }
-                }
-        }
-        if len(prog.depends)>0 && true {
-                //fmt.Printf("Program.prepare: %s: %v -> %v\n", entry.Name(), prog.depends, dependList)
-        }
-        return
-}
-
 func (prog *Program) Getwd(context *types.Scope) string {
         /*for _, m := range prog.pipline {
                 if g, ok := m.(*types.Group); ok && g != nil {
@@ -238,13 +212,13 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 prog.auto("@", entry)
         }
 
-        dependList := values.List()
-
         // Calculate and prepare depends and files.
-        if err = prog.prepare(context, entry, dependList); err != nil {
+        pc := types.NewPrepareContext(prog, context, entry, nil, values.List())
+        if err = pc.Prepare(prog.depends); err != nil {
+                fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 return
-        } else if dependList.Len() > 0 {
-                var elems = dependList.Elems[:]
+        } else if pc.Targets().Len() > 0 {
+                var elems = pc.Targets().Elems[:]
                 for i := 0; i < len(elems); i += 1 {
                         for j := i + 1; j < len(elems); j += 1 {
                                 if dependEquals(elems[i], elems[j]) {
@@ -253,9 +227,9 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                                 }
                         }
                 }
-                dependList.Elems = elems
-                prog.auto("<", dependList.Elems[0])
-                prog.auto("^", dependList)
+                pc.Targets().Elems = elems
+                prog.auto("<", pc.Targets().Elems[0])
+                prog.auto("^", pc.Targets())
         }
 
         var out = prog.auto("-", values.None)

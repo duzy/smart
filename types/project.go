@@ -155,7 +155,7 @@ type PatternStem struct {
 }
 
 func (ps *PatternStem) String() string {
-        return ps.Patent.Strval() + "(" + ps.Stem + ")"
+        return "<" + ps.Patent.Strval() + "~" + ps.Stem + ">"
 }
 
 func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
@@ -215,7 +215,7 @@ func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
 func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (entry *RuleEntry, err error) {
         switch class {
         case GeneralRuleEntry:
-        case FileRuleEntry:
+        case ExplicitFileEntry:
         case UseRuleEntry:
         default:
                 err = errors.New(fmt.Sprintf("Invalid entry class `%v' (%v).\n", class, name))
@@ -240,7 +240,7 @@ func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryCla
         
         switch class {
         case GeneralRuleEntry: class = PatternRuleEntry
-        case FileRuleEntry: class = StemmedFileRuleEntry
+        case ExplicitFileEntry: class = StemmedFileEntry
         default:
                 err = errors.New(fmt.Sprintf("Invalid pattern class `%v' (%v).\n", class, p))
                 return

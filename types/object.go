@@ -364,24 +364,24 @@ type RuleEntryClass int
 
 const (
         GeneralRuleEntry RuleEntryClass = iota
-        FileRuleEntry
         PatternRuleEntry
-        StemmedFileRuleEntry
         UseRuleEntry
+        ExplicitFileEntry
+        StemmedFileEntry
 )
 
-var ruleEntryClassNames = []string{
+var namesForRuleEntryClass = []string{
         GeneralRuleEntry:     "GeneralRuleEntry",
-        FileRuleEntry:        "FileRuleEntry",
         PatternRuleEntry:     "PatternRuleEntry",
-        StemmedFileRuleEntry: "StemmedFileRuleEntry",
         UseRuleEntry:         "UseRuleEntry",
+        ExplicitFileEntry:    "ExplicitFileEntry",
+        StemmedFileEntry:     "StemmedFileEntry",
 }
 
 func (c RuleEntryClass) String() string {
         var i = int(c)
-        if 0 < i && i < len(ruleEntryClassNames) {
-                return ruleEntryClassNames[i]
+        if 0 < i && i < len(namesForRuleEntryClass) {
+                return namesForRuleEntryClass[i]
         }
         return fmt.Sprintf("RuleEntryClass(%d)", i)
 }
@@ -399,7 +399,7 @@ type RuleEntry struct {
 
 func (entry *RuleEntry) String() string { return fmt.Sprintf("entry %v", entry.name) }
 func (entry *RuleEntry) Strval() (s string) {
-        /*if entry.class == FileRuleEntry && entry.filename != "" {
+        /*if entry.class == ExplicitFileEntry && entry.filename != "" {
                 s = entry.filename
         } else {
                 s = entry.name
@@ -413,15 +413,15 @@ func (entry *RuleEntry) Stem() string { return entry.stem }
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 /*func (entry *RuleEntry) SetFileName(s string) {
-        entry.class, entry.filename = FileRuleEntry, s
+        entry.class, entry.filename = ExplicitFileEntry, s
 }*/
 
 func (entry *RuleEntry) IsPattern() bool {
-        return entry.class == PatternRuleEntry || entry.class == StemmedFileRuleEntry;
+        return entry.class == PatternRuleEntry || entry.class == StemmedFileEntry;
 }
 
 func (entry *RuleEntry) IsFile() bool {
-        return entry.class == FileRuleEntry || entry.class == StemmedFileRuleEntry;
+        return entry.class == ExplicitFileEntry || entry.class == StemmedFileEntry;
 }
 
 /*func (entry *RuleEntry) HasRecipes() bool {
@@ -486,9 +486,9 @@ func (entry *RuleEntry) prepare(pc *PrepareContext) (err error) {
         }
         if entry.Programs() == nil {
                 switch entry.class {
-                case FileRuleEntry:
+                case ExplicitFileEntry:
                         err = pc.prepareTarget(entry.name)
-                case StemmedFileRuleEntry:
+                case StemmedFileEntry:
                         // A pattern entry without program can't
                         // help to update the file.
                         err = fmt.Errorf("No rule to make file `%v'", entry)
@@ -498,7 +498,7 @@ func (entry *RuleEntry) prepare(pc *PrepareContext) (err error) {
                 return
         }
 
-        if entry.class == StemmedFileRuleEntry {
+        if entry.class == StemmedFileEntry {
                 // Delegate missing pattern file entry
                 var fi, _ = os.Stat(entry.name)
                 if fi != nil {
@@ -543,14 +543,15 @@ func (entry *RuleEntry) prepare(pc *PrepareContext) (err error) {
                         isTargetUpdated = true
                         break ForPrograms
                 } else if _, ok := err.(*preparePatternError); ok {
+                        // Discard pattern errors.
                         isTargetPatternUnfit, err = true, nil
                         continue ForPrograms
-                } else if !isTargetUpdated {
-                        fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 }
         }
-        if isTargetPatternUnfit && !isTargetUpdated {
+        if isTargetPatternUnfit && !isTargetUpdated && err != nil {
                 err = fmt.Errorf("Not applied for '%s'", entry.name)
+        }
+        if err != nil {
                 fmt.Fprintf(os.Stdout, "%s: %v\n", entry.Position, err)
         }
         return
@@ -571,7 +572,7 @@ func (pc *PrepareContext) execute(entry *RuleEntry, prog Program) (err error) {
 
         if res, err = prog.Execute(scope, entry, pc.arguments); err == nil {
                 switch dd, _ := prog.Scope().Lookup("@").(*Def).Call(); entry.class {
-                case FileRuleEntry, StemmedFileRuleEntry:
+                case ExplicitFileEntry, StemmedFileEntry:
                         pc.depends.Append(&File{ Value:dd, Name:dd.Strval() })
                 default:
                         if res != nil && res.Type() != NoneType {

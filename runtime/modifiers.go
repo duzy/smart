@@ -246,7 +246,7 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
                         }
                 case *types.RuleEntry:
                         switch d.Class() {
-                        case types.FileRuleEntry:
+                        case types.ExplicitFileEntry:
                                 depends.Append(values.File(d, d.Strval()))
                         case types.GeneralRuleEntry, types.PatternRuleEntry:
                                 depends.Append(d)
@@ -373,7 +373,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 case *types.File: targetFile = t
                 case *types.Barefile: targetFile = values.File(t, t.Strval())
                 case *types.RuleEntry:
-                        if t.Class() == types.FileRuleEntry {
+                        if t.Class() == types.ExplicitFileEntry {
                                 targetFile = values.File(t, t.Strval())
                         }
                 }

@@ -755,7 +755,7 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
                                 return
                         }
                 } else if l.project.IsFile(name) {
-                        class = types.FileRuleEntry
+                        class = types.ExplicitFileEntry
                 }
                 
                 switch namv := target.(type) {

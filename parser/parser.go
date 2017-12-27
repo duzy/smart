@@ -1742,10 +1742,10 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 var class = tarent.Class()
                 switch target.(type) {
                 case *ast.Barefile, *ast.PathExpr, *ast.PathSegExpr:
-                        class = types.FileRuleEntry
+                        class = types.ExplicitFileEntry
                 case *ast.Bareword:
                         if p.runtime.IsFileName(name) {
-                                class = types.FileRuleEntry
+                                class = types.ExplicitFileEntry
                         }
                 }
                 tarent.SetClass(class)
