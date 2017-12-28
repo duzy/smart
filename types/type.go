@@ -189,8 +189,8 @@ const (
 
         IsDateTime  = IsDate | IsTime
 	IsNumeric   = IsBin | IsOct | IsInt | IsHex | IsFloat
-        IsKeyName   = IsNumeric | IsString | IsBareword
-	IsOrdered   = IsNumeric | IsDateTime | IsString | IsUri | IsBareword | IsBarefile | IsPath | IsPathSeg | IsFlag
+	IsOrdered   = IsNumeric | IsDateTime | IsString | IsCompound | IsUri | IsBareword | IsBarecomp | IsBarefile | IsPath | IsPathSeg | IsFlag
+        IsKeyName   = IsNumeric | IsOrdered | IsBoolean
 	IsBasic     = IsBoolean | IsOrdered | IsNone
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair | IsPattern
         IsConstType = IsBasic

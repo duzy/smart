@@ -474,7 +474,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 v = def
         }
         if v == nil && err == nil {
-                err = fmt.Errorf("Expr value is nil `%T'", expr)
+                err = fmt.Errorf("Expr value is nil (%T)", expr)
         }
         return
 }
@@ -1197,20 +1197,6 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
         if def, ok := res.(*types.Def); ok && def != nil {
                 res = def.Value
         }
-
-        /*switch res.Type() {
-        case types.BarewordType:
-        case types.BarefileType:
-        case types.PathType:
-        case types.PatternType:
-        case types.ClosureType:
-        case types.ListType:
-                // TODO: check list elements type?
-        case types.RuleEntryType: // e.g. other.entry
-        case types.ProjectNameType: // e.g. use.*
-        default:
-                res, err = nil, fmt.Errorf("Unsupported depend type '%v' (%T) (%v).", res.Type(), res, res)
-        }*/
         return
 }
 

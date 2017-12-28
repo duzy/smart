@@ -125,10 +125,12 @@ func (m *Project) IsFile(s string) (v bool) {
         if len(s) > 0 {
                 var ss = filepath.Base(s)
                 for pat, _ := range m.files {
+                        if false {
+                                fmt.Printf("IsFile: %s %v\n", s, pat)
+                        }
                         if strings.ContainsAny(pat, "*?[") {
                                 v, _ = filepath.Match(pat, ss)
                         } else { 
-                                //fmt.Printf("IsFileName: %s %v\n", s, pat)
                                 v = s == pat
                         }
                         if v { return }

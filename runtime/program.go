@@ -252,16 +252,17 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                                                 // avoid default interpreter being
                                                 // called.
                                                 err, dialect = nil, "--"
-                                        } else {
-                                                fmt.Printf("%s, required by '%s' (from %v)\n", p.message, entry.Name(), prog.project.RelPath())
                                         }
+                                }
+                                if err != nil {
+                                        err = fmt.Errorf("%v: %v", op, err)
                                 }
                                 break ForPipeline
                         } else if lang != "" && dialect == "" {
                                 dialect = lang
                         }
                 default:
-                        err = fmt.Errorf("unsupported modifier `%s' (%T)", v, v)
+                        err = fmt.Errorf("unknown modifier (%T `%v')", v, v)
                         break ForPipeline
                 }
         }

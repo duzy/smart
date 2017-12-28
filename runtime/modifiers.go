@@ -331,14 +331,14 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 targetVal = args[0]
                 def.Assign(targetVal)
         } else if nargs > 1 {
-                s := fmt.Sprintf("compare: accepts only one optional argument (%v)", args)
+                s := fmt.Sprintf("accepts only one optional argument (%v)", args)
                 return nil, &breaker{ s, false }
         }
 
         //fmt.Printf("compare: %v (%T)\n", targetVal, targetVal)
 
         if targetVal = types.Reveal(targetVal); targetVal == nil || targetVal.Type() == types.NoneType {
-                return nil, &breaker{ "compare: no target", false }
+                return nil, &breaker{ "no target", false }
         }
 
         // deal with list.
@@ -373,12 +373,23 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 case *types.File: targetFile = t
                 case *types.Barefile: targetFile = values.File(t, t.Strval())
                 case *types.RuleEntry:
-                        if t.Class() == types.ExplicitFileEntry {
-                                targetFile = values.File(t, t.Strval())
-                        }
+                        switch class, s := t.Class(), t.Strval(); class {
+                        case types.ExplicitFileEntry, types.StemmedFileEntry:
+                                targetFile = values.File(t, s)
+                        default:if p := t.Project(); p != nil {
+                                if p.IsFile(s) {
+                                        targetFile = values.File(t, s)
+                                } else {
+                                        fmt.Fprintf(os.Stdout, "%v: %v->%v is not file\n", t.Position, p.Name(), s)
+                                        err = &breaker{ fmt.Sprintf("unknown %v->%v (%v)", p.Name(), s, class), false }
+                                        return
+                                }
+                        } else {
+                                err = &breaker{ fmt.Sprintf("unknown entry (%v `%v')", class, s), false }
+                        }}
                 }
                 if targetFile == nil {
-                        err = &breaker{ fmt.Sprintf("compare: expects `*types.File' target instead of `%T' (%v)", targetVal, targetVal), false }
+                        err = &breaker{ fmt.Sprintf("unknown target (%T '%v')", targetVal, targetVal), false }
                         return
                 } else if nargs == 1 {
                         // Replace the value of "$@"

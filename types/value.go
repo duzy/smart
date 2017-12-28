@@ -247,6 +247,13 @@ func (p *String) Strval() string   { return p.Value }
 func (p *String) Integer() int64   { i, _ := strconv.ParseInt(p.Value, 10, 64); return i }
 func (p *String) Float() float64   { f, _ := strconv.ParseFloat(p.Value, 64); return f }
 
+func (p *String) prepare(pc *Preparer) error {
+        if trace_prepare {
+                fmt.Printf("prepare:String: %v\n", p)
+        }
+        return pc.prepareTarget(p.Value)
+}
+
 type Bareword struct {
         Value string
 }
@@ -286,8 +293,7 @@ func (pc *Preparer) prepareTarget(target string) (err error) {
                 if err = pc.Prepare(ps); err == nil {
                         return // Updated successfully!
                 } else if _, ok := err.(*preparePatternUnfit); ok {
-                        // Discard pattern unfit errors.
-                        err = nil; continue
+                        err = nil; continue // Discard pattern unfit errors.
                 } else {
                         return
                 }
@@ -413,6 +419,13 @@ func (p *Barecomp) disclose(scope *Scope) (Value, error) {
                 return &Barecomp{ Elements{ elems } }, nil
         }
         return nil, nil
+}
+
+func (p *Barecomp) prepare(pc *Preparer) error {
+        if trace_prepare {
+                fmt.Printf("prepare:Barecomp: %v\n", p)
+        }
+        return pc.prepareTarget(p.Strval())
 }
 
 type Barefile struct {
@@ -736,7 +749,7 @@ func (p *Pair) SetKey(k Value) {
         if k.Type().Bits()&IsKeyName != 0 {
                 p.Key = k
         } else {
-                p.Key = nil
+                panic(fmt.Errorf("'%T' is not key type", k))
         }
 }
 
@@ -1272,7 +1285,9 @@ func Reveal(v Value) (res Value) {
 
 // Disclose expends closures to normal value recursively.
 func Disclose(scope *Scope, value Value) (Value, error) {
-        //fmt.Printf("Disclose: %T %v\n", value, value)
+        if false {
+                fmt.Printf("Disclose: %T %v\n", value, value)
+        }
         if v, err := value.disclose(scope); err != nil {
                 return nil, err
         } else if v != nil {

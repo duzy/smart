@@ -940,14 +940,15 @@ func (p *parser) parseExpr0(lhs bool) ast.Expr {
 }
 
 func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
-        //fmt.Printf("composing:%v: %T %v %v %v\t%v %v\n", (x.End() == p.pos), x, x, x.Pos(), x.End(), p.pos, p.tok)
+        if false { fmt.Printf("compose: %v %v %v\n", x, p.tok, lhs) }
         var joint = x.End() == p.pos && p.lineComment == nil
         switch p.tok {
         case token.COMPOSED, token.RPAREN, token.RBRACK, token.RBRACE, token.COMMA, token.COLON, token.LINEND:
-        case token.ILLEGAL:
-                p.error(p.pos, "illegal token")
+        case token.ILLEGAL: p.error(p.pos, "illegal token")
         case token.ARROW, token.ASSIGN:
-                if !lhs {
+                // FIXED: '*.o => obj'    ->    KeyValueExpr{Barecomp, Bareword}
+                var neg = composingPERIOD
+                if !lhs && p.bits&neg == 0 {
                         pos, tok := p.pos, p.tok
                         p.next()
                         x = &ast.KeyValueExpr{
@@ -979,8 +980,8 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 }
         case token.PERIOD:
                 if joint /*&& p.bits&composingPERIOD == 0*/ {
-                        p.bits |=  composingPERIOD
                         var ext ast.Expr
+                        p.bits |=  composingPERIOD
                         comp, pos := &ast.Barecomp{ []ast.Expr{ x } }, p.pos
                         comp.Elems = append(comp.Elems, &ast.Bareword{ pos, "." })
                         AddPeriod: for p.next(); p.tok == token.PERIOD && p.pos == pos+1; {
@@ -997,8 +998,16 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                                 if p.tok == token.PERIOD && ext.End() == p.pos {
                                         goto AddPeriod
                                 }
+
+                                switch t := ext.(type) {
+                                }
                         }
                         p.bits &= ^composingPERIOD
+
+                        // FIXME: *.o => obj
+                        //   BUG: Barecomp{Glob . KeyValueExpr}
+                        //   FIX: KeyValueExpr{Barecomp, Bareword}
+
                         x = comp
 
                         // Processing barefile 
@@ -1016,6 +1025,18 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                                 }
                         } else if e != nil {
                                 p.error(x.Pos(), e)
+                        }
+
+                        // Example: '*.o => obj'
+                        switch p.tok {
+                        case token.ARROW, token.ASSIGN:
+                                pos, tok := p.pos, p.tok; p.next()
+                                x = &ast.KeyValueExpr{
+                                        Key:   x,
+                                        Tok:   tok,
+                                        Equal: pos,
+                                        Value: p.parseExpr(false),
+                                }
                         }
                 }
         case token.PCON:
@@ -1205,7 +1226,7 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
         if v, e := p.runtime.Eval(x, disclosure); e == nil {
                 x = &ast.EvaluatedExpr{ x, v }
         } else {
-                p.error(x.Pos(), "immediate (%s)", e)
+                p.error(x.Pos(), "illegal (%s)", e)
         }
 
         // Append the prop `x'.

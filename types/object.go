@@ -380,7 +380,7 @@ var namesForRuleEntryClass = []string{
 
 func (c RuleEntryClass) String() string {
         var i = int(c)
-        if 0 < i && i < len(namesForRuleEntryClass) {
+        if 0 <= i && i < len(namesForRuleEntryClass) {
                 return namesForRuleEntryClass[i]
         }
         return fmt.Sprintf("RuleEntryClass(%d)", i)
@@ -547,11 +547,12 @@ func (pc *Preparer) execute(entry *RuleEntry, prog Program) (err error) {
         }
 
         var (
+                project = entry.Project()
                 scope = pc.context
                 res Value
         )
-        if pc.entry.Project() != entry.Project() {
-                scope = pc.entry.Project().Scope()
+        if p := pc.entry.Project(); p != project && false {
+                project, scope = p, p.Scope()
         }
 
         if res, err = prog.Execute(scope, entry, pc.arguments); err == nil {

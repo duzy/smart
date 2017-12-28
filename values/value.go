@@ -13,6 +13,7 @@ import (
         "strings"
         "strconv"
         "time"
+        "fmt"
 )
 
 var None = types.UniversalNone
@@ -184,6 +185,8 @@ func Pair(k, v types.Value) (p *types.Pair) {
                 p = &types.Pair{nil, nil}
                 p.SetKey(k)
                 p.SetValue(v)
+        } else {
+                panic(fmt.Errorf("'%T' is not key type", k))
         }
         return
 }
