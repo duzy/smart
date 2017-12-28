@@ -44,7 +44,7 @@ func (p *GortFault) Error() string {
 
 func GoFault(e interface{}) *GortFault {
         if _, ok := e.(gort.Error); ok {
-                s := fmt.Sprintf("%s\n%s", e, ParseStack(false))
+                s := fmt.Sprintf("%s\n\n%s", e, ParseStack(false))
                 return &GortFault{ s }
         }
         return nil

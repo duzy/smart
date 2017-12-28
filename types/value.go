@@ -269,8 +269,16 @@ func (p *Bareword) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Bareword: %v <- %v\n", p, pc.entry)
         }
-        //var isFile = prog.Project().IsFile(p.Value)
         return pc.prepareTarget(p.Value)
+}
+
+func (pc *Preparer) prepareTargetValue(value Value) error {
+        if v, e := value.disclose(pc.context); e != nil {
+                return e
+        } else {
+                if v == nil { v = value }
+                return pc.prepareTarget(v.Strval())
+        }
 }
 
 func (pc *Preparer) prepareTarget(target string) (err error) {
@@ -425,11 +433,7 @@ func (p *Barecomp) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Barecomp: %v\n", p)
         }
-        if v, e := p.disclose(pc.context); e != nil {
-                return e
-        } else {
-                return pc.prepareTarget(v.Strval())
-        }
+        return pc.prepareTargetValue(p)
 }
 
 type Barefile struct {
@@ -469,11 +473,7 @@ func (p *Barefile) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Barefile: %v\n", p)
         }
-        if v, e := p.disclose(pc.context); e != nil {
-                return e
-        } else {
-                return pc.prepareTarget(v.Strval())
-        }
+        return pc.prepareTargetValue(p)
 }
 
 type Globfile struct {
@@ -557,11 +557,7 @@ func (p *Path) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Path: %v <- %v\n", p, pc.entry)
         }
-        if v, e := p.disclose(pc.context); e != nil {
-                return e
-        } else {
-                return pc.prepareTarget(v.Strval())
-        }
+        return pc.prepareTargetValue(p)
 }
 
 type PathSeg struct {
