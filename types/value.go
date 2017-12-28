@@ -1071,6 +1071,11 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
                         return
                 }
         }
+        if err == nil && n == 0 {
+                // Returns the number of bytes to avoid "short write" errors.
+                // The real bytes written is discarded.
+                n = len(b)
+        }
         return
 }
 
