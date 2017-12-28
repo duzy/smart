@@ -425,7 +425,11 @@ func (p *Barecomp) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Barecomp: %v\n", p)
         }
-        return pc.prepareTarget(p.Strval())
+        if v, e := p.disclose(pc.context); e != nil {
+                return e
+        } else {
+                return pc.prepareTarget(v.Strval())
+        }
 }
 
 type Barefile struct {
@@ -465,7 +469,11 @@ func (p *Barefile) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Barefile: %v\n", p)
         }
-        return pc.prepareTarget(p.Strval())
+        if v, e := p.disclose(pc.context); e != nil {
+                return e
+        } else {
+                return pc.prepareTarget(v.Strval())
+        }
 }
 
 type Globfile struct {
@@ -549,7 +557,11 @@ func (p *Path) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Path: %v <- %v\n", p, pc.entry)
         }
-        return pc.prepareTarget(p.Strval())
+        if v, e := p.disclose(pc.context); e != nil {
+                return e
+        } else {
+                return pc.prepareTarget(v.Strval())
+        }
 }
 
 type PathSeg struct {
@@ -779,7 +791,8 @@ type delegate struct {
 func (p *delegate) Type() Type         { return DelegateType }
 func (p *delegate) String() (s string) {
         var na = len(p.a)
-        s = "$("
+        s = "$"
+        if na > 0 { s += "(" }
         if false {
                 if sc := p.o.Parent(); sc != nil && sc.Comment() == "use"/*use scope*/ {
                         s += sc.Comment() + "->"
@@ -794,16 +807,14 @@ func (p *delegate) String() (s string) {
                         if i > 0 { s += "," }
                         s += a.String()
                 }
+                s += ")"
         }
-        s += ")" 
         return
 }
 func (p *delegate) Strval() string   { return p.Value().Strval() }
 func (p *delegate) Integer() int64   { return p.Value().Integer() }
 func (p *delegate) Float() float64   { return p.Value().Float() }
 func (p *delegate) Value() (res Value) {
-        //fmt.Printf("delegate.value: %T %v\n", p.o, p.o)
-        //fmt.Printf("delegate.value: %p %p\n", p, p.o)
         switch o := p.o.(type) {
         case Caller:
                 if args, err := p.discloseArgs(p.o.Parent()); err == nil {
