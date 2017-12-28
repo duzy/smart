@@ -1,0 +1,7 @@
+#!/bin/bash
+if ! a=$(readlink -e ${BASH_SOURCE[0]}); then
+    a=${BASH_SOURCE[0]}
+fi
+d=$(dirname $(dirname $a))
+
+go test
