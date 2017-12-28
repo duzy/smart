@@ -9,6 +9,6 @@ import (
         "os"
 )
 
-func TestAll(t *testing.T) {
-        fmt.Fprintf(os.Stderr, "TODO: test all examples\n")
+func TestInternal(t *testing.T) {
+        fmt.Fprintf(os.Stderr, "TODO: check internal\n")
 }

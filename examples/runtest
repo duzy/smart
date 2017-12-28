@@ -1,7 +1,44 @@
 #!/bin/bash
-if ! a=$(readlink -e ${BASH_SOURCE[0]}); then
-    a=${BASH_SOURCE[0]}
-fi
-d=$(dirname $(dirname $a))
+function cleanup() {
+    rm -f \
+       basechain/bin/hello \
+       basechain/obj/hello.o \
+       basechain/src/hello.cpp \
+       basechain/{hello,hello.o,hello.cpp} \
+       disclosure/default/foobar \
+       hello/{hello,hello.o,hello.cpp} \
+       hellodock/{hello,hello.o,hello.cpp} \
+       search_file/obj/hello.o \
+       search_file/hello \
+       use_posix_thread/{example,example.o,example.cpp} \
+	&& true
+}
 
-go test
+function runtests() {
+    for name in $@; do
+	cd $name && {
+	    go test -run TestCheckPrecond
+	    ./run 1>/tmp/$name-1.log 2>/tmp/$name-2.log
+	    go test -run TestCheckResults
+	    rm -f /tmp/$name-{1,2}.log
+	}
+	cd -> /dev/null
+    done
+}
+
+cleanup
+
+runtests \
+    basechain \
+    check_outputs \
+    disclosure \
+    hello \
+    hellodock \
+    params \
+    search_file \
+    use_posix_thread \
+    && true
+
+cleanup
+
+go test -run TestInternal
