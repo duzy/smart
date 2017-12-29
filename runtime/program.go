@@ -30,8 +30,15 @@ var workstack []*workinfo
 
 func enterWorkdir(dir string, print bool) (wi *workinfo) {
         if wd, err := os.Getwd(); err == nil {
-                if n := len(workstack); 0 < n && workstack[n-1].dir == dir {
-                        print = false
+                if print {
+                        for i, w := range workstack {
+                                if w.print || i == 0 {
+                                        if w.dir == dir {
+                                                print = false
+                                        }
+                                        break
+                                }
+                        }
                 }
                 if print {
                         fmt.Printf("smart: Entering directory '%s'\n", dir)

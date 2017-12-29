@@ -33,7 +33,7 @@ test: .
 `, wd))
                         if !bytes.Equal(v, h) { t.Errorf("bad header:\n%s\n%s", v, h) }
 
-                        v = []byte(`update file 'src/hello.cpp' ... ok
+                        v = []byte(`update file 'src/hello.cpp' ... (ok)
 g++ -std=c++1z -c src/hello.cpp -o obj/hello.o
 g++ -std=c++1z obj/hello.o -o bin/hello
 ./bin/hello
