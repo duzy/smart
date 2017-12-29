@@ -1,11 +1,17 @@
 //
 //  Copyright (C) 2012-2017, Duzy Chan <code@duzy.info>, all rights reserverd.
 //
-package check_outputs
+package smartest
 
 import (
         "testing"
+        "os"
 )
 
-func TestCheckNothing(t *testing.T) {
+func TestCheckCleanTest(t *testing.T) {
+        if _, err := os.Stat("1.log"); err == nil { t.Error("dirty test") }
+        if _, err := os.Stat("2.log"); err == nil { t.Error("dirty test") }
+        if _, err := os.Stat("example"); err == nil { t.Error("dirty test") }
+        if _, err := os.Stat("example.o"); err == nil { t.Error("dirty test") }
+        if _, err := os.Stat("example.cpp"); err == nil { t.Error("dirty test") }
 }

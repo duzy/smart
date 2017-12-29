@@ -21,6 +21,11 @@ function cleanup() {
 	&& true
 }
 
+function run() {
+    test -s run || ln -s ../../run
+    ./run 1>1.log 2>2.log
+}
+
 function runtestcase() {
     local $name="$1"
     go test -run $name run_test.go
@@ -40,9 +45,7 @@ function runtests() {
     for name in $@; do
 	cd $name && {
 	    echo "test: Entering directory '$name'"
-	    runtest alpha
-	    ./run 1>1.log 2>2.log
-	    runtest beta && rm -f {1,2}.log
+	    runtest alpha && run && runtest beta && rm -f {1,2}.log
 	    echo "test: Leaving directory '$name'"
 	}
 	cd -> /dev/null

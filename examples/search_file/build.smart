@@ -16,10 +16,10 @@ files (
 run:[(shell -oe)]: hello
 	./hello
 
-hello:[(compare) (shell -e)]: hello.o
+hello:[(compare) (shell -oe)]: hello.o
 	$(LINK) $^ -o $@
 
-hello.o:[(compare) (shell -e)]: hello.cpp
+hello.o:[(compare) (shell -oe)]: hello.cpp
 	$(COMPILE) $< -o $@
 
 # TODO: using 'files' scheme
