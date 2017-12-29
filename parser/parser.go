@@ -1757,7 +1757,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         continue
                 }
 
-                tarent.Position = p.file.Position(target.Pos())
+                if !tarent.Position.IsValid() {
+                        tarent.Position = p.file.Position(target.Pos())
+                }
 
                 // Guessing target entry class, e.g. general, file, etc.
                 var class = tarent.Class()
@@ -1866,6 +1868,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Depends: depends,
                 Program: program,
                 Modifier: modifier,
+                Position: p.file.Position(pos),
         }
 
         if useContainScope != nil {

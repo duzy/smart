@@ -6,7 +6,7 @@
 package types
 
 import (
-        //"github.com/duzy/smart/token"
+        "github.com/duzy/smart/token"
         "crypto/sha256"
         "path/filepath"
         "strings"
@@ -22,6 +22,7 @@ type Program interface {
         Execute(context *Scope, entry *RuleEntry, args []Value) (result Value, err error)
         Params() []string // parameter names
         Project() *Project
+        Position() token.Position
         Depends() []Value
         Recipes() []Value
         Pipeline() []Value

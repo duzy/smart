@@ -727,7 +727,7 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
                 }
         }
         
-        var prog = l.NewProgram(l.project, params, progScope, depends, recipes...)
+        var prog = l.NewProgram(clause.Position, l.project, params, progScope, depends, recipes...)
         if len(modifiers) > 0 {
                 if err = prog.SetModifiers(modifiers...); err != nil {
                         return

@@ -515,28 +515,22 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                 }
         }
 
-        ExecutePrograms: var (
-                //isTargetPatternUnfit = false
-                //isTargetUpdated = false
-        )
+        ExecutePrograms: var ()
         ForPrograms: for _, prog := range entry.Programs() {
                 if prog == pc.program {
-                        return fmt.Errorf("Depends on itself (%v).", pc.entry)
+                        err = fmt.Errorf("depended on itself")
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                        return
                 }
                 if err = pc.execute(entry, prog); err == nil {
-                        //isTargetUpdated = true
                         break ForPrograms
-                /*} else if _, ok := err.(*preparePatternUnfit); ok {
-                        // Discard pattern unfit errors.
-                        isTargetPatternUnfit = true
-                        continue ForPrograms*/
+                } else {
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                        if entry.class == StemmedFileEntry {
+                                // Don't try other programs if it's pattern.
+                                break ForPrograms
+                        }
                 }
-        }
-        /*if isTargetPatternUnfit && !isTargetUpdated && err != nil {
-                err = fmt.Errorf("Not applied for '%s'", entry.name)
-        }*/
-        if err != nil {
-                fmt.Fprintf(os.Stdout, "%s: %v\n", entry.Position, err)
         }
         return
 }

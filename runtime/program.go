@@ -7,6 +7,7 @@
 package runtime
 
 import (
+        "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
         "path/filepath"
@@ -80,10 +81,12 @@ type Program struct {
         depends []types.Value // *types.RuleEntry, *types.Barefile
         recipes []types.Value
         pipline []types.Value
+        position token.Position
 }
 
 func (prog *Program) Params() []string { return prog.params }
 func (prog *Program) Project() *types.Project { return prog.project }
+func (prog *Program) Position() token.Position { return prog.position }
 func (prog *Program) Depends() []types.Value { return prog.depends }
 func (prog *Program) Recipes() []types.Value { return prog.recipes }
 func (prog *Program) Pipeline() []types.Value { return prog.pipline }
@@ -289,14 +292,15 @@ func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
         return
 }
 
-func (context *Context) NewProgram(project *types.Project, params []string, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
+func (context *Context) NewProgram(position token.Position, project *types.Project, params []string, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
         return &Program{
-                context:     context,
-                project:     project,
-                scope:       scope,
-                params:      params,
-                depends:     depends, // *types.RuleEntry, *types.Barefile
-                recipes:     recipes,
+                context:  context,
+                project:  project,
+                scope:    scope,
+                params:   params,
+                depends:  depends,
+                recipes:  recipes,
+                position: position,
         }
 }
 

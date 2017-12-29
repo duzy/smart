@@ -480,13 +480,14 @@ type (
 
 	// A RuleClause node represents a rule declaration.
 	RuleClause struct {
-		Doc     *CommentGroup  // associated documentation; or nil
-		Targets []Expr         // targets
-                Depends []Expr         // prerequisites
-                Modifier *ModifierExpr // modifier (e.g. [shell])
-                Program Expr           // program (e.g. recipes)
-                TokPos  token.Pos      // position of ':', '::', etc
-		Tok     token.Token    // token ':', '::'
+		Doc      *CommentGroup  // associated documentation; or nil
+		Targets  []Expr         // targets
+                Depends  []Expr         // prerequisites
+                Modifier *ModifierExpr  // modifier (e.g. [shell])
+                Program  Expr           // program (e.g. recipes)
+                Position token.Position
+                TokPos   token.Pos      // position of ':', '::', etc
+		Tok      token.Token    // token ':', '::'
 	}
 
         RecipeDefineClause struct {
