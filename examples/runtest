@@ -6,6 +6,8 @@ function cleanup() {
        basechain/obj/hello.o \
        basechain/src/hello.cpp \
        basechain/{hello,hello.o,hello.cpp} \
+       basecpp/{1,2}.log \
+       basecpp/{hello,hello.o,hello.cpp} \
        check_outputs/{1,2}.log \
        disclosure/{1,2}.log \
        disclosure/default/foobar \
@@ -59,6 +61,7 @@ if test ! -z "$@"; then
 else
     runtests \
 	basechain \
+	basecpp \
 	check_outputs \
 	disclosure \
 	hello \
