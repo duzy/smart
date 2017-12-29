@@ -520,7 +520,7 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                 if prog == pc.program {
                         err = fmt.Errorf("depended on itself")
                         fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
-                        return
+                        break ForPrograms
                 }
                 if err = pc.execute(entry, prog); err == nil {
                         break ForPrograms
