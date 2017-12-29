@@ -1,0 +1,24 @@
+project (tools/gcc/c++)
+
+files (
+    hello
+)
+
+CXXFLAGS += -DTEST=1
+
+GREETING := 'Hello World!'
+
+run:[(shell -oe)]: hello
+	./hello
+
+hello: c++->program($@,$@.o)
+
+hello.cpp:[(plain c++) (update-file)]
+	#include <iostream>
+	int main(int argc, char** argv) {
+	    std::cout <<"$(GREETING)" << std::endl;
+	    return 0;
+	}
+
+clean:
+	remove hello hello.o hello.cpp hello.c

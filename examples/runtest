@@ -11,6 +11,8 @@ function cleanup() {
        check_outputs/{1,2}.log \
        disclosure/{1,2}.log \
        disclosure/default/foobar \
+       deep/{1,2}.log \
+       deep/sub/hello/{hello,hello.o,hello.cpp} \
        hello/{1,2}.log \
        hello/{hello,hello.o,hello.cpp} \
        hellodock/{1,2}.log \
@@ -64,6 +66,7 @@ else
 	basecpp \
 	check_outputs \
 	disclosure \
+	deep \
 	hello \
 	hellodock \
 	params \

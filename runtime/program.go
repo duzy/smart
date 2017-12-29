@@ -32,12 +32,12 @@ var workstack []*workinfo
 func enterWorkdir(dir string, print bool) (wi *workinfo) {
         if wd, err := os.Getwd(); err == nil {
                 if print {
-                        for i, w := range workstack {
-                                if w.print || i == 0 {
-                                        if w.dir == dir {
+                        for i := len(workstack)-1; i > -1; i-- {
+                                if w := workstack[i]; w.dir == dir {
+                                        if w.print || i == 0 {
                                                 print = false
+                                                break
                                         }
-                                        break
                                 }
                         }
                 }

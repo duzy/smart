@@ -526,6 +526,9 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                 } else {
                         fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
                         if entry.class == StemmedFileEntry {
+                                if false {
+                                        fmt.Printf("context: %v\n", pc.context)
+                                }
                                 // Don't try other programs if it's pattern.
                                 break ForPrograms
                         }
@@ -544,7 +547,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog Program) (err error) {
                 scope = pc.context
                 res Value
         )
-        if p := pc.entry.Project(); p != project && false {
+        if p := pc.entry.Project(); p != project && true {
                 project, scope = p, p.Scope()
         }
 

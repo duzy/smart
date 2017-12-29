@@ -1,0 +1,8 @@
+project
+
+import (
+    ./sub
+)
+
+test: sub->test
+
