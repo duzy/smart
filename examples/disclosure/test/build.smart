@@ -1,9 +1,17 @@
 project
 
+eval println $.
+eval println $/
+eval println &.
+eval println &/
+eval println "none: &(dir)"
+
 foo:[(cd -)]: &(dir)/foobar
 	println &(dir)
+	println &.
+	println &/
 
 %/foobar:[(cd -) (shell -veo)]
 	@echo $(CWD)
 	@pwd
-	@touch $@
+	@touch $@ && ls $@
