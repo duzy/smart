@@ -486,7 +486,7 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                 // Delegate missing pattern file entry
                 var fi, _ = os.Stat(entry.name)
                 if fi != nil {
-                        goto ExecutePrograms 
+                        goto ForPrograms 
                 }
                 if _, obj := pc.context.Find(entry.name); obj == nil {
                         var _, obj = pc.context.Find("/")
@@ -515,7 +515,6 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                 }
         }
 
-        ExecutePrograms: var ()
         ForPrograms: for _, prog := range entry.Programs() {
                 if prog == pc.program {
                         err = fmt.Errorf("depended on itself")

@@ -34,11 +34,11 @@ lib.a:[((lib objects)) (cd -) (compare $(lib)) (dock shell -voe)]: $(objects)
 	@if test -z "$^"; then echo "c++: archive no objects"; false; else true; fi
 	$(ARCHIVE) $(lib) $^
 
-%.o:[(cd -) (compare) (dock shell -voe)]: %.cpp
+%.o:[(cd -) (compare) (dock shell -oe)]: %.cpp
 	$(COMPILE) $^ -o $@
-%.o:[(cd -) (compare) (dock shell -voe)]: %.cc
+%.o:[(cd -) (compare) (dock shell -oe)]: %.cc
 	$(COMPILE) $^ -o $@
-%.o:[(cd -) (compare) (dock shell -voe)]: %.C
+%.o:[(cd -) (compare) (dock shell -oe)]: %.C
 	$(COMPILE) $^ -o $@
 
 # https://github.com/google/re2/wiki/Syntax
