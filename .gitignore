@@ -34,3 +34,5 @@ _/
 
 /.emacs.desktop
 /.emacs.desktop.lock
+
+/examples/*/test.go

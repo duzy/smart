@@ -684,8 +684,9 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
 
         var slient = len(args) > 0 && args[0].Strval() == "slient"
         if !slient {
-                s, _ := os.Getwd()
-                fmt.Printf("update file `%v' (%s) ..", filename, s)
+                //s, _ := os.Getwd()
+                //fmt.Printf("update file `%v' (%s) ..", filename, s)
+                fmt.Printf("update file '%v' ..", filename)
         }
 
         // Create or update the file with new content

@@ -1,12 +1,11 @@
 //
 //  Copyright (C) 2012-2017, Duzy Chan <code@duzy.info>, all rights reserverd.
 //
-package examples
+package check_outputs
 
 import (
         "testing"
 )
 
-func TestInternal(t *testing.T) {
-        // TODO: check internal
+func TestCheckNothing(t *testing.T) {
 }

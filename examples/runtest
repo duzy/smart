@@ -1,26 +1,49 @@
 #!/bin/bash
 function cleanup() {
     rm -f \
+       basechain/{1,2}.log \
        basechain/bin/hello \
        basechain/obj/hello.o \
        basechain/src/hello.cpp \
        basechain/{hello,hello.o,hello.cpp} \
+       check_outputs/{1,2}.log \
+       disclosure/{1,2}.log \
        disclosure/default/foobar \
+       hello/{1,2}.log \
        hello/{hello,hello.o,hello.cpp} \
+       hellodock/{1,2}.log \
        hellodock/{hello,hello.o,hello.cpp} \
-       search_file/obj/hello.o \
+       search_file/{1,2}.log \
        search_file/hello \
+       search_file/obj/hello.o \
+       use_posix_thread/{1,2}.log \
        use_posix_thread/{example,example.o,example.cpp} \
 	&& true
+}
+
+function runtestcase() {
+    local $name="$1"
+    go test -run $name run_test.go
+}
+
+function runtest() {
+    local test=${1}_test.go
+    if test -f $test; then
+	test -s test.go || ln -s ../test.go
+	go test -v $test test.go
+    else
+	echo "no  	$name test"
+    fi
 }
 
 function runtests() {
     for name in $@; do
 	cd $name && {
-	    go test -run TestCheckPrecond
-	    ./run 1>/tmp/$name-1.log 2>/tmp/$name-2.log
-	    go test -run TestCheckResults
-	    rm -f /tmp/$name-{1,2}.log
+	    echo "test: Entering directory '$name'"
+	    runtest alpha
+	    ./run 1>1.log 2>2.log
+	    runtest beta && rm -f {1,2}.log
+	    echo "test: Leaving directory '$name'"
 	}
 	cd -> /dev/null
     done
@@ -28,17 +51,20 @@ function runtests() {
 
 cleanup
 
-runtests \
-    basechain \
-    check_outputs \
-    disclosure \
-    hello \
-    hellodock \
-    params \
-    search_file \
-    use_posix_thread \
-    && true
+if test ! -z "$@"; then
+    runtests "$@"
+else
+    runtests \
+	basechain \
+	check_outputs \
+	disclosure \
+	hello \
+	hellodock \
+	params \
+	search_file \
+	use_posix_thread \
+	&& true
+    runtestcase TestInternal
+fi
 
 cleanup
-
-go test -run TestInternal
