@@ -216,8 +216,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         }
 
         if s := entry.Name(); prog.project.IsFile(s) {
-                file := prog.project.SearchFile(context, values.File(entry, s))
-                prog.auto("@", file)
+                prog.auto("@", prog.project.SearchFile(s))
         } else {
                 prog.auto("@", entry)
         }
@@ -225,7 +224,9 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         // Calculate and prepare depends and files.
         pc := types.NewPreparer(prog, context, entry)
         if err = pc.Prepare(prog.depends); err != nil {
-                //fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
+                if false {
+                        fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
+                }
                 return
         } else if pc.Targets().Len() > 0 {
                 var elems = pc.Targets().Elems[:]

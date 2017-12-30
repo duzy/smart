@@ -281,6 +281,9 @@ func (pc *Preparer) prepareTargetValue(value Value) error {
         }
 }
 
+// patternPrepareError indicates an error occurred in preparing a pattern.
+type patternPrepareError error
+
 func (pc *Preparer) prepareTarget(target string) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:Target: %v\n", target)
@@ -300,7 +303,7 @@ func (pc *Preparer) prepareTarget(target string) (err error) {
                 }
                 if err = pc.Prepare(ps); err == nil {
                         return // Updated successfully!
-                } else if _, ok := err.(*preparePatternUnfit); ok {
+                } else if _, ok := err.(patternPrepareError); ok {
                         err = nil; continue // Discard pattern unfit errors.
                 } else {
                         return
@@ -326,14 +329,27 @@ func (pc *Preparer) searchFile(project *Project, name string) (err error) {
                 fmt.Printf("prepare:SearchFile: %v (%v)\n", name, project.Name())
         }
         
-        f := project.SearchFile(pc.context, &File{ Value:&String{name}, Name:name })
+        // Search the file.
+        var f = project.SearchFile(name)
         if f.Info == nil {
-                f = pc.program.Project().SearchFile(pc.context, f)
+                // Try searching in the calling context again.
+                f = pc.program.Project().SearchFile(name)
         }
+
         if f.Info != nil {
                 pc.targets.Append(f)
         } else {
-                err = fmt.Errorf("No such file `%v'", name)
+                if true {
+                        wd, _ := os.Getwd()
+                        fmt.Printf("missing: %v %v %v\n", f, f.Dir, f.Name)
+                        fmt.Printf("workdir: %v\n", wd)
+                        fmt.Printf("projdir: %v\n", pc.program.Project().AbsPath())
+                        fmt.Printf("projdir: %v\n", project.AbsPath())
+                        //s := filepath.Join(pc.program.Project().AbsPath(), f.Name)
+                        //i, _ := os.Stat(s)
+                        //fmt.Printf("%v %v\n", i.Name(), s)
+                }
+                err = fmt.Errorf("No such file '%v'", name)
         }
         return
 }
@@ -576,20 +592,24 @@ func (p *PathSeg) Strval() (s string) {
 }
 
 type File struct {
-        Value  // original represented name (e.g. Barefile)
+        value
         Name string  // represented name (e.g. relative filename)
         Dir string   // directory in which the file should be or was found
         Info os.FileInfo // file info if exists
 }
 func (p *File) Type() Type { return FileType }
-func (p *File) Strval() string { 
-        if filepath.IsAbs(p.Name) {
-                return p.Name
+func (p *File) Strval() string { return p.Name }
+func (p *File) String() string { return p.Fullname() }
+func (p *File) Fullname() string { return filepath.Join(p.Dir, p.Name) }
+func (p *File) Basename() string {
+        if p.Info != nil {
+                return p.Info.Name()
+        } else {
+                return filepath.Base(p.Name)
         }
-        return filepath.Join(p.Dir, p.Name) 
 }
 
-func (p *File) disclose(scope *Scope) (Value, error) {
+/*func (p *File) disclose(scope *Scope) (Value, error) {
         if v, err := p.Value.disclose(scope); err != nil {
                 return nil, err
         } else if v != nil {
@@ -600,7 +620,7 @@ func (p *File) disclose(scope *Scope) (Value, error) {
 
 func (p *File) referencing(o Object) bool {
         return p.Value.referencing(o)
-}
+}*/
 
 func (p *File) prepare(pc *Preparer) error {
         if trace_prepare {
@@ -1181,7 +1201,7 @@ func (p *PercentPattern) prepare(pc *Preparer) (err error) {
         if stem := pc.entry.Stem(); stem != "" {
                 var name = p.MakeString(stem)
                 if err = pc.prepareTarget(name); err != nil {
-                        err = &preparePatternUnfit{ err }
+                        err = patternPrepareError(err)
                 }
         } else {
                 err = fmt.Errorf("Empty stem (%s, dependency %v)", pc.entry, p)
@@ -1189,6 +1209,7 @@ func (p *PercentPattern) prepare(pc *Preparer) (err error) {
         return
 }
 
+// TODO: implement regexp pattern
 type RegexpPattern struct {
         pattern
 }

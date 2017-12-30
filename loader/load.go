@@ -1059,8 +1059,8 @@ func (l *Loader) LoadDir(path string, filter func(os.FileInfo) bool) (err error)
         return l.loadDir(s, path, filter)
 }
 
-func (pc *parseContext) Files(m map[string][]string) {
-        pc.project.AddFiles(m)
+func (pc *parseContext) MapFiles(m map[string][]string) {
+        pc.project.MapFiles(m)
 }
 
 func (pc *parseContext) IsFileName(s string) bool {

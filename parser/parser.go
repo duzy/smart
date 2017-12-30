@@ -1186,7 +1186,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
                 }
         }
-        p.runtime.Files(files)
+        p.runtime.MapFiles(files)
         return spec
 }
 

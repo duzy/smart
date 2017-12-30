@@ -68,7 +68,7 @@ type RuntimeContext interface {
         IsModifier(s string) bool
         IsFileName(s string) bool
 
-        Files(m map[string][]string)
+        MapFiles(m map[string][]string)
 
         DeclareProject(name *ast.Bareword, params types.Value) error
         CloseCurrentProject(name *ast.Bareword) error

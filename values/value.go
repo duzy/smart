@@ -160,8 +160,8 @@ func PathSeg(ch rune) (v *types.PathSeg) {
         return &types.PathSeg{ Value:ch }
 }
 
-func File(v types.Value, s string) (fv *types.File) {
-        return &types.File{ Value:v, Name:s }
+func File(s string) (fv *types.File) {
+        return &types.File{ Name:s }
 }
 
 func Flag(name types.Value) (v *types.Flag) {

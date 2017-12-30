@@ -247,7 +247,7 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
                 case *types.RuleEntry:
                         switch d.Class() {
                         case types.ExplicitFileEntry:
-                                depends.Append(values.File(d, d.Strval()))
+                                depends.Append(values.File(d.Strval()))
                         case types.GeneralRuleEntry, types.PatternRuleEntry:
                                 depends.Append(d)
                         default:
@@ -371,14 +371,14 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 var targetFile *types.File
                 switch t := targetVal.(type) {
                 case *types.File: targetFile = t
-                case *types.Barefile: targetFile = values.File(t, t.Strval())
+                case *types.Barefile: targetFile = values.File(t.Strval())
                 case *types.RuleEntry:
                         switch class, s := t.Class(), t.Strval(); class {
                         case types.ExplicitFileEntry, types.StemmedFileEntry:
-                                targetFile = values.File(t, s)
+                                targetFile = values.File(s)
                         default:if p := t.Project(); p != nil {
                                 if p.IsFile(s) {
-                                        targetFile = values.File(t, s)
+                                        targetFile = values.File(s)
                                 } else {
                                         fmt.Fprintf(os.Stdout, "%v: %v->%v is not file\n", t.Position, p.Name(), s)
                                         err = &breaker{ fmt.Sprintf("unknown %v->%v (%v)", p.Name(), s, class), false }
@@ -497,8 +497,7 @@ func modifierGrepDependents(prog *Program, context *types.Scope, value types.Val
                 s := scanner.Text()
                 for _, x := range rxs { //if x.MatchString(s) {
                         if sm := x.FindStringSubmatch(s); len(sm) == 2 && sm[1] != "" {
-                                v := values.File(values.String(sm[1]), sm[1])
-                                v = project.SearchFile(context, v)
+                                v := project.SearchFile(sm[1])
                                 if v.Info == nil && optDiscardMissing {
                                         continue
                                 }
@@ -603,7 +602,7 @@ func modifierCheckFile(prog *Program, context *types.Scope, value types.Value, a
                 filename = targetVal.Strval()
         }
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
-                result = values.File(targetVal, filename)
+                result = values.File(filename)
         } else {
                 err = &breaker{ fmt.Sprintf("file %s not exists", targetVal), false }
         }
@@ -624,7 +623,7 @@ func modifierWriteFile(prog *Program, context *types.Scope, value types.Value, a
         if f, err := os.Create(filename); err == nil {
                 defer f.Close()
                 if _, err = f.WriteString(value.Strval()); err == nil {
-                        result = values.File(targetVal, filename)
+                        result = values.File(filename)
                 } else {
                         os.Remove(filename)
                 }
@@ -677,7 +676,7 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
                         if false {
                                 fmt.Printf("%s already up to date\n", filename)
                         }
-                        result = values.File(targetVal, filename)
+                        result = values.File(filename)
                         return
                 }
         }
@@ -695,7 +694,7 @@ func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, 
         if err == nil && f != nil {
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
-                        result = values.File(targetVal, filename)
+                        result = values.File(filename)
                         if !slient {
                                 fmt.Printf(". (ok)\n")
                         }

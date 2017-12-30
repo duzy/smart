@@ -29,14 +29,25 @@ AR = ar
 ARFLAGS = rvs
 ARCHIVE = &(AR) &(ARFLAGS)
 
-program:[(cd -) ((bin objects)) (compare $(bin)) (shell -oe)]: $(objects)
+dock -
+
+program:[(cd -) ((bin objects)) (compare $(bin)) (dock shell -oe)]: $(objects)
+	@if test -z "$^"; then echo "c++: link no objects"; false; else true; fi
 	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
-lib.so:[(cd -) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
+lib.so:[(cd -) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
+	@if test -z "$^"; then echo "c++: link no objects"; false; else true; fi
 	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
-lib.a:[(cd -) ((lib objects)) (compare $(lib)) (shell -oe)]: $(objects)
+lib.a:[(cd -) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
+	@if test -z "$^"; then echo "c++: archive no objects"; false; else true; fi
 	$(ARCHIVE) $(lib) $^
-%.o:[(cd -) (compare) (shell -oe)]: %.c
+
+%.o:[(cd -) (compare) (dock shell -oe)]: %.c
 	$(COMPILE) -o $@ $<
+
+# https://github.com/google/re2/wiki/Syntax
+#%.c %.h:[(cd -) (grep-compare -discard-missing \
+#    '\s*#\s*include\s*<(.*)>' \
+#    '\s*#\s*include\s*"(.*)"')]
 
 # TODO:
 #.c:
@@ -53,4 +64,3 @@ use:
 	LDFLAGS = $(LDFLAGS)
 	LDLIBS = $(LDLIBS)
 	LOADLIBES = $(LOADLIBES)
-

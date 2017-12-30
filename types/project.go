@@ -38,7 +38,7 @@ type Project struct {
         scope   *Scope
         uses    []*Use
 
-        files   map[string][]string
+        filemap   map[string][]string
 
         // Rule Registry (orderred)
         concrete []*RuleEntry
@@ -62,70 +62,89 @@ func (m *Project) Chain(bases... *Project) {
         }
 }
 
-func (m *Project) AddFiles(files map[string][]string) {
-        if m.files == nil {
-                m.files = make(map[string][]string)
+func (m *Project) MapFiles(files map[string][]string) {
+        if m.filemap == nil {
+                m.filemap = make(map[string][]string)
         }
         for k, a := range files {
-                m.files[k] = append(m.files[k], a...)
+                m.filemap[k] = append(m.filemap[k], a...)
         }
 }
 
-func (m *Project) SearchFile(context *Scope, fv *File) *File {
+func (m *Project) combineFileMap(filemap map[string][]string) map[string][]string {
+        for _, base := range m.bases {
+                base.combineFileMap(filemap)
+        }
+        for pat, paths := range m.filemap {
+                filemap[pat] = paths
+        }
+        return filemap
+}
+
+func (m *Project) FileMap() map[string][]string {
+        return m.combineFileMap(make(map[string][]string))
+}
+
+func (m *Project) SearchFile(filename string) *File {
         var (
-                ss = filepath.Base(fv.Name)
                 firstMatched []string
+                info os.FileInfo
+                dir string
         )
-        //fmt.Printf("%v: SearchFile: %v (%v)\n", m.Name(), fv.Name, m.files)
-        ForFiles: for pat, paths := range m.files {
-                matched := false
-                if strings.ContainsAny(pat, "*?[") {
-                        matched, _ = filepath.Match(pat, ss)
-                } else { 
-                        matched = fv.Name == pat
+
+        if filepath.IsAbs(filename) {
+                info, _ = os.Stat(filename)
+                goto SearchBases
+        }
+
+        ForFiles: for pat, paths := range m.FileMap() {
+                // Match the filename (not base). Note that '*.c' won't match 'src/x.c'.
+                if v, _ := filepath.Match(pat, filepath.Base(filename)); !v && pat != filename {
+                        continue
                 }
 
-                if !matched { continue }
                 if firstMatched == nil {
                         firstMatched = paths
                 }
-                
-                if filepath.IsAbs(fv.Name) {
-                        fi, _ := os.Stat(fv.Name)
-                        fv.Info, fv.Dir = fi, ""
-                        break ForFiles
-                }
 
-                for _, p := range paths {
-                        full := filepath.Join(p, fv.Name)
-                        if fi, er := os.Stat(full); fi != nil && er == nil {
-                                fv.Info, fv.Dir = fi, p
+                for _, path := range paths {
+                        var ( p = path )
+                        if !filepath.IsAbs(p) {
+                                p = filepath.Join(m.AbsPath(), p)
+                        }
+
+                        if fi, _ := os.Stat(filepath.Join(p, filename)); fi != nil {
+                                info, dir = fi, p
                                 break ForFiles
-                        } else {
-                                //fmt.Printf("SearchFile: %v (%v)\n", fv.Name, er)
-                        }
-                }
-        }
-        if fv.Info == nil && len(firstMatched) > 0 {
-                fv.Dir = firstMatched[0]
-        } else {
-                for _, base := range m.bases {
-                        base.SearchFile(context, fv)
-                        if fv.Info != nil || fv.Dir != "" {
-                                return fv
+                        } else if false {
+                                fmt.Printf("SearchFile: %v: %v\n", m.Name(), filename)
                         }
                 }
         }
 
-        // TODO: _, ctxPathDef := context.Find("/")
-
-        return fv
+        SearchBases: var file = &File{
+                Name: filename,
+                Info: info,
+                Dir: dir,
+        }
+        if file.Info == nil {
+                if len(firstMatched) > 0 {
+                        file.Dir = firstMatched[0]
+                } else {
+                        for _, base := range m.bases {
+                                if v := base.SearchFile(filename); v != nil {
+                                        return v
+                                }
+                        }
+                }
+        }
+        return file
 }
 
 func (m *Project) IsFile(s string) (v bool) {
         if len(s) > 0 {
                 var ss = filepath.Base(s)
-                for pat, _ := range m.files {
+                for pat, _ := range m.filemap {
                         if false {
                                 fmt.Printf("IsFile: %s %v\n", s, pat)
                         }

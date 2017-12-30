@@ -456,18 +456,11 @@ func (entry *RuleEntry) Get(name string) (Value, error) {
         return nil, errors.New(fmt.Sprintf("no such entry property (%s)", name))
 }
 
-type preparePatternUnfit struct {
-        error
-}
-
-func (*preparePatternUnfit) Error() string {
-        return "pattern unfit" 
-}
-
 func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:RuleEntry: %v (%v)\n", entry, entry.class)
         }
+
         if entry.Programs() == nil {
                 switch entry.class {
                 case ExplicitFileEntry:
@@ -527,8 +520,11 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                         fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
                         if entry.class == StemmedFileEntry {
                                 if false {
+                                        wd, _ := os.Getwd()
+                                        fmt.Printf("workdir: %v\n", wd)
                                         fmt.Printf("context: %v\n", pc.context)
                                 }
+
                                 // Don't try other programs if it's pattern.
                                 break ForPrograms
                         }
@@ -544,17 +540,27 @@ func (pc *Preparer) execute(entry *RuleEntry, prog Program) (err error) {
 
         var (
                 project = entry.Project()
-                scope = pc.context
+                context = pc.context
                 res Value
         )
-        if p := pc.entry.Project(); p != project && true {
-                project, scope = p, p.Scope()
+
+        // Fixes program context if the starting entry and depended entry are
+        // in different projects. This ensure disclosures work.
+        if p := pc.entry.Project(); p != project {
+                context = p.Scope()
+                project = p
         }
 
-        if res, err = prog.Execute(scope, entry, pc.arguments); err == nil {
+        // Execute the updating program.
+        if res, err = prog.Execute(context, entry, pc.arguments); err == nil {
                 switch dd, _ := prog.Scope().Lookup("@").(*Def).Call(); entry.class {
                 case ExplicitFileEntry, StemmedFileEntry:
-                        pc.targets.Append(&File{ Value:dd, Name:dd.Strval() })
+                        //pc.targets.Append(&File{ Name:dd.Strval() })
+                        if file, _ := dd.(*File); file != nil {
+                                pc.targets.Append(file)
+                        } else {
+                                pc.targets.Append(project.SearchFile(dd.Strval()))
+                        }
                 default:
                         if res != nil && res.Type() != NoneType {
                                 pc.targets.Append(res); return
