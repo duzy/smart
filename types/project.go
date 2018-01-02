@@ -19,7 +19,7 @@ import (
 type HashBytes [sha256.Size]byte
 
 type Program interface {
-        Execute(context *Scope, entry *RuleEntry, args []Value) (result Value, err error)
+        Execute(entry *RuleEntry, args []Value) (result Value, err error)
         Params() []string // parameter names
         Project() *Project
         Position() token.Position
@@ -72,38 +72,38 @@ type Project struct {
         filescopes []*Scope
 }
 
-func (m *Project) AbsPath() string { return m.absPath }
-func (m *Project) RelPath() string { return m.relPath }
-func (m *Project) Spec() string { return m.spec }
-func (m *Project) Name() string { return m.name }
-func (m *Project) Scope() *Scope { return m.scope }
-func (m *Project) Uses() []*Use { return m.uses }
-func (m *Project) Bases() []*Project { return m.bases }
+func (p *Project) AbsPath() string { return p.absPath }
+func (p *Project) RelPath() string { return p.relPath }
+func (p *Project) Spec() string { return p.spec }
+func (p *Project) Name() string { return p.name }
+func (p *Project) Scope() *Scope { return p.scope }
+func (p *Project) Uses() []*Use { return p.uses }
+func (p *Project) Bases() []*Project { return p.bases }
 
-func (m *Project) Chain(bases... *Project) {
+func (p *Project) Chain(bases... *Project) {
         for _, base := range bases {
-                m.bases = append(m.bases, base)
-                m.scope.chain = append(m.scope.chain, base.scope)
+                p.bases = append(p.bases, base)
+                p.scope.chain = append(p.scope.chain, base.scope)
         }
 }
 
-func (m *Project) MapFile(pat string, paths []string) {
+func (p *Project) MapFile(pat string, paths []string) {
         // List order is significant, duplication is acceptable.
-        m.filemap = append(m.filemap, FileMap{ pat, paths })
+        p.filemap = append(p.filemap, FileMap{ pat, paths })
 }
 
-func (m *Project) FileMaps() (filemaps []FileMap) {
-        filemaps = append(filemaps, m.filemap...)
-        for _, base := range m.bases {
+func (p *Project) FileMaps() (filemaps []FileMap) {
+        filemaps = append(filemaps, p.filemap...)
+        for _, base := range p.bases {
                 filemaps = append(filemaps, base.FileMaps()...)
         }
         return
 }
 
-func (m *Project) SearchFile(filename string) *File {
+func (p *Project) SearchFile(filename string) *File {
         var (
                 file = &File{ Name: filename }
-                projDir = m.AbsPath()
+                projDir = p.AbsPath()
         )
 
         if filepath.IsAbs(filename) {
@@ -111,7 +111,7 @@ func (m *Project) SearchFile(filename string) *File {
                 goto SearchBases
         }
 
-        ForFiles: for _, filemap := range m.FileMaps() {
+        ForFiles: for _, filemap := range p.FileMaps() {
                 // Match the filename (not base). Note that '*.c' won't match 'src/x.c'.
                 if !filemap.Match(filename) {
                         continue
@@ -119,32 +119,32 @@ func (m *Project) SearchFile(filename string) *File {
 
                 for _, path := range filemap.Paths {
                         var (
-                                p = path 
-                                abs = filepath.IsAbs(p)
+                                dir = path 
+                                abs = filepath.IsAbs(dir)
                         )
                         if !abs {
-                                p = filepath.Join(projDir, p)
+                                dir = filepath.Join(projDir, dir)
                         }
 
                         if file.Dir == "" {
-                                if file.Dir = p; !abs {
+                                if file.Dir = dir; !abs {
                                         file.Sub = path
                                 }
                         }
 
-                        if fi, _ := os.Stat(filepath.Join(p, filename)); fi != nil {
-                                if file.Info, file.Dir = fi, p; !abs {
+                        if fi, _ := os.Stat(filepath.Join(dir, filename)); fi != nil {
+                                if file.Info, file.Dir = fi, dir; !abs {
                                         file.Sub = path 
                                 }
                                 break ForFiles
                         } else if false {
-                                fmt.Printf("SearchFile: %v: %v\n", m.Name(), filename)
+                                fmt.Printf("SearchFile: %v: %v\n", p.Name(), filename)
                         }
                 }
         }
 
         SearchBases: if file.Info == nil && file.Dir == "" {
-                for _, base := range m.bases {
+                for _, base := range p.bases {
                         if v := base.SearchFile(filename); v != nil {
                                 return v
                         }
@@ -156,14 +156,14 @@ func (m *Project) SearchFile(filename string) *File {
         return file
 }
 
-func (m *Project) IsFile(s string) (v bool) {
+func (p *Project) IsFile(s string) (v bool) {
         if len(s) > 0 {
-                for _, filemap := range m.filemap {
+                for _, filemap := range p.filemap {
                         if filemap.Match(s) {
                                 return true
                         }
                 }
-                for _, base := range m.bases {
+                for _, base := range p.bases {
                         if v = base.IsFile(s); v {
                                 return
                         }
@@ -172,9 +172,9 @@ func (m *Project) IsFile(s string) (v bool) {
         return
 }
 
-func (m *Project) DefaultEntry() (entry *RuleEntry) {
-        if len(m.concrete) > 0 {
-                entry = m.concrete[0]
+func (p *Project) DefaultEntry() (entry *RuleEntry) {
+        if len(p.concrete) > 0 {
+                entry = p.concrete[0]
         }
         return
 }
@@ -194,7 +194,7 @@ func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
 
 func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:PatternStem: %v\n", ps)
+                fmt.Printf("prepare:PatternStem: %v (%v)\n", ps, pc.entry)
         }
         if entry, e := ps.MakeConcreteEntry(); e == nil {
                 err = pc.Prepare(entry)
@@ -204,22 +204,22 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         return
 }
 
-func (m *Project) FindPatterns(s string) (res []*PatternStem) {
-        for _, p := range m.patterns {
+func (p *Project) FindPatterns(s string) (res []*PatternStem) {
+        for _, p := range p.patterns {
                 if found, stem := p.Pattern.Match(s); found && stem != "" {
                         res = append(res, &PatternStem{ p, stem })
                 }
         }
-        for _, base := range m.bases {
+        for _, base := range p.bases {
                 res = append(res, base.FindPatterns(s)...)
         }
-        //fmt.Printf("%s: %s: %v\n", s, m.Name(), res)
+        //fmt.Printf("%s: %s: %v\n", s, p.Name(), res)
         return
 }
 
 // Find rule entry by name or create new one.
-func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
-        _, obj := m.scope.Find(name)
+func (p *Project) Entry(name string) (entry *RuleEntry, err error) {
+        _, obj := p.scope.Find(name)
         if obj != nil {
                 if entry, _ = obj.(*RuleEntry); entry != nil {
                         return
@@ -227,8 +227,8 @@ func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
         }
         
         // TODO: Improves patter searching on base chain. 
-        //fmt.Printf("Project.Entry: %v: %v %v\n", name, m.patterns, m.scope)
-        if pss := m.FindPatterns(name); pss != nil {
+        //fmt.Printf("Project.Entry: %v: %v %v\n", name, p.patterns, p.scope)
+        if pss := p.FindPatterns(name); pss != nil {
                 for _, ps := range pss {
                         if ps.Patent.programs == nil {
                                 continue // FIXME: ???
@@ -242,7 +242,7 @@ func (m *Project) Entry(name string) (entry *RuleEntry, err error) {
         return
 }
 
-func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (entry *RuleEntry, err error) {
+func (p *Project) SetProgram(name string, class RuleEntryClass, prog Program) (entry *RuleEntry, err error) {
         switch class {
         case GeneralRuleEntry:
         case ExplicitFileEntry:
@@ -253,21 +253,19 @@ func (m *Project) SetProgram(name string, class RuleEntryClass, prog Program) (e
         }
         
         var alt Object
-        if entry, alt = m.scope.InsertEntry(m, class, name); alt != nil {
+        if entry, alt = p.scope.InsertEntry(p, class, name); alt != nil {
                 if entry, _ = alt.(*RuleEntry); entry == nil {
                         err = errors.New(fmt.Sprintf("Name '%v' already taken as `%T', failed mapping entry.", name, alt))
                 }
         }
         if entry != nil && err == nil {
                 entry.programs = append(entry.programs, prog)
-                m.concrete = append(m.concrete, entry)
+                p.concrete = append(p.concrete, entry)
         }
         return
 }
 
-func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryClass, prog Program) (patent *PatternEntry, err error) {
-        //fmt.Printf("SetPercentPatternProgram: %v %v -> %v\n", p, class, prog.Depends())
-        
+func (p *Project) SetPercentPatternProgram(pp *PercentPattern, class RuleEntryClass, prog Program) (patent *PatternEntry, err error) {
         switch class {
         case GeneralRuleEntry: class = PatternRuleEntry
         case ExplicitFileEntry: class = StemmedFileEntry
@@ -280,7 +278,7 @@ func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryCla
                 entry *RuleEntry
                 alt Object
         )
-        if entry, alt = m.scope.InsertEntry(m, class, p.Strval()); alt != nil {
+        if entry, alt = p.scope.InsertEntry(p, class, pp.Strval()); alt != nil {
                 if entry, _ = alt.(*RuleEntry); entry == nil {
                         err = errors.New(fmt.Sprintf("Pattern '%v' already taken as `%T', failed mapping entry.", p, alt))
                 }
@@ -288,18 +286,18 @@ func (m *Project) SetPercentPatternProgram(p *PercentPattern, class RuleEntryCla
         if entry != nil && err == nil {
                 entry.class = class
                 entry.programs = append(entry.programs, prog)
-                patent = &PatternEntry{ entry, p }
-                m.patterns = append(m.patterns, patent)
+                patent = &PatternEntry{ entry, pp }
+                p.patterns = append(p.patterns, patent)
         }
         return
 }
 
-func (m *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes) {
+func (p *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes) {
         var (
                 key = sha256.New()
                 val = sha256.New()
         )
-        fmt.Fprintf(key, "%s", m.AbsPath())
+        fmt.Fprintf(key, "%s", p.AbsPath())
         fmt.Fprintf(key, "%s", target.Strval())
         //fmt.Fprintf(key, "%s", depend.Strval())
         for _, recipe := range recipes {
@@ -310,16 +308,16 @@ func (m *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes) {
         return
 }
 
-func (m *Project) hashDir(k []byte) string {
+func (p *Project) hashDir(k []byte) string {
         s := fmt.Sprintf("%x", k[:2])
-        return filepath.Join(m.AbsPath(), ".smart", "hash", 
+        return filepath.Join(p.AbsPath(), ".smart", "hash", 
                 s[0:1], s[1:2], s[2:3], s[3:])
 }
 
-func (m *Project) CheckCmdHash(target Value, recipes []Value) (same bool, err error) {
+func (p *Project) CheckCmdHash(target Value, recipes []Value) (same bool, err error) {
         var (
-                k, v = m.CmdHash(target, recipes)
-                dir = m.hashDir(k[:])
+                k, v = p.CmdHash(target, recipes)
+                dir = p.hashDir(k[:])
         )
         if f, e := os.Open(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
                 var h []byte
@@ -336,9 +334,9 @@ func (m *Project) CheckCmdHash(target Value, recipes []Value) (same bool, err er
         return
 }
 
-func (m *Project) UpdateCmdHash(target Value, recipes []Value) (k, v HashBytes, err error) {
-        k, v = m.CmdHash(target, recipes)
-        dir := m.hashDir(k[:])
+func (p *Project) UpdateCmdHash(target Value, recipes []Value) (k, v HashBytes, err error) {
+        k, v = p.CmdHash(target, recipes)
+        dir := p.hashDir(k[:])
         if err = os.MkdirAll(dir, 0700); err != nil {
                 return
         }

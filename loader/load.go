@@ -380,13 +380,13 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
         case *ast.Barefile:
                 if a, err := l.expr(x.Name); err != nil {
                         return nil, err
+                } else if file, _ := x.File.(*types.File); file != nil {
+                        v = values.Barefile(a, file)
                 } else {
-                        v = values.Barefile(a, x.Ext)
+                        err = fmt.Errorf("Invalid barefile '%s'", x.Name)
                 }
-        case *ast.Globfile:
-                v = values.Globfile(x.Glob.Tok, x.Ext)
         case *ast.GlobExpr: // Just "*"
-                v = values.Globfile(x.Tok, "")
+                v = values.Glob(x.Tok)
         case *ast.PathExpr:
                 if a, err := l.exprs(x.Segments); err != nil {
                         return nil, err
@@ -508,7 +508,7 @@ func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
                 return fmt.Errorf("Project `%v' has invalid 'use' entry (%T).", usee.Name(), obj)
         }
 
-        results, err := entry.Execute(l.scope)
+        results, err := entry.Execute(/* ... */)
         if err != nil {
                 return err
         }
@@ -1063,12 +1063,11 @@ func (pc *parseContext) MapFile(pat string, paths []string) {
         pc.project.MapFile(pat, paths)
 }
 
-func (pc *parseContext) IsFileName(s string) bool {
-        if pc.project != nil {
-                //fmt.Printf("IsFileName: %s %v\n", s, pc.project.IsFile(s))
-                return pc.project.IsFile(s)
+func (pc *parseContext) File(s string) (f *types.File) {
+        if pc.project != nil && pc.project.IsFile(s) {
+                f = pc.project.SearchFile(s)
         }
-        return false
+        return
 }
 
 func (pc *parseContext) DeclareProject(ident *ast.Bareword, params types.Value) error {

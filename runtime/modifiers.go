@@ -31,7 +31,7 @@ func (p *breaker) Error() string {
         return p.message
 }
 
-type modifier func(prog *Program, context *types.Scope, value types.Value, args... types.Value) (types.Value, error)
+type modifier func(prog *Program, value types.Value, args... types.Value) (types.Value, error)
 
 const (
         theShellEnvarsDef = "shell->envars"
@@ -131,7 +131,7 @@ func promptShellResult(value types.Value, n int) {
         }
 }
 
-func modifierStatusEquals(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierStatusEquals(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         v, a := getGroupElem(value, 1, nil), ""
         if v != nil && len(args) == 1 {
                 if a = args[0].Strval(); a == v.Strval() {
@@ -142,7 +142,7 @@ func modifierStatusEquals(prog *Program, context *types.Scope, value types.Value
         return
 }
 
-func modifierStdoutEquals(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierStdoutEquals(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         v, a := getGroupElem(value, 2, nil), ""
         if v != nil && len(args) == 1 {
                 if a = args[0].Strval(); a == v.Strval() {
@@ -153,7 +153,7 @@ func modifierStdoutEquals(prog *Program, context *types.Scope, value types.Value
         return
 }
 
-func modifierStderrEquals(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierStderrEquals(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         v, a := getGroupElem(value, 3, nil), ""
         if v != nil && len(args) == 1 {
                 if a = args[0].Strval(); a == v.Strval() {
@@ -164,7 +164,7 @@ func modifierStderrEquals(prog *Program, context *types.Scope, value types.Value
         return
 }
 
-func modifierSelect(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierSelect(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         if g, ok := value.(*types.Group); ok && len(args) > 0 {
                 result = g.Get(int(args[0].Integer()))
         } else {
@@ -173,13 +173,13 @@ func modifierSelect(prog *Program, context *types.Scope, value types.Value, args
         return
 }
 
-func modifierSetArgs(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierSetArgs(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         // TODO: preserve args for interpreter
         return
 }
 
-func modifierSetEnv(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        if args, err = types.JoinEval(context, args...); err != nil {
+func modifierSetEnv(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
                 return
         }
         var envars = values.List()
@@ -197,7 +197,7 @@ func modifierSetEnv(prog *Program, context *types.Scope, value types.Value, args
         return
 }
 
-func modifierCD(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierCD(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         if n := len(args); n == 1 {
                 dir := args[0].Strval()
                 if dir == "-" {
@@ -221,13 +221,13 @@ func modifierCD(prog *Program, context *types.Scope, value types.Value, args... 
         return
 }
 
-func parseDependList(prog *Program, context *types.Scope, dependList *types.List) (depends *types.List, err error) {
+func parseDependList(prog *Program, dependList *types.List) (depends *types.List, err error) {
         depends = values.List()
         for _, depend := range dependList.Elems {
                 //fmt.Printf("compare: depend: %T %v\n", depend, depend)
                 switch d := depend.(type) {
                 case *types.List:
-                        if dl, e := parseDependList(prog, context, d); e != nil {
+                        if dl, e := parseDependList(prog, d); e != nil {
                                 err = e; return
                         } else {
                                 depends.Elems = append(depends.Elems, dl.Elems...)
@@ -263,19 +263,19 @@ func parseDependList(prog *Program, context *types.Scope, dependList *types.List
         return
 }
 
-func getCompareDepends(prog *Program, context *types.Scope, targetVal types.Value) (depends *types.List, err error) {
+func getCompareDepends(prog *Program, targetVal types.Value) (depends *types.List, err error) {
         def := prog.scope.Lookup("^").(*types.Def)
         dependVal, _ := def.Call()
         dependVal = types.Reveal(dependVal)
         if dependList, _ := dependVal.(*types.List); dependList != nil && dependList.Len() > 0 {
-                if depends, err = parseDependList(prog, context, dependList); err != nil {
+                if depends, err = parseDependList(prog, dependList); err != nil {
                         return
                 }
         }
         return
 }
 
-func compareTargetDepend(prog *Program, context *types.Scope, target, depend types.Value, tt time.Time) (outdated bool, err error) {
+func compareTargetDepend(prog *Program, target, depend types.Value, tt time.Time) (outdated bool, err error) {
         //fmt.Printf("compare: %v -> %v (%v)\n", target, depend, prog.context.outdated)
         //fmt.Printf("compare: %v: %v (%T)\n", target, depend, depend)
         if dependFile, okay := depend.(*types.File); okay && dependFile != nil {
@@ -294,7 +294,7 @@ func compareTargetDepend(prog *Program, context *types.Scope, target, depend typ
                         outdated = true; return // target is outdated
                 } else {
                         var recipes []types.Value
-                        if recipes, err = prog.discloseRecipes(context); err != nil {
+                        if recipes, err = prog.discloseRecipes(prog.Scope()); err != nil {
                                 return
                         }
                         if same, e := prog.project.CheckCmdHash(target, recipes); e == nil {
@@ -311,7 +311,7 @@ func compareTargetDepend(prog *Program, context *types.Scope, target, depend typ
         return
 }
 
-func modifierCompare(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierCompare(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetVal types.Value
                 depends = values.List()
@@ -347,7 +347,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 }
         }
 
-        if depends, err = getCompareDepends(prog, context, targetVal); err != nil {
+        if depends, err = getCompareDepends(prog, targetVal); err != nil {
                 return
         } else if depends != nil && depends.Len() > 0 {
                 prog.auto("<", depends.Get(0))
@@ -406,7 +406,7 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
                 for _, depend := range depends.Elems {
                         switch depend.(type) {
                         case *types.File:
-                                outdated, err = compareTargetDepend(prog, context, targetVal, depend, tt)
+                                outdated, err = compareTargetDepend(prog, targetVal, depend, tt)
                                 //fmt.Printf("compare-target-depend: %v (%v)\n", outdated, err)
                                 if err != nil || outdated {
                                         return
@@ -418,20 +418,20 @@ func modifierCompare(prog *Program, context *types.Scope, value types.Value, arg
         return
 }
 
-func modifierGrepCompare(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
-        if v, e := modifierGrepDependents(prog, context, value, args...); e != nil {
+func modifierGrepCompare(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
+        if v, e := modifierGrepDependents(prog, value, args...); e != nil {
                 err = e; return
         } else if v != nil {
                 def := prog.scope.Lookup("^").(*types.Def)
                 old := def.Value
                 def.Assign(v)
-                result, err = modifierCompare(prog, context, value)
+                result, err = modifierCompare(prog, value)
                 def.Assign(old)
         }
         return
 }
 
-func modifierGrepDependents(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierGrepDependents(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetVal, _ = prog.scope.Lookup("@").(types.Caller).Call()
                 targetName = targetVal.Strval()
@@ -442,7 +442,7 @@ func modifierGrepDependents(prog *Program, context *types.Scope, value types.Val
 
         if len(args) == 0 {
                 return nil, errors.New("No arguments provided.")
-        } else if args, err = types.JoinEval(context, args...); err != nil {
+        } else if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
                 return
         }
 
@@ -509,7 +509,7 @@ func modifierGrepDependents(prog *Program, context *types.Scope, value types.Val
 // (check status=1 stdout="foobar" stderr="")
 // (check file=filename.txt)
 // (check dir=directory)
-func modifierCheck(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierCheck(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var exeres, _ = value.(*types.ExecResult)
         if exeres == nil {
                 s := fmt.Sprintf("bad value (%T)", value)
@@ -562,7 +562,7 @@ func modifierCheck(prog *Program, context *types.Scope, value types.Value, args.
         return
 }
 
-func modifierCheckDir(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierCheckDir(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 targetVal types.Value
@@ -585,7 +585,7 @@ func modifierCheckDir(prog *Program, context *types.Scope, value types.Value, ar
         return
 }
 
-func modifierCheckFile(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierCheckFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 targetVal types.Value
@@ -604,7 +604,7 @@ func modifierCheckFile(prog *Program, context *types.Scope, value types.Value, a
         return
 }
 
-func modifierWriteFile(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierWriteFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 targetVal types.Value
@@ -629,7 +629,7 @@ func modifierWriteFile(prog *Program, context *types.Scope, value types.Value, a
         return
 }
 
-func modifierUpdateFile(prog *Program, context *types.Scope, value types.Value, args... types.Value) (result types.Value, err error) {
+func modifierUpdateFile(prog *Program, value types.Value, args... types.Value) (result types.Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*types.Def)
                 nargs = len(args)

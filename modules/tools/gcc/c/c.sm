@@ -34,10 +34,10 @@ dock -
 program:[(cd -) ((bin objects)) (compare $(bin)) (dock shell -oe)]: $(objects)
 	@if test -z "$^"; then echo "c++: link no objects"; false; else true; fi
 	$(LINK) $^ &(LOADLIBES) &(LDLIBS) -o $(bin)
-lib.so:[(cd -) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
+'lib.so':[(cd -) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
 	@if test -z "$^"; then echo "c++: link no objects"; false; else true; fi
 	$(LINK) -shared $^ &(LOADLIBES) &(LDLIBS) -o $(lib)
-lib.a:[(cd -) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
+'lib.a':[(cd -) ((lib objects)) (compare $(lib)) (dock shell -oe)]: $(objects)
 	@if test -z "$^"; then echo "c++: archive no objects"; false; else true; fi
 	pwd
 	$(ARCHIVE) $(lib) $^

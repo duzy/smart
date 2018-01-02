@@ -372,17 +372,15 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
                                         s = args[1].Strval()
                                 }
                                 
-                                switch arg.(type) {
+                                switch t := arg.(type) {
                                 case *Barefile:
-                                        ext := filepath.Ext(s)
+                                        /*ext := filepath.Ext(s)
                                         if len(ext) > 0 {
                                                 s = s[:len(s)-len(ext)]
                                                 ext = ext[1:]
                                         }
-                                        list = append(list, &Barefile{
-                                                Name: &Bareword{s},
-                                                Ext: ext,
-                                        })
+                                        list = append(list, &Barefile{ &Bareword{s} })*/
+                                        list = append(list, t)
                                 default:
                                         list = append(list, &String{s})
                                 }

@@ -66,8 +66,8 @@ type RuntimeContext interface {
         
         IsDialect(s string) bool
         IsModifier(s string) bool
-        IsFileName(s string) bool
 
+        File(s string) *types.File
         MapFile(pat string, paths []string)
 
         DeclareProject(name *ast.Bareword, params types.Value) error

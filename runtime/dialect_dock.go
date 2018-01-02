@@ -25,8 +25,8 @@ type dialectDock struct {
         monoInterpreter
 }
 func (s *dialectDock) dialect() string { return "dock" }
-func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        if args, err = types.JoinEval(context, args...); err != nil {
+func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+        if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
                 return
         }
 
@@ -64,7 +64,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 var (
                         src = source
                         dxi = "smart-dock-image" // context.Find(DockImageVarName)
-                        _, obj = context.Find(DockExecVarName)
+                        _, obj = prog.Scope().Find(DockExecVarName)
                         envars []types.Value // disclosed values
                 )
                 if obj == nil { _, obj = prog.scope.Find(DockExecVarName) }
@@ -73,7 +73,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                                 err = e; return
                         } else if v == nil {
                                 // nothing changed
-                        } else if v, err = types.Disclose(context, v); err != nil {
+                        } else if v, err = types.Disclose(prog.Scope(), v); err != nil {
                                 return
                         } else if s := strings.TrimSpace(v.Strval()); s != "" {
                                 dxi = s
@@ -83,7 +83,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 if envarsDef, _ := prog.scope.Lookup(theShellEnvarsDef).(*types.Def); envarsDef != nil {
                         if l, _ := envarsDef.Value.(*types.List); l != nil {
                                 for _, v := range l.Elems {
-                                        if v, err = types.Disclose(context, v); err != nil {
+                                        if v, err = types.Disclose(prog.Scope(), v); err != nil {
                                                 return
                                         } else {
                                                 envars = append(envars, v)
@@ -177,7 +177,7 @@ func (s *dialectDock) evaluate(prog *Program, context *types.Scope, args []types
                 var sh = exec.Command(cmd, a...)
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
-                        if v, err = types.Disclose(context, v); err != nil {
+                        if v, err = types.Disclose(prog.Scope(), v); err != nil {
                                 return
                         } else {
                                 sh.Env = append(sh.Env, v.Strval())

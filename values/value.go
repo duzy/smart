@@ -136,12 +136,12 @@ func Barecomp(elems... types.Value) (v *types.Barecomp) {
         return &types.Barecomp{types.Elements{elems}}
 }
 
-func Barefile(name types.Value, ext string) (v *types.Barefile) {
-        return &types.Barefile{name, ext}
+func Barefile(name types.Value, file *types.File) (v *types.Barefile) {
+        return &types.Barefile{ name, file }
 }
 
-func Globfile(tok token.Token, ext string) (v *types.Globfile) {
-        return &types.Globfile{tok, ext}
+func Glob(tok token.Token) (v *types.Glob) {
+        return &types.Glob{tok}
 }
 
 func PercentPattern(prefix, suffix types.Value) types.Pattern {

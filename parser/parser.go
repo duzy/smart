@@ -418,7 +418,6 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.ListExpr: panic("unreachable")
         case *ast.Barecomp:
         case *ast.Barefile:
-	case *ast.Globfile:
         case *ast.EvaluatedExpr:
         case *ast.FlagExpr:
         case *ast.KeyValueExpr:
@@ -442,7 +441,10 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 // Barewords & Identifiers
 
 func (p *parser) parseBareword() (x ast.Expr) {
-	pos, value, isFileName := p.pos, "", false
+	var (
+                pos, value = p.pos, ""
+                file *types.File
+        )
         switch {
 	case p.tok == token.BAREWORD:
 		value = p.lit
@@ -450,9 +452,9 @@ func (p *parser) parseBareword() (x ast.Expr) {
                 if end := token.Pos(int(pos) + len(value)); end == p.pos {
                         switch p.tok {
                         case token.PERIOD, token.DOTDOT, token.PCON:
-                                //!< these operators will check for IsFileName
+                                //!< these operators will check for File
                         default:
-                                isFileName = p.runtime.IsFileName(value)
+                                file = p.runtime.File(value)
                         }
                 }
         case p.tok.IsKeyword() || p.tok == token.AT || p.tok == token.PERIOD || p.tok == token.DOTDOT:
@@ -464,17 +466,8 @@ func (p *parser) parseBareword() (x ast.Expr) {
         
         x = &ast.Bareword{ ValuePos: pos, Value:value }
         
-        if isFileName {
-                ext := filepath.Ext(value)
-                if len(ext) > 0 {
-                        ext = ext[1:] // drop the '.'
-                        pos = token.Pos(int(pos) + len(value) - len(ext))
-                }
-                x = &ast.Barefile{
-                        Name: x,
-                        ExtPos: pos,
-                        Ext: ext,
-                }
+        if file != nil && file.IsKnown() {
+                x = &ast.Barefile{ x, file }
         }
         return x
 }
@@ -980,7 +973,6 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                 }
         case token.PERIOD:
                 if joint /*&& p.bits&composingPERIOD == 0*/ {
-                        var ext ast.Expr
                         p.bits |=  composingPERIOD
                         comp, pos := &ast.Barecomp{ []ast.Expr{ x } }, p.pos
                         comp.Elems = append(comp.Elems, &ast.Bareword{ pos, "." })
@@ -993,13 +985,10 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                                 }
                         }
                         if p.pos == pos+1 {
-                                ext = p.checkExpr(p.parseExpr(lhs))
+                                ext := p.checkExpr(p.parseExpr(lhs))
                                 comp.Elems = append(comp.Elems, ext)
                                 if p.tok == token.PERIOD && ext.End() == p.pos {
                                         goto AddPeriod
-                                }
-
-                                switch t := ext.(type) {
                                 }
                         }
                         p.bits &= ^composingPERIOD
@@ -1012,16 +1001,13 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
 
                         // Processing barefile 
                         if v, e := p.runtime.Eval(x, disclosure); e == nil && v != nil {
-                                if s := v.Strval(); p.runtime.IsFileName(s) {
-                                        if v, e := p.runtime.Eval(ext, disclosure); e == nil && v != nil {
-                                                comp.Elems = comp.Elems[0:len(comp.Elems)-2]
-                                                x = &ast.Barefile{ x, ext.Pos(), v.Strval() }
-                                                if p.tok == token.LPAREN && x.End() == p.pos {
-                                                        x = p.parseComposing(x, lhs)
-                                                }
-                                        } else if e != nil {
-                                                p.error(ext.Pos(), e)
-                                        }
+                                if file := p.runtime.File(v.Strval()); file != nil && file.IsKnown() {
+                                        x = &ast.Barefile{ x, file }
+                                }
+
+                                // Argumented, e.g. lib.a(...)
+                                if p.tok == token.LPAREN && x.End() == p.pos {
+                                        x = p.parseComposing(x, lhs)
                                 }
                         } else if e != nil {
                                 p.error(x.Pos(), e)
@@ -1769,7 +1755,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 case *ast.Barefile, *ast.PathExpr, *ast.PathSegExpr:
                         class = types.ExplicitFileEntry
                 case *ast.Bareword:
-                        if p.runtime.IsFileName(name) {
+                        if file := p.runtime.File(name); file != nil && file.IsKnown() {
                                 class = types.ExplicitFileEntry
                         }
                 }

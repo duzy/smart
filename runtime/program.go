@@ -133,15 +133,15 @@ func (prog *Program) discloseRecipes(context *types.Scope) (recipes []types.Valu
         return
 }
 
-func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.Def, params []types.Value) (err error) {
+func (prog *Program) interpret(i interpreter, out *types.Def, params []types.Value) (err error) {
         var (
                 recipes []types.Value
                 target, value types.Value
         )
-        if recipes, err = prog.discloseRecipes(context); err != nil {
+        if recipes, err = prog.discloseRecipes(prog.Scope()); err != nil {
                 return
         }
-        if value, err = i.evaluate(prog, context, params, recipes); err == nil {
+        if value, err = i.evaluate(prog, params, recipes); err == nil {
                 if value != nil {
                         out.Assign(value)
                 }
@@ -153,20 +153,18 @@ func (prog *Program) interpret(context *types.Scope, i interpreter, out *types.D
         return
 }
 
-func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def) (dialect string, err error) {
+func (prog *Program) modify(g *types.Group, out *types.Def) (dialect string, err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
         var name = g.Get(0).Strval()
-        /*if name == "cd" {
-                // does nothing
-        } else*/ if f, ok := modifiers[name]; ok {
+        if f, ok := modifiers[name]; ok {
                 var value = out.Value
-                if value, err = f(prog, context, value, g.Slice(1)...); err == nil && value !=  nil {
+                if value, err = f(prog, value, g.Slice(1)...); err == nil && value !=  nil {
                         out.Assign(value)
                 }
         } else if i, _ := interpreters[name]; i != nil {
-                err = prog.interpret(context, i, out, g.Slice(1))
+                err = prog.interpret(i, out, g.Slice(1))
                 dialect = name // return dialect name
         } else {
                 err = fmt.Errorf("no modifier or dialect '%s'", name)
@@ -189,7 +187,7 @@ func (prog *Program) hasCDDash() (res bool) {
         return
 }
 
-func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
+func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
         if workdir := prog.Getwd(); workdir != "" {
                 var printCD = entry.Class() != types.UseRuleEntry && !prog.hasCDDash()
                 defer leaveWorkdir(enterWorkdir(workdir, printCD))
@@ -197,8 +195,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         }
 
         if false {
-                p := context.Project().AbsPath()
-                fmt.Printf("execute: %v (%v)\n", entry.Name(), p)
+                fmt.Printf("Program.Execute: %v %v\n", entry, prog.depends)
         }
 
         var argn = 0
@@ -222,7 +219,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         }
 
         // Calculate and prepare depends and files.
-        pc := types.NewPreparer(prog, context, entry)
+        pc := types.NewPreparer(prog, entry)
         if err = pc.Prepare(prog.depends); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
@@ -256,7 +253,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 switch op := v.(type) {
                 case *types.Group:
                         var lang string
-                        if lang, err = prog.modify(context, op, out); err != nil {
+                        if lang, err = prog.modify(op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
                                         if p.okay {
                                                 // Discard err and change dialect to
@@ -282,7 +279,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
                 if i, _ := interpreters[dialect]; i == nil {
                         err = fmt.Errorf("no default dialect")
                 } else {
-                        err = prog.interpret(context, i, out, nil)
+                        err = prog.interpret(i, out, nil)
                 }
         }
         return

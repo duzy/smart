@@ -25,7 +25,7 @@ type dialectYaml struct {
 }
 
 func (t *dialectYaml) dialect() string { return "yaml" }
-func (t *dialectYaml) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectYaml) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeYAML(source, t.whitespace); err == nil {
                 result = &types.YAML{ result }

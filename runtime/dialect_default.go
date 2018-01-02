@@ -20,7 +20,7 @@ type dialectDefault struct {
 }
 
 func (t *dialectDefault) dialect() string { return "default" }
-func (t *dialectDefault) evaluate(prog *Program, context *types.Scope, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var list = values.List()
 LoopRecipes:
         for _, recipe := range recipes {
@@ -42,7 +42,7 @@ LoopRecipes:
 
                         case types.Executer:
                                 var a []types.Value
-                                if a, e = t.Execute(context, stmt.Slice(1)...); e == nil {
+                                if a, e = t.Execute(stmt.Slice(1)...); e == nil {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {

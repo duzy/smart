@@ -107,10 +107,11 @@ func (n *ProjectName) Get(name string) (Value, error) {
 }
 
 func (p *ProjectName) prepare(pc *Preparer) (err error) {
+        var defent = p.project.DefaultEntry()
         if trace_prepare {
-                fmt.Printf("prepare:ProjectName: %v <- %v\n", p, pc.entry)
+                fmt.Printf("prepare:ProjectName: project %v (default %v) (%v)\n", p.name, defent, pc.entry)
         }
-        if defent := p.project.DefaultEntry(); defent != nil && defent.Name() != ":" {
+        if defent != nil && defent.Name() != ":" {
                 err = pc.Prepare(defent)
         }
         return
@@ -410,15 +411,6 @@ func (entry *RuleEntry) IsFile() bool {
         return entry.class == ExplicitFileEntry || entry.class == StemmedFileEntry;
 }
 
-/*func (entry *RuleEntry) HasRecipes() bool {
-        for _, prog := range entry.programs {
-                if len(prog.recipes) > 0 {
-                        return true
-                }
-        }
-        return false
-}*/
-
 func (entry *RuleEntry) Programs() []Program { return entry.programs }
 func (entry *RuleEntry) Depends() (depends []Value) {
         for _, prog := range entry.programs {
@@ -429,15 +421,12 @@ func (entry *RuleEntry) Depends() (depends []Value) {
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
-func (entry *RuleEntry) Execute(context *Scope, a... Value) (result []Value, err error) {
+func (entry *RuleEntry) Execute(a... Value) (result []Value, err error) {
         if entry.IsPattern() {
                 return nil, errors.New(fmt.Sprintf("Calling pattern entry `%s'.", entry.Name()))
         }
-        if context == nil {
-                context = entry.Project().Scope()
-        }
         for _, program := range entry.programs {
-                if v, e := program.Execute(context, entry, a); e != nil {
+                if v, e := program.Execute(entry, a); e != nil {
                         //fmt.Printf("failed: %v: %v\n", entry.Name(), e)
                         err = e; return
                 } else {
@@ -458,7 +447,7 @@ func (entry *RuleEntry) Get(name string) (Value, error) {
 
 func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:RuleEntry: %v (%v)\n", entry, entry.class)
+                fmt.Printf("prepare:RuleEntry: %v (%v) (%v)\n", entry, entry.class, pc.entry)
         }
 
         if entry.Programs() == nil {
@@ -481,8 +470,8 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                 if fi != nil {
                         goto ForPrograms 
                 }
-                if _, obj := pc.context.Find(entry.name); obj == nil {
-                        var _, obj = pc.context.Find("/")
+                if _, obj := pc.context().Find(entry.name); obj == nil {
+                        var _, obj = pc.context().Find("/")
                         if def, _ := obj.(*Def); def != nil && !filepath.IsAbs(entry.name) {
                                 f := filepath.Join(def.Value.Strval(), entry.name)
                                 if fi, _ = os.Stat(f); fi != nil {
@@ -535,24 +524,22 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
 
 func (pc *Preparer) execute(entry *RuleEntry, prog Program) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:Execute: %v (%v)\n", entry, entry.class)
+                fmt.Printf("prepare:Execute: %v (%v) (%v)\n", entry, entry.class, pc.entry)
         }
 
         var (
                 project = entry.Project()
-                context = pc.context
                 res Value
         )
 
         // Fixes program context if the starting entry and depended entry are
         // in different projects. This ensure disclosures work.
         if p := pc.entry.Project(); p != project {
-                context = p.Scope()
                 project = p
         }
 
         // Execute the updating program.
-        if res, err = prog.Execute(context, entry, pc.arguments); err == nil {
+        if res, err = prog.Execute(entry, pc.arguments); err == nil {
                 switch dd, _ := prog.Scope().Lookup("@").(*Def).Call(); entry.class {
                 case ExplicitFileEntry, StemmedFileEntry:
                         //pc.targets.Append(&File{ Name:dd.Strval() })

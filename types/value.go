@@ -60,8 +60,7 @@ const trace_prepare = true
 // Preparer prepares prerequisites of targets.
 type Preparer struct {
         program Program
-        context *Scope
-        entry *RuleEntry
+        entry *RuleEntry // caller entry
         arguments []Value
         targets *List
 }
@@ -92,10 +91,11 @@ func (pc *Preparer) prepare(value interface{}) (err error) {
         return
 }
 
+func (pc *Preparer) context() *Scope { return pc.entry.Project().Scope() }
 func (pc *Preparer) Targets() *List { return pc.targets }
 
-func NewPreparer(prog Program, context *Scope, entry *RuleEntry, args... Value) (pc *Preparer) {
-        return &Preparer{ prog, context, entry, args, new(List) }
+func NewPreparer(prog Program, entry *RuleEntry, args... Value) (pc *Preparer) {
+        return &Preparer{ prog, entry, args, new(List) }
 }
 
 type Argumented struct {
@@ -108,7 +108,7 @@ func (p *Argumented) String() (s string) {
         s += "("
         for i, a := range p.Args {
                 if i > 0 {
-                        s += " "
+                        s += ","
                 }
                 s += a.String()
         }
@@ -120,7 +120,7 @@ func (p *Argumented) Strval() (s string) {
         s += "("
         for i, a := range p.Args {
                 if i > 0 {
-                        s += " "
+                        s += ","
                 }
                 s += a.Strval()
         }
@@ -130,7 +130,7 @@ func (p *Argumented) Strval() (s string) {
 
 func (p *Argumented) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Argumented: %v\n", p)
+                fmt.Printf("prepare:Argumented: %v (%v)\n", p, pc.entry)
         }
         pc.arguments = p.Args // TODO: merge args with p.Args ??
         return pc.Prepare(p.Value)
@@ -140,7 +140,7 @@ type None struct { value }
 func (p *None) Type() Type { return NoneType }
 func (p *None) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:None: %v <- %v\n", p, pc.entry)
+                fmt.Printf("prepare:None: (%v)\n", pc.entry)
         }
         return nil 
 }
@@ -249,7 +249,7 @@ func (p *String) Float() float64   { f, _ := strconv.ParseFloat(p.Value, 64); re
 
 func (p *String) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:String: %v\n", p)
+                fmt.Printf("prepare:String: %v (%v)\n", p, pc.entry)
         }
         return pc.prepareTarget(p.Value)
 }
@@ -267,13 +267,13 @@ func (p *Bareword) Float() float64 { return float64(p.Integer()) }
 
 func (p *Bareword) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Bareword: %v <- %v\n", p, pc.entry)
+                fmt.Printf("prepare:Bareword: %v (%v)\n", p, pc.entry)
         }
         return pc.prepareTarget(p.Value)
 }
 
 func (pc *Preparer) prepareTargetValue(value Value) error {
-        if v, e := value.disclose(pc.context); e != nil {
+        if v, e := value.disclose(pc.context()); e != nil {
                 return e
         } else {
                 if v == nil { v = value }
@@ -286,7 +286,7 @@ type patternPrepareError error
 
 func (pc *Preparer) prepareTarget(target string) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:Target: %v\n", target)
+                fmt.Printf("prepare:Target: %v (%v)\n", target, pc.entry)
         }
 
         var project = pc.program.Project()
@@ -299,7 +299,7 @@ func (pc *Preparer) prepareTarget(target string) (err error) {
         // Find patterns
         for _, ps := range project.FindPatterns(target) {
                 if trace_prepare {
-                        fmt.Printf("prepare:Target: %v %v\n", target, ps)
+                        fmt.Printf("prepare:Target: %v (%v) (%v)\n", target, ps, pc.entry)
                 }
                 if err = pc.Prepare(ps); err == nil {
                         return // Updated successfully!
@@ -310,44 +310,48 @@ func (pc *Preparer) prepareTarget(target string) (err error) {
                 }
         }
 
-        // Find entry in the context project.
-        if proj := pc.context.Project(); proj != nil {
-                if proj != project {
-                        project = proj; goto FindEntry
-                } else if proj.IsFile(target) {
-                        // Search file in context project.
-                        if err = pc.addFile(proj, target); err == nil {
-                                return // Done here!
+        if project.IsFile(target) {
+                if f := project.SearchFile(target); f.Info != nil {
+                        if trace_prepare {
+                                fmt.Printf("prepare:Target: add %v (project %s) (%v)\n",
+                                        target, project.Name(), pc.entry)
                         }
+                        pc.targets.Append(f); return
                 } else {
-                        err = fmt.Errorf("unknown target '%v'", target)
+                        var p = project.AbsPath()
+                        if trace_prepare {
+                                fmt.Printf("prepare:Target: %v (unknown in project %s %s) (%v)\n",
+                                        target, project.Name(), p, pc.entry)
+                        }
+                        if !filepath.IsAbs(target) {
+                                target = filepath.Join(p, target)
+                        }
+                        err = fmt.Errorf("No such file '%v'", target)
                 }
         }
 
-        err = pc.addFile(project, target)
+        if false {
+                // Find entry in the context project.
+                if proj := pc.entry.Project(); proj != nil {
+                        if proj != project {
+                                project = proj; goto FindEntry
+                        } else {
+                                err = fmt.Errorf("unknown target '%v'", target)
+                        }
+                }
+        }
         return
 }
 
 func (pc *Preparer) addFile(project *Project, name string) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:SearchFile: %v (%v)\n", name, project.Name())
+                fmt.Printf("prepare:AddFile: %v (project %v) (%v)\n", name, project.Name(), pc.entry)
         }
         
         if f := project.SearchFile(name); f.Info != nil {
                 pc.targets.Append(f)
         } else {
                 var wd = project.AbsPath()
-                if true {
-                        s, _ := os.Getwd(); fmt.Printf("workdir: %v\n", s)
-                        fmt.Printf("projdir: %v %v\n", project.Name(), project.AbsPath())
-                        fmt.Printf("missing: %v %v %v\n", f, f.Dir, f.Name)
-                        fmt.Printf("missing: %v\n", pc.context)
-                }
-                if false {
-                        s := filepath.Join(wd, f.Name)
-                        i, _ := os.Stat(s)
-                        fmt.Printf("%v %v\n", i.Name(), s)
-                }
                 if !filepath.IsAbs(name) {
                         name = filepath.Join(wd, name)
                 }
@@ -449,37 +453,25 @@ func (p *Barecomp) disclose(scope *Scope) (Value, error) {
 
 func (p *Barecomp) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Barecomp: %v\n", p)
+                fmt.Printf("prepare:Barecomp: %v (%v)\n", p, pc.entry)
         }
         return pc.prepareTargetValue(p)
 }
 
 type Barefile struct {
         Name Value
-        Ext string
+        File *File
 }
 func (p *Barefile) Type() Type { return BarefileType }
-func (p *Barefile) String() (s string) {
-        s += p.Name.String()
-        if p.Ext != "" {
-                s += "." + p.Ext
-        }
-        return
-}
-func (p *Barefile) Strval() string {
-        s := p.Name.Strval()
-        if p.Ext != "" {
-                s += "." + p.Ext
-        }
-        return s
-}
+func (p *Barefile) String() string { return p.Name.String() }
+func (p *Barefile) Strval() string { return p.Name.Strval() }
 func (p *Barefile) Integer() int64 { return 0 }
 func (p *Barefile) Float() float64 { return float64(p.Integer()) }
 func (p *Barefile) disclose(scope *Scope) (Value, error) {
         if name, err := p.Name.disclose(scope); err != nil {
                 return nil, err
         } else if name != nil {
-                return &Barefile{ name, p.Ext }, nil
+                return &Barefile{ name, p.File }, nil
         }
         return nil, nil
 }
@@ -489,38 +481,25 @@ func (p *Barefile) referencing(o Object) bool {
 
 func (p *Barefile) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Barefile: %v\n", p)
+                fmt.Printf("prepare:Barefile: %v (%v)\n", p, pc.entry)
         }
-        return pc.prepareTargetValue(p)
+        if p.File != nil {
+                return pc.Prepare(p.File)
+        } else {
+                return pc.prepareTargetValue(p)
+        }
 }
 
-type Globfile struct {
+type Glob struct {
         Tok token.Token
-        Ext string
 }
-func (p *Globfile) Type() Type { return GlobfileType }
-func (p *Globfile) String() (s string) {
-        s += p.Tok.String()
-        if p.Ext != "" {
-                s += "." + p.Ext
-        }
-        return
-}
-func (p *Globfile) Strval() string {
-        s := p.Tok.String()
-        if p.Ext != "" {
-                s += "." + p.Ext
-        }
-        return s
-}
-func (p *Globfile) Integer() int64 { return 0 }
-func (p *Globfile) Float() float64 { return float64(p.Integer()) }
-func (p *Globfile) disclose(scope *Scope) (Value, error) {
-        return nil, nil
-}
-func (p *Globfile) referencing(o Object) bool {
-        return false
-}
+func (p *Glob) Type() Type { return GlobType }
+func (p *Glob) String() (s string) { return p.Tok.String() }
+func (p *Glob) Strval() string { return p.Tok.String() }
+func (p *Glob) Integer() int64 { return 0 }
+func (p *Glob) Float() float64 { return float64(p.Integer()) }
+func (p *Glob) disclose(scope *Scope) (Value, error) { return nil, nil }
+func (p *Glob) referencing(o Object) bool { return false }
 
 type Path struct {
         Elements
@@ -573,7 +552,7 @@ func (p *Path) disclose(scope *Scope) (Value, error) {
 
 func (p *Path) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Path: %v <- %v\n", p, pc.entry)
+                fmt.Printf("prepare:Path: %v (%v)\n", p, pc.entry)
         }
         return pc.prepareTargetValue(p)
 }
@@ -606,7 +585,7 @@ func (p *File) Type() Type { return FileType }
 func (p *File) Strval() string { return filepath.Join(p.Sub, p.Name) }
 func (p *File) String() string { return p.Fullname() }
 
-func (p *File) Fullname() string { return filepath.Join(p.Dir, p.Sub, p.Name) }
+func (p *File) Fullname() string { return filepath.Join(p.Dir, p.Name) }
 func (p *File) Basename() string {
         if p.Info != nil {
                 return p.Info.Name()
@@ -615,22 +594,13 @@ func (p *File) Basename() string {
         }
 }
 
-/*func (p *File) disclose(scope *Scope) (Value, error) {
-        if v, err := p.Value.disclose(scope); err != nil {
-                return nil, err
-        } else if v != nil {
-                return &File{ v, p.Name, p.Dir, p.Info }, nil
-        }
-        return nil, nil
+func (p *File) IsKnown() bool {
+        return p.Dir != "" || p.Info != nil
 }
-
-func (p *File) referencing(o Object) bool {
-        return p.Value.referencing(o)
-}*/
 
 func (p *File) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:File: %v <- %v\n", p, pc.entry)
+                fmt.Printf("prepare:File: %v (%v)\n", p, pc.entry)
         }
         return pc.prepareTarget(p.Strval())
 }
@@ -814,7 +784,7 @@ func (p *delegate) Type() Type         { return DelegateType }
 func (p *delegate) String() (s string) {
         var na = len(p.a)
         s = "$"
-        if na > 0 { s += "(" }
+        s += "(" //if na > 0 { s += "(" }
         if false {
                 if sc := p.o.Parent(); sc != nil && sc.Comment() == "use"/*use scope*/ {
                         s += sc.Comment() + "->"
@@ -829,8 +799,8 @@ func (p *delegate) String() (s string) {
                         if i > 0 { s += "," }
                         s += a.String()
                 }
-                s += ")"
         }
+        s += ")"
         return
 }
 func (p *delegate) Strval() string   { return p.Value().Strval() }
@@ -849,7 +819,7 @@ func (p *delegate) Value() (res Value) {
                         scope = p.o.Parent()
                 }
                 if args, err := p.discloseArgs(scope); err == nil {
-                        if v, err := o.Execute(scope, args...); err == nil {
+                        if v, err := o.Execute(args...); err == nil {
                                 res = &List{Elements{v}}
                         }
                 }
@@ -922,6 +892,9 @@ func (p *delegate) referencing(o Object) bool {
 }
 
 func (p *delegate) prepare(pc *Preparer) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:delegate: %v (%v)\n", p, pc.entry)
+        }
         for _, d := range Join(Reveal(p)) {
                 if err = pc.Prepare(d); err != nil {
                         break
@@ -939,7 +912,7 @@ func (p *closure) Type() Type { return ClosureType }
 func (p *closure) String() (s string) {
         var na = len(p.a)
         s = "&"
-        if na > 0 { s += "(" }
+        s += "(" //if na > 0 { s += "(" }
         // FIXME: needs the original name value to represent the original form
         s += p.o.Name()
         if na > 0 {
@@ -947,8 +920,8 @@ func (p *closure) String() (s string) {
                         if i > 0 { s += "," }
                         s += a.String()
                 }
-                s += ")" 
         }
+        s += ")"
         return
 }
 func (p *closure) Strval() string {
@@ -993,7 +966,7 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
         case Caller:
                 return o.Call(args...)
         case Executer:
-                if result, err := o.Execute(scope, args...); err == nil {
+                if result, err := o.Execute(args...); err == nil {
                         return &List{Elements{result}}, nil
                 } else {
                         return nil, err
@@ -1018,7 +991,11 @@ func (p *closure) referencing(o Object) bool {
 }
 
 func (p *closure) prepare(pc *Preparer) (err error) {
-        if v, e := p.disclose(pc.context); e != nil {
+        if trace_prepare {
+                fmt.Printf("prepare:closure: %v (%v)\n", p, pc.entry)
+
+        }
+        if v, e := p.disclose(pc.context()); e != nil {
                 err = e
         } else if v == nil {
                 err = fmt.Errorf("preparing nil closure (%v)", p)
@@ -1247,7 +1224,7 @@ type Caller interface {
 }
 
 type Executer interface {
-        Execute(context *Scope, a... Value) (result []Value, err error)
+        Execute(a... Value) (result []Value, err error)
 }
 
 type Poser interface {

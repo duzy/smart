@@ -161,15 +161,7 @@ type (
         // A Barefile node represents a bare file expression (with extension).
         Barefile struct {
                 Name    Expr      // basename
-                ExtPos  token.Pos // extension position
-                Ext     string    // extension
-        }
-
-        // A Globfile node represents a glob file expression, e.g. *.o
-        Globfile struct {
-                Glob    *GlobExpr // The glob: *
-                ExtPos  token.Pos // extension position
-                Ext     string    // extension
+                File interface{} // *types.File
         }
 
         // A GlobExpr node represents an expression containing glob characters "*?".
@@ -282,7 +274,6 @@ func (d *ClosureDelegate) Pos() token.Pos { return d.TokPos }
 func (d *ArgumentedExpr) Pos() token.Pos  { return d.X.Pos() }
 func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
-func (d *Globfile) Pos() token.Pos        { return d.Glob.Pos() }
 func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
 func (d *PercExpr) Pos() token.Pos        { return d.OpPos }
@@ -297,8 +288,7 @@ func (d *BasicLit) End() token.Pos        { return d.EndPos /*token.Pos(int(d.Va
 func (d *FlagExpr) End() token.Pos        { return d.Name.End() }
 func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
-func (d *Barefile) End() token.Pos        { return token.Pos(int(d.ExtPos) + len(d.Ext)) }
-func (d *Globfile) End() token.Pos        { return token.Pos(int(d.ExtPos) + len(d.Ext)) }
+func (d *Barefile) End() token.Pos        { return d.Name.End() }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *PathExpr) End() token.Pos        { return d.PosEnd }
 func (d *PathSegExpr) End() token.Pos     { if d.Tok == token.DOTDOT { return d.TokPos+2 } else { return d.TokPos+1 } }
@@ -325,8 +315,7 @@ func (x *BasicLit) String() string        { return fmt.Sprintf("BasicLit{%v,%v,%
 func (x *FlagExpr) String() string        { return fmt.Sprintf("FlagExpr{%v,%v}", x.DashPos, x.Name) }
 func (x *CompoundLit) String() string     { return fmt.Sprintf("CompoundLit{%v,%v,%v}", x.Lquote, x.Elems, x.Rquote) }
 func (x *Barecomp) String() string        { return fmt.Sprintf("Barecomp{%v}", x.Elems) }
-func (x *Barefile) String() string        { return fmt.Sprintf("Barefile{%v,%v,%v}", x.Name, x.ExtPos, x.Ext) }
-func (x *Globfile) String() string        { return fmt.Sprintf("Globfile{%v,%v,%v}", x.Glob, x.ExtPos, x.Ext) }
+func (x *Barefile) String() string        { return fmt.Sprintf("Barefile{%v}", x.Name) }
 func (x *ListExpr) String() string        { return fmt.Sprintf("ListExpr{%v}", x.Elems) }
 func (x *PathExpr) String() string        { return fmt.Sprintf("PathExpr{%v,%v,%v}", x.PosBeg, x.Segments, x.PosEnd) }
 func (x *PathSegExpr) String() string     { return fmt.Sprintf("/") }
@@ -347,7 +336,6 @@ func (*FlagExpr) expr()        {}
 func (*CompoundLit) expr()     {}
 func (*Barecomp) expr()        {}
 func (*Barefile) expr()        {}
-func (*Globfile) expr()        {}
 func (*ListExpr) expr()        {}
 func (*PathExpr) expr()        {}
 func (*PathSegExpr) expr()     {}
