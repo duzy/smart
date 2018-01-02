@@ -311,7 +311,7 @@ func (pc *Preparer) prepareTarget(target string) (err error) {
         }
 
         // Find entry in the context project.
-        if proj := pc.context.FindProject(); proj != nil {
+        if proj := pc.context.Project(); proj != nil {
                 if proj != project {
                         project = proj; goto FindEntry
                 } else if proj.IsFile(target) {

@@ -15,7 +15,6 @@ import (
 
 var (
 	universe *Scope
-	//unsafe   *Module
 
         UniversalNone = &None{}
 )
@@ -126,9 +125,7 @@ func defUniverseBuiltins() {
 }
 
 func init() {
-        universe = NewScope(nil, "universe")
-        //unsafe = NewModule(token.ILLEGAL, "unsafe", "unsafe")
-        //unsafe.complete = true
+        universe = NewScope(nil, nil, "universe")
 
         bin, args := &String{ os.Args[0] }, new(List)
         for _, a := range os.Args[1:] {
@@ -176,23 +173,19 @@ func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m
                 outer = g.scope
         }
         
-	scope := NewScope(outer, fmt.Sprintf("project %q", name))
 	m = &Project{
                 absPath: absPath,
                 relPath: relPath, 
                 spec: spec,
                 name: name,
-                scope: scope,
         }
+	
+        m.scope = NewScope(outer, m, fmt.Sprintf("project %q", name))
+
         if name != "@" && g.main == nil {
                 for outer != nil && outer != g.scope {
-                        if p := outer.FindProject(); p == nil {
-                                // fmt.Printf("NewProject: %v -> %v\n", outer, name)
-                        } else if p.Name() == "@" {
-                                // fmt.Printf("NewProject: @ -> %v\n", name)
+                        if p := outer.Project(); p != nil && p.Name() == "@" {
                                 return
-                        } else {
-                                // fmt.Printf("NewProject: %v -> %v\n", p.Name(), name)
                         }
                         outer = outer.outer
                 }
@@ -203,9 +196,7 @@ func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m
 
 // NewGlobe creates a new Globe context.
 func NewGlobe(name string) *Globe {
-        scope := NewScope(universe, fmt.Sprintf("globe %q", name))
         return &Globe{
-                scope: scope,
-                main: nil,
+                scope: NewScope(universe, nil, fmt.Sprintf("globe %q", name)),
         }
 }

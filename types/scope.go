@@ -23,12 +23,12 @@ type Scope struct {
         chain []*Scope
         children []*Scope
         elems map[string]Object
-        comment string
         project *Project
+        comment string
 }
 
-func NewScope(outer *Scope, comment string) *Scope {
-        scope := &Scope{ outer, nil, nil, nil, comment }
+func NewScope(outer *Scope, project *Project, comment string) *Scope {
+        scope := &Scope{ outer, nil, nil, nil, project, comment }
  	// Don't add children to Universe scope!
 	if outer != nil && outer != universe {
 		outer.children = append(outer.children, scope)
@@ -63,14 +63,8 @@ func (s *Scope) NumChildren() int { return len(s.children) }
 // Child returns the i'th child scope for 0 <= i < NumChildren().
 func (s *Scope) Child(i int) *Scope { return s.children[i] }
 
-func (s *Scope) FindProject() *Project {
-        for _, elem := range s.elems {
-                if elem.Parent() == s {
-                        return elem.Project()
-                }
-        }
-        return nil
-}
+// Project returns the project where this scope is existed.
+func (s *Scope) Project() *Project { return s.project }
 
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.

@@ -197,7 +197,7 @@ func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args 
         }
 
         if false {
-                p := context.FindProject().AbsPath()
+                p := context.Project().AbsPath()
                 fmt.Printf("execute: %v (%v)\n", entry.Name(), p)
         }
 

@@ -806,7 +806,7 @@ func (l *Loader) include(spec *ast.IncludeSpec) error {
 }
 
 func (l *Loader) openScope(comment string) ast.Scope {
-        l.scope = types.NewScope(l.scope, comment)
+        l.scope = types.NewScope(l.scope, l.project, comment)
         return l.scope
 }
 
@@ -908,7 +908,7 @@ func (l *Loader) declareProject(ident *ast.Bareword, params types.Value) (err er
                 var (
                         p = dec.project
                         s = p.Scope()
-                        use = types.NewScope(s, "use")
+                        use = types.NewScope(s, l.project, "use")
                 )
                 if obj, alt := s.InsertScopeName(p, "use", use); alt != nil {
                         if _, ok := alt.(*types.ScopeName); !ok {
@@ -1116,7 +1116,7 @@ func (pc *parseContext) OpenNamedScope(name, comment string) (ast.Scope, error) 
         
         var (
                 outer = pc.scope
-                scope = types.NewScope(outer, comment)
+                scope = types.NewScope(outer, pc.project, comment)
         )
         if strings.HasPrefix(outer.Comment(), "dir ") {
                 outer = outer.Outer() // discard dir scope
