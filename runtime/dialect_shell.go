@@ -78,6 +78,9 @@ func (s *dialectShell) evaluate(prog *Program, context *types.Scope, args []type
                 // Remove tabs in line breakings.
                 source = strings.Replace(source, "\\\n\t", "\\\n", -1)
 
+                // Duplicates all %
+                //source = strings.Replace(source, "%", "%%", -1)
+
                 if strings.HasPrefix(source, "@") {
                         source = source[1:]
                 } else {

@@ -23,7 +23,7 @@ type dependPatternUnfit struct {
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
 type workinfo struct {
-        dir, backdir string
+        dir string
         print bool
 }
 
@@ -31,8 +31,15 @@ var workstack []*workinfo
 
 func enterWorkdir(dir string, print bool) (wi *workinfo) {
         if wd, err := os.Getwd(); err == nil {
+                var l = len(workstack)
+                if l == 0 {
+                        // Push the initial work record. 
+                        workstack = append(workstack, &workinfo{ wd, false })
+                } else if workstack[l-1].dir != wd {
+                        fmt.Fprintf(os.Stderr, "smart: diverged `%s` `%s`\n", wd, workstack[l-1].dir)
+                }
                 if print {
-                        for i := len(workstack)-1; i > -1; i-- {
+                        for i := l-1; i > -1; i-- {
                                 if w := workstack[i]; w.dir == dir {
                                         if w.print || i == 0 {
                                                 print = false
@@ -47,7 +54,6 @@ func enterWorkdir(dir string, print bool) (wi *workinfo) {
                 if err := os.Chdir(dir); err == nil {
                         wi = &workinfo{
                                 dir: dir,
-                                backdir: filepath.Clean(wd),
                                 print: print,
                         }
                         workstack = append(workstack, wi)
@@ -61,14 +67,23 @@ func enterWorkdir(dir string, print bool) (wi *workinfo) {
 }
 
 func leaveWorkdir(wi *workinfo) {
-        if n := len(workstack); 0 < n && workstack[n-1] == wi {
+        // Note that 0 < n, as the first record should not be removed.
+        if n := len(workstack)-1; 0 < n && workstack[n] == wi {
                 if wi.print {
                         fmt.Printf("smart:  Leaving directory '%s'\n", wi.dir)
                 }
-                if err := os.Chdir(wi.backdir); err != nil {
-                        fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
+
+                // Pop out the top record.
+                workstack = workstack[0:n]
+
+                // Go back to previous dir.
+                if n--; 0 <= n && n < len(workstack) {
+                        if err := os.Chdir(workstack[n].dir); err != nil {
+                                fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
+                        }
+                } else {
+                        fmt.Fprintf(os.Stderr, "smart: wrong workstack (%d, %d)\n", n, len(workstack))
                 }
-                workstack = workstack[0:n-1]
         }
 }
 
@@ -159,23 +174,7 @@ func (prog *Program) modify(context *types.Scope, g *types.Group, out *types.Def
         return
 }
 
-func (prog *Program) Getwd(context *types.Scope) string {
-        /*for _, m := range prog.pipline {
-                if g, ok := m.(*types.Group); ok && g != nil {
-                        if n := len(g.Elems); n > 0 && g.Elems[0].Strval() == "cd" {
-                                var s string
-                                if n > 1 {
-                                        if v, e := types.Disclose(context, g.Elems[1]); e != nil {
-                                                // TODO: error...
-                                        } else if v != nil {
-                                                s = filepath.Clean(v.Strval())
-                                                if s == "-" { s = "" }
-                                        }
-                                }
-                                return s
-                        }
-                }
-        }*/
+func (prog *Program) Getwd() string {
         return filepath.Clean(prog.project.AbsPath())
 }
 
@@ -191,14 +190,15 @@ func (prog *Program) hasCDDash() (res bool) {
 }
 
 func (prog *Program) Execute(context *types.Scope, entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
-        if workdir := prog.Getwd(context); workdir != "" {
+        if workdir := prog.Getwd(); workdir != "" {
                 var printCD = entry.Class() != types.UseRuleEntry && !prog.hasCDDash()
                 defer leaveWorkdir(enterWorkdir(workdir, printCD))
                 prog.auto(theCurrWorkDirDef, workdir)
         }
 
         if false {
-                fmt.Printf("execute: %v\n", entry.Name())
+                p := context.FindProject().AbsPath()
+                fmt.Printf("execute: %v (%v)\n", entry.Name(), p)
         }
 
         var argn = 0

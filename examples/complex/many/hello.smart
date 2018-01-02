@@ -1,0 +1,19 @@
+project
+
+files (
+    hello
+)
+
+CXXFLAGS += -DTEST=1
+
+GREETING := 'Hello World!'
+
+hello: c++->program($@,$@.o)
+
+hello.cpp:[(plain c++) (update-file)]
+	#include <iostream>
+	#include <greeting.h>
+	int main(int argc, char** argv) {
+	    greeting("$(GREETING)");
+	    return 0;
+	}

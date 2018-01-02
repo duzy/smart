@@ -9,7 +9,7 @@ import (
         "github.com/duzy/smart/token"
         "crypto/sha256"
         "path/filepath"
-        "strings"
+        //"strings"
         "errors"
         "bytes"
         "fmt"
@@ -29,6 +29,31 @@ type Program interface {
         Scope() *Scope
 }
 
+type FileMap struct {
+        Pattern string
+        Paths []string
+}
+
+// Match split filename into list and match each part with the pattern correspondingly.
+func (filemap *FileMap) Match(filename string) (matched bool) {
+        list0 := filepath.SplitList(filemap.Pattern)
+        list1 := filepath.SplitList(filename)
+        if n := len(list0); n == 0 {
+                // FIXME: match any?
+        } else if n == len(list1) {
+                for i, pat := range list0 {
+                        var s = list1[i]
+                        if v, _ := filepath.Match(pat, s); !v {
+                                return false
+                        }
+                }
+
+                matched = true
+        }
+        
+        return true
+}
+
 type Project struct {
 	absPath string
 	relPath string
@@ -38,7 +63,7 @@ type Project struct {
         scope   *Scope
         uses    []*Use
 
-        filemap   map[string][]string
+        filemap []FileMap
 
         // Rule Registry (orderred)
         concrete []*RuleEntry
@@ -62,59 +87,55 @@ func (m *Project) Chain(bases... *Project) {
         }
 }
 
-func (m *Project) MapFiles(files map[string][]string) {
-        if m.filemap == nil {
-                m.filemap = make(map[string][]string)
-        }
-        for k, a := range files {
-                m.filemap[k] = append(m.filemap[k], a...)
-        }
+func (m *Project) MapFile(pat string, paths []string) {
+        // List order is significant, duplication is acceptable.
+        m.filemap = append(m.filemap, FileMap{ pat, paths })
 }
 
-func (m *Project) combineFileMap(filemap map[string][]string) map[string][]string {
+func (m *Project) FileMaps() (filemaps []FileMap) {
+        filemaps = append(filemaps, m.filemap...)
         for _, base := range m.bases {
-                base.combineFileMap(filemap)
+                filemaps = append(filemaps, base.FileMaps()...)
         }
-        for pat, paths := range m.filemap {
-                filemap[pat] = paths
-        }
-        return filemap
-}
-
-func (m *Project) FileMap() map[string][]string {
-        return m.combineFileMap(make(map[string][]string))
+        return
 }
 
 func (m *Project) SearchFile(filename string) *File {
         var (
-                firstMatched []string
-                info os.FileInfo
-                dir string
+                file = &File{ Name: filename }
+                projDir = m.AbsPath()
         )
 
         if filepath.IsAbs(filename) {
-                info, _ = os.Stat(filename)
+                file.Info, _ = os.Stat(filename)
                 goto SearchBases
         }
 
-        ForFiles: for pat, paths := range m.FileMap() {
+        ForFiles: for _, filemap := range m.FileMaps() {
                 // Match the filename (not base). Note that '*.c' won't match 'src/x.c'.
-                if v, _ := filepath.Match(pat, filepath.Base(filename)); !v && pat != filename {
+                if !filemap.Match(filename) {
                         continue
                 }
 
-                if firstMatched == nil {
-                        firstMatched = paths
-                }
+                for _, path := range filemap.Paths {
+                        var (
+                                p = path 
+                                abs = filepath.IsAbs(p)
+                        )
+                        if !abs {
+                                p = filepath.Join(projDir, p)
+                        }
 
-                for _, path := range paths {
-                        var ( p = path )
-                        if !filepath.IsAbs(p) {
-                                p = filepath.Join(m.AbsPath(), p)
+                        if file.Dir == "" {
+                                if file.Dir = p; !abs {
+                                        file.Sub = path
+                                }
                         }
 
                         if fi, _ := os.Stat(filepath.Join(p, filename)); fi != nil {
-                                info, dir = fi, p
+                                if file.Info, file.Dir = fi, p; !abs {
+                                        file.Sub = path 
+                                }
                                 break ForFiles
                         } else if false {
                                 fmt.Printf("SearchFile: %v: %v\n", m.Name(), filename)
@@ -122,38 +143,25 @@ func (m *Project) SearchFile(filename string) *File {
                 }
         }
 
-        SearchBases: var file = &File{
-                Name: filename,
-                Info: info,
-                Dir: dir,
-        }
-        if file.Info == nil {
-                if len(firstMatched) > 0 {
-                        file.Dir = firstMatched[0]
-                } else {
-                        for _, base := range m.bases {
-                                if v := base.SearchFile(filename); v != nil {
-                                        return v
-                                }
+        SearchBases: if file.Info == nil && file.Dir == "" {
+                for _, base := range m.bases {
+                        if v := base.SearchFile(filename); v != nil {
+                                return v
                         }
                 }
+        }
+        if false {
+                fmt.Printf("SearchFile: %v %v\n", file.Dir, file.Name)
         }
         return file
 }
 
 func (m *Project) IsFile(s string) (v bool) {
         if len(s) > 0 {
-                var ss = filepath.Base(s)
-                for pat, _ := range m.filemap {
-                        if false {
-                                fmt.Printf("IsFile: %s %v\n", s, pat)
+                for _, filemap := range m.filemap {
+                        if filemap.Match(s) {
+                                return true
                         }
-                        if strings.ContainsAny(pat, "*?[") {
-                                v, _ = filepath.Match(pat, ss)
-                        } else { 
-                                v = s == pat
-                        }
-                        if v { return }
                 }
                 for _, base := range m.bases {
                         if v = base.IsFile(s); v {

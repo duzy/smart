@@ -1161,7 +1161,6 @@ func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) 
 }
 
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        files := make(map[string][]string)
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
         for _, prop := range spec.Props {
                 ee, _ := prop.(*ast.EvaluatedExpr)
@@ -1171,22 +1170,25 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                 }
                 switch v := ee.Data.(type) {
                 case *types.Pair:
-                        switch s := v.Key.Strval(); vv := v.Value.(type) {
+                        var (
+                                paths []string
+                                s = v.Key.Strval()
+                        )
+                        switch vv := v.Value.(type) {
                         case *types.Group:
                                 for _, elem := range vv.Elems {
-                                        files[s] = append(files[s], elem.Strval())
+                                        paths = append(paths, elem.Strval())
                                 }
                         default:
-                                files[s] = append(files[s], vv.Strval())
+                                paths = append(paths, vv.Strval())
                         }
+                        p.runtime.MapFile(s, paths)
                 case types.Value:
-                        s := v.Strval()
-                        files[s] = append(files[s], ".")
+                        p.runtime.MapFile(v.Strval(), nil)
                 default:
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
                 }
         }
-        p.runtime.MapFiles(files)
         return spec
 }
 

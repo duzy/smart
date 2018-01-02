@@ -1,0 +1,8 @@
+project (tools/gcc/c++)
+
+import (
+    ./greeting
+)
+
+run:[(shell -oe)]: use->* hello
+	./hello

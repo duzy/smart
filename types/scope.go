@@ -24,6 +24,7 @@ type Scope struct {
         children []*Scope
         elems map[string]Object
         comment string
+        project *Project
 }
 
 func NewScope(outer *Scope, comment string) *Scope {

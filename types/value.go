@@ -55,7 +55,7 @@ func (*value) Strval() string     { return "" }
 func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
 
-const trace_prepare = false
+const trace_prepare = true
 
 // Preparer prepares prerequisites of targets.
 type Preparer struct {
@@ -316,38 +316,40 @@ func (pc *Preparer) prepareTarget(target string) (err error) {
                         project = proj; goto FindEntry
                 } else if proj.IsFile(target) {
                         // Search file in context project.
-                        err = pc.searchFile(proj, target)
+                        if err = pc.addFile(proj, target); err == nil {
+                                return // Done here!
+                        }
                 } else {
                         err = fmt.Errorf("unknown target '%v'", target)
                 }
         }
+
+        err = pc.addFile(project, target)
         return
 }
 
-func (pc *Preparer) searchFile(project *Project, name string) (err error) {
+func (pc *Preparer) addFile(project *Project, name string) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:SearchFile: %v (%v)\n", name, project.Name())
         }
         
-        // Search the file.
-        var f = project.SearchFile(name)
-        if f.Info == nil {
-                // Try searching in the calling context again.
-                f = pc.program.Project().SearchFile(name)
-        }
-
-        if f.Info != nil {
+        if f := project.SearchFile(name); f.Info != nil {
                 pc.targets.Append(f)
         } else {
+                var wd = project.AbsPath()
                 if true {
-                        wd, _ := os.Getwd()
+                        s, _ := os.Getwd(); fmt.Printf("workdir: %v\n", s)
+                        fmt.Printf("projdir: %v %v\n", project.Name(), project.AbsPath())
                         fmt.Printf("missing: %v %v %v\n", f, f.Dir, f.Name)
-                        fmt.Printf("workdir: %v\n", wd)
-                        fmt.Printf("projdir: %v\n", pc.program.Project().AbsPath())
-                        fmt.Printf("projdir: %v\n", project.AbsPath())
-                        //s := filepath.Join(pc.program.Project().AbsPath(), f.Name)
-                        //i, _ := os.Stat(s)
-                        //fmt.Printf("%v %v\n", i.Name(), s)
+                        fmt.Printf("missing: %v\n", pc.context)
+                }
+                if false {
+                        s := filepath.Join(wd, f.Name)
+                        i, _ := os.Stat(s)
+                        fmt.Printf("%v %v\n", i.Name(), s)
+                }
+                if !filepath.IsAbs(name) {
+                        name = filepath.Join(wd, name)
                 }
                 err = fmt.Errorf("No such file '%v'", name)
         }
@@ -595,12 +597,16 @@ type File struct {
         value
         Name string  // represented name (e.g. relative filename)
         Dir string   // directory in which the file should be or was found
+        Sub string   // sub directory containing the file (aka. Project.SearchFile)
         Info os.FileInfo // file info if exists
 }
 func (p *File) Type() Type { return FileType }
-func (p *File) Strval() string { return p.Name }
+
+// Strval returns the relative filename (aka. Project.SearchFile).
+func (p *File) Strval() string { return filepath.Join(p.Sub, p.Name) }
 func (p *File) String() string { return p.Fullname() }
-func (p *File) Fullname() string { return filepath.Join(p.Dir, p.Name) }
+
+func (p *File) Fullname() string { return filepath.Join(p.Dir, p.Sub, p.Name) }
 func (p *File) Basename() string {
         if p.Info != nil {
                 return p.Info.Name()

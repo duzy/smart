@@ -1,0 +1,38 @@
+project (tools/gcc/c)
+
+files (
+    greeting.h => include
+    greeting.c => src
+    greeting.o => obj
+)
+
+CFLAGS += -DXXX -Iinclude
+
+libgreeting.a: lib.a($@,greeting.o)
+
+check:[(shell -oe)]
+	test "$(CWD)" = "$/"
+	test -f include/greeting.h
+
+greeting.c:[(plain c) (update-file)]: greeting.h check
+	#include <stdio.h>
+	#include <greeting.h>
+	void greeting(const char *s) {
+	    printf("%s\\n", s);
+	}
+
+greeting.h:[(plain c) (update-file)]
+	# ifdef __cplusplus
+	extern "C" {
+	# endif
+	
+	void greeting(const char *s);
+	
+	#ifdef __cplusplus
+	}
+	#endif
+	
+use:
+	CFLAGS += -I$//include
+	LDFLAGS += -L$/
+	LDLIBS += -lgreeting

@@ -201,21 +201,16 @@ func modifierCD(prog *Program, context *types.Scope, value types.Value, args... 
         if n := len(args); n == 1 {
                 dir := args[0].Strval()
                 if dir == "-" {
-                        if len(workstack) > 1 {
-                                dir = workstack[len(workstack)-2].backdir
+                        /* p := context.FindProject()
+                        s, _ := os.Getwd()
+                        fmt.Printf("cd: %v, %v, %v\n", s, p.Name(), p.AbsPath()) */
+                        if len(workstack) > 2 {
+                                dir = workstack[len(workstack)-3].dir
                         } else {
                                 // FIXME: ...
                         }
                 }
                 if dir != "" {
-                        /*if s, e := os.Getwd(); e != nil {
-                                err = e; return
-                        } else if r, e := filepath.Rel(s, dir); e != nil {
-                                err = e; return
-                        } else {
-                                fmt.Printf("cd: %v\n", s)
-                                fmt.Printf("cd: %v\n", r)
-                        }*/
                         if err = os.Chdir(dir); err == nil {
                                 prog.auto(theCurrWorkDirDef, dir)
                         }
