@@ -405,7 +405,7 @@ func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 func (entry *RuleEntry) Programs() []*Program { return entry.programs }
 func (entry *RuleEntry) Depends() (depends []Value) {
         for _, prog := range entry.programs {
-                depends = append(depends, prog.Depends()...)
+                depends = append(depends, prog.depends...)
         }
         return
 }
@@ -494,7 +494,7 @@ func (entry *RuleEntry) prepare_0(pc *Preparer) (err error) {
         ForPrograms: for _, prog := range entry.programs {
                 if prog == pc.program {
                         err = fmt.Errorf("depended on itself")
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         break ForPrograms
                 }
                 if err = pc.execute(entry, prog); err == nil {
@@ -503,10 +503,10 @@ func (entry *RuleEntry) prepare_0(pc *Preparer) (err error) {
                         //if pc.file != nil {
                         //        fmt.Printf("prepare:RuleEntry: %v (%v) (FIXME: unknown %v) (%v)\n", entry, pc.file.Name, ute.target, pc.entry)
                         //}
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         break ForPrograms
                 } else {
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         if entry.class == StemmedFileEntry {
                                 if false {
                                         wd, _ := os.Getwd()
@@ -539,7 +539,7 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         ForPrograms: for _, prog := range entry.Programs() {
                 if prog == pc.program {
                         err = fmt.Errorf("depended on itself")
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         break ForPrograms
                 }
                 if err = pc.execute(entry, prog); err == nil {
@@ -548,10 +548,10 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                         //if pc.file != nil {
                         //        fmt.Printf("prepare:RuleEntry: %v (%v) (FIXME: unknown %v) (%v)\n", entry, pc.file.Name, ute.target, pc.entry)
                         //}
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         break ForPrograms
                 } else {
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         if entry.class == StemmedFileEntry {
                                 if false {
                                         wd, _ := os.Getwd()
@@ -610,7 +610,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                 project = cp
         }
 
-        defer prog.SetContext(prog.SetContext(project.Scope()))
+        defer prog.setctx(prog.setctx(project.Scope()))
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
@@ -638,7 +638,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         } else if ute, ok := err.(unknownTargetError); ok {
                 /*if entry.class == StemmedFileEntry {
                         if pc.file == nil {
-                                fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
+                                fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                                 return
                         }
                 }

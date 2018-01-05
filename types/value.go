@@ -320,7 +320,7 @@ type unknownFileError struct {
 
 func (pc *Preparer) prepareTarget(target string) (err error) {
         var (
-                project = pc.program.Project()
+                project = pc.program.project
                 tryback = true // try lookup caller stack
         )
 
@@ -646,7 +646,7 @@ func (p *File) IsKnown() bool {
 
 func (p *File) prepare(pc *Preparer) (err error) {
         var (
-                project = pc.program.Project()
+                project = pc.program.project
                 tryback = true // try lookup caller stack
         )
 

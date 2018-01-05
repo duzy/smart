@@ -19,18 +19,6 @@ import (
 
 type HashBytes [sha256.Size]byte
 
-/*type Program interface {
-        Execute(entry *RuleEntry, args []Value) (result Value, err error)
-        Params() []string // parameter names
-        Project() *Project
-        Position() token.Position
-        Depends() []Value
-        Recipes() []Value
-        Pipeline() []Value
-        SetContext(scope *Scope) (prev *Scope)
-        Scope() *Scope
-}*/
-
 type FileMap struct {
         Pattern string
         Paths []string
