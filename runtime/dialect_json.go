@@ -171,10 +171,9 @@ loop:
 }
 
 type dialectJson struct {
-        polyInterpreter
+        types.PolyInterpreter
 }
 
-func (t *dialectJson) Dialect() string { return "json" }
 func (t *dialectJson) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeJSON(source); err == nil {
@@ -186,5 +185,5 @@ func (t *dialectJson) Evaluate(prog *types.Program, args []types.Value, recipes 
 }
 
 func init() {
-        types.RegisterInterpreter("json", new(dialectJson))
+        types.RegisterDialect("json", new(dialectJson))
 }

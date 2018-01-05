@@ -177,7 +177,7 @@ func (prog *Program) modify(g *Group, out *Def) (dialect string, err error) {
                 if value, err = f(prog, value, g.Slice(1)...); err == nil && value !=  nil {
                         out.Assign(value)
                 }
-        } else if i, _ := interpreters[name]; i != nil {
+        } else if i, _ := dialects[name]; i != nil {
                 err = prog.interpret(i, out, g.Slice(1))
                 dialect = name // return dialect name
         } else {
@@ -282,7 +282,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
         if err == nil && dialect == "" {
                 // Using the default statements interpreter.
-                if i, _ := interpreters[dialect]; i == nil {
+                if i, _ := dialects[dialect]; i == nil {
                         err = fmt.Errorf("no default dialect")
                 } else {
                         err = prog.interpret(i, out, nil)

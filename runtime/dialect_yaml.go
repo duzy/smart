@@ -20,11 +20,10 @@ func DecodeYAML(source string, ws bool) (result types.Value, err error) {
 }
 
 type dialectYaml struct {
-        polyInterpreter
+        types.PolyInterpreter
         whitespace bool
 }
 
-func (t *dialectYaml) Dialect() string { return "yaml" }
 func (t *dialectYaml) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeYAML(source, t.whitespace); err == nil {
@@ -36,6 +35,6 @@ func (t *dialectYaml) Evaluate(prog *types.Program, args []types.Value, recipes 
 }
 
 func init() {
-        types.RegisterInterpreter("yaml", &dialectYaml{
+        types.RegisterDialect("yaml", &dialectYaml{
         })
 }

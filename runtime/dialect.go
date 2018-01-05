@@ -12,15 +12,6 @@ import (
         "fmt"
 )
 
-type monoInterpreter struct {
-}
-
-type polyInterpreter struct {
-}
-
-func (*monoInterpreter) Mode() types.InterpretMode { return types.InterpretSingle }
-func (*polyInterpreter) Mode() types.InterpretMode { return types.InterpretMulti }
-
 func joinRecipesString(recipes... types.Value) string {
         var (
                 x = len(recipes)-1

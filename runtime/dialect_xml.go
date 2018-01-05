@@ -109,11 +109,10 @@ func DecodeXML(source string, ws bool) (result types.Value, err error) {
 }
 
 type dialectXml struct {
-        polyInterpreter
+        types.PolyInterpreter
         whitespace bool
 }
 
-func (t *dialectXml) Dialect() string { return "xml" }
 func (t *dialectXml) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeXML(source, t.whitespace); err == nil {
@@ -125,7 +124,7 @@ func (t *dialectXml) Evaluate(prog *types.Program, args []types.Value, recipes [
 }
 
 func init() {
-        types.RegisterInterpreter("xml", &dialectXml{
+        types.RegisterDialect("xml", &dialectXml{
                 whitespace: false,
         })
 }

@@ -22,9 +22,8 @@ const (
 )
 
 type dialectDock struct {
-        monoInterpreter
+        types.MonoInterpreter
 }
-func (s *dialectDock) Dialect() string { return "dock" }
 func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
                 return
@@ -211,5 +210,5 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 }
 
 func init() {
-        types.RegisterInterpreter("dock", new(dialectDock))
+        types.RegisterDialect("dock", new(dialectDock))
 }

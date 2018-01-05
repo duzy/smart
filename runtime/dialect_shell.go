@@ -28,7 +28,7 @@ func trimRightSpaces(s string) string {
 }
 
 type dialectShell struct {
-        monoInterpreter
+        types.MonoInterpreter
         interpreter string // shell interpreter
         xopt string // execute option: -c (sh, python), -e (perl)
 }
@@ -41,7 +41,6 @@ func isTrueValue(s string) (res bool) {
         return
 }
 
-func (s *dialectShell) Dialect() string { return "shell" }
 func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
                 return
@@ -182,15 +181,15 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
 }
 
 func init() {
-        types.RegisterInterpreter("shell", &dialectShell{
+        types.RegisterDialect("shell", &dialectShell{
                 interpreter: defaultShellInterpreter, // "sh"
                 xopt: "-c",
         })
-        types.RegisterInterpreter("python", &dialectShell{
+        types.RegisterDialect("python", &dialectShell{
                 interpreter: "python",
                 xopt: "-c",
         })
-        types.RegisterInterpreter("perl", &dialectShell{
+        types.RegisterDialect("perl", &dialectShell{
                 interpreter: "perl",
                 xopt: "-e",
         })

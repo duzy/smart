@@ -16,10 +16,9 @@ import (
 
 // dialectDefault evaluates smart statements
 type dialectDefault struct {
-        polyInterpreter
+        types.PolyInterpreter
 }
 
-func (t *dialectDefault) Dialect() string { return "default" }
 func (t *dialectDefault) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var list = values.List()
 LoopRecipes:
@@ -84,5 +83,5 @@ LoopRecipes:
 }
 
 func init() {
-        types.RegisterInterpreter("", new(dialectDefault))
+        types.RegisterDialect("", new(dialectDefault))
 }

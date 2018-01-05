@@ -37,23 +37,7 @@ const (
         TheCurrWorkDirDef = "CWD"
 )
 
-type InterpretMode int
-
-const (
-        InterpretSingle InterpretMode = 1<<iota
-        InterpretMulti
-)
-
-type Interpreter interface {
-        Dialect() string
-        Mode() InterpretMode
-        Evaluate(prog *Program, args []Value, recipes []Value) (Value, error)
-}
-
 var (
-        interpreters = map[string]Interpreter{
-        }
-
         modifiers = map[string]modifier{
                 `select`:       modifierSelect,
 
@@ -78,15 +62,6 @@ var (
 
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
-
-func RegisterInterpreter(name string, int Interpreter) {
-        interpreters[name] = int
-}
-
-func IsDialect(s string) (ok bool) {
-        _, ok = interpreters[s]
-        return
-}
 
 func IsModifier(s string) (ok bool) {
         _, ok = modifiers[s]

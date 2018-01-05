@@ -11,10 +11,9 @@ import (
 )
 
 type dialectPlain struct {
-        polyInterpreter
+        types.PolyInterpreter
 }
 
-func (t *dialectPlain) Dialect() string { return "plain" }
 func (t *dialectPlain) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var name string
         if len(args) > 0 {
@@ -28,5 +27,5 @@ func (t *dialectPlain) Evaluate(prog *types.Program, args []types.Value, recipes
 }
 
 func init() {
-        types.RegisterInterpreter("plain", new(dialectPlain))
+        types.RegisterDialect("plain", new(dialectPlain))
 }
