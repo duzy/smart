@@ -22,7 +22,7 @@ type Context struct {
 func (ctx *Context) Getwd() string { return ctx.workdir }
 func (ctx *Context) Globe() *types.Globe { return ctx.globe }
 
-func (ctx *Context) defineBuiltin(name string, f builtin) {
+/*func (ctx *Context) defineBuiltin(name string, f builtin) {
         scope := ctx.globe.Scope()
         _, alt := scope.InsertBuiltin(name, func(scope *types.Scope, args... types.Value) (types.Value, error) {
                 return f(ctx, scope, args...)
@@ -36,7 +36,7 @@ func (ctx *Context) defineBuiltins() {
         for name, f := range builtins {
                 ctx.defineBuiltin(name, f)
         }
-}
+}*/
 
 func (context *Context) NewProgram(position token.Position, project *types.Project, params []string, scope *types.Scope, depends []types.Value, recipes... types.Value) *types.Program {
         return types.NewProgram(context.globe, position, project, params, scope, depends, recipes...)
@@ -137,6 +137,6 @@ func NewContext(name string) *Context {
         if false {
                 fmt.Printf("context: %p\n", context)
         }
-        context.defineBuiltins()
+        //context.defineBuiltins()
         return context
 }

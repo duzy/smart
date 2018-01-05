@@ -64,9 +64,9 @@ LoopRecipes:
                                                 break LoopRecipes
                                         }
                                 }
-                        } else if p, _ := e.(*returner); p != nil {
-                                if p.value != nil {
-                                        list.Append(p.value)
+                        } else if p, _ := e.(*types.Returner); p != nil {
+                                if p.Value != nil {
+                                        list.Append(p.Value)
                                 }
                                 break LoopRecipes
                         } else if e != nil {

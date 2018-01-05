@@ -105,6 +105,15 @@ var builtins = map[string]BuiltinFunc {
         `read-dir`:   builtinReadDir,   // io/ioutil/ioutil.go
         `read-file`:  builtinReadFile,  // io/ioutil/ioutil.go
         `write-file`: builtinWriteFile, // io/ioutil/ioutil.go
+
+        `return`:     builtinReturn,
+}
+
+func GetBuiltinNames() (a []string) {
+        for s, _ := range builtins {
+                a = append(a, s)
+        }
+        return
 }
 
 func EscapedString(v Value) (s string) {
@@ -1142,4 +1151,14 @@ func builtinWriteFile(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         return
+}
+
+func builtinReturn(context *Scope, args... Value) (res Value, err error) {
+        var value Value
+        if x := len(args); x == 0 {
+                value = args[x]
+        } else {
+                value = &List{Elements{args}}
+        }
+        return nil, &Returner{ value }
 }

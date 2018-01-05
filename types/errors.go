@@ -20,6 +20,14 @@ var (
         ErrorIllJson   = errors.New("illegal json format")
 )
 
+type Returner struct {
+        Value Value
+}
+
+func (p *Returner) Error() string {
+        return "evaluation returned"
+}
+
 type Failure struct {
         msg string
 }
