@@ -110,12 +110,6 @@ type Program struct {
         position token.Position
 }
 
-//func (prog *Program) Params() []string { return prog.params }
-//func (prog *Program) Project() *Project { return prog.project }
-//func (prog *Program) Position() token.Position { return prog.position }
-//func (prog *Program) Depends() []Value { return prog.depends }
-//func (prog *Program) Recipes() []Value { return prog.recipes }
-//func (prog *Program) Pipeline() []Value { return prog.pipline }
 func (prog *Program) Scope() *Scope { return prog.scope }
 
 func (prog *Program) setctx(scope *Scope) (prev *Scope) {
