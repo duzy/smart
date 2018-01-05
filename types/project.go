@@ -12,6 +12,7 @@ import (
         //"strings"
         "errors"
         "bytes"
+        //"sort"
         "fmt"
         "os"
 )
@@ -182,6 +183,8 @@ func (p *Project) DefaultEntry() (entry *RuleEntry) {
 type PatternStem struct {
         Patent *PatternEntry
         Stem string
+        source string // source target matched the pattern
+        file *File // source file matched the pattern
 }
 
 func (ps *PatternStem) String() string {
@@ -194,12 +197,49 @@ func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
 
 func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:PatternStem: %v (%v)\n", ps, pc.entry)
+                if ps.file != nil {
+                        fmt.Printf("prepare:PatternStem: %v (file: %v) (project %v, %v)\n", ps, ps.file, pc.entry.project.name, pc.entry)
+                } else {
+                        fmt.Printf("prepare:PatternStem: %v (source: %v) (project %v, %v)\n", ps, ps.source, pc.entry.project.name, pc.entry)
+                }
         }
-        if entry, e := ps.MakeConcreteEntry(); e == nil {
-                err = pc.Prepare(entry)
-        } else {
-                err = e
+        
+        var (
+                stems = []string{ ps.Stem }
+                sources = []string{ ps.source }
+                entry *RuleEntry
+        )
+        if ps.file != nil {
+                sources = append(sources, ps.file.Name)
+        }
+
+        // Find all useful stems.
+        ForSources: for _, source := range sources {
+                if source == "" { continue }
+                if matched, stem := ps.Patent.Pattern.Match(source); matched && stem != "" {
+                        for _, s := range stems { if s == stem { continue ForSources } }
+                        stems = append(stems, stem)
+                }
+        }
+
+        // Try preparing target with all stems.
+        for i, stem := range stems {
+                if entry, err = ps.Patent.MakeConcreteEntry(stem); err != nil {
+                        return
+                } else if trace_prepare {
+                        fmt.Printf("prepare:PatternStem: %v (stems[%d/%d]: %v) (project %v, %v)\n", ps, i, len(stems), stem, pc.entry.project.name, pc.entry)
+                }
+                
+                // Set stem for the current preparation.
+                //pc.stem, entry.stem, entry.file = stem, stem, ps.file
+                pc.stem, entry.file = stem, ps.file
+                if err = entry.prepare(pc); err == nil {
+                        // Good!
+                } else if ute, ok := err.(unknownTargetError); ok {
+                        fmt.Printf("prepare:PatternStem: FIXME: unknown target %v (%v)\n", ute.target, pc.entry)
+                } else if ufe, ok := err.(unknownFileError); ok {
+                        fmt.Printf("prepare:PatternStem: FIXME: unknown file %v (%v)\n", ufe.file, pc.entry)
+                }
         }
         return
 }
@@ -207,13 +247,12 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
 func (p *Project) FindPatterns(s string) (res []*PatternStem) {
         for _, p := range p.patterns {
                 if found, stem := p.Pattern.Match(s); found && stem != "" {
-                        res = append(res, &PatternStem{ p, stem })
+                        res = append(res, &PatternStem{ p, stem, "", nil })
                 }
         }
         for _, base := range p.bases {
                 res = append(res, base.FindPatterns(s)...)
         }
-        //fmt.Printf("%s: %s: %v\n", s, p.Name(), res)
         return
 }
 

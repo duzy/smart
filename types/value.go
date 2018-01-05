@@ -63,6 +63,9 @@ type Preparer struct {
         entry *RuleEntry // caller entry
         arguments []Value
         targets *List
+        stem string // set by PatternStem
+        //source string // source target creating the stemmed entry
+        //file *File
 }
 
 type prerequisite interface {
@@ -72,7 +75,19 @@ type prerequisite interface {
 func (pc *Preparer) Prepare(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
-                        if err = pc.prepare(v.Index(i).Interface()); err != nil {
+                        var prereq = v.Index(i).Interface();
+                        /*if trace_prepare {
+                                fmt.Printf("prepare: %v (%T)\n", prereq, prereq)
+                        }*/
+                        if err = pc.prepare(prereq); err == nil {
+                                // Good!
+                        } else if ute, ok := err.(unknownTargetError); ok {
+                                fmt.Printf("prepare:FIXME: unknown target %v (%v)\n", ute.target, pc.entry)
+                                break
+                        } else if ufe, ok := err.(unknownFileError); ok {
+                                fmt.Printf("prepare:FIXME: unknown file %v (%v)\n", ufe.file, pc.entry)
+                                break
+                        } else {
                                 break
                         }
                 }
@@ -95,7 +110,11 @@ func (pc *Preparer) context() *Scope { return pc.entry.Project().Scope() }
 func (pc *Preparer) Targets() *List { return pc.targets }
 
 func NewPreparer(prog Program, entry *RuleEntry, args... Value) (pc *Preparer) {
-        return &Preparer{ prog, entry, args, new(List) }
+        var stem string // entry.stem
+        if entry.caller != nil {
+                stem = entry.caller.stem
+        }
+        return &Preparer{ prog, entry, args, new(List), stem }
 }
 
 type Argumented struct {
@@ -251,6 +270,7 @@ func (p *String) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:String: %v (%v)\n", p, pc.entry)
         }
+        //pc.source = p.Value
         return pc.prepareTarget(p.Value)
 }
 
@@ -269,6 +289,7 @@ func (p *Bareword) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Bareword: %v (%v)\n", p, pc.entry)
         }
+        //pc.source = p.Value
         return pc.prepareTarget(p.Value)
 }
 
@@ -277,75 +298,85 @@ func (pc *Preparer) prepareTargetValue(value Value) error {
                 return e
         } else {
                 if v == nil { v = value }
+                //pc.source = v.Strval()
                 return pc.prepareTarget(v.Strval())
         }
 }
 
 // patternPrepareError indicates an error occurred in preparing a pattern.
 type patternPrepareError error
+type unknownTargetError struct {
+        error
+        target string
+}
+type unknownFileError struct {
+        error
+        file *File
+}
 
 func (pc *Preparer) prepareTarget(target string) (err error) {
-        if trace_prepare {
-                fmt.Printf("prepare:Target: %v (%v)\n", target, pc.entry)
+        var (
+                project = pc.program.Project()
+                tryback = true // try lookup caller stack
+        )
+
+        FindTargetEntry: if trace_prepare {
+                fmt.Printf("prepare:Target: %v (project %s %p) (%v)\n", target, project.name, project, pc.entry)
         }
 
-        var project = pc.program.Project()
-
         // Find concrete entry
-        FindEntry: if _, obj := project.Scope().Find(target); obj != nil {
+        if _, obj := project.Scope().Find(target); obj != nil {
+                if trace_prepare {
+                        fmt.Printf("prepare:Target: %v (found %v) (project %v, %v)\n", target, obj, project.name, pc.entry)
+                }
                 return pc.Prepare(obj)
         }
 
         // Find patterns
         for _, ps := range project.FindPatterns(target) {
                 if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (%v) (%v)\n", target, ps, pc.entry)
+                        fmt.Printf("prepare:Target: %v (stemmed %v) (project %v, %v)\n", target, ps, project.name, pc.entry)
                 }
-                if err = pc.Prepare(ps); err == nil {
+                if err = ps.prepare(pc); err == nil {
                         return // Updated successfully!
                 } else if _, ok := err.(patternPrepareError); ok {
-                        err = nil; continue // Discard pattern unfit errors.
+                        if trace_prepare {
+                                fmt.Printf("prepare:Target: %v (error: %s)\n", target, err)
+                        }
+                        // Discard pattern unfit errors and caller stack.
+                        err, tryback = nil, false; continue
                 } else {
                         return
                 }
         }
 
-        if project.IsFile(target) {
-                if f := project.SearchFile(target); f.Info != nil {
-                        if trace_prepare {
-                                fmt.Printf("prepare:Target: add %v (project %s) (%v)\n",
-                                        target, project.Name(), pc.entry)
+        if caller := pc.entry.caller; caller != nil && tryback {
+                for ; caller != nil; caller = caller.entry.caller {
+                        // Find the last caller.
+                        if caller != pc.entry.caller && caller.entry.project != project {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:Target: %v (project %s -> %s)\n",
+                                                target, project.name, caller.entry.project.name)
+                                }
+                                project = caller.entry.project; goto FindTargetEntry
                         }
-                        pc.targets.Append(f); return
-                } else {
-                        var p = project.AbsPath()
-                        if trace_prepare {
-                                fmt.Printf("prepare:Target: %v (unknown in project %s %s) (%v)\n",
-                                        target, project.Name(), p, pc.entry)
-                        }
-                        if !filepath.IsAbs(target) {
-                                target = filepath.Join(p, target)
-                        }
-                        err = fmt.Errorf("No such file '%v'", target)
                 }
+                
+                if trace_prepare {
+                        fmt.Printf("prepare:Target: %v (unknown in project %s) (%v)\n",
+                                target, project.name, pc.entry)
+                }
+                err = fmt.Errorf("No such entry '%v'", target)
+                return
         }
 
-        if false {
-                // Find entry in the context project.
-                if proj := pc.entry.Project(); proj != nil {
-                        if proj != project {
-                                project = proj; goto FindEntry
-                        } else {
-                                err = fmt.Errorf("unknown target '%v'", target)
-                        }
-                }
-        }
+        err = unknownTargetError{ fmt.Errorf("unknown target '%v'", target), target }
         return
 }
 
 func (pc *Preparer) addFile(project *Project, name string) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:AddFile: %v (project %v) (%v)\n", name, project.Name(), pc.entry)
+                fmt.Printf("prepare:AddFile: %v (project %v, %v)\n", name, project.name, pc.entry)
         }
         
         if f := project.SearchFile(name); f.Info != nil {
@@ -481,10 +512,11 @@ func (p *Barefile) referencing(o Object) bool {
 
 func (p *Barefile) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Barefile: %v (%v)\n", p, pc.entry)
+                fmt.Printf("prepare:Barefile: %v (project %v, %v)\n", p, pc.entry.project.name, pc.entry)
         }
         if p.File != nil {
-                return pc.Prepare(p.File)
+                //pc.file = p.File
+                return p.File.prepare(pc)
         } else {
                 return pc.prepareTargetValue(p)
         }
@@ -575,7 +607,7 @@ func (p *PathSeg) Strval() (s string) {
 type File struct {
         value
         Name string  // represented name (e.g. relative filename)
-        Dir string   // directory in which the file should be or was found
+        Dir string   // full directory in which the file should be or was found
         Sub string   // sub directory containing the file (aka. Project.SearchFile)
         Info os.FileInfo // file info if exists
 }
@@ -598,11 +630,70 @@ func (p *File) IsKnown() bool {
         return p.Dir != "" || p.Info != nil
 }
 
-func (p *File) prepare(pc *Preparer) error {
-        if trace_prepare {
-                fmt.Printf("prepare:File: %v (%v)\n", p, pc.entry)
+func (p *File) prepare(pc *Preparer) (err error) {
+        var (
+                project = pc.program.Project()
+                tryback = true // try lookup caller stack
+        )
+
+        FindFileEntry: if trace_prepare {
+                fmt.Printf("prepare:File: %v (%v) (project %s) (%v)\n", p.Name, p, project.name, pc.entry)
         }
-        return pc.prepareTarget(p.Strval())
+
+        // Find concrete entry
+        if _, obj := project.Scope().Find(p.Name); obj != nil {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (found %v) (project %v, %v)\n", p.Name, obj, project.name, pc.entry)
+                }
+                return pc.Prepare(obj)
+        }
+
+        // Find patterns
+        for _, ps := range project.FindPatterns(p.Name) {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (stemmed %v) (project %v, %v)\n", p.Name, ps, project.name, pc.entry)
+                }
+                ps.file = p // Link PatternStem with File.
+                if err = ps.prepare(pc); err == nil {
+                        return // Updated successfully!
+                } else if _, ok := err.(patternPrepareError); ok {
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: %v (error: %s)\n", p.Name, err)
+                        }
+                        // Discard pattern unfit errors and caller stack.
+                        err, tryback = nil, false; continue
+                } else {
+                        return
+                }
+        }
+
+        if f := project.SearchFile(p.Strval()); f.Info != nil {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: add %v (project %s) (%v)\n",
+                                p.Name, project.name, pc.entry)
+                }
+                pc.targets.Append(f); return
+        }
+
+        if caller := pc.entry.caller; caller != nil && tryback {
+                for ; caller != nil; caller = caller.entry.caller {
+                        // Find the last caller.
+                        if caller != pc.entry.caller && caller.entry.project != project {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:File: %v (project %s -> %s, %v)\n",
+                                                p, project.name, caller.entry.project.name, caller.entry)
+                                }
+                                project = caller.entry.project; goto FindFileEntry
+                        }
+                }
+        }
+
+        if trace_prepare {
+                fmt.Printf("prepare:File: %v (unknown in project %s %s) (%v)\n",
+                        p.Name, project.name, p, pc.entry)
+        }
+        err = unknownFileError{ fmt.Errorf("unknown file '%v'", p.Name), p }
+        return
 }
 
 type Flag struct {
@@ -893,7 +984,7 @@ func (p *delegate) referencing(o Object) bool {
 
 func (p *delegate) prepare(pc *Preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:delegate: %v (%v)\n", p, pc.entry)
+                fmt.Printf("prepare:delegate: %v (project %v, %v)\n", p, pc.entry.project.name, pc.entry)
         }
         for _, d := range Join(Reveal(p)) {
                 if err = pc.Prepare(d); err != nil {
@@ -1129,7 +1220,7 @@ func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEn
         case PatternRuleEntry, StemmedFileEntry:
                 entry = new(RuleEntry); *entry = *patent
                 entry.name = name
-                entry.stem = stem
+                //entry.stems = append(entry.stems, stem)
         default:
                 err = errors.New(fmt.Sprintf("make entry `%s' (%s): invalid class `%v'", name, stem, patent.class))
         }
@@ -1181,13 +1272,45 @@ func (p *PercentPattern) referencing(o Object) bool {
 }
 
 func (p *PercentPattern) prepare(pc *Preparer) (err error) {
-        if stem := pc.entry.Stem(); stem != "" {
-                var name = p.MakeString(stem)
-                if err = pc.prepareTarget(name); err != nil {
-                        err = patternPrepareError(err)
+        if trace_prepare {
+                fmt.Printf("prepare:PercentPattern: %v (stem: %v) (%v) (project %v, %v)\n", p, pc.stem, pc.entry.file, pc.entry.project.name, pc.entry)
+        }
+        if pc.stem == "" {
+                err = fmt.Errorf("empty stem (%s, %v)", p, pc.entry)
+                return
+        }
+
+        var target = p.MakeString(pc.stem)
+        
+        // Check if target is a file (if source entry is file).
+        if f := pc.entry.file; f != nil {
+                var file = &File{ Name: target, Dir: f.Dir, Sub: f.Sub }
+                if trace_prepare {
+                        fmt.Printf("prepare:PercentPattern: %v (stem: %v) (%v) (project %v, %v)\n", p, pc.stem, file, pc.entry.project.name, pc.entry)
                 }
+                if err = file.prepare(pc); err == nil {
+                        return
+                }
+        }
+
+        if trace_prepare {
+                fmt.Printf("prepare:PercentPattern: %v (stem: %v) (%v) (project %v, %v)\n", p, pc.stem, target, pc.entry.project.name, pc.entry)
+        }
+
+        if err = pc.prepareTarget(target); err == nil {
+                return // Good!
+        } else if ute, ok := err.(unknownTargetError); ok {
+                if trace_prepare {
+                        fmt.Printf("prepare:PercentPattern: %v (FIXME: unknown target %v) (%v) (%v)\n", p, ute.target, pc.stem, pc.entry)
+                }
+                //err = patternPrepareError(ute.error)
+        } else if ufe, ok := err.(unknownFileError); ok {
+                if trace_prepare {
+                        fmt.Printf("prepare:PercentPattern: %v (FIXME: unknown file %v) (%v) (%v)\n", p, ufe.file, pc.stem, pc.entry)
+                }
+                //err = patternPrepareError(ute.error)
         } else {
-                err = fmt.Errorf("Empty stem (%s, dependency %v)", pc.entry, p)
+                err = patternPrepareError(err)
         }
         return
 }

@@ -201,11 +201,9 @@ func modifierCD(prog *Program, value types.Value, args... types.Value) (result t
         if n := len(args); n == 1 {
                 dir := args[0].Strval()
                 if dir == "-" {
-                        /* p := context.FindProject()
-                        s, _ := os.Getwd()
-                        fmt.Printf("cd: %v, %v, %v\n", s, p.Name(), p.AbsPath()) */
                         if len(workstack) > 2 {
-                                dir = workstack[len(workstack)-3].dir
+                                wi := workstack[len(workstack)-3]
+                                dir = wi.project.AbsPath()
                         } else {
                                 // FIXME: ...
                         }

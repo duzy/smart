@@ -10,7 +10,7 @@ import (
         "github.com/duzy/smart/token"
         "github.com/duzy/smart/types"
         "github.com/duzy/smart/values"
-        "path/filepath"
+        //"path/filepath"
         "strconv"
         //"strings"
         "fmt"
@@ -22,25 +22,35 @@ type dependPatternUnfit struct {
 
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
+const trace_workdir = true
+
 type workinfo struct {
-        dir string
+        project *types.Project
         print bool
 }
 
 var workstack []*workinfo
 
-func enterWorkdir(dir string, print bool) (wi *workinfo) {
-        if wd, err := os.Getwd(); err == nil {
-                var l = len(workstack)
-                if l == 0 {
-                        // Push the initial work record. 
-                        workstack = append(workstack, &workinfo{ wd, false })
-                } else if workstack[l-1].dir != wd {
-                        fmt.Fprintf(os.Stderr, "smart: diverged `%s` `%s`\n", wd, workstack[l-1].dir)
+func enterWorkdir(prog *Program, print bool) (wi *workinfo) {
+        var (
+                project = prog.project
+                l = len(workstack)
+        )
+        if l == 0 {
+                var main = prog.context.Globe().Main()
+                // Push the initial work record. 
+                workstack, l = append(workstack, &workinfo{ main, false }), 1
+                if trace_workdir {
+                        fmt.Printf("entering: %v (init: %v)\n", project.AbsPath(), main.AbsPath())
                 }
-                if print {
+        }
+        if wd, err := os.Getwd(); err == nil {
+                if s := workstack[l-1].project.AbsPath(); s != wd {
+                        fmt.Fprintf(os.Stderr, "smart: diverged `%s` `%s`\n", wd, s)
+                }
+                if print = print && !prog.hasCDDash(); print {
                         for i := l-1; i > -1; i-- {
-                                if w := workstack[i]; w.dir == dir {
+                                if w := workstack[i]; w.project.AbsPath() == project.AbsPath() {
                                         if w.print || i == 0 {
                                                 print = false
                                                 break
@@ -49,13 +59,14 @@ func enterWorkdir(dir string, print bool) (wi *workinfo) {
                         }
                 }
                 if print {
-                        fmt.Printf("smart: Entering directory '%s'\n", dir)
+                        fmt.Printf("smart: Entering directory '%s'\n", project.AbsPath())
                 }
-                if err := os.Chdir(dir); err == nil {
-                        wi = &workinfo{
-                                dir: dir,
-                                print: print,
-                        }
+                if trace_workdir {
+                        fmt.Printf("entering: %v (%v)\n", project.AbsPath(), print)
+                }
+                if err := os.Chdir(project.AbsPath()); err == nil {
+                        prog.auto(theCurrWorkDirDef, project.AbsPath())
+                        wi = &workinfo{ project, print }
                         workstack = append(workstack, wi)
                 } else {
                         fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
@@ -70,7 +81,7 @@ func leaveWorkdir(wi *workinfo) {
         // Note that 0 < n, as the first record should not be removed.
         if n := len(workstack)-1; 0 < n && workstack[n] == wi {
                 if wi.print {
-                        fmt.Printf("smart:  Leaving directory '%s'\n", wi.dir)
+                        fmt.Printf("smart:  Leaving directory '%s'\n", wi.project.AbsPath())
                 }
 
                 // Pop out the top record.
@@ -78,7 +89,7 @@ func leaveWorkdir(wi *workinfo) {
 
                 // Go back to previous dir.
                 if n--; 0 <= n && n < len(workstack) {
-                        if err := os.Chdir(workstack[n].dir); err != nil {
+                        if err := os.Chdir(workstack[n].project.AbsPath()); err != nil {
                                 fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
                         }
                 } else {
@@ -90,7 +101,7 @@ func leaveWorkdir(wi *workinfo) {
 // Program (TODO: moving program into `types` package)
 type Program struct {
         context *Context
-        project  *types.Project
+        project *types.Project
         scope   *types.Scope
         params  []string // named parameters
         depends []types.Value // *types.RuleEntry, *types.Barefile
@@ -172,10 +183,6 @@ func (prog *Program) modify(g *types.Group, out *types.Def) (dialect string, err
         return
 }
 
-func (prog *Program) Getwd() string {
-        return filepath.Clean(prog.project.AbsPath())
-}
-
 func (prog *Program) hasCDDash() (res bool) {
         for _, p := range prog.pipline {
                 if g, _ := p.(*types.Group); g != nil {
@@ -188,14 +195,10 @@ func (prog *Program) hasCDDash() (res bool) {
 }
 
 func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
-        if workdir := prog.Getwd(); workdir != "" {
-                var printCD = entry.Class() != types.UseRuleEntry && !prog.hasCDDash()
-                defer leaveWorkdir(enterWorkdir(workdir, printCD))
-                prog.auto(theCurrWorkDirDef, workdir)
-        }
+        defer leaveWorkdir(enterWorkdir(prog, entry.Class() != types.UseRuleEntry))
 
         if false {
-                fmt.Printf("Program.Execute: %v %v\n", entry, prog.depends)
+                fmt.Printf("program.Execute: %v %v (%v)\n", entry, prog.depends, prog.project.AbsPath())
         }
 
         var argn = 0
