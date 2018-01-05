@@ -109,7 +109,6 @@ func DecodeXML(source string, ws bool) (result types.Value, err error) {
 }
 
 type dialectXml struct {
-        types.PolyInterpreter
         whitespace bool
 }
 

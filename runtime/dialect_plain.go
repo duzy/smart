@@ -11,7 +11,6 @@ import (
 )
 
 type dialectPlain struct {
-        types.PolyInterpreter
 }
 
 func (t *dialectPlain) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {

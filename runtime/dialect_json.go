@@ -11,9 +11,23 @@ import (
         "github.com/duzy/smart/values"
         "encoding/json"
         "strings"
+        "bytes"
+        "fmt"
         "io"
-        //"fmt"
 )
+
+func joinRecipesString(recipes... types.Value) string {
+        var (
+                x = len(recipes)-1
+                s = new(bytes.Buffer)
+        )
+        for n, recipe := range recipes {
+                if fmt.Fprint(s, recipe.Strval()); n < x {
+                        fmt.Fprint(s, "\n")
+                }
+        }
+        return s.String()
+}
 
 type jsonDecodeState struct {
         dec *json.Decoder
@@ -171,7 +185,6 @@ loop:
 }
 
 type dialectJson struct {
-        types.PolyInterpreter
 }
 
 func (t *dialectJson) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {

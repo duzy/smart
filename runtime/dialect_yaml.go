@@ -20,7 +20,6 @@ func DecodeYAML(source string, ws bool) (result types.Value, err error) {
 }
 
 type dialectYaml struct {
-        types.PolyInterpreter
         whitespace bool
 }
 

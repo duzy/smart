@@ -6,15 +6,7 @@
 
 package types
 
-type InterpretMode int
-
-const (
-        InterpretSingle InterpretMode = 1<<iota
-        InterpretMulti
-)
-
 type Interpreter interface {
-        Mode() InterpretMode
         Evaluate(prog *Program, args []Value, recipes []Value) (Value, error)
 }
 
@@ -37,12 +29,3 @@ func IsDialect(s string) (ok bool) {
         _, ok = dialects[s]
         return
 }
-
-type MonoInterpreter struct {
-}
-
-type PolyInterpreter struct {
-}
-
-func (*MonoInterpreter) Mode() InterpretMode { return InterpretSingle }
-func (*PolyInterpreter) Mode() InterpretMode { return InterpretMulti }

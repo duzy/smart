@@ -16,7 +16,6 @@ import (
 
 // dialectDefault evaluates smart statements
 type dialectDefault struct {
-        types.PolyInterpreter
 }
 
 func (t *dialectDefault) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {

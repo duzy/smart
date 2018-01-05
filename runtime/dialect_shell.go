@@ -28,7 +28,6 @@ func trimRightSpaces(s string) string {
 }
 
 type dialectShell struct {
-        types.MonoInterpreter
         interpreter string // shell interpreter
         xopt string // execute option: -c (sh, python), -e (perl)
 }

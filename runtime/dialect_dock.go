@@ -22,8 +22,8 @@ const (
 )
 
 type dialectDock struct {
-        types.MonoInterpreter
 }
+
 func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
                 return
