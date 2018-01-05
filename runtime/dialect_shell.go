@@ -41,15 +41,15 @@ func isTrueValue(s string) (res bool) {
         return
 }
 
-func (s *dialectShell) dialect() string { return "shell" }
-func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (s *dialectShell) Dialect() string { return "shell" }
+func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
                 return
         }
 
         var (
                 // TODO: parsing envars and status flags from `args'
-                envarsDef, _ = prog.scope.Lookup(theShellEnvarsDef).(*types.Def)
+                envarsDef, _ = prog.Scope().Lookup(types.TheShellEnvarsDef).(*types.Def)
                 exeres = new(types.ExecResult)
                 envars []types.Value // disclosed values
                 source string
@@ -179,4 +179,19 @@ func (s *dialectShell) evaluate(prog *Program, args []types.Value, recipes []typ
         
         result = exeres
         return
+}
+
+func init() {
+        types.RegisterInterpreter("shell", &dialectShell{
+                interpreter: defaultShellInterpreter, // "sh"
+                xopt: "-c",
+        })
+        types.RegisterInterpreter("python", &dialectShell{
+                interpreter: "python",
+                xopt: "-c",
+        })
+        types.RegisterInterpreter("perl", &dialectShell{
+                interpreter: "perl",
+                xopt: "-e",
+        })
 }

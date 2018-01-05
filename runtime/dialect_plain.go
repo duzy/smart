@@ -14,8 +14,8 @@ type dialectPlain struct {
         polyInterpreter
 }
 
-func (t *dialectPlain) dialect() string { return "plain" }
-func (t *dialectPlain) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectPlain) Dialect() string { return "plain" }
+func (t *dialectPlain) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var name string
         if len(args) > 0 {
                 name = args[0].Strval()
@@ -25,4 +25,8 @@ func (t *dialectPlain) evaluate(prog *Program, args []types.Value, recipes []typ
                 name,
         }
         return
+}
+
+func init() {
+        types.RegisterInterpreter("plain", new(dialectPlain))
 }

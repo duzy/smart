@@ -12,27 +12,14 @@ import (
         "fmt"
 )
 
-type interpretMode int
-
-const (
-        interpretSingle interpretMode = 1<<iota
-        interpretMulti
-)
-
-type interpreter interface {
-        dialect() string
-        mode() interpretMode
-        evaluate(prog *Program, args []types.Value, recipes []types.Value) (types.Value, error)
-}
-
 type monoInterpreter struct {
 }
 
 type polyInterpreter struct {
 }
 
-func (*monoInterpreter) mode() interpretMode { return interpretSingle }
-func (*polyInterpreter) mode() interpretMode { return interpretMulti }
+func (*monoInterpreter) Mode() types.InterpretMode { return types.InterpretSingle }
+func (*polyInterpreter) Mode() types.InterpretMode { return types.InterpretMulti }
 
 func joinRecipesString(recipes... types.Value) string {
         var (

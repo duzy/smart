@@ -4,12 +4,11 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package types
 
 import (
         "github.com/duzy/smart/token"
-        "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        //"github.com/duzy/smart/values"
         //"path/filepath"
         "strconv"
         //"strings"
@@ -25,7 +24,7 @@ func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 const trace_workdir = false
 
 type workinfo struct {
-        project *types.Project
+        project *Project
         print bool
 }
 
@@ -65,7 +64,7 @@ func enterWorkdir(prog *Program, print bool) (wi *workinfo) {
                         fmt.Printf("smart: Entering directory '%s'\n", project.AbsPath())
                 }
                 if err := os.Chdir(project.AbsPath()); err == nil {
-                        prog.auto(theCurrWorkDirDef, project.AbsPath())
+                        prog.auto(TheCurrWorkDirDef, &String{project.AbsPath()})
                         wi = &workinfo{ project, print }
                         workstack = append(workstack, wi)
                 } else {
@@ -100,38 +99,37 @@ func leaveWorkdir(wi *workinfo) {
 
 // Program (TODO: moving program into `types` package)
 type Program struct {
-        globe   *types.Globe
-        project *types.Project
-        scope   *types.Scope
-        disctx  *types.Scope
+        globe   *Globe
+        project *Project
+        scope   *Scope
+        disctx  *Scope
         params  []string // named parameters
-        depends []types.Value // *types.RuleEntry, *types.Barefile
-        recipes []types.Value
-        pipline []types.Value
+        depends []Value // *RuleEntry, *Barefile
+        recipes []Value
+        pipline []Value
         position token.Position
 }
 
 func (prog *Program) Params() []string { return prog.params }
-func (prog *Program) Project() *types.Project { return prog.project }
+func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Position() token.Position { return prog.position }
-func (prog *Program) Depends() []types.Value { return prog.depends }
-func (prog *Program) Recipes() []types.Value { return prog.recipes }
-func (prog *Program) Pipeline() []types.Value { return prog.pipline }
-func (prog *Program) Scope() *types.Scope { return prog.scope }
+func (prog *Program) Depends() []Value { return prog.depends }
+func (prog *Program) Recipes() []Value { return prog.recipes }
+func (prog *Program) Pipeline() []Value { return prog.pipline }
+func (prog *Program) Scope() *Scope { return prog.scope }
 
-func (prog *Program) SetContext(scope *types.Scope) (prev *types.Scope) {
+func (prog *Program) SetContext(scope *Scope) (prev *Scope) {
         prev = prog.disctx
         prog.disctx = scope
         return
 }
 
-func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
-        var alt types.Object
-        if auto, alt = prog.scope.InsertDef(prog.project, name, values.Make(value)); alt != nil {
-                //fmt.Printf("auto: %p %T %v\n", prog, sym, sym.Name())
+func (prog *Program) auto(name string, value Value) (auto *Def) {
+        var alt Object
+        if auto, alt = prog.scope.InsertDef(prog.project, name, value); alt != nil {
                 var found = false
-                if auto, found = alt.(*types.Def); found {
-                        auto.Assign(values.Make(value))
+                if auto, found = alt.(*Def); found {
+                        auto.Assign(value)
                 } else {
                         Fail("Name '%v' already taken, not auto (%T)", name, alt)
                 }
@@ -139,35 +137,35 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) discloseRecipes() (recipes []types.Value, err error) {
+func (prog *Program) discloseRecipes() (recipes []Value, err error) {
         context := prog.disctx
         if context == nil {
                 context = prog.Scope()
         }
         for _, recipe := range prog.recipes {
-                if v, e := types.Disclose(context, recipe); e != nil {
+                if v, e := Disclose(context, recipe); e != nil {
                         return nil, e
                 } else if v != nil {
                         recipe = v
                 }
-                recipes = append(recipes, recipe) // types.EvalElems
+                recipes = append(recipes, recipe) // EvalElems
         }
         return
 }
 
-func (prog *Program) interpret(i interpreter, out *types.Def, params []types.Value) (err error) {
+func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err error) {
         var (
-                recipes []types.Value
-                target, value types.Value
+                recipes []Value
+                target, value Value
         )
         if recipes, err = prog.discloseRecipes(); err != nil {
                 return
         }
-        if value, err = i.evaluate(prog, params, recipes); err == nil {
+        if value, err = i.Evaluate(prog, params, recipes); err == nil {
                 if value != nil {
                         out.Assign(value)
                 }
-                def := prog.scope.Lookup("@").(*types.Def)
+                def := prog.scope.Lookup("@").(*Def)
                 if target, err = def.Call(); err == nil {
                         _, _, err = prog.project.UpdateCmdHash(target, recipes)
                 }
@@ -175,7 +173,7 @@ func (prog *Program) interpret(i interpreter, out *types.Def, params []types.Val
         return
 }
 
-func (prog *Program) modify(g *types.Group, out *types.Def) (dialect string, err error) {
+func (prog *Program) modify(g *Group, out *Def) (dialect string, err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -196,7 +194,7 @@ func (prog *Program) modify(g *types.Group, out *types.Def) (dialect string, err
 
 func (prog *Program) hasCDDash() (res bool) {
         for _, p := range prog.pipline {
-                if g, _ := p.(*types.Group); g != nil {
+                if g, _ := p.(*Group); g != nil {
                         if a := g.Elems; len(a) > 1 && a[0].Strval() == "cd" && a[1].Strval() == "-" {
                                 res = true
                         }
@@ -205,8 +203,8 @@ func (prog *Program) hasCDDash() (res bool) {
         return
 }
 
-func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value) (result types.Value, err error) {
-        defer leaveWorkdir(enterWorkdir(prog, entry.Class() != types.UseRuleEntry))
+func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
+        defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
 
         if false {
                 fmt.Printf("program.Execute: %v %v (%v)\n", entry, prog.depends, prog.project.AbsPath())
@@ -215,7 +213,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value) (result
         var argn = 0
         for _, a := range args {
                 switch t := a.(type) {
-                case *types.Pair:
+                case *Pair:
                         prog.auto(t.Key.Strval(), t.Value)
                 default:
                         prog.auto(strconv.Itoa(argn+1), a)
@@ -233,7 +231,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value) (result
         }
 
         // Calculate and prepare depends and files.
-        pc := types.NewPreparer(prog, entry)
+        pc := NewPreparer(prog, entry)
         if err = pc.Prepare(prog.depends); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
@@ -254,7 +252,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value) (result
                 prog.auto("^", pc.Targets())
         }
 
-        var out = prog.auto("-", values.None)
+        var out = prog.auto("-", UniversalNone)
         defer func() { result = out.Value }()
 
         // TODO: define modifiers in a project, e.g.
@@ -265,7 +263,7 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value) (result
         var dialect string
         ForPipeline: for _, v := range prog.pipline {
                 switch op := v.(type) {
-                case *types.Group:
+                case *Group:
                         var lang string
                         if lang, err = prog.modify(op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
@@ -299,14 +297,14 @@ func (prog *Program) Execute(entry *types.RuleEntry, args []types.Value) (result
         return
 }
 
-func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
+func (prog *Program) SetModifiers(modifiers... Value) (err error) {
         prog.pipline = modifiers
         return
 }
 
-func (context *Context) NewProgram(position token.Position, project *types.Project, params []string, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
+func NewProgram(globe *Globe, position token.Position, project *Project, params []string, scope *Scope, depends []Value, recipes... Value) *Program {
         return &Program{
-                globe:    context.globe,
+                globe:    globe,
                 project:  project,
                 scope:    scope,
                 params:   params,
@@ -316,7 +314,7 @@ func (context *Context) NewProgram(position token.Position, project *types.Proje
         }
 }
 
-func dependEquals(a, b types.Value) bool {
+func dependEquals(a, b Value) bool {
         if a == b {
                 return true
         }

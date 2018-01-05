@@ -24,8 +24,8 @@ const (
 type dialectDock struct {
         monoInterpreter
 }
-func (s *dialectDock) dialect() string { return "dock" }
-func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (s *dialectDock) Dialect() string { return "dock" }
+func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
                 return
         }
@@ -67,7 +67,7 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                         _, obj = prog.Scope().Find(DockExecVarName)
                         envars []types.Value // disclosed values
                 )
-                if obj == nil { _, obj = prog.scope.Find(DockExecVarName) }
+                if obj == nil { _, obj = prog.Scope().Find(DockExecVarName) }
                 if obj != nil {
                         if v, e := obj.(types.Caller).Call(); e != nil {
                                 err = e; return
@@ -80,7 +80,7 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                         }
                 }
                 
-                if envarsDef, _ := prog.scope.Lookup(theShellEnvarsDef).(*types.Def); envarsDef != nil {
+                if envarsDef, _ := prog.Scope().Lookup(types.TheShellEnvarsDef).(*types.Def); envarsDef != nil {
                         if l, _ := envarsDef.Value.(*types.List); l != nil {
                                 for _, v := range l.Elems {
                                         if v, err = types.Disclose(prog.Scope(), v); err != nil {
@@ -136,7 +136,7 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
                         a = append(a, v.Strval())
                 }
 
-                wd := prog.scope.Lookup(theCurrWorkDirDef).(*types.Def)
+                wd := prog.Scope().Lookup(types.TheCurrWorkDirDef).(*types.Def)
                 if s := wd.Value.Strval(); s != "" || nocd {
                         if false {
                                 fmt.Printf("dialectDock.evaluate: %s\n", s)
@@ -208,4 +208,8 @@ func (s *dialectDock) evaluate(prog *Program, args []types.Value, recipes []type
         
         result = exeres
         return
+}
+
+func init() {
+        types.RegisterInterpreter("dock", new(dialectDock))
 }

@@ -113,8 +113,8 @@ type dialectXml struct {
         whitespace bool
 }
 
-func (t *dialectXml) dialect() string { return "xml" }
-func (t *dialectXml) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectXml) Dialect() string { return "xml" }
+func (t *dialectXml) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeXML(source, t.whitespace); err == nil {
                 result = &types.XML{ result }
@@ -122,4 +122,10 @@ func (t *dialectXml) evaluate(prog *Program, args []types.Value, recipes []types
                 result = &types.XML{ values.None }
         }
         return
+}
+
+func init() {
+        types.RegisterInterpreter("xml", &dialectXml{
+                whitespace: false,
+        })
 }

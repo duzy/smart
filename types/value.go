@@ -63,7 +63,7 @@ func (*value) Float() float64     { return 0 }
 
 // Preparer prepares prerequisites of targets.
 type Preparer struct {
-        program Program
+        program *Program
         entry *RuleEntry // caller entry
         arguments []Value
         targets *List
@@ -113,7 +113,7 @@ func (pc *Preparer) prepare(value interface{}) (err error) {
 func (pc *Preparer) context() *Scope { return pc.entry.Project().Scope() }
 func (pc *Preparer) Targets() *List { return pc.targets }
 
-func NewPreparer(prog Program, entry *RuleEntry, args... Value) (pc *Preparer) {
+func NewPreparer(prog *Program, entry *RuleEntry, args... Value) (pc *Preparer) {
         var stem string // entry.stem
         if entry.caller != nil {
                 stem = entry.caller.stem

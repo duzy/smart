@@ -117,7 +117,7 @@ func CommandLine() {
         defer func() {
 		if e := recover(); e != nil {
 			// resume same panic if it's not a Failure
-			if failure, ok := e.(*runtime.Failure); !ok {
+			if failure, ok := e.(*types.Failure); !ok {
 				panic(e)
 			} else {
                                 scanner.PrintError(os.Stderr, failure)

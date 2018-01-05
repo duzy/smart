@@ -393,7 +393,7 @@ type RuleEntry struct {
         file *File // For ExplicitFileEntry, StemmedFileEntry
         //stem string // StemmedFileEntry
         caller *Preparer
-        programs []Program
+        programs []*Program
         Creator *PatternEntry
         Position token.Position
 }
@@ -402,7 +402,7 @@ func (entry *RuleEntry) String() string { return fmt.Sprintf("entry %v", entry.n
 func (entry *RuleEntry) Strval() (s string) { return entry.name }
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
-func (entry *RuleEntry) Programs() []Program { return entry.programs }
+func (entry *RuleEntry) Programs() []*Program { return entry.programs }
 func (entry *RuleEntry) Depends() (depends []Value) {
         for _, prog := range entry.programs {
                 depends = append(depends, prog.Depends()...)
@@ -491,7 +491,7 @@ func (entry *RuleEntry) prepare_0(pc *Preparer) (err error) {
                 }
         }
 
-        ForPrograms: for _, prog := range entry.Programs() {
+        ForPrograms: for _, prog := range entry.programs {
                 if prog == pc.program {
                         err = fmt.Errorf("depended on itself")
                         fmt.Fprintf(os.Stdout, "%s: %v\n", prog.Position(), err)
@@ -567,7 +567,7 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         return
 }
 
-func (pc *Preparer) execute(entry *RuleEntry, prog Program) (err error) {
+func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:Execute: %v (%v,%v) (%v) (project %v, %v)\n", entry.name, entry.class, pc.stem, entry.file, pc.entry.project.name, pc.entry)
         }

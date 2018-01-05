@@ -1164,7 +1164,7 @@ func (pc *parseContext) Rule(clause *ast.RuleClause) (parser.RuntimeObj, error) 
 func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, err error) {
 	defer func() {
 		if e := recover(); e != nil {
-                        if fault := runtime.GoFault(e); fault != nil {
+                        if fault := types.GoFault(e); fault != nil {
                                 err = fault
                         } else if err, _ = e.(error); err == nil {
                                 err = fmt.Errorf("%v", e)

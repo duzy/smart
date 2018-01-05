@@ -6,7 +6,7 @@
 package types
 
 import (
-        "github.com/duzy/smart/token"
+        //"github.com/duzy/smart/token"
         "crypto/sha256"
         "path/filepath"
         //"strings"
@@ -19,7 +19,7 @@ import (
 
 type HashBytes [sha256.Size]byte
 
-type Program interface {
+/*type Program interface {
         Execute(entry *RuleEntry, args []Value) (result Value, err error)
         Params() []string // parameter names
         Project() *Project
@@ -29,7 +29,7 @@ type Program interface {
         Pipeline() []Value
         SetContext(scope *Scope) (prev *Scope)
         Scope() *Scope
-}
+}*/
 
 type FileMap struct {
         Pattern string
@@ -282,7 +282,7 @@ func (p *Project) Entry(name string) (entry *RuleEntry, err error) {
         return
 }
 
-func (p *Project) SetProgram(name string, class RuleEntryClass, prog Program) (entry *RuleEntry, err error) {
+func (p *Project) SetProgram(name string, class RuleEntryClass, prog *Program) (entry *RuleEntry, err error) {
         switch class {
         case GeneralRuleEntry:
         case ExplicitFileEntry:
@@ -305,7 +305,7 @@ func (p *Project) SetProgram(name string, class RuleEntryClass, prog Program) (e
         return
 }
 
-func (p *Project) SetPercentPatternProgram(pp *PercentPattern, class RuleEntryClass, prog Program) (patent *PatternEntry, err error) {
+func (p *Project) SetPercentPatternProgram(pp *PercentPattern, class RuleEntryClass, prog *Program) (patent *PatternEntry, err error) {
         switch class {
         case GeneralRuleEntry: class = PatternRuleEntry
         case ExplicitFileEntry: class = StemmedFileEntry

@@ -4,10 +4,9 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package types
 
 import (
-        //"github.com/duzy/smart/token"
         "errors"
         "fmt"
         gort "runtime"

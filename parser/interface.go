@@ -64,9 +64,6 @@ type RuntimeObj ast.Symbol
 type RuntimeContext interface {
         Getwd() string
         
-        IsDialect(s string) bool
-        IsModifier(s string) bool
-
         File(s string) *types.File
         MapFile(pat string, paths []string)
 

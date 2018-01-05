@@ -19,8 +19,8 @@ type dialectDefault struct {
         polyInterpreter
 }
 
-func (t *dialectDefault) dialect() string { return "default" }
-func (t *dialectDefault) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectDefault) Dialect() string { return "default" }
+func (t *dialectDefault) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var list = values.List()
 LoopRecipes:
         for _, recipe := range recipes {
@@ -81,4 +81,8 @@ LoopRecipes:
         }
         //fmt.Printf("statement: %v\n", list)
         return list, err
+}
+
+func init() {
+        types.RegisterInterpreter("", new(dialectDefault))
 }

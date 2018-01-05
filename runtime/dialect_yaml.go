@@ -24,8 +24,8 @@ type dialectYaml struct {
         whitespace bool
 }
 
-func (t *dialectYaml) dialect() string { return "yaml" }
-func (t *dialectYaml) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectYaml) Dialect() string { return "yaml" }
+func (t *dialectYaml) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeYAML(source, t.whitespace); err == nil {
                 result = &types.YAML{ result }
@@ -33,4 +33,9 @@ func (t *dialectYaml) evaluate(prog *Program, args []types.Value, recipes []type
                 result = &types.YAML{ values.None }
         }
         return
+}
+
+func init() {
+        types.RegisterInterpreter("yaml", &dialectYaml{
+        })
 }

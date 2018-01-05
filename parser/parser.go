@@ -1642,14 +1642,14 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                 }
                 goto addModifier
 
-                checkName: if p.runtime.IsDialect(name) {
+                checkName: if types.IsDialect(name) {
                         if dialect == "" {
                                 dialect = name
                         } else {
                                 p.error(pos, "multi-dialect unsupported, already defined '%s'", dialect)
                                 goto next
                         }
-                } else if p.runtime.IsModifier(name) {
+                } else if types.IsModifier(name) {
                         goto addModifier
                 } else {
                         p.error(pos, "No such dialect or modifier `%s'", name)

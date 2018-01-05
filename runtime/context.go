@@ -9,6 +9,7 @@ package runtime
 import (
         "github.com/duzy/smart/values"
         "github.com/duzy/smart/types"
+        "github.com/duzy/smart/token"
         "strings"
         "fmt"
         "os"
@@ -37,6 +38,10 @@ func (ctx *Context) defineBuiltins() {
         }
 }
 
+func (context *Context) NewProgram(position token.Position, project *types.Project, params []string, scope *types.Scope, depends []types.Value, recipes... types.Value) *types.Program {
+        return types.NewProgram(context.globe, position, project, params, scope, depends, recipes...)
+}
+
 func (ctx *Context) Run(targets... string) (err error) {
         var (
                 result []types.Value
@@ -45,7 +50,7 @@ func (ctx *Context) Run(targets... string) (err error) {
         )
 
         if mm == nil {
-                Fail("no targets to update")
+                types.Fail("no targets to update")
         }
 
         if len(targets) == 0 {

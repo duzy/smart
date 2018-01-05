@@ -70,24 +70,24 @@ loop:
                                 break switch1
                         case '}':
                                 if x == 0 {
-                                        err = ErrorIllJson; break loop
+                                        err = types.ErrorIllJson; break loop
                                 }
                                 if k := stack[x-1].Get(0); k == nil || k.Strval() != JsonObject {
-                                        err = ErrorIllJson; break loop
+                                        err = types.ErrorIllJson; break loop
                                 }
                                 stack = stack[0:x-1] // POP
                                 continue loop
                         case ']':
                                 if x == 0 {
-                                        err = ErrorIllJson; break loop
+                                        err = types.ErrorIllJson; break loop
                                 }
                                 if k := stack[x-1].Get(0); k == nil || k.Strval() != JsonArray {
-                                        err = ErrorIllJson; break loop
+                                        err = types.ErrorIllJson; break loop
                                 }
                                 stack = stack[0:x-1] // POP
                                 continue loop
                         default:
-                                err = ErrorIllJson; break loop
+                                err = types.ErrorIllJson; break loop
                         }
                 case string:
                         s := values.String(d)
@@ -101,13 +101,13 @@ loop:
                                 if kind := k.Strval(); kind == JsonArray {
                                         node.Append(s); continue
                                 } else if kind != JsonObject {
-                                        err = ErrorIllJson; break loop
+                                        err = types.ErrorIllJson; break loop
                                 }
                         }
 
                         // Get value token 
                         if !jd.More() {
-                                err = ErrorIllJson; break loop
+                                err = types.ErrorIllJson; break loop
                         } else if v, err = jd.Token(); err != nil {
                                 break loop
                         }
@@ -118,7 +118,7 @@ loop:
                                 switch vd {
                                 case '[': vn = values.Group(values.Bareword(JsonArray))
                                 case '{': vn = values.Group(values.Bareword(JsonObject))
-                                default: err = ErrorIllJson; break loop
+                                default: err = types.ErrorIllJson; break loop
                                 }
                                 stack = append(stack, vn)
                                 node.Append(values.Pair(s, vn))
@@ -129,7 +129,7 @@ loop:
                         case nil: // null
                                 node.Append(values.Pair(s, values.Bareword("null")))
                         default:
-                                err = ErrorIllJson; break loop
+                                err = types.ErrorIllJson; break loop
                         }
                         //fmt.Printf("node: %v\n", node)
                 case float64:
@@ -145,11 +145,11 @@ loop:
                                 node, value = stack[x-1], v
                         }
                 default:
-                        err = ErrorIllJson; break loop
+                        err = types.ErrorIllJson; break loop
                 }
                 if node != nil && value != nil {
                         if k := node.Get(0); k != nil && k.Strval() != JsonArray {
-                                err = ErrorIllJson; break loop
+                                err = types.ErrorIllJson; break loop
                         }
                         node.Append(value)
                 }
@@ -174,8 +174,8 @@ type dialectJson struct {
         polyInterpreter
 }
 
-func (t *dialectJson) dialect() string { return "json" }
-func (t *dialectJson) evaluate(prog *Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectJson) Dialect() string { return "json" }
+func (t *dialectJson) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
         var source = joinRecipesString(recipes...)
         if result, err = DecodeJSON(source); err == nil {
                 result = &types.JSON{ result }
@@ -183,4 +183,8 @@ func (t *dialectJson) evaluate(prog *Program, args []types.Value, recipes []type
                 result = &types.JSON{ values.None }
         }
         return
+}
+
+func init() {
+        types.RegisterInterpreter("json", new(dialectJson))
 }
