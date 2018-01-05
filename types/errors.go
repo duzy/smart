@@ -9,7 +9,7 @@ package types
 import (
         "errors"
         "fmt"
-        gort "runtime"
+        "runtime"
 )
 
 var (
@@ -41,18 +41,18 @@ func Fail(s string, a... interface{}) {
         panic(&Failure{s})
 }
 
-type GortFault struct {
+type RuntimeError struct {
         stack string
 }
 
-func (p *GortFault) Error() string {
+func (p *RuntimeError) Error() string {
         return p.stack
 }
 
-func GoFault(e interface{}) *GortFault {
-        if _, ok := e.(gort.Error); ok {
+func GoFault(e interface{}) *RuntimeError {
+        if _, ok := e.(runtime.Error); ok {
                 s := fmt.Sprintf("%s\n\n%s", e, ParseStack(false))
-                return &GortFault{ s }
+                return &RuntimeError{ s }
         }
         return nil
 }
@@ -62,7 +62,7 @@ func ParseStack(all bool) (s string) {
         // 1. runtime/stack.go
         // 2. runtime/debug/stack.go
         ba := make([]byte, 1<<16)
-        ss := gort.Stack(ba, all)
+        ss := runtime.Stack(ba, all)
         s = string(ba[:ss])
         // TODO: trim off some sys frames
         return
