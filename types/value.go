@@ -20,6 +20,12 @@ import (
         "io"
 )
 
+const (
+        trace_prepare = true
+        lookup_file_one_caller = false
+        lookup_context_one_caller = true
+)
+
 // Value represents a value of a type.
 type Value interface {
         // Type returns the underlying type of the value.
@@ -54,8 +60,6 @@ func (*value) String() string     { return "" }
 func (*value) Strval() string     { return "" }
 func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
-
-const trace_prepare = true
 
 // Preparer prepares prerequisites of targets.
 type Preparer struct {
@@ -351,14 +355,24 @@ func (pc *Preparer) prepareTarget(target string) (err error) {
         }
 
         if caller := pc.entry.caller; caller != nil && tryback {
-                for ; caller != nil; caller = caller.entry.caller {
-                        // Find the last caller.
-                        if caller != pc.entry.caller && caller.entry.project != project {
+                if lookup_file_one_caller {
+                        if caller.entry.project != project {
                                 if trace_prepare {
                                         fmt.Printf("prepare:Target: %v (project %s -> %s)\n",
                                                 target, project.name, caller.entry.project.name)
                                 }
                                 project = caller.entry.project; goto FindTargetEntry
+                        }
+                } else {
+                        for ; caller != nil; caller = caller.entry.caller {
+                                // Find the last caller.
+                                if caller != pc.entry.caller && caller.entry.project != project {
+                                        if trace_prepare {
+                                                fmt.Printf("prepare:Target: %v (project %s -> %s)\n",
+                                                        target, project.name, caller.entry.project.name)
+                                        }
+                                        project = caller.entry.project; goto FindTargetEntry
+                                }
                         }
                 }
                 
@@ -676,14 +690,24 @@ func (p *File) prepare(pc *Preparer) (err error) {
         }
 
         if caller := pc.entry.caller; caller != nil && tryback {
-                for ; caller != nil; caller = caller.entry.caller {
-                        // Find the last caller.
+                if lookup_file_one_caller {
                         if caller != pc.entry.caller && caller.entry.project != project {
                                 if trace_prepare {
                                         fmt.Printf("prepare:File: %v (project %s -> %s, %v)\n",
                                                 p, project.name, caller.entry.project.name, caller.entry)
                                 }
                                 project = caller.entry.project; goto FindFileEntry
+                        }
+                } else {
+                        for ; caller != nil; caller = caller.entry.caller {
+                                // Find the last caller.
+                                if caller != pc.entry.caller && caller.entry.project != project {
+                                        if trace_prepare {
+                                                fmt.Printf("prepare:File: %v (project %s -> %s, %v)\n",
+                                                        p, project.name, caller.entry.project.name, caller.entry)
+                                        }
+                                        project = caller.entry.project; goto FindFileEntry
+                                }
                         }
                 }
         }

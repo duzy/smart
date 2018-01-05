@@ -27,6 +27,7 @@ type Program interface {
         Depends() []Value
         Recipes() []Value
         Pipeline() []Value
+        SetContext(scope *Scope) (prev *Scope)
         Scope() *Scope
 }
 

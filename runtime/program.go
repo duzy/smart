@@ -22,7 +22,7 @@ type dependPatternUnfit struct {
 
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
-const trace_workdir = true
+const trace_workdir = false
 
 type workinfo struct {
         project *types.Project
@@ -37,8 +37,8 @@ func enterWorkdir(prog *Program, print bool) (wi *workinfo) {
                 l = len(workstack)
         )
         if l == 0 {
-                var main = prog.context.Globe().Main()
                 // Push the initial work record. 
+                var main = prog.globe.Main()
                 workstack, l = append(workstack, &workinfo{ main, false }), 1
                 if trace_workdir {
                         fmt.Printf("entering: %v (init: %v)\n", project.AbsPath(), main.AbsPath())
@@ -58,11 +58,11 @@ func enterWorkdir(prog *Program, print bool) (wi *workinfo) {
                                 }
                         }
                 }
-                if print {
-                        fmt.Printf("smart: Entering directory '%s'\n", project.AbsPath())
-                }
                 if trace_workdir {
                         fmt.Printf("entering: %v (%v)\n", project.AbsPath(), print)
+                }
+                if print {
+                        fmt.Printf("smart: Entering directory '%s'\n", project.AbsPath())
                 }
                 if err := os.Chdir(project.AbsPath()); err == nil {
                         prog.auto(theCurrWorkDirDef, project.AbsPath())
@@ -100,9 +100,10 @@ func leaveWorkdir(wi *workinfo) {
 
 // Program (TODO: moving program into `types` package)
 type Program struct {
-        context *Context
+        globe   *types.Globe
         project *types.Project
         scope   *types.Scope
+        disctx  *types.Scope
         params  []string // named parameters
         depends []types.Value // *types.RuleEntry, *types.Barefile
         recipes []types.Value
@@ -118,6 +119,12 @@ func (prog *Program) Recipes() []types.Value { return prog.recipes }
 func (prog *Program) Pipeline() []types.Value { return prog.pipline }
 func (prog *Program) Scope() *types.Scope { return prog.scope }
 
+func (prog *Program) SetContext(scope *types.Scope) (prev *types.Scope) {
+        prev = prog.disctx
+        prog.disctx = scope
+        return
+}
+
 func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         var alt types.Object
         if auto, alt = prog.scope.InsertDef(prog.project, name, values.Make(value)); alt != nil {
@@ -132,7 +139,11 @@ func (prog *Program) auto(name string, value interface{}) (auto *types.Def) {
         return
 }
 
-func (prog *Program) discloseRecipes(context *types.Scope) (recipes []types.Value, err error) {
+func (prog *Program) discloseRecipes() (recipes []types.Value, err error) {
+        context := prog.disctx
+        if context == nil {
+                context = prog.Scope()
+        }
         for _, recipe := range prog.recipes {
                 if v, e := types.Disclose(context, recipe); e != nil {
                         return nil, e
@@ -149,7 +160,7 @@ func (prog *Program) interpret(i interpreter, out *types.Def, params []types.Val
                 recipes []types.Value
                 target, value types.Value
         )
-        if recipes, err = prog.discloseRecipes(prog.Scope()); err != nil {
+        if recipes, err = prog.discloseRecipes(); err != nil {
                 return
         }
         if value, err = i.evaluate(prog, params, recipes); err == nil {
@@ -295,7 +306,7 @@ func (prog *Program) SetModifiers(modifiers... types.Value) (err error) {
 
 func (context *Context) NewProgram(position token.Position, project *types.Project, params []string, scope *types.Scope, depends []types.Value, recipes... types.Value) *Program {
         return &Program{
-                context:  context,
+                globe:    context.globe,
                 project:  project,
                 scope:    scope,
                 params:   params,

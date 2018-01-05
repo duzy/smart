@@ -10,14 +10,12 @@ import (
         "github.com/duzy/smart/values"
         "github.com/duzy/smart/types"
         "strings"
-        "time"
         "fmt"
         "os"
 )
 
 type Context struct {
         globe    *types.Globe
-        outdated map[string]time.Time
         workdir  string
 }
 func (ctx *Context) Getwd() string { return ctx.workdir }
@@ -51,7 +49,6 @@ func (ctx *Context) Run(targets... string) (err error) {
         }
 
         if len(targets) == 0 {
-                ctx.outdated = make(map[string]time.Time)
                 if entry := mm.DefaultEntry(); entry != nil {
                         if result, err = entry.Execute(); err == nil {
                                 updated += 1
@@ -98,7 +95,6 @@ func (ctx *Context) Run(targets... string) (err error) {
                         }
 
                         if entry != nil {
-                                ctx.outdated = make(map[string]time.Time)
                                 var v []types.Value
                                 for _, a := range args {
                                         v = append(v, values.String(a))

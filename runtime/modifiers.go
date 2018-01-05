@@ -277,7 +277,7 @@ func compareTargetDepend(prog *Program, target, depend types.Value, tt time.Time
         //fmt.Printf("compare: %v -> %v (%v)\n", target, depend, prog.context.outdated)
         //fmt.Printf("compare: %v: %v (%T)\n", target, depend, depend)
         if dependFile, okay := depend.(*types.File); okay && dependFile != nil {
-                if t, ok := prog.context.outdated[dependFile.Strval()]; ok && t.After(tt) {
+                if t, ok := prog.globe.Timestamps[dependFile.Strval()]; ok && t.After(tt) {
                         outdated = true; return // target is outdated
                 } else if dependFile.Info == nil {
                         dependFile.Info, _ = os.Stat(dependFile.Strval())
@@ -288,11 +288,11 @@ func compareTargetDepend(prog *Program, target, depend types.Value, tt time.Time
                         return
                 }
                 if t := dependFile.Info.ModTime(); t.After(tt) {
-                        prog.context.outdated[target.Strval()] = t
+                        prog.globe.Timestamps[target.Strval()] = t
                         outdated = true; return // target is outdated
                 } else {
                         var recipes []types.Value
-                        if recipes, err = prog.discloseRecipes(prog.Scope()); err != nil {
+                        if recipes, err = prog.discloseRecipes(); err != nil {
                                 return
                         }
                         if same, e := prog.project.CheckCmdHash(target, recipes); e == nil {

@@ -9,6 +9,7 @@
 package types
 
 import (
+        "time"
         "fmt"
         "os"
 )
@@ -143,11 +144,12 @@ func IsUniverse(scope *Scope) bool {
         return scope == universe
 }
 
-// A Globe represents a global execution context in the Universe. 
+// A Globe represents a global execution context. 
 type Globe struct {
         scope  *Scope
 	unsafe *Project
         main   *Project
+        Timestamps map[string]time.Time
 }
 
 // Scope returns the globe scope.
@@ -198,5 +200,6 @@ func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m
 func NewGlobe(name string) *Globe {
         return &Globe{
                 scope: NewScope(universe, nil, fmt.Sprintf("globe %q", name)),
+                Timestamps: make(map[string]time.Time),
         }
 }

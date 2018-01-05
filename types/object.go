@@ -522,14 +522,19 @@ func (entry *RuleEntry) prepare_0(pc *Preparer) (err error) {
         return
 }
 
+func (entry *RuleEntry) setcaller(pc *Preparer) (prev *Preparer) {
+        prev = entry.caller
+        entry.caller = pc
+        return
+}
+
 func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:RuleEntry: %v (%v,%v) (%v) (project %v, %v)\n", entry.name, entry.class, pc.stem, entry.file, pc.entry.project.name, pc.entry)
         }
 
         // Set prepare context 
-        entry.caller = pc
-        defer func() { entry.caller = nil }()
+        defer entry.setcaller(entry.setcaller(pc))
 
         ForPrograms: for _, prog := range entry.Programs() {
                 if prog == pc.program {
@@ -568,15 +573,44 @@ func (pc *Preparer) execute(entry *RuleEntry, prog Program) (err error) {
         }
 
         var (
-                project = entry.Project()
+                project = entry.project
                 res Value
         )
 
         // Fixes program context if the starting entry and depended entry are
         // in different projects. This ensure disclosures work.
-        if p := pc.entry.Project(); p != project {
-                project = p
+        if lookup_context_one_caller {
+                if caller := pc.entry.caller; caller != nil {
+                        if cp := caller.entry.project; cp != nil && cp != project {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:Execute: %v (context: project %s -> %s)\n",
+                                                entry.name, project.name, cp.name)
+                                }
+                                project = cp
+                        }
+                }
+        } else if !lookup_context_one_caller {
+                // Find the proper caller.
+                ForCallers: for caller := pc.entry.caller; caller != nil; caller = caller.entry.caller {
+                        fmt.Printf("prepare:Execute: %v (%s -> %s)\n",
+                                entry.name, project.name, caller.entry.project.name)
+                        if cp := caller.entry.project; caller != pc.entry.caller && cp != project {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:Execute: %v (context: project %s -> %s)\n",
+                                                entry.name, project.name, cp.name)
+                                }
+                                project = cp; break ForCallers
+                        }
+                }
+        } else if cp := pc.entry.Project(); cp != project {
+                if trace_prepare {
+                        fmt.Printf("prepare:Execute: %v (context: project %s -> %s)\n",
+                                entry.name, project.name, cp.name)
+                }
+                project = cp
         }
+
+        defer prog.SetContext(prog.SetContext(project.Scope()))
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
