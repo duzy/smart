@@ -51,17 +51,18 @@ smart: Entering directory '%s/many/greeting'
 update file 'include/greeting.h' ... (ok)
 test "%s/many/greeting" = "%s/many/greeting"
 test -f include/greeting.h
-gcc -DXXX -Iinclude -std=c++1z -c greeting.cpp -o greeting.o
-ar rvs libgreeting.a greeting.o
-a greeting.o
+update file 'src/greeting.c' ... (ok)
+gcc -DXXX -Iinclude -c -o obj/greeting.o src/greeting.c
+ar rvs libgreeting.a obj/greeting.o
+a - obj/greeting.o
 smart:  Leaving directory '%s/many/greeting'
 update file 'hello.cpp' ... (ok)
 g++ -DXXX -Iinclude -I%s/many/greeting/include -DTEST=1 -std=c++1z -c hello.cpp -o hello.o
-g++ -DTEST=1 -std=c++1z hello.o   -o hello
+g++ -DTEST=1 -std=c++1z -L%s/many/greeting hello.o  -lgreeting -o hello
 ./hello
 Hello World!
 smart:  Leaving directory '%s/many'
-`, wd, wd, wd, wd, wd, wd))
+`, wd, wd, wd, wd, wd, wd, wd, wd))
                         if !bytes.Equal(v, s) { t.Errorf("bad output:\n%s\n%s", v, s) }
 
                         v = []byte(``)
@@ -71,7 +72,8 @@ smart:  Leaving directory '%s/many'
 }
 
 func TestCheckLog2(t *testing.T) {
-        if bv, err := ioutil.ReadFile("2.log"); err != nil { t.Error(err) } else {
-                if !bytes.Equal(bv, nil) { t.Errorf("bad output:\n%s", bv) }
+        if v, err := ioutil.ReadFile("2.log"); err != nil { t.Error(err) } else {
+                s := []byte("ar: creating libgreeting.a\n")
+                if !bytes.Equal(v, s) { t.Errorf("bad output:\n%s\n%s", v, s) }
         }
 }

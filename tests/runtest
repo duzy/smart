@@ -13,8 +13,9 @@ function cleanup() {
        complex/many/hello \
        complex/many/hello.o \
        complex/many/hello.cpp \
-       complex/many/greeting/greeting.o \
-       complex/many/greeting/greeting.c \
+       complex/many/greeting/libgreeting.a \
+       complex/many/greeting/obj/greeting.o \
+       complex/many/greeting/src/greeting.c \
        complex/many/greeting/include/greeting.h \
        disclosure/{1,2}.log \
        disclosure/default/foobar \
