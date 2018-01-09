@@ -657,8 +657,7 @@ func (p *File) prepare(pc *Preparer) error {
         if err, brk := p.search(pc); err != nil || brk {
                 return err
         }
-        
-        return unknownFileError{ fmt.Errorf("unknown file '%v'", p.Name), p }
+        return nil
 }
 
 func (p *File) explicitly(pc *Preparer) (error, bool) {
@@ -705,16 +704,26 @@ func (p *File) implicitly(pc *Preparer) (error, bool) {
 
 func (p *File) search(pc *Preparer) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                if f := project.SearchFile(p.Strval()); f.Info != nil {
+                if p.IsKnown() {
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: %v (known %v) (project %s, %v)\n",
+                                        p.Name, p, project.name, pc.entry)
+                        }
+                        pc.targets.Append(p)
+                        trybrk = true
+                } else if f := project.SearchFile(p.Strval()); !f.IsKnown() {
                         if trace_prepare {
                                 fmt.Printf("prepare:File: exists %v (%v) (project %s, %v)\n",
-                                        p.Name, p, project.name, pc.entry)
+                                        f.Name, f, project.name, pc.entry)
                         }
                         pc.targets.Append(f)
                         trybrk = true
-                } else if trace_prepare {
-                        fmt.Printf("prepare:File: %v (unknown in project %s %s) (%v)\n",
-                                p.Name, project.name, p, pc.entry)
+                } else {
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: %v (%v) (unknown) (project %s, %v)\n",
+                                        p.Name, p.Dir, project.name, pc.entry)
+                        }
+                        err = unknownFileError{ fmt.Errorf("unknown file '%v'", p.Name), p }
                 }
                 return
         })
