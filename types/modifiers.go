@@ -159,14 +159,15 @@ func modifierSetEnv(prog *Program, value Value, args... Value) (result Value, er
 
 func modifierCD(prog *Program, value Value, args... Value) (result Value, err error) {
         if n := len(args); n == 1 {
-                dir := args[0].Strval()
+                var dir = args[0].Strval()
                 if dir == "-" {
-                        if len(workstack) > 2 {
-                                wi := workstack[len(workstack)-3]
-                                dir = wi.project.AbsPath()
-                        } else {
-                                // FIXME: ...
+                        project := prog.caller.program.project
+                        dir = project.AbsPath()
+                        if trace_prepare {
+                                fmt.Printf("prepare:CD: %s (%s) (%s)\n", dir, project.name, prog.project.name)
                         }
+                } else if trace_prepare {
+                        fmt.Printf("prepare:CD: %s (%s)\n", dir, prog.project.name)
                 }
                 if dir != "" {
                         if err = os.Chdir(dir); err == nil {
@@ -201,15 +202,15 @@ func parseDependList(prog *Program, dependList *List) (depends *List, err error)
                         switch d.Class() {
                         case ExplicitFileEntry:
                                 depends.Append(&File{ Name: d.Strval() })
-                        case GeneralRuleEntry, PatternRuleEntry:
+                        case GeneralRuleEntry, GlobRuleEntry:
                                 depends.Append(d)
                         default:
                                 Fail("compare: unsupported entry depend `%v' (%v)", d.Strval(), d.Class())
                         }
                 case *String:
-                        if prog.project.IsFile(d.Strval()) {
+                        /*if prog.project.IsFile(d.Strval()) {
                                 Fail("compare: discarded file depend %v (%T)", depend, depend)
-                        } else {
+                        } else*/ {
                                 depends.Append(d)
                         }
                 case *File:
@@ -326,10 +327,10 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
                 case *File: targetFile = t
                 case *Barefile: targetFile = &File{ Name: t.Strval() }
                 case *RuleEntry:
-                        switch class, s := t.Class(), t.Strval(); class {
+                        switch class, s := t.class, t.Strval(); class {
                         case ExplicitFileEntry, StemmedFileEntry:
-                                targetFile = &File{ Name: s }
-                        default:if p := t.Project(); p != nil {
+                                targetFile = t.file //&File{ Name: s }
+                        default:/*if p := t.Project(); p != nil {
                                 if p.IsFile(s) {
                                         targetFile = &File{ Name: s }
                                 } else {
@@ -337,8 +338,9 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
                                         err = &breaker{ fmt.Sprintf("unknown %v->%v (%v)", p.Name(), s, class), false }
                                         return
                                 }
-                        } else {
-                                err = &breaker{ fmt.Sprintf("unknown entry (%v `%v')", class, s), false }
+                        } else*/ {
+                                err = &breaker{ fmt.Sprintf("unknown entry (%v '%v')", class, s), false }
+                                return
                         }}
                 }
                 if targetFile == nil {

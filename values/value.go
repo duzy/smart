@@ -144,10 +144,10 @@ func Glob(tok token.Token) (v *types.Glob) {
         return &types.Glob{tok}
 }
 
-func PercentPattern(prefix, suffix types.Value) types.Pattern {
+func GlobPattern(prefix, suffix types.Value) types.Pattern {
         if prefix == nil { prefix = None }
         if suffix == nil { suffix = None }
-        return &types.PercentPattern{
+        return &types.GlobPattern{
                 Prefix: prefix,
                 Suffix: suffix,
         }

@@ -187,6 +187,7 @@ type (
                 PosBeg token.Pos
                 Segments []Expr
                 PosEnd token.Pos
+                // TODO: File interface{}
         }
 
         PathSegExpr struct { // '/', '.' (only like './'), '..' (only like './')

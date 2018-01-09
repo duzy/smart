@@ -7,7 +7,7 @@
 package types
 
 import (
-        "path/filepath"
+        //"path/filepath"
         "os/exec"
         "strings"
         "bytes"
@@ -364,18 +364,22 @@ type RuleEntryClass int
 
 const (
         GeneralRuleEntry RuleEntryClass = iota
-        PatternRuleEntry
-        ExplicitFileEntry
-        StemmedFileEntry
+        GlobRuleEntry
+        RegexpRuleEntry
+        StemmedRuleEntry
+        StemmedFileEntry // entry.file determined by PatternStem
+        ExplicitFileEntry // entry.file determined by parser
         UseRuleEntry
 )
 
 var namesForRuleEntryClass = []string{
-        GeneralRuleEntry:     "GeneralRuleEntry",
-        PatternRuleEntry:     "PatternRuleEntry",
-        ExplicitFileEntry:    "ExplicitFileEntry",
-        StemmedFileEntry:     "StemmedFileEntry",
-        UseRuleEntry:         "UseRuleEntry",
+        GeneralRuleEntry:  "GeneralRuleEntry",
+        GlobRuleEntry:     "GlobRuleEntry",
+        RegexpRuleEntry:   "RegexpRuleEntry",
+        StemmedRuleEntry:  "StemmedRuleEntry",
+        StemmedFileEntry:  "StemmedFileEntry",
+        ExplicitFileEntry: "ExplicitFileEntry",
+        UseRuleEntry:      "UseRuleEntry",
 }
 
 func (c RuleEntryClass) String() string {
@@ -391,10 +395,10 @@ type RuleEntry struct {
         object
         class RuleEntryClass
         file *File // For ExplicitFileEntry, StemmedFileEntry
-        //stem string // StemmedFileEntry
+        stem string // For StemmedRuleEntry, StemmedFileEntry
         caller *Preparer
         programs []*Program
-        Creator *PatternEntry
+        //creator *PatternEntry
         Position token.Position
 }
 
@@ -414,10 +418,19 @@ func (entry *RuleEntry) IsFile() bool {
         return entry.class == ExplicitFileEntry || entry.class == StemmedFileEntry;
 }
 
+func (entry *RuleEntry) SetExplicitFile(file *File) (prev *File) {
+        prev = entry.file
+        if !file.IsKnown() {
+                file.Dir = entry.project.AbsPath()
+        }
+        entry.class, entry.file = ExplicitFileEntry, file
+        return
+}
+
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
 func (entry *RuleEntry) Execute(a... Value) (result []Value, err error) {
-        if entry.class == PatternRuleEntry || entry.class == StemmedFileEntry {
+        if entry.class == GlobRuleEntry || entry.class == StemmedFileEntry {
                 return nil, fmt.Errorf("Calling pattern entry '%s'.", entry.Name())
         }
         for _, program := range entry.programs {
@@ -439,89 +452,6 @@ func (entry *RuleEntry) Get(name string) (Value, error) {
         return nil, fmt.Errorf("no such entry property (%s)", name)
 }
 
-func (entry *RuleEntry) prepare_0(pc *Preparer) (err error) {
-        if trace_prepare {
-                fmt.Printf("prepare:RuleEntry: %v (%v) (%v)\n", entry, entry.class, pc.entry)
-        }
-
-        if entry.Programs() == nil {
-                switch entry.class {
-                case ExplicitFileEntry:
-                        err = pc.prepareTarget(entry.name)
-                case StemmedFileEntry:
-                        // A pattern entry without program can't
-                        // help to update the file.
-                        err = fmt.Errorf("No rule to make file `%v'", entry)
-                default:
-                        err = fmt.Errorf("%v: `%v' requies update actions (%v)\n", pc.entry, entry, entry.class)
-                }
-                return
-        }
-
-        if entry.class == StemmedFileEntry {
-                // Delegate missing pattern file entry
-                var fi, _ = os.Stat(entry.name)
-                if fi != nil {
-                        goto ForPrograms 
-                }
-                if _, obj := pc.context().Find(entry.name); obj == nil {
-                        var _, obj = pc.context().Find("/")
-                        if def, _ := obj.(*Def); def != nil && !filepath.IsAbs(entry.name) {
-                                f := filepath.Join(def.Value.Strval(), entry.name)
-                                if fi, _ = os.Stat(f); fi != nil {
-                                        if trace_prepare {
-                                                fmt.Printf("prepare:RuleEntry: %v -> %v\n", entry.name, f)
-                                        }
-                                        // It's fine to reset entry fields directly,
-                                        // because a stemmed entry is just temporary.
-                                        // TODO: entry.project = obj.Project()
-                                        entry.parent = obj.Parent()
-                                        entry.name = f
-                                }
-                        }
-                } else if other, ok := obj.(*RuleEntry); ok && other != nil {
-                        if trace_prepare {
-                                fmt.Printf("prepare:RuleEntry: %v -> %v (%v)\n", entry, other, other.class)
-                        }
-                        err = other.prepare(pc)
-                        return
-                } else {
-                        err = fmt.Errorf("No file %v\n", entry.name)
-                        return
-                }
-        }
-
-        ForPrograms: for _, prog := range entry.programs {
-                if prog == pc.program {
-                        err = fmt.Errorf("depended on itself")
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                        break ForPrograms
-                }
-                if err = pc.execute(entry, prog); err == nil {
-                        break ForPrograms
-                } else if _, ok := err.(unknownTargetError); ok {
-                        //if pc.file != nil {
-                        //        fmt.Printf("prepare:RuleEntry: %v (%v) (FIXME: unknown %v) (%v)\n", entry, pc.file.Name, ute.target, pc.entry)
-                        //}
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                        break ForPrograms
-                } else {
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                        if entry.class == StemmedFileEntry {
-                                if false {
-                                        wd, _ := os.Getwd()
-                                        fmt.Printf("workdir: %v\n", wd)
-                                        fmt.Printf("context: %v\n", pc.context)
-                                }
-
-                                // Don't try other programs if it's pattern.
-                                break ForPrograms
-                        }
-                }
-        }
-        return
-}
-
 func (entry *RuleEntry) setcaller(pc *Preparer) (prev *Preparer) {
         prev = entry.caller
         entry.caller = pc
@@ -530,7 +460,18 @@ func (entry *RuleEntry) setcaller(pc *Preparer) (prev *Preparer) {
 
 func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:RuleEntry: %v (%v,%v) (%v) (project %v, %v)\n", entry.name, entry.class, pc.stem, entry.file, pc.entry.project.name, pc.entry)
+                switch entry.class {
+                case GeneralRuleEntry:
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (project %v, %v)\n", entry.name, entry.class, pc.entry.project.name, pc.entry)
+                case ExplicitFileEntry:
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.entry.project.name, pc.entry)
+                case StemmedFileEntry:
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v, stem=%v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                case StemmedRuleEntry:
+                        fmt.Printf("prepare:RuleEntry: %v (%v, stem=%v) (project %v, %v)\n", entry.name, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                default:
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (project %v, %v)\n", entry.name, entry.class, pc.entry.project.name, pc.entry)
+                }
         }
 
         // Set prepare context 
@@ -569,7 +510,7 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
 
 func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:Execute: %v (%v,%v) (%v) (project %v, %v)\n", entry.name, entry.class, pc.stem, entry.file, pc.entry.project.name, pc.entry)
+                fmt.Printf("prepare:Execute: %v (%v) (%v, %v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.stem, pc.entry.project.name, pc.entry)
         }
 
         var (
@@ -579,44 +520,44 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
 
         // Fixes program context if the starting entry and depended entry are
         // in different projects. This ensure disclosures work.
-        if lookup_context_one_caller {
+        if true {
                 if caller := pc.entry.caller; caller != nil {
-                        if cp := caller.entry.project; cp != nil && cp != project {
+                        if caller.entry.project != project {
                                 if trace_prepare {
-                                        fmt.Printf("prepare:Execute: %v (context: project %s -> %s)\n",
-                                                entry.name, project.name, cp.name)
+                                        fmt.Printf("prepare:Execute: %v (%v) (context: project %s -> %s)\n",
+                                                entry.name, entry.file, caller.entry.project.name, project.name)
                                 }
-                                project = cp
+                                project = caller.entry.project
                         }
                 }
-        } else if !lookup_context_one_caller {
+        } else {
                 // Find the proper caller.
                 ForCallers: for caller := pc.entry.caller; caller != nil; caller = caller.entry.caller {
                         fmt.Printf("prepare:Execute: %v (%s -> %s)\n",
                                 entry.name, project.name, caller.entry.project.name)
-                        if cp := caller.entry.project; caller != pc.entry.caller && cp != project {
+                        if caller.entry.project != project {
                                 if trace_prepare {
-                                        fmt.Printf("prepare:Execute: %v (context: project %s -> %s)\n",
-                                                entry.name, project.name, cp.name)
+                                        fmt.Printf("prepare:Execute: %v (%v) (context: project %s -> %s)\n",
+                                                entry.name, entry.file, caller.entry.project.name, project.name)
                                 }
-                                project = cp; break ForCallers
+                                project = caller.entry.project
+                                break ForCallers
                         }
                 }
-        } else if cp := pc.entry.Project(); cp != project {
-                if trace_prepare {
-                        fmt.Printf("prepare:Execute: %v (context: project %s -> %s)\n",
-                                entry.name, project.name, cp.name)
-                }
-                project = cp
         }
 
-        defer prog.setctx(prog.setctx(project.Scope()))
+        defer prog.setctx(prog.setctx(pc, project.scope))
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
-                switch dd, _ := prog.Scope().Lookup("@").(*Def).Call(); entry.class {
+                switch dd, _ := prog.scope.Lookup("@").(*Def).Call(); entry.class {
                 case ExplicitFileEntry, StemmedFileEntry:
+                        if trace_prepare {
+                                fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
+                                        entry.name, entry.class, dd, dd, entry.file, pc.entry)
+                        }
                         if file, _ := dd.(*File); file != nil {
+                                // TODO: assert(file == entry.file)
                                 pc.targets.Append(file)
                         } else {
                                 pc.targets.Append(project.SearchFile(dd.Strval()))
@@ -635,19 +576,6 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                                 }
                         }
                 }
-        } else if ute, ok := err.(unknownTargetError); ok {
-                /*if entry.class == StemmedFileEntry {
-                        if pc.file == nil {
-                                fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                                return
-                        }
-                }
-                if pc.file != nil {
-                        fmt.Printf("prepare:Execute: %v (%v) (FIXME: unknown %v %v) (%v)\n", entry, entry.class, pc.file.Name, ute.target, pc.entry)
-                } else {
-                        fmt.Printf("prepare:Execute: %v (%v) (FIXME: unknown %v) (%v)\n", entry, entry.class, ute.target, pc.entry)
-                }*/
-                fmt.Printf("prepare:Execute: %v (%v) (FIXME: unknown %v) (%v)\n", entry, entry.class, ute.target, pc.entry)
         } else if trace_prepare {
                 fmt.Printf("prepare:Execute: %v (err: %v) (%v)\n", entry, err, pc.entry)
         }
@@ -661,7 +589,7 @@ type PatternEntry struct {
 
 func (p *PatternEntry) MakeConcreteEntry(stem string) (entry *RuleEntry, err error) {
         if entry, err = p.Pattern.MakeConcreteEntry(p.RuleEntry, stem); err == nil && entry != nil {
-                entry.Creator = p
+                // entry.creator = p
         }
         return
 }
@@ -676,7 +604,7 @@ func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name stri
                                 typ:     RuleEntryType,
                                 ord:     0,
                         },
-                        kind, nil, nil, nil, nil,
+                        kind, nil, "", nil, nil, //nil,
                         token.Position{},
                 }
                 scope.replace(name, entry)

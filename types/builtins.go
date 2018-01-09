@@ -295,7 +295,7 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
                 f := func(v Value) bool {
                         for _, pat := range pats {
                                 switch p := pat.(type) {
-                                case *PercentPattern:
+                                case *GlobPattern:
                                         if m, s := p.Match(v.Strval()); m && s != "" {
                                                 //fmt.Printf("match: %v: %v (%v)\n", m, s, v)
                                                 return true
@@ -352,11 +352,11 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
                                 s string // stemp
                                 m bool // matched
                         )
-                        if pat, _ := args[0].(*PercentPattern); pat != nil {
+                        if pat, _ := args[0].(*GlobPattern); pat != nil {
                                 m, s = pat.Match(arg.Strval())
                         } else if l, _ := args[0].(*List); l != nil {
                                 for _, elem := range l.Elems {
-                                        if pat, _ := elem.(*PercentPattern); pat != nil {
+                                        if pat, _ := elem.(*GlobPattern); pat != nil {
                                                 m, s = pat.Match(arg.Strval())
                                                 if m && s != "" {
                                                         break
@@ -366,12 +366,12 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
                         }
 
                         if m && s != "" {
-                                if rep, ok := args[1].(*PercentPattern); ok {
+                                if rep, ok := args[1].(*GlobPattern); ok {
                                         s = rep.Prefix.Strval() + s + rep.Suffix.Strval()
                                 } else if l, _ := args[1].(*List); l != nil {
                                         var str = s
                                         for _, elem := range l.Elems {
-                                                if rep, _ := elem.(*PercentPattern); rep != nil {
+                                                if rep, _ := elem.(*GlobPattern); rep != nil {
                                                         str = rep.Prefix.Strval() + str + rep.Suffix.Strval()
                                                         break
                                                 }

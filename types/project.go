@@ -146,7 +146,7 @@ func (p *Project) SearchFile(filename string) *File {
         return file
 }
 
-func (p *Project) IsFile(s string) (v bool) {
+func (p *Project) isFile(s string) (v bool) {
         if len(s) > 0 {
                 for _, filemap := range p.filemap {
                         if filemap.Match(s) {
@@ -154,11 +154,16 @@ func (p *Project) IsFile(s string) (v bool) {
                         }
                 }
                 for _, base := range p.bases {
-                        if v = base.IsFile(s); v {
+                        if v = base.isFile(s); v {
                                 return
                         }
                 }
         }
+        return
+}
+
+func (p *Project) ToFile(s string) (file *File) {
+        if p.isFile(s) { file = p.SearchFile(s) }
         return
 }
 
@@ -188,8 +193,10 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 if ps.file != nil {
                         fmt.Printf("prepare:PatternStem: %v (file: %v) (project %v, %v)\n", ps, ps.file, pc.entry.project.name, pc.entry)
-                } else {
+                } else if ps.source != "" {
                         fmt.Printf("prepare:PatternStem: %v (source: %v) (project %v, %v)\n", ps, ps.source, pc.entry.project.name, pc.entry)
+                } else {
+                        fmt.Printf("prepare:PatternStem: %v (project %v, %v)\n", ps, pc.entry.project.name, pc.entry)
                 }
         }
         
@@ -212,18 +219,38 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         }
 
         // Try preparing target with all stems.
-        for i, stem := range stems {
+        ForStems: for i, stem := range stems {
                 if entry, err = ps.Patent.MakeConcreteEntry(stem); err != nil {
                         return
                 } else if trace_prepare {
-                        fmt.Printf("prepare:PatternStem: %v (stems[%d/%d]: %v) (project %v, %v)\n", ps, i, len(stems), stem, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:PatternStem: %v (stems[%d/%d]: %v) (file: %v) (%v) (project %v, %v)\n", ps, i, len(stems), stem, ps.file, entry.class, pc.entry.project.name, pc.entry)
                 }
-                
+
+                if entry.class == StemmedFileEntry && ps.file == nil {
+                        project := pc.program.project
+                        if pc.program.hasCDDash() {
+                                project = pc.program.caller.program.project
+                        }
+                        var file = project.SearchFile(entry.name)
+                        if !file.IsKnown() {
+                                file.Dir = project.AbsPath()
+                        }
+                        if trace_prepare {
+                                fmt.Printf("prepare:PatternStem: %v (stems[%d/%d]: %v) (file: %v) (%v)\n", ps, i, len(stems), stem, file, project.name)
+                        }
+                        if false {
+                                if err = file.prepare(pc); err == nil {
+                                        break ForStems
+                                }
+                        } else {
+                                ps.file = file
+                        }
+                }
+
                 // Set stem for the current preparation.
-                //pc.stem, entry.stem, entry.file = stem, stem, ps.file
-                pc.stem, entry.file = stem, ps.file
+                pc.stem, entry.stem, entry.file = stem, stem, ps.file
                 if err = entry.prepare(pc); err == nil {
-                        // Good!
+                        break ForStems // Good!
                 } else if ute, ok := err.(unknownTargetError); ok {
                         fmt.Printf("prepare:PatternStem: FIXME: unknown target %v (%v)\n", ute.target, pc.entry)
                 } else if ufe, ok := err.(unknownFileError); ok {
@@ -293,9 +320,9 @@ func (p *Project) SetProgram(name string, class RuleEntryClass, prog *Program) (
         return
 }
 
-func (p *Project) SetPercentPatternProgram(pp *PercentPattern, class RuleEntryClass, prog *Program) (patent *PatternEntry, err error) {
+func (p *Project) SetGlobPatternProgram(pp *GlobPattern, class RuleEntryClass, prog *Program) (patent *PatternEntry, err error) {
         switch class {
-        case GeneralRuleEntry: class = PatternRuleEntry
+        case GeneralRuleEntry: class = GlobRuleEntry
         case ExplicitFileEntry: class = StemmedFileEntry
         default:
                 err = errors.New(fmt.Sprintf("Invalid pattern class `%v' (%v).\n", class, p))

@@ -1750,16 +1750,29 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 }
 
                 // Guessing target entry class, e.g. general, file, etc.
-                var class = tarent.Class()
-                switch target.(type) {
-                case *ast.Barefile, *ast.PathExpr, *ast.PathSegExpr:
-                        class = types.ExplicitFileEntry
-                case *ast.Bareword:
-                        if file := p.runtime.File(name); file != nil && file.IsKnown() {
-                                class = types.ExplicitFileEntry
+                switch t := target.(type) {
+                case *ast.Barefile:
+                        if file, _ := t.File.(*types.File); file != nil {
+                                tarent.SetExplicitFile(file)
+                        } else {
+                                p.error(target.Pos(), "Unknown file.")
+                        }
+                case *ast.PathExpr:
+                        /*if file, _ := t.File.(*types.File); file != nil {
+                                tarent.SetExplicitFile(file)
+                        } else {
+                                p.error(target.Pos(), "Unknown file.")
+                        }*/
+                        p.warn(target.Pos(), "TODO: target '%v'", t)
+                case *ast.Bareword, *ast.Barecomp:
+                        if isUseRule {
+                                tarent.SetClass(types.UseRuleEntry)
+                        } else {
+                                if file := p.runtime.File(name); file != nil {
+                                        tarent.SetExplicitFile(file)
+                                }
                         }
                 }
-                tarent.SetClass(class)
                 entries = append(entries, tarent)
 
                 if scopeComment != "" {

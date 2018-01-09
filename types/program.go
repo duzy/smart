@@ -103,6 +103,7 @@ type Program struct {
         project *Project
         scope   *Scope
         disctx  *Scope
+        caller  *Preparer
         params  []string // named parameters
         depends []Value // *RuleEntry, *Barefile
         recipes []Value
@@ -112,9 +113,9 @@ type Program struct {
 
 func (prog *Program) Scope() *Scope { return prog.scope }
 
-func (prog *Program) setctx(scope *Scope) (prev *Scope) {
-        prev = prog.disctx
-        prog.disctx = scope
+func (prog *Program) setctx(pc *Preparer, ctx *Scope) (pc0 *Preparer, ctx0 *Scope) {
+        pc0, ctx0 = prog.caller, prog.disctx
+        prog.caller, prog.disctx = pc, ctx
         return
 }
 
@@ -200,8 +201,8 @@ func (prog *Program) hasCDDash() (res bool) {
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
         defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
 
-        if false {
-                fmt.Printf("program.Execute: %v %v (%v)\n", entry, prog.depends, prog.project.AbsPath())
+        if trace_prepare {
+                fmt.Printf("program.Execute: %v (%v) (%v) (%v) (%v)\n", entry.name, entry.file, entry, prog.depends, prog.project.AbsPath())
         }
 
         var argn = 0
@@ -218,9 +219,20 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        if s := entry.Name(); prog.project.IsFile(s) {
-                prog.auto("@", prog.project.SearchFile(s))
-        } else {
+        switch entry.class {
+        case ExplicitFileEntry, StemmedFileEntry:
+                if entry.file != nil {
+                        prog.auto("@", entry.file)
+                } else {
+                        // prog.auto("@", prog.project.SearchFile(entry.name))
+                        if trace_prepare {
+                                fmt.Printf("program.Execute: %v (unknown) (%v)\n", entry.name, entry.class)
+                        }
+                        err = fmt.Errorf("unknown file '%v'", entry.name)
+                        fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
+                        return
+                }
+        default:
                 prog.auto("@", entry)
         }
 
@@ -248,6 +260,14 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         var out = prog.auto("-", UniversalNone)
         defer func() { result = out.Value }()
+
+        // Chdir again to ensure workdir was not changed by preparation.
+        if false {
+                if err = os.Chdir(prog.project.AbsPath()); err != nil {
+                        fmt.Printf("smart: Chdir '%s'\n", prog.project.AbsPath())
+                        return
+                }
+        }
 
         // TODO: define modifiers in a project, e.g.
         // 

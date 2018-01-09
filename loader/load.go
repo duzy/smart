@@ -441,7 +441,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 } else if b, err = l.expr(x.Y); err != nil { // b can be nil
                         return
                 } else {
-                        v = values.PercentPattern(a, b)
+                        v = values.GlobPattern(a, b)
                 }
         case *ast.RecipeDefineClause:
                 //fmt.Printf("RecipeDefineClause: %s: %T %v\n", l.project.Name(), x.Sym, x.Sym)
@@ -754,13 +754,13 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
                                 err = fmt.Errorf("mixes 'use' and normal targets")
                                 return
                         }
-                } else if l.project.IsFile(name) {
+                }/* else if l.project.IsFile(name) {
                         class = types.ExplicitFileEntry
-                }
+                }*/
                 
                 switch namv := target.(type) {
-                case *types.PercentPattern:
-                        l.project.SetPercentPatternProgram(namv, class, prog)
+                case *types.GlobPattern:
+                        l.project.SetGlobPatternProgram(namv, class, prog)
                 default:
                         if _, err = l.project.SetProgram(name, class, prog); err != nil {
                                 return
@@ -1064,8 +1064,8 @@ func (pc *parseContext) MapFile(pat string, paths []string) {
 }
 
 func (pc *parseContext) File(s string) (f *types.File) {
-        if pc.project != nil && pc.project.IsFile(s) {
-                f = pc.project.SearchFile(s)
+        if pc.project != nil {
+                f = pc.project.ToFile(s)
         }
         return
 }
