@@ -5,6 +5,7 @@ package smartest
 
 import (
         "testing"
+        "os"
 )
 
 func TestCheckCleanTest(t *testing.T) {
