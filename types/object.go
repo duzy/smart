@@ -494,12 +494,6 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                 } else {
                         fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         if entry.class == StemmedFileEntry {
-                                if false {
-                                        wd, _ := os.Getwd()
-                                        fmt.Printf("workdir: %v\n", wd)
-                                        fmt.Printf("context: %v\n", pc.context)
-                                }
-
                                 // Don't try other programs if it's pattern.
                                 break ForPrograms
                         }

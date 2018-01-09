@@ -139,7 +139,7 @@ func modifierSetArgs(prog *Program, value Value, args... Value) (result Value, e
 }
 
 func modifierSetEnv(prog *Program, value Value, args... Value) (result Value, err error) {
-        if args, err = JoinEval(prog.Scope(), args...); err != nil {
+        if args, err = JoinEval(prog.scope, args...); err != nil {
                 return
         }
         var envars = new(List)
@@ -402,7 +402,7 @@ func modifierGrepDependents(prog *Program, value Value, args... Value) (result V
 
         if len(args) == 0 {
                 return nil, errors.New("No arguments provided.")
-        } else if args, err = JoinEval(prog.Scope(), args...); err != nil {
+        } else if args, err = JoinEval(prog.scope, args...); err != nil {
                 return
         }
 

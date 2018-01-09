@@ -107,7 +107,13 @@ func (pc *Preparer) prepare(value interface{}) (err error) {
         return
 }
 
-func (pc *Preparer) context() *Scope { return pc.entry.Project().Scope() }
+func (pc *Preparer) disctx() (context *Scope) {
+        if context = pc.program.disctx; context == nil {
+                context = pc.program.scope //pc.program.project.scope
+        }
+        return
+}
+
 func (pc *Preparer) Targets() *List { return pc.targets }
 
 func (pc *Preparer) forEachExternalCaller(f func (*Project) (bool, error)) (err error, brk bool) {
@@ -314,7 +320,7 @@ func (p *Bareword) prepare(pc *Preparer) error {
 }
 
 func (pc *Preparer) prepareTargetValue(value Value) error {
-        if v, e := value.disclose(pc.context()); e != nil {
+        if v, e := value.disclose(pc.disctx()); e != nil {
                 return e
         } else {
                 if v == nil { v = value }
@@ -1104,7 +1110,7 @@ func (p *closure) prepare(pc *Preparer) (err error) {
                 fmt.Printf("prepare:closure: %v (%v)\n", p, pc.entry)
 
         }
-        if v, e := p.disclose(pc.context()); e != nil {
+        if v, e := p.disclose(pc.disctx()); e != nil {
                 err = e
         } else if v == nil {
                 err = fmt.Errorf("preparing nil closure (%v)", p)

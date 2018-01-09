@@ -135,7 +135,7 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
 func (prog *Program) discloseRecipes() (recipes []Value, err error) {
         context := prog.disctx
         if context == nil {
-                context = prog.Scope()
+                context = prog.scope
         }
         for _, recipe := range prog.recipes {
                 if v, e := Disclose(context, recipe); e != nil {
