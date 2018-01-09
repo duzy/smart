@@ -1,5 +1,5 @@
 //
-//  Copyright (C) 2012-2016, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Copyright (C) 2012-2018, Duzy Chan <code@duzy.info>, all rights reserverd.
 //
 package main
 

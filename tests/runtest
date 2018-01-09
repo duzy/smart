@@ -33,8 +33,8 @@ function cleanup() {
 }
 
 function run() {
-    test -s run || ln -s ../../run
-    ./run 1>1.log 2>2.log
+    local s="$(dirname $(dirname $PWD))/modules"
+    (exec -a test go run ../run.go $s 1>1.log 2>2.log)
 }
 
 function runtestcase() {

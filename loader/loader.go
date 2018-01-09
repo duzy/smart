@@ -110,7 +110,109 @@ func AddSearchPaths(paths... string) (err error) {
                         return errors.New(fmt.Sprintf("path '%s' is not dir", s))
                 }
         }
-        return nil
+        return
+}
+
+func LoadWork() (l *Loader, targets []string) {
+        l = New()
+        
+        var (
+                base, _ = os.Getwd()
+                rel, _ = filepath.Rel(base, base)
+                sp = filepath.Join(base, ".smart", "modules")
+
+                at = l.Globe().NewProject(nil, base, rel, ".", "@")
+                as = at.Scope()
+        )
+
+        if _, obj := as.Find("SMART"); obj != nil {
+                def := obj.(*types.Def)
+                for _, s := range globalPaths {
+                        def.Append(values.String("-search"))
+                        def.Append(values.String(s))
+                }
+        }
+
+        if _, e := os.Stat(sp); e == nil {
+                l.AddSearchPaths(sp)
+        }
+
+        //absDir, baseName := filepath.Split(at.AbsPath())
+        saveLoadingInfo(l, at.Spec(), at.AbsPath(), "")
+        linfo := l.loads[len(l.loads)-1]
+        linfo.declares[at.Name()] = &declare{ project: at }
+
+        for _, a := range flag.Args() {
+                if i := strings.Index(a, "="); 0 <= i {
+                        var (
+                                name = strings.TrimSpace(a[0:i])
+                                v = strings.TrimSpace(a[i+1:])
+                        )
+                        if name == "" {
+                                fmt.Fprintf(os.Stderr, "ERROR: bad argument '%v'\n", a)
+                                return
+                        }
+                        as.InsertDef(at, name, values.String(v))
+                } else {
+                        targets = append(targets, a)
+                }
+        }
+
+        l.Globe().Scope().InsertProjectName(nil, at.Name(), at)
+
+        var (
+                ab = base
+                defS, _ = as.InsertDef(at, "/", values.String(at.AbsPath()))
+                defD, _ = as.InsertDef(at, ".", values.None)
+        )
+        AtLookupLoop: for {
+                var (
+                        s1 = filepath.Join(ab, "@.smart")
+                        s2 = filepath.Join(ab, "@")
+                )
+                if fi, err := os.Stat(s1); err == nil {
+                        if m := fi.Mode(); m.IsRegular() {
+                                defS.Assign(values.String(ab))
+                                defD.Assign(values.String(ab))
+                                if err = l.Load(s1, nil); err != nil {
+                                        scanner.PrintError(os.Stderr, err)
+                                        return
+                                } else {
+                                        break AtLookupLoop
+                                }
+                        } else {
+                                fmt.Fprintf(os.Stderr, "@.smart is not a regular")
+                        }
+                } else if fi, err = os.Stat(s2); err == nil {
+                        if m := fi.Mode(); m.IsDir() {
+                                defS.Assign(values.String(ab))
+                                defD.Assign(values.String(ab))
+                                if err = l.LoadDir(s2, nil); err != nil {
+                                        scanner.PrintError(os.Stderr, err)
+                                        return
+                                } else {
+                                        break AtLookupLoop
+                                }
+                        } else {
+                                fmt.Fprintf(os.Stderr, "@ is not a directory")
+                        }
+                }
+                if ab == "/" {
+                        break
+                }
+                if ab = filepath.Dir(ab); ab == "." {
+                        break
+                }
+        }
+
+        restoreLoadingInfo(l)
+
+        if err := l.LoadDir(base, nil); err != nil {
+                scanner.PrintError(os.Stderr, err)
+                return
+        }
+
+        return
 }
 
 func CommandLine() {
@@ -130,107 +232,9 @@ func CommandLine() {
                 flag.Parse()
         }
 
-        var (
-                base, _ = os.Getwd()
-                rel, _ = filepath.Rel(base, base)
-                sp = filepath.Join(base, ".smart", "modules")
+        l, targets := LoadWork()
 
-                i = New()
-
-                at = i.Globe().NewProject(nil, base, rel, ".", "@")
-                as = at.Scope()
-
-                targets []string
-        )
-
-        if _, obj := as.Find("SMART"); obj != nil {
-                def := obj.(*types.Def)
-                for _, s := range globalPaths {
-                        def.Append(values.String("-search"))
-                        def.Append(values.String(s))
-                }
-        }
-
-        if _, e := os.Stat(sp); e == nil {
-                i.AddSearchPaths(sp)
-        }
-
-        //absDir, baseName := filepath.Split(at.AbsPath())
-        saveLoadingInfo(i, at.Spec(), at.AbsPath(), "")
-        linfo := i.loads[len(i.loads)-1]
-        linfo.declares[at.Name()] = &declare{ project: at }
-
-        for _, a := range flag.Args() {
-                if i := strings.Index(a, "="); 0 <= i {
-                        var (
-                                name = strings.TrimSpace(a[0:i])
-                                v = strings.TrimSpace(a[i+1:])
-                        )
-                        if name == "" {
-                                fmt.Fprintf(os.Stderr, "ERROR: bad argument '%v'\n", a)
-                                return
-                        }
-                        as.InsertDef(at, name, values.String(v))
-                } else {
-                        targets = append(targets, a)
-                }
-        }
-
-        i.Globe().Scope().InsertProjectName(nil, at.Name(), at)
-
-        var (
-                ab = base
-                defS, _ = as.InsertDef(at, "/", values.String(at.AbsPath()))
-                defD, _ = as.InsertDef(at, ".", values.None)
-        )
-        AtLookupLoop: for {
-                var (
-                        s1 = filepath.Join(ab, "@.smart")
-                        s2 = filepath.Join(ab, "@")
-                )
-                if fi, err := os.Stat(s1); err == nil {
-                        if m := fi.Mode(); m.IsRegular() {
-                                defS.Assign(values.String(ab))
-                                defD.Assign(values.String(ab))
-                                if err = i.Load(s1, nil); err != nil {
-                                        scanner.PrintError(os.Stderr, err)
-                                        return
-                                } else {
-                                        break AtLookupLoop
-                                }
-                        } else {
-                                fmt.Fprintf(os.Stderr, "@.smart is not a regular")
-                        }
-                } else if fi, err = os.Stat(s2); err == nil {
-                        if m := fi.Mode(); m.IsDir() {
-                                defS.Assign(values.String(ab))
-                                defD.Assign(values.String(ab))
-                                if err = i.LoadDir(s2, nil); err != nil {
-                                        scanner.PrintError(os.Stderr, err)
-                                        return
-                                } else {
-                                        break AtLookupLoop
-                                }
-                        } else {
-                                fmt.Fprintf(os.Stderr, "@ is not a directory")
-                        }
-                }
-                if ab == "/" {
-                        break
-                }
-                if ab = filepath.Dir(ab); ab == "." {
-                        break
-                }
-        }
-
-        restoreLoadingInfo(i)
-
-        if err := i.LoadDir(base, nil); err != nil {
-                scanner.PrintError(os.Stderr, err)
-                return
-        }
-
-        if err := i.Run(targets...); err != nil {
+        if err := l.Run(targets...); err != nil {
                 scanner.PrintError(os.Stderr, err)
                 return
         }
