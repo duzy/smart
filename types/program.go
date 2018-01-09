@@ -113,7 +113,7 @@ type Program struct {
 
 func (prog *Program) Scope() *Scope { return prog.scope }
 
-func (prog *Program) setctx(pc *Preparer, ctx *Scope) (pc0 *Preparer, ctx0 *Scope) {
+func (prog *Program) setCallerContext(pc *Preparer, ctx *Scope) (pc0 *Preparer, ctx0 *Scope) {
         pc0, ctx0 = prog.caller, prog.disctx
         prog.caller, prog.disctx = pc, ctx
         return

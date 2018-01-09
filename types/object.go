@@ -514,39 +514,24 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         }
 
         var (
-                project = entry.project
+                caller = pc
                 res Value
         )
 
         // Fixes program context if the starting entry and depended entry are
         // in different projects. This ensure disclosures work.
-        if true {
-                if caller := pc.entry.caller; caller != nil {
-                        if caller.entry.project != project {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:Execute: %v (%v) (context: project %s -> %s)\n",
-                                                entry.name, entry.file, caller.entry.project.name, project.name)
-                                }
-                                project = caller.entry.project
-                        }
+        ForCallers: for c := pc; c != nil; c = c.program.caller {
+                if trace_prepare {
+                        fmt.Printf("prepare:Execute: %v (%s -> %s)\n", entry.name, prog.project.name, c.program.project.name)
                 }
-        } else {
-                // Find the proper caller.
-                ForCallers: for caller := pc.entry.caller; caller != nil; caller = caller.entry.caller {
-                        fmt.Printf("prepare:Execute: %v (%s -> %s)\n",
-                                entry.name, project.name, caller.entry.project.name)
-                        if caller.entry.project != project {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:Execute: %v (%v) (context: project %s -> %s)\n",
-                                                entry.name, entry.file, caller.entry.project.name, project.name)
-                                }
-                                project = caller.entry.project
-                                break ForCallers
-                        }
+                if c.program.project != prog.project {
+                        caller = c; break ForCallers
                 }
         }
-
-        defer prog.setctx(prog.setctx(pc, project.scope))
+        if trace_prepare {
+                fmt.Printf("prepare:Execute: %v (%s -> %s) 🗸 \n", entry.name, prog.project.name, caller.program.project.name)
+        }
+        defer prog.setCallerContext(prog.setCallerContext(caller, caller.program.project.scope))
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
@@ -560,7 +545,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                                 // TODO: assert(file == entry.file)
                                 pc.targets.Append(file)
                         } else {
-                                pc.targets.Append(project.SearchFile(dd.Strval()))
+                                pc.targets.Append(caller.program.project.SearchFile(dd.Strval()))
                         }
                 default:
                         if res != nil && res.Type() != NoneType {

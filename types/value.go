@@ -110,6 +110,28 @@ func (pc *Preparer) prepare(value interface{}) (err error) {
 func (pc *Preparer) context() *Scope { return pc.entry.Project().Scope() }
 func (pc *Preparer) Targets() *List { return pc.targets }
 
+func (pc *Preparer) forEachExternalCaller(f func (*Project) (bool, error)) (err error) {
+        var (
+                triedm = map[*Project]bool{ pc.program.project:true }
+                trybrk bool
+        )
+        if trybrk, err = f(pc.program.project); trybrk {
+                return err
+        }
+        for caller := pc.entry.caller; caller != nil; caller = caller.entry.caller {
+                // Find the last caller.
+                if caller == pc || caller == pc.entry.caller { continue }
+                if tried, has := triedm[caller.entry.project]; caller != pc.entry.caller && !(has&&tried) {
+                        if trybrk, err = f(caller.entry.project); trybrk {
+                                break
+                        } else {
+                                triedm[caller.entry.project] = true
+                        }
+                }
+        }
+        return
+}
+
 func NewPreparer(prog *Program, entry *RuleEntry, args... Value) (pc *Preparer) {
         var stem string
         if entry.caller != nil {
@@ -315,77 +337,54 @@ type unknownFileError struct {
 }
 
 func (pc *Preparer) prepareTarget(target string) (err error) {
-        var (
-                project = pc.program.project
-                triedmp = map[*Project]bool{ project:true }
-                tryback = true // try lookup caller stack
-        )
-
-        FindTargetEntry: if trace_prepare {
-                fmt.Printf("prepare:Target: %v (project %s %p) (%v)\n", target, project.name, project, pc.entry)
-        }
-
-        // Find concrete entry
-        if _, obj := project.scope.Find(target); obj != nil {
-                if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (found %v) (project %v, %v)\n", target, obj, project.name, pc.entry)
-                }
-                return pc.Prepare(obj)
-        }
-
-        // Find patterns
-        for _, ps := range project.FindPatterns(target) {
-                if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (stemmed %v) (project %v, %v)\n", target, ps, project.name, pc.entry)
-                }
-                ps.source = target // Bounds PatternStem with the source.
-                if err = ps.prepare(pc); err == nil {
-                        return // Updated successfully!
-                } else if _, ok := err.(patternPrepareError); ok {
-                        if trace_prepare {
-                                fmt.Printf("prepare:Target: %v (error: %s)\n", target, err)
-                        }
-                        // Discard pattern unfit errors and caller stack.
-                        err, tryback = nil, false; continue
-                } else {
-                        return
-                }
-        }
-
-        if caller := pc.entry.caller; caller != nil && tryback {
-                if false {
-                        if caller.entry.project != project {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:Target: %v (project %s -> %s)\n",
-                                                target, project.name, caller.entry.project.name)
-                                }
-                                project = caller.entry.project; goto FindTargetEntry
-                        }
-                } else {
-                        for ; caller != nil; caller = caller.entry.caller {
-                                // Find the last caller.
-                                if caller == pc || caller == pc.entry.caller { continue }
-                                if tried, has := triedmp[caller.entry.project]; !(has&&tried) {
-                                        if trace_prepare {
-                                                fmt.Printf("prepare:Target: %v (project %s -> %s)\n",
-                                                        target, project.name, caller.entry.project.name)
-                                        }
-                                        project = caller.entry.project
-                                        triedmp[project] = true; goto FindTargetEntry
-                                }
-                        }
-                }
-                
-                if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (unknown in project %s) (%v)\n",
-                                target, project.name, pc.entry)
-                }
-                err = fmt.Errorf("No such entry '%v'", target)
+        if err = pc.explicitTarget(target); err == nil {
                 return
         }
-
+        if err = pc.implicitTarget(target); err == nil {
+                return
+        }
         err = unknownTargetError{ fmt.Errorf("unknown target '%v'", target), target }
         return
+}
+
+func (pc *Preparer) explicitTarget(target string) (err error) {
+        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
+                if trace_prepare {
+                        fmt.Printf("prepare:Target: %v (project %s %p) (%v)\n", target, project.name, project, pc.entry)
+                }
+                if _, obj := project.scope.Find(target); obj != nil {
+                        if trace_prepare {
+                                fmt.Printf("prepare:Target: %v (found %v) (project %v, %v)\n", target, obj, project.name, pc.entry)
+                        }
+                        err, trybrk = pc.Prepare(obj), true
+                }
+                return
+        })
+}
+
+func (pc *Preparer) implicitTarget(target string) (err error) {
+        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
+                if trace_prepare {
+                        fmt.Printf("prepare:Target: %v (project %s %p) (%v)\n", target, project.name, project, pc.entry)
+                }
+                for _, ps := range project.FindPatterns(target) {
+                        if trace_prepare {
+                                fmt.Printf("prepare:Target: %v (stemmed %v) (project %v, %v)\n", target, ps, project.name, pc.entry)
+                        }
+                        ps.source = target // Bounds PatternStem with the source.
+                        if err = ps.prepare(pc); err == nil {
+                                trybrk = true; break // Updated successfully!
+                        } else if _, ok := err.(patternPrepareError); ok {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:Target: %v (error: %s)\n", target, err)
+                                }
+                                // Discard pattern unfit errors and caller stack.
+                        } else {
+                                trybrk = true; break // Update failed!
+                        }
+                }
+                return
+        })
 }
 
 func (pc *Preparer) addFile(project *Project, name string) (err error) {
@@ -644,84 +643,72 @@ func (p *File) IsKnown() bool {
 }
 
 func (p *File) prepare(pc *Preparer) (err error) {
-        var (
-                project = pc.program.project
-                triedmp = map[*Project]bool{ project:true }
-                tryback = true // try lookup caller stack
-        )
-
-        FindFileEntry: if trace_prepare {
-                fmt.Printf("prepare:File: %v (%v) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
+        if err = p.explicitly(pc); err == nil {
+                return
         }
-
-        // Find concrete entry (by file represented name)
-        if _, obj := project.scope.Find(p.Name); obj != nil {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (found %v) (project %v, %v)\n", p.Name, obj, project.name, pc.entry)
-                }
-                return pc.Prepare(obj)
+        if err = p.implicitly(pc); err == nil {
+                return
         }
-
-        // Find patterns
-        for _, ps := range project.FindPatterns(p.Name) {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (stemmed %v) (project %v, %v)\n", p.Name, ps, project.name, pc.entry)
-                }
-                ps.file = p // Bounds PatternStem with the File.
-                if err = ps.prepare(pc); err == nil {
-                        return // Updated successfully!
-                } else if _, ok := err.(patternPrepareError); ok {
+        err = pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
+                if f := project.SearchFile(p.Strval()); f.Info != nil {
                         if trace_prepare {
-                                fmt.Printf("prepare:File: %v (error: %s)\n", p.Name, err)
+                                fmt.Printf("prepare:File: exists %v (%v) (project %s, %v)\n",
+                                        p.Name, p, project.name, pc.entry)
                         }
-                        // Discard pattern unfit errors and caller stack.
-                        err, tryback = nil, false; continue
+                        pc.targets.Append(f)
+                        trybrk = true
                 } else {
-                        return
-                }
-        }
-
-        // Search the file by local path name (Sub+Name).
-        if f := project.SearchFile(p.Strval()); f.Info != nil {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: add %v (project %s) (%v)\n",
-                                p.Name, project.name, pc.entry)
-                }
-                pc.targets.Append(f); return
-        }
-
-        if caller := pc.entry.caller; caller != nil && tryback {
-                if false {
-                        if caller != pc.entry.caller && caller.entry.project != project {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:File: %v (project %s -> %s, %v)\n",
-                                                p, project.name, caller.entry.project.name, caller.entry)
-                                }
-                                project = caller.entry.project; goto FindFileEntry
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: %v (unknown in project %s %s) (%v)\n",
+                                        p.Name, project.name, p, pc.entry)
                         }
-                } else {
-                        for ; caller != nil; caller = caller.entry.caller {
-                                // Find the last caller.
-                                if caller == pc || caller == pc.entry.caller { continue }
-                                if tried, has := triedmp[caller.entry.project]; caller != pc.entry.caller && !(has&&tried) {
-                                        if trace_prepare {
-                                                fmt.Printf("prepare:File: %v (%v) (retry %s -> %s, %v)\n",
-                                                        p.Name, p, project.name, caller.entry.project.name, caller.entry)
-                                        }
-                                        project = caller.entry.project
-                                        triedmp[project] = true; goto FindFileEntry
-                                }
-                        }
+                        err = unknownFileError{ fmt.Errorf("unknown file '%v'", p.Name), p }
                 }
-        }
-
-        if trace_prepare {
-                fmt.Printf("prepare:File: %v (unknown in project %s %s) (%v)\n",
-                        p.Name, project.name, p, pc.entry)
-        }
-
-        err = unknownFileError{ fmt.Errorf("unknown file '%v'", p.Name), p }
+                return
+        })
         return
+}
+
+func (p *File) explicitly(pc *Preparer) (err error) {
+        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (%v) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
+                }
+                // Find concrete entry (by file represented name)
+                if _, obj := project.scope.Find(p.Name); obj != nil {
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: %v (found %v) (project %v, %v)\n", p.Name, obj, project.name, pc.entry)
+                        }
+                        if err = pc.Prepare(obj); err == nil {
+                                trybrk = true
+                        }
+                }
+                return
+        })
+}
+
+func (p *File) implicitly(pc *Preparer) error {
+        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (%v) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
+                }
+                for _, ps := range project.FindPatterns(p.Name) {
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: %v (stemmed %v) (project %v, %v)\n", p.Name, ps, project.name, pc.entry)
+                        }
+                        ps.file = p // Bounds PatternStem with the File.
+                        if err = ps.prepare(pc); err == nil {
+                                trybrk = true; break // Updated successfully!
+                        } else if _, ok := err.(patternPrepareError); ok {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:File: %v (error: %s)\n", p.Name, err)
+                                }
+                        } else {
+                                trybrk = true; break // Update failed!
+                        }
+                }
+                return
+        })
 }
 
 type Flag struct {
