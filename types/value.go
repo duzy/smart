@@ -110,19 +110,16 @@ func (pc *Preparer) prepare(value interface{}) (err error) {
 func (pc *Preparer) context() *Scope { return pc.entry.Project().Scope() }
 func (pc *Preparer) Targets() *List { return pc.targets }
 
-func (pc *Preparer) forEachExternalCaller(f func (*Project) (bool, error)) (err error) {
-        var (
-                triedm = map[*Project]bool{ pc.program.project:true }
-                trybrk bool
-        )
-        if trybrk, err = f(pc.program.project); trybrk {
-                return err
+func (pc *Preparer) forEachExternalCaller(f func (*Project) (bool, error)) (err error, brk bool) {
+        var triedm = map[*Project]bool{ pc.program.project:true }
+        if brk, err = f(pc.program.project); brk /*|| err != nil*/ {
+                return
         }
         for caller := pc.entry.caller; caller != nil; caller = caller.entry.caller {
                 // Find the last caller.
                 if caller == pc || caller == pc.entry.caller { continue }
                 if tried, has := triedm[caller.entry.project]; caller != pc.entry.caller && !(has&&tried) {
-                        if trybrk, err = f(caller.entry.project); trybrk {
+                        if brk, err = f(caller.entry.project); brk /*|| err != nil*/ {
                                 break
                         } else {
                                 triedm[caller.entry.project] = true
@@ -336,21 +333,23 @@ type unknownFileError struct {
         file *File
 }
 
-func (pc *Preparer) prepareTarget(target string) (err error) {
-        if err = pc.explicitTarget(target); err == nil {
-                return
+func (pc *Preparer) prepareTarget(target string) error {
+        if err, brk := pc.explicitTarget(target); err != nil || brk {
+                return err
         }
-        if err = pc.implicitTarget(target); err == nil {
-                return
+        if err, brk := pc.implicitTarget(target); err != nil || brk {
+                return err
         }
-        err = unknownTargetError{ fmt.Errorf("unknown target '%v'", target), target }
-        return
+        return unknownTargetError{
+                fmt.Errorf("unknown target '%v'", target), 
+                target,
+        }
 }
 
-func (pc *Preparer) explicitTarget(target string) (err error) {
+func (pc *Preparer) explicitTarget(target string) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (project %s %p) (%v)\n", target, project.name, project, pc.entry)
+                        fmt.Printf("prepare:Target: %v (project %s) (%v)\n", target, project.name, pc.entry)
                 }
                 if _, obj := project.scope.Find(target); obj != nil {
                         if trace_prepare {
@@ -362,10 +361,10 @@ func (pc *Preparer) explicitTarget(target string) (err error) {
         })
 }
 
-func (pc *Preparer) implicitTarget(target string) (err error) {
+func (pc *Preparer) implicitTarget(target string) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (project %s %p) (%v)\n", target, project.name, project, pc.entry)
+                        fmt.Printf("prepare:Target: %v (project %s) (%v)\n", target, project.name, pc.entry)
                 }
                 for _, ps := range project.FindPatterns(target) {
                         if trace_prepare {
@@ -642,34 +641,21 @@ func (p *File) IsKnown() bool {
         return p.Dir != "" || p.Info != nil
 }
 
-func (p *File) prepare(pc *Preparer) (err error) {
-        if err = p.explicitly(pc); err == nil {
-                return
+func (p *File) prepare(pc *Preparer) error {
+        if err, brk := p.explicitly(pc); err != nil || brk {
+                return err
         }
-        if err = p.implicitly(pc); err == nil {
-                return
+        if err, brk := p.implicitly(pc); err != nil || brk {
+                return err
         }
-        err = pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                if f := project.SearchFile(p.Strval()); f.Info != nil {
-                        if trace_prepare {
-                                fmt.Printf("prepare:File: exists %v (%v) (project %s, %v)\n",
-                                        p.Name, p, project.name, pc.entry)
-                        }
-                        pc.targets.Append(f)
-                        trybrk = true
-                } else {
-                        if trace_prepare {
-                                fmt.Printf("prepare:File: %v (unknown in project %s %s) (%v)\n",
-                                        p.Name, project.name, p, pc.entry)
-                        }
-                        err = unknownFileError{ fmt.Errorf("unknown file '%v'", p.Name), p }
-                }
-                return
-        })
-        return
+        if err, brk := p.search(pc); err != nil || brk {
+                return err
+        }
+        
+        return unknownFileError{ fmt.Errorf("unknown file '%v'", p.Name), p }
 }
 
-func (p *File) explicitly(pc *Preparer) (err error) {
+func (p *File) explicitly(pc *Preparer) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 if trace_prepare {
                         fmt.Printf("prepare:File: %v (%v) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
@@ -687,7 +673,7 @@ func (p *File) explicitly(pc *Preparer) (err error) {
         })
 }
 
-func (p *File) implicitly(pc *Preparer) error {
+func (p *File) implicitly(pc *Preparer) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 if trace_prepare {
                         fmt.Printf("prepare:File: %v (%v) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
@@ -706,6 +692,23 @@ func (p *File) implicitly(pc *Preparer) error {
                         } else {
                                 trybrk = true; break // Update failed!
                         }
+                }
+                return
+        })
+}
+
+func (p *File) search(pc *Preparer) (error, bool) {
+        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
+                if f := project.SearchFile(p.Strval()); f.Info != nil {
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: exists %v (%v) (project %s, %v)\n",
+                                        p.Name, p, project.name, pc.entry)
+                        }
+                        pc.targets.Append(f)
+                        trybrk = true
+                } else if trace_prepare {
+                        fmt.Printf("prepare:File: %v (unknown in project %s %s) (%v)\n",
+                                p.Name, project.name, p, pc.entry)
                 }
                 return
         })
