@@ -34,6 +34,7 @@ path
 barefile
 barefile
 barecomp
+barecomp
 group
 pair
 pair
