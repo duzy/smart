@@ -171,7 +171,7 @@ func GlobPattern(prefix, suffix types.Value) types.Pattern {
 }
 
 func Path(segments... types.Value) (v *types.Path) {
-        return &types.Path{types.Elements{segments}}
+        return &types.Path{ types.Elements{segments}, nil }
 }
 func PathSeg(ch rune) (v *types.PathSeg) {
         return &types.PathSeg{ Value:ch }

@@ -184,10 +184,8 @@ type (
 
         // A PathExpr node represents a path (expressions concated by '/').
         PathExpr struct {
-                PosBeg token.Pos
                 Segments []Expr
-                PosEnd token.Pos
-                // TODO: File interface{}
+                Path interface{} // *types.Path
         }
 
         PathSegExpr struct { // '/', '.' (only like './'), '..' (only like './')
@@ -268,7 +266,7 @@ func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
 func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
-func (d *PathExpr) Pos() token.Pos        { return d.PosBeg }
+func (d *PathExpr) Pos() token.Pos        { return d.Segments[0].Pos() }
 func (d *PathSegExpr) Pos() token.Pos     { return d.TokPos }
 func (d *GlobExpr) Pos() token.Pos        { return d.TokPos }
 func (d *ClosureDelegate) Pos() token.Pos { return d.TokPos }
@@ -291,7 +289,7 @@ func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *Barefile) End() token.Pos        { return d.Name.End() }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
-func (d *PathExpr) End() token.Pos        { return d.PosEnd }
+func (d *PathExpr) End() token.Pos        { return d.Segments[len(d.Segments)-1].End() }
 func (d *PathSegExpr) End() token.Pos     { if d.Tok == token.DOTDOT { return d.TokPos+2 } else { return d.TokPos+1 } }
 func (d *GlobExpr) End() token.Pos        { return d.TokPos + 1 }
 func (d *ClosureDelegate) End() token.Pos {

@@ -19,6 +19,11 @@ eval println $(typeof 0x0123456789abcdef)
 eval println $(typeof 0X0123456789ABCDEF)
 eval println $(typeof 0b101011001)
 eval println $(typeof 0B110011011)
+eval println $(typeof 2018-01-01)
+eval println $(typeof 2018-01-01T08:50:00)
+eval println $(typeof 2018-01-01t00:00:00)
+eval println $(typeof 2018-01-01 00:00:00) # list: date time
+eval println $(typeof 08:50:00)
 eval println $(typeof foobar)
 eval println $(typeof 'string')
 eval println $(typeof "compound $.")
@@ -44,8 +49,13 @@ eval println $(typeof include)
 eval println $(typeof project)
 eval println $(typeof instance)
 
-@ = foo
+@ = foo.o
 eval println $(typeof $@)
 eval println $(typeof $@.o)
 eval println $(typeof $@.c)
 eval println $(typeof $@.h)
+
+eval println $(typeof $@,foo,bar,(1 2 3))
+
+# list arguments
+eval println $(typeof $@,foo bar,1 2 3)

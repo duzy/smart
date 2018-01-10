@@ -552,6 +552,7 @@ func (p *Glob) referencing(o Object) bool { return false }
 
 type Path struct {
         Elements
+        File *File // if this path is pointed to a file, ie. the last element matched a FileMap
 }
 func (p *Path) String() (s string) {
         // TODO: add '/' for root dir
@@ -594,7 +595,7 @@ func (p *Path) disclose(scope *Scope) (Value, error) {
         if elems, num, err := p.Elements.disclose(scope); err != nil {
                 return nil, err
         } else if num > 0 {
-                return &Path{ Elements{ elems } }, nil
+                return &Path{ Elements{ elems }, p.File }, nil
         }
         return nil, nil
 }
@@ -644,13 +645,8 @@ func (p *File) Basename() string {
         }
 }
 
-func (p *File) IsKnown() bool {
-        if false {
-                return p.Dir != "" || p.Info != nil
-        } else {
-                return p.Match != nil
-        }
-}
+func (p *File) IsKnown() bool { return p.Match != nil }
+func (p *File) IsExists() bool { return p.Info != nil }
 
 func (p *File) prepare(pc *Preparer) error {
         if err, brk := p.explicitly(pc); err != nil || brk {
@@ -1275,6 +1271,8 @@ func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEn
 func (*pattern) disclose(_ *Scope) (Value, error) { return nil, nil }
 
 // GlobPattern represents glob expressions (e.g. '%.o', '[a-z].o', 'a?a.o')
+// FIXME: PercPattern -> %.o
+//        GlobPattern -> [a-z].o a?a.o
 type GlobPattern struct {
         pattern
         Prefix Value

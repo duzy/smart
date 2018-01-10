@@ -1,0 +1,32 @@
+project
+
+files (
+    *.o => obj
+    *.c
+)
+
+eval println ////path/////to/////somewhere/well
+eval println .////path/////to/////nowhere /and/elsewhere / some/where
+
+all: \
+  //path/to///otherwhere \
+  ./path/to//somewhere \
+  ../path//to//anywhere \
+  path/to/overthere \
+  sub
+
+/path//to/otherwhere:
+	println $(typeof $@) $@
+./path///to/somewhere:
+	println $(typeof $@) $@
+../path//to///anywhere:
+	println $(typeof $@) $@
+path//to///overthere:
+	println $(typeof $@) $@
+
+sub: sub/foo.o sub/bar.o
+	println "$^ -> $@"
+sub/foo.o: foo.c
+	println "compile $^ -> $@"
+sub/bar.o: bar.c
+	println "compile $^ -> $@"

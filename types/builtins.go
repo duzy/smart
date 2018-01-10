@@ -130,14 +130,30 @@ func EscapedString(v Value) (s string) {
 func builtinTypeOf(context *Scope, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
+                // Arguments are passed in a list:
+                //   $(fun abc)                 args: (abc)
+                //   $(fun a,b,c)               args: (a),(b),(c)
+                //   $(fun a b c,1 2 3)         args: (a b c),(1 2 3)
                 switch a := arg.(type) {
                 case *List:
-                        if len(a.Elems) > 0 {
-                                s = a.Elems[0].Type().String()
+                        if n := len(a.Elems); n == 1 {
+                                switch v := a.Elems[0].(type) {
+                                case *delegate: // FIXME: recursively undelegate types
+                                        if d, _ := v.o.(*Def); d != nil {
+                                                s = d.Value.Type().String()
+                                        } else {
+                                                s = "unknown"
+                                        }
+                                default:
+                                        s = v.Type().String()
+                                }
+                        } else if n > 1 {
+                                s = ListType.name
                         } else {
                                 s = NoneType.name
                         }
                 default:
+                        // FIXME: this should be an exception (panic).
                         s = a.Type().String()
                 }
                 elems = append(elems, &String{s})

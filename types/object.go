@@ -367,8 +367,9 @@ const (
         GlobRuleEntry
         RegexpRuleEntry
         StemmedRuleEntry
-        StemmedFileEntry // entry.file determined by PatternStem
-        ExplicitFileEntry // entry.file determined by parser
+        StemmedFileEntry  // entry.file determined by PatternStem
+        ExplicitFileEntry // entry.file determined by parser (may also set entry.path)
+        ExplicitPathEntry // entry.path determined by parser
         UseRuleEntry
 )
 
@@ -379,6 +380,7 @@ var namesForRuleEntryClass = []string{
         StemmedRuleEntry:  "StemmedRuleEntry",
         StemmedFileEntry:  "StemmedFileEntry",
         ExplicitFileEntry: "ExplicitFileEntry",
+        ExplicitPathEntry: "ExplicitPathEntry",
         UseRuleEntry:      "UseRuleEntry",
 }
 
@@ -394,7 +396,8 @@ func (c RuleEntryClass) String() string {
 type RuleEntry struct {
         object
         class RuleEntryClass
-        file *File // For ExplicitFileEntry, StemmedFileEntry
+        file *File  // For ExplicitFileEntry, StemmedFileEntry
+        path *Path  // For ExplicitPathEntry
         stem string // For StemmedRuleEntry, StemmedFileEntry
         caller *Preparer
         programs []*Program
@@ -420,10 +423,24 @@ func (entry *RuleEntry) IsFile() bool {
 
 func (entry *RuleEntry) SetExplicitFile(file *File) (prev *File) {
         prev = entry.file
-        if !file.IsKnown() {
+        if file.Dir == "" {
                 file.Dir = entry.project.AbsPath()
         }
         entry.class, entry.file = ExplicitFileEntry, file
+        return
+}
+
+func (entry *RuleEntry) SetExplicitPath(path *Path) (prev *Path) {
+        prev = entry.path
+        entry.path = path
+        if path.File == nil {
+                entry.class = ExplicitPathEntry
+        } else {
+                entry.class, entry.file = ExplicitFileEntry, path.File
+                if path.File.Dir == "" {
+                        path.File.Dir = entry.project.AbsPath()
+                }
+        }
         return
 }
 
@@ -583,7 +600,7 @@ func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name stri
                                 typ:     RuleEntryType,
                                 ord:     0,
                         },
-                        kind, nil, "", nil, nil, //nil,
+                        kind, nil, nil, "", nil, nil, //nil,
                         token.Position{},
                 }
                 scope.replace(name, entry)

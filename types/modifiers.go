@@ -538,7 +538,7 @@ func modifierCheckDir(prog *Program, value Value, args... Value) (result Value, 
                 for _, seg := range filepath.SplitList(filename) {
                         segments = append(segments, &String{seg})
                 }
-                result = &Path{Elements{segments}}
+                result = &Path{Elements{segments}, nil}
         } else {
                 err = &breaker{ fmt.Sprintf("file %s not exists", targetVal), false }
         }
