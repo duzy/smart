@@ -1,0 +1,31 @@
+project
+
+files (
+   *.o => obj
+   *.c
+)
+
+eval println $(typeof 0)
+eval println $(typeof 1)
+eval println $(typeof 12345)
+eval println $(typeof 1.234)
+eval println $(typeof .1234)
+eval println $(typeof 01234567)
+eval println $(typeof 01234567)
+eval println $(typeof 0x0123456789abcdef)
+eval println $(typeof 0X0123456789ABCDEF)
+eval println $(typeof 0b101011001)
+eval println $(typeof 0B110011011)
+eval println $(typeof foobar)
+eval println $(typeof 'string')
+eval println $(typeof "compound $.")
+eval println $(typeof /path/to/somewhere)
+eval println $(typeof ./subdir/in/somewhere)
+eval println $(typeof foobar.o)
+eval println $(typeof foobar.c)
+eval println $(typeof foobar.h)
+eval println $(typeof (foo bar))
+eval println $(typeof foo=bar)
+eval println $(typeof foo=>bar)
+eval println $(typeof -foo)
+eval println $(typeof -foo=bar)

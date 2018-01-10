@@ -23,8 +23,13 @@ func Any(v interface{}) *types.Any {
 }
 
 func BinLit(s string) (v *types.Bin) {
+        if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
+                s = s[2:]
+        }
         if i, e := strconv.ParseInt(s, 2, 64); e == nil {
                 v = Bin(i)
+        } else {
+                panic(e)
         }
         return
 }
@@ -35,8 +40,13 @@ func Bin(i int64) (v *types.Bin) {
 }
 
 func OctLit(s string) (v *types.Oct) {
+        if strings.HasPrefix(s, "0") {
+                s = s[1:]
+        }
         if i, e := strconv.ParseInt(s, 8, 64); e == nil {
                 v = Oct(i)
+        } else {
+                panic(e)
         }
         return
 }
@@ -49,6 +59,8 @@ func Oct(i int64) (v *types.Oct) {
 func IntLit(s string) (v *types.Int) {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
                 v = Int(i)
+        } else {
+                panic(e)
         }
         return
 }
@@ -59,8 +71,13 @@ func Int(i int64) (v *types.Int) {
 }
 
 func HexLit(s string) (v *types.Hex) {
+        if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+                s = s[2:]
+        }
         if i, e := strconv.ParseInt(s, 16, 64); e == nil {
                 v = Hex(i)
+        } else {
+                panic(e)
         }
         return
 }
@@ -211,7 +228,7 @@ func EscapeChar(s string) string {
 func Literal(tok token.Token, s string) (v types.Value) {
         switch tok {
         default:             v = None
-        case token.BIN:   v = BinLit(s)
+        case token.BIN:      v = BinLit(s)
         case token.OCT:      v = OctLit(s)
         case token.INT:      v = IntLit(s)
         case token.HEX:      v = HexLit(s)

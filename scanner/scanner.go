@@ -612,7 +612,6 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			// octal int or float
 			seenDecimalDigit := false
 			s.scanMantissa(8)
-                        tok = token.OCT
                         //fmt.Printf("oct: %s\n", string(s.src[offs:s.offset]))
 			if s.ch == '8' || s.ch == '9' {
 				// illegal octal int or float
@@ -626,6 +625,11 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			if seenDecimalDigit {
 				s.error(offs, "illegal octal number")
 			}
+                        if s.offset-offs > 1 {
+                                tok = token.OCT
+                        } else {
+                                tok = token.INT // just '0'
+                        }
 		}
 		goto exit
 	}

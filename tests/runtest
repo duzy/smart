@@ -30,6 +30,8 @@ function cleanup() {
        search_file/obj/hello.o \
        use_posix_thread/{1,2}.log \
        use_posix_thread/{example,example.o,example.cpp} \
+       typeof/{1,2}.log \
+       path/{1,2}.log \
 	&& true
 }
 
