@@ -43,3 +43,9 @@ eval println $(typeof export)
 eval println $(typeof include)
 eval println $(typeof project)
 eval println $(typeof instance)
+
+@ = foo
+eval println $(typeof $@)
+eval println $(typeof $@.o)
+eval println $(typeof $@.c)
+eval println $(typeof $@.h)

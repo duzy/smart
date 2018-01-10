@@ -623,9 +623,10 @@ func (p *PathSeg) Strval() (s string) {
 
 type File struct {
         value
-        Name string  // represented name (e.g. relative filename)
-        Dir string   // full directory in which the file should be or was found
-        Sub string   // sub directory containing the file (aka. Project.SearchFile)
+        Name string      // represented name (e.g. relative filename)
+        Match *FileMap   // matched pattern (see 'files' directive)
+        Dir string       // full directory in which the file should be or was found
+        Sub string       // sub directory containing the file (aka. Project.SearchFile)
         Info os.FileInfo // file info if exists
 }
 func (p *File) Type() Type { return FileType }
@@ -644,7 +645,11 @@ func (p *File) Basename() string {
 }
 
 func (p *File) IsKnown() bool {
-        return p.Dir != "" || p.Info != nil
+        if false {
+                return p.Dir != "" || p.Info != nil
+        } else {
+                return p.Match != nil
+        }
 }
 
 func (p *File) prepare(pc *Preparer) error {

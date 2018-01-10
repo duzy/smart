@@ -96,14 +96,16 @@ func (p *Project) SearchFile(filename string) *File {
                 projDir = p.AbsPath()
         )
 
-        if filepath.IsAbs(filename) {
+        /*if filepath.IsAbs(filename) {
                 file.Info, _ = os.Stat(filename)
                 goto SearchBases
-        }
+        }*/
 
         ForFiles: for _, filemap := range p.FileMaps() {
                 // Match the filename (not base). Note that '*.c' won't match 'src/x.c'.
-                if !filemap.Match(filename) {
+                if filemap.Match(filename) {
+                        file.Match = &filemap
+                } else {
                         continue
                 }
 
@@ -133,15 +135,12 @@ func (p *Project) SearchFile(filename string) *File {
                 }
         }
 
-        SearchBases: if file.Info == nil && file.Dir == "" {
+        /*SearchBases:*/ if file.Info == nil && file.Dir == "" {
                 for _, base := range p.bases {
                         if v := base.SearchFile(filename); v != nil {
                                 return v
                         }
                 }
-        }
-        if false {
-                fmt.Printf("SearchFile: %v %v\n", file.Dir, file.Name)
         }
         return file
 }

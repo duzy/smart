@@ -53,6 +53,10 @@ bareword
 bareword
 bareword
 bareword
+delegate
+barefile
+barefile
+barecomp
 `))
                         if !bytes.Equal(v, h) { t.Errorf("bad header:\n%s\n%s", v, h) }
 
