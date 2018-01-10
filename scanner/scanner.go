@@ -1021,6 +1021,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         if s.ch == '.' {
                                 tok = token.DOTDOT
                                 s.next()
+                        } else if isDigit(s.ch) {
+                                tok, lit = s.scanNumber(true)
                         } else {
                                 tok = token.PERIOD
                         }
