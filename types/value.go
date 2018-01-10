@@ -441,11 +441,11 @@ func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *Elements) ToList() *List         { return &List{*p} }
 
-func (p *Elements) discloseElems(scope *Scope) ([]Value, int, error) {
+func (p *Elements) disclose(scope *Scope) ([]Value, int, error) {
         var elems []Value
         var num = 0 
         for _, elem := range p.Elems {
-                //fmt.Printf("discloseElems: %T %v\n", elem, elem)
+                //fmt.Printf("Elements.disclose: %T %v\n", elem, elem)
                 if elem == nil {
                         continue
                 }
@@ -492,7 +492,7 @@ func (p *Barecomp) Integer() int64 { return int64(len(p.Elems)) }
 func (p *Barecomp) Float() float64 { return float64(p.Integer()) }
 
 func (p *Barecomp) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.discloseElems(scope); err != nil {
+        if elems, num, err := p.Elements.disclose(scope); err != nil {
                 return nil, err
         } else if num > 0 {
                 return &Barecomp{ Elements{ elems } }, nil
@@ -591,7 +591,7 @@ func (p *Path) Integer() int64     { return 0 }
 func (p *Path) Float() float64     { return float64(p.Integer()) }
 func (p *Path) Type() Type         { return PathType }
 func (p *Path) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.discloseElems(scope); err != nil {
+        if elems, num, err := p.Elements.disclose(scope); err != nil {
                 return nil, err
         } else if num > 0 {
                 return &Path{ Elements{ elems } }, nil
@@ -616,7 +616,7 @@ func (p *PathSeg) Strval() (s string) {
         switch p.Value {
         case '/': s = "/"
         case '.': s = "."
-        case '^': s = ".." // ''
+        case '^': s = ".."
         }
         return
 }
@@ -781,7 +781,7 @@ func (p *Compound) Float() float64 { return float64(p.Integer()) }
 func (p *Compound) Type() Type     { return CompoundType }
 
 func (p *Compound) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.discloseElems(scope); err != nil {
+        if elems, num, err := p.Elements.disclose(scope); err != nil {
                 return nil, err
         } else if num > 0 {
                 return &Compound{ Elements{ elems } }, nil
@@ -817,7 +817,7 @@ func (p *List) Strval() (s string) {
 func (p *List) Type() Type         { return ListType }
 
 func (p *List) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.discloseElems(scope); err != nil {
+        if elems, num, err := p.Elements.disclose(scope); err != nil {
                 return nil, err
         } else if num > 0 {
                 return &List{ Elements{ elems } }, nil
@@ -837,7 +837,7 @@ func (p *Group) Strval() string {
 func (p *Group) Type() Type { return GroupType }
 
 func (p *Group) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.discloseElems(scope); err != nil {
+        if elems, num, err := p.Elements.disclose(scope); err != nil {
                 return nil, err
         } else if num > 0 {
                 return &Group{ List{ Elements{ elems } } }, nil
@@ -1532,13 +1532,13 @@ func Refs(a Value, o Object) bool {
 
 func strval(s string) Value { return &String{s} }
 
-func MakeListOrValue(list []Value) (res Value) {
-        if x := len(list); x == 0 {
+func MakeListOrScalar(elems []Value) (res Value) {
+        if x := len(elems); x == 0 {
                 res = UniversalNone
         } else if x == 1 {
-                res = list[0]
+                res = elems[0]
         } else {
-                res = &List{Elements{list}}
+                res = &List{Elements{elems}}
         }
         return
 }

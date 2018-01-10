@@ -23,7 +23,9 @@ import (
 type BuiltinFunc func(context *Scope, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
-        `error`: builtinError,
+        `typeof`: builtinTypeOf,
+
+        `error`:  builtinError,
 
         `assert-valid`: builtinAssertValid,
 
@@ -125,6 +127,24 @@ func EscapedString(v Value) (s string) {
         return
 }
 
+func builtinTypeOf(context *Scope, args... Value) (res Value, err error) {
+        var ( elems []Value; s string )
+        for _, arg := range args {
+                switch a := arg.(type) {
+                case *List:
+                        if len(a.Elems) > 0 {
+                                s = a.Elems[0].Type().String()
+                        } else {
+                                s = NoneType.name
+                        }
+                default:
+                        s = a.Type().String()
+                }
+                elems = append(elems, &String{s})
+        }
+        return MakeListOrScalar(elems), nil
+}
+
 func builtinError(context *Scope, args... Value) (Value, error) {
         var s bytes.Buffer
         for _, a := range args {
@@ -145,9 +165,6 @@ func builtinAssertValid(context *Scope, args... Value) (Value, error) {
 
 func builtinLogicalOr(context *Scope, args... Value) (Value, error) {
         for _, a := range args {
-                /*if val, err := Disclose(context, Reveal(a)); err != nil {
-                        return nil, err
-                } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
                 } else if strings.TrimSpace(val.Strval()) != "" {
@@ -166,7 +183,7 @@ func builtinEnv(context *Scope, args... Value) (Value, error) {
                         vals = append(vals, &String{os.Getenv(s)})
                 }
         }
-        return MakeListOrValue(vals), nil
+        return MakeListOrScalar(vals), nil
 }
 
 func builtinPrint(context *Scope, args... Value) (Value, error) {
@@ -313,7 +330,7 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
                                 if neg { okay = !okay }
                                 if okay { elems = append(elems, v) }
                         }
-                        res = MakeListOrValue(elems)
+                        res = MakeListOrScalar(elems)
                 }
         }
         if res == nil {
@@ -336,7 +353,7 @@ func builtinSubst(context *Scope, args... Value) (res Value, err error) {
                         })
                 }
         }
-        res = MakeListOrValue(list)
+        res = MakeListOrScalar(list)
         return
 }
 
@@ -398,7 +415,7 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
                         }
                 }
         }
-        res = MakeListOrValue(list)
+        res = MakeListOrScalar(list)
         return
 }
 
@@ -413,9 +430,6 @@ func builtinTrimSpace(context *Scope, args... Value) (res Value, err error) {
 func builtinTitle(context *Scope, args... Value) (res Value, err error) {
         var list []Value
         for _, a := range args {
-                /*if val, err := Disclose(context, Reveal(a)); err != nil {
-                        return nil, err
-                } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
@@ -423,7 +437,7 @@ func builtinTitle(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(list)
+                res = MakeListOrScalar(list)
         }
         return
 }
@@ -434,9 +448,6 @@ func builtinTrim(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                /*if val, err := Disclose(context, Reveal(a)); err != nil {
-                        return nil, err
-                } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
@@ -450,7 +461,7 @@ func builtinTrim(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(list)
+                res = MakeListOrScalar(list)
         }
         return
 }
@@ -461,9 +472,6 @@ func builtinTrimLeft(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                /*if val, err := Disclose(context, Reveal(a)); err != nil {
-                        return nil, err
-                } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
@@ -477,7 +485,7 @@ func builtinTrimLeft(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(list)
+                res = MakeListOrScalar(list)
         }
         return
 }
@@ -488,9 +496,6 @@ func builtinTrimRight(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                /*if val, err := Disclose(context, Reveal(a)); err != nil {
-                        return nil, err
-                } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
@@ -504,7 +509,7 @@ func builtinTrimRight(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(list)
+                res = MakeListOrScalar(list)
         }
         return
 }
@@ -515,9 +520,6 @@ func builtinTrimPrefix(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                /*if val, err := Disclose(context, Reveal(a)); err != nil {
-                        return nil, err
-                } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
@@ -531,7 +533,7 @@ func builtinTrimPrefix(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(list)
+                res = MakeListOrScalar(list)
         }
         return
 }
@@ -542,9 +544,6 @@ func builtinTrimSuffix(context *Scope, args... Value) (res Value, err error) {
                 cutset string
         )
         for i, a := range args {
-                /*if val, err := Disclose(context, Reveal(a)); err != nil {
-                        return nil, err
-                } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
@@ -558,7 +557,7 @@ func builtinTrimSuffix(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(list)
+                res = MakeListOrScalar(list)
         }
         return
 }
@@ -569,9 +568,6 @@ func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
                 ext string
         )
         for i, a := range args {
-                /*if val, err := Disclose(context, Reveal(a)); err != nil {
-                        return nil, err
-                } else if val == nil {*/
                 if val := Reveal(a); val == nil {
                         // discard
                 } else if s := val.Strval(); s != "" {
@@ -585,7 +581,7 @@ func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(list)
+                res = MakeListOrScalar(list)
         }
         return
 }
@@ -609,7 +605,7 @@ func builtinIndent(context *Scope, args... Value) (res Value, err error) {
                 }
                 l = append(l, &String{strings.Join(lines, "\n")})
         }
-        res = MakeListOrValue(l)
+        res = MakeListOrScalar(l)
         return
 }
 
@@ -685,7 +681,7 @@ func builtinDecodeBase64(context *Scope, args... Value) (res Value, err error) {
                                 return
                         }
                 }
-                res = MakeListOrValue(list)
+                res = MakeListOrScalar(list)
         }
         return
 }
@@ -699,7 +695,7 @@ func builtinBase(context *Scope, args... Value) (Value, error) {
                 s = filepath.Base(a.Strval())
                 l = append(l, &String{s})
         }
-        return MakeListOrValue(l), nil
+        return MakeListOrScalar(l), nil
 }
 
 func builtinDirDir(context *Scope, args... Value) (Value, error) {
@@ -711,7 +707,7 @@ func builtinDirDir(context *Scope, args... Value) (Value, error) {
                 s = filepath.Dir(filepath.Dir(a.Strval()))
                 l = append(l, &String{s})
         }
-        return MakeListOrValue(l), nil
+        return MakeListOrScalar(l), nil
 }
 
 func builtinDir(context *Scope, args... Value) (Value, error) {
@@ -723,7 +719,7 @@ func builtinDir(context *Scope, args... Value) (Value, error) {
                 s = filepath.Dir(a.Strval())
                 l = append(l, &String{s})
         }
-        return MakeListOrValue(l), nil
+        return MakeListOrScalar(l), nil
 }
 
 func builtinDirs(context *Scope, args... Value) (Value, error) {
@@ -748,7 +744,7 @@ func builtinDirs(context *Scope, args... Value) (Value, error) {
                 }
                 l = append(l, &String{s})
         }
-        return MakeListOrValue(l), nil
+        return MakeListOrScalar(l), nil
 }
 
 func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
@@ -1077,7 +1073,7 @@ func builtinReadDir(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(l)
+                res = MakeListOrScalar(l)
         }
         return
 }
@@ -1093,7 +1089,7 @@ func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrValue(l)
+                res = MakeListOrScalar(l)
         }
         return
 }
