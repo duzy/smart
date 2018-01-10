@@ -19,13 +19,18 @@ func TestCheckLog1(t *testing.T) {
                         var v = []byte(wd)
                         if !bytes.Equal(v, a) { t.Errorf("bad path:\n%s\n%s", v, a) }
 
-                        v = []byte(fmt.Sprintf(`int
+                        v = []byte(fmt.Sprintf(`glob
+bareword
+int
 int
 int
 float
 float
 oct
 hex
+hex
+bin
+bin
 bareword
 string
 compound
@@ -40,6 +45,14 @@ pair
 pair
 flag
 flag
+bareword
+bareword
+bareword
+bareword
+bareword
+bareword
+bareword
+bareword
 `))
                         if !bytes.Equal(v, h) { t.Errorf("bad header:\n%s\n%s", v, h) }
 

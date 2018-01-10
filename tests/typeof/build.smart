@@ -5,6 +5,10 @@ files (
    *.c
 )
 
+#eval println $(typeof .)
+eval println $(typeof *)
+#eval println $(typeof %)
+eval println $(typeof @)
 eval println $(typeof 0)
 eval println $(typeof 1)
 eval println $(typeof 12345)
@@ -29,3 +33,13 @@ eval println $(typeof foo=bar)
 eval println $(typeof foo=>bar)
 eval println $(typeof -foo)
 eval println $(typeof -foo=bar)
+
+# keywords used as bareword
+eval println $(typeof use)
+eval println $(typeof eval)
+eval println $(typeof files)
+eval println $(typeof import)
+eval println $(typeof export)
+eval println $(typeof include)
+eval println $(typeof project)
+eval println $(typeof instance)

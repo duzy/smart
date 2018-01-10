@@ -440,6 +440,14 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
 
+func (p *parser) parseBadExpr() (x ast.Expr) {
+        pos := p.pos
+        p.warn(pos, "weird '%v'\n", p.tok)
+        p.errorExpected(pos, "clause or expression")
+        p.next() // go to next token
+        return &ast.BadExpr{ From:pos, To:p.pos }
+}
+
 func (p *parser) parseBareword() (x ast.Expr) {
 	var (
                 pos, value = p.pos, ""
@@ -452,7 +460,7 @@ func (p *parser) parseBareword() (x ast.Expr) {
                 if end := token.Pos(int(pos) + len(value)); end == p.pos {
                         switch p.tok {
                         case token.PERIOD, token.DOTDOT, token.PCON:
-                                //!< these operators will check for File
+                                //!< already checked for File
                         default:
                                 file = p.runtime.File(value)
                         }
@@ -695,240 +703,253 @@ func (p *parser) parseArgumentedExpr(x ast.Expr) ast.Expr {
         return argumented
 }
 
-func (p *parser) parseExpr0(lhs bool) ast.Expr {
+func (p *parser) parseGlobExpr() ast.Expr {
+        pos, tok := p.pos, p.tok
+        p.next()
+        return &ast.GlobExpr{ TokPos:pos, Tok:tok }
+}
+
+func (p *parser) parsePercExpr() ast.Expr {
+        var (
+                y ast.Expr
+                pos = p.pos
+        )
+        if p.next(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
+                y = p.checkExpr(p.parseExpr(false))
+                //fmt.Printf("PERC: %T %v %v(%v)\n", y, y, p.tok, p.lit)
+        }
+        return &ast.PercExpr{
+                X: nil,
+                OpPos: pos,
+                Y: y,
+        }
+}
+
+func (p *parser) parseFlagExpr() ast.Expr {
+        var (
+                pos = p.pos
+                x ast.Expr
+        )
+        // Flag expressions, excluding "-)" "-]" "-}" "-\n"
+        if p.next(); p.tok == token.RPAREN || p.tok == token.RBRACK || p.tok == token.RBRACE ||
+                p.tok == token.LINEND || p.lineComment != nil {
+                x = &ast.Bareword{ ValuePos: p.pos }
+        } else {
+                x = p.checkExpr(p.parseExpr(false))
+        }
+        return &ast.FlagExpr{ DashPos: pos, Name: x }
+}
+
+func (p *parser) parseBasicLit() ast.Expr {
+        //fmt.Printf("%s %s\n", p.tok, p.lit)
+        pos, tok, lit := p.pos, p.tok, p.lit
+        end := int(pos) + len(lit)
+        switch tok {
+        case token.STRING: end += 2
+        }
+        p.next()
+        // ESCAPE is handled in value.EscapeChar
+        return &ast.BasicLit{
+                ValuePos: pos,
+                Kind: tok,
+                Value: lit,
+                EndPos: token.Pos(end),
+        }
+}
+
+func (p *parser) parseCompoundLit() ast.Expr {
+        var (
+                lpos = p.pos
+                elems []ast.Expr
+                rpos token.Pos
+        )
+        p.next()
+        for p.tok != token.COMPOSED && p.tok != token.EOF {
+                elems = append(elems, p.checkExpr(p.parseExpr(false)))
+        }
+        rpos = p.expect(token.COMPOSED)
+        return &ast.CompoundLit{
+                Lquote: lpos,
+                Elems:  elems,
+                Rquote: rpos,
+        }
+}
+
+func (p *parser) parsePathExpr() ast.Expr {
+        path := &ast.PathExpr{ 
+                PosBeg: p.pos,
+                Segments: []ast.Expr{
+                        &ast.PathSegExpr{ p.pos, p.tok },
+                },
+                PosEnd: p.pos,
+        }
+
+        // Skip the initial path-operator, one of these:
+        // token.PERIOD, token.DOTDOT, token.PCON
+        p.next()
+        
+        ForBuildPath: for {
+                for p.tok == token.PCON { p.next() }
+                x := p.checkExpr(p.parseExpr(false))
+                path.Segments = append(path.Segments, x)
+                path.PosEnd = x.End()
+                if p.tok != token.PCON || path.PosEnd != p.pos {
+                        break ForBuildPath
+                }
+        }
+        return path
+}
+
+func (p *parser) parseClosureDelegate() ast.Expr {
+        var (
+                lpos = token.NoPos
+                rpos = token.NoPos
+                pos  = p.pos
+                tok  = p.tok
+                name   ast.Expr
+                rest   []ast.Expr
+                tokLp  token.Token
+        )
+        switch p.next(); p.tok {
+        case token.LPAREN, token.LBRACE:
+                lpos, tokLp = p.pos, p.tok
+                p.next()
+                name = p.checkExpr(p.parseExpr(false))
+                if (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
+                        (tokLp == token.LBRACE && p.tok != token.RBRACE) {
+                        rest = append(rest, p.parseListExpr(false))
+                        for p.tok == token.COMMA {
+                                p.next()
+                                rest = append(rest, p.parseListExpr(false))
+                        }
+                }
+                switch tokLp {
+                case token.LPAREN: rpos = p.expect(token.RPAREN)
+                case token.LBRACE: rpos = p.expect(token.RBRACE)
+                }
+        default:
+                // Only support $(...), disable $name.
+                if false {
+                        // Parse name without composing expressions
+                        name = p.checkExpr(p.parseInitialExpr(false))
+                } else {
+                        p.error(p.pos, "Expecting `%v' or `%v'.", token.LPAREN, token.LBRACE)
+                        return &ast.BadExpr{ From:p.pos, To:p.pos }
+                }
+        }
+
+        var resolved RuntimeObj
+        if a, _ := name.(*ast.EvaluatedExpr); a != nil {
+                if a.Data == nil {
+                        p.error(name.Pos(), "Evaluated data is nil (%v).", a.Expr)
+                } else if resolved = a.Data.(RuntimeObj); resolved == nil {
+                        p.error(name.Pos(), "Unresolved reference (%v).", a.Expr)
+                }
+        } else if v, e := p.runtime.Eval(name, disclosure); e != nil {
+                p.error(pos, e)
+        } else if v == nil {
+                p.error(pos, "Name `%T' eval to nil", name)
+        } else {
+                a = &ast.EvaluatedExpr{ name, v }
+                if resolved = p.runtime.Resolve(v.Strval(), anywhere); resolved == nil {
+                        p.error(name.Pos(), "Undefined reference `%v' (%T).", v.Strval(), name)
+                } else {
+                        name = a
+                        switch tokLp {
+                        case token.LPAREN:
+                                if _, ok := resolved.(types.Caller); !ok {
+                                        p.error(name.Pos(), "Uncallable resolved `%v' (%T).", v.Strval(), name)
+                                }
+                        case token.LBRACE:
+                                if _, ok := resolved.(types.Executer); !ok {
+                                        p.error(name.Pos(), "Unexecutible resolved `%v' (%T).", v.Strval(), name)
+                                }
+                        }
+                }
+        }
+
+        cd := ast.ClosureDelegate{
+                TokPos: pos,
+                Lparen: lpos,
+                Name: name,
+                Resolved: resolved,
+                Args: rest,
+                Rparen: rpos,
+                TokLp: tokLp,
+                Tok: tok,
+        }
+        if tok == token.DOLLAR {
+                return &ast.DelegateExpr{ cd }
+        } else {
+                return &ast.ClosureExpr{ cd }
+        }
+}
+
+func (p *parser) parseSpecialClosureDelegate() ast.Expr {
+        pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
+        p.next()
+
+        resolved := p.runtime.Resolve(s, anywhere)
+        if resolved == nil {
+                p.error(pos, "Undefined reference `%v' (%v).", s, tok)
+        } else if _, ok := resolved.(types.Caller); !ok {
+                p.error(pos, "Uncallable resolved `%T'.", resolved)
+        }
+        
+        cd := ast.ClosureDelegate{
+                TokPos: pos,
+                Lparen: token.NoPos,
+                Name: &ast.Bareword{ p.pos, s },
+                Resolved: resolved,
+                Rparen: token.NoPos,
+                Tok: tok,
+        }
+        if tok.IsDelegate() {
+                return &ast.DelegateExpr{ cd }
+        } else {
+                return &ast.ClosureExpr{ cd }
+        }
+}
+
+func (p *parser) parseInitialExpr(lhs bool) ast.Expr {
         switch p.tok {
-        case token.BAREWORD:
+        case token.BAREWORD, token.AT:
                 return p.parseBareword()
                 
         case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
              token.DATETIME, token.DATE, token.TIME, 
              token.URI, token.STRING, token.ESCAPE:
-                //fmt.Printf("%s %s\n", p.tok, p.lit)
-                pos, tok, lit := p.pos, p.tok, p.lit
-                end := int(pos) + len(lit)
-                switch tok {
-                case token.STRING: end += 2
-                }
-                p.next()
-                // ESCAPE is handled in value.EscapeChar
-                return &ast.BasicLit{
-                        ValuePos: pos,
-                        Kind: tok,
-                        Value: lit,
-                        EndPos: token.Pos(end),
-                }
+                return p.parseBasicLit()
                 
         case token.COMPOUND:
-                var (
-                        lpos = p.pos
-                        elems []ast.Expr
-                        rpos token.Pos
-                )
-                p.next()
-                for p.tok != token.COMPOSED && p.tok != token.EOF {
-                        elems = append(elems, p.checkExpr(p.parseExpr(false)))
-                }
-                rpos = p.expect(token.COMPOSED)
-                return &ast.CompoundLit{
-                        Lquote: lpos,
-                        Elems:  elems,
-                        Rquote: rpos,
-                }
-                
-        case token.AT:
-                pos := p.pos; p.next()
-                return &ast.Bareword{ 
-                        ValuePos: pos, 
-                        Value: "@",
-                }
+                return p.parseCompoundLit()
                 
         case token.STAR:
-                pos, tok := p.pos, p.tok
-                p.next()
-                return &ast.GlobExpr{ TokPos:pos, Tok:tok }
+                return p.parseGlobExpr()
 
         case token.DOLLAR, token.AND: // delegate, closure
-                var (
-                        lpos = token.NoPos
-                        rpos = token.NoPos
-                        pos  = p.pos
-                        tok  = p.tok
-                        name   ast.Expr
-                        rest   []ast.Expr
-                        tokLp  token.Token
-                )
-                switch p.next(); p.tok {
-                case token.LPAREN, token.LBRACE:
-                        lpos, tokLp = p.pos, p.tok
-                        p.next()
-                        name = p.checkExpr(p.parseExpr(false))
-                        if (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
-                           (tokLp == token.LBRACE && p.tok != token.RBRACE) {
-                                rest = append(rest, p.parseListExpr(false))
-                                for p.tok == token.COMMA {
-                                        p.next()
-                                        rest = append(rest, p.parseListExpr(false))
-                                }
-                        }
-                        switch tokLp {
-                        case token.LPAREN: rpos = p.expect(token.RPAREN)
-                        case token.LBRACE: rpos = p.expect(token.RBRACE)
-                        }
-                default:
-                        // Only support $(...), disable $name.
-                        if false {
-                                // Parse name without composing expressions
-                                name = p.checkExpr(p.parseExpr0(false))
-                        } else {
-                                p.error(p.pos, "Expecting `%v' or `%v'.", token.LPAREN, token.LBRACE)
-                                return &ast.BadExpr{ From:p.pos, To:p.pos }
-                        }
-                }
-
-                var resolved RuntimeObj
-                if a, _ := name.(*ast.EvaluatedExpr); a != nil {
-                        if a.Data == nil {
-                                p.error(name.Pos(), "Evaluated data is nil (%v).", a.Expr)
-                        } else if resolved = a.Data.(RuntimeObj); resolved == nil {
-                                p.error(name.Pos(), "Unresolved reference (%v).", a.Expr)
-                        }
-                } else if v, e := p.runtime.Eval(name, disclosure); e != nil {
-                        p.error(pos, e)
-                } else if v == nil {
-                        p.error(pos, "Name `%T' eval to nil", name)
-                } else {
-                        a = &ast.EvaluatedExpr{ name, v }
-                        if resolved = p.runtime.Resolve(v.Strval(), anywhere); resolved == nil {
-                                p.error(name.Pos(), "Undefined reference `%v' (%T).", v.Strval(), name)
-                        } else {
-                                name = a
-                                switch tokLp {
-                                case token.LPAREN:
-                                        if _, ok := resolved.(types.Caller); !ok {
-                                                p.error(name.Pos(), "Uncallable resolved `%v' (%T).", v.Strval(), name)
-                                        }
-                                case token.LBRACE:
-                                        if _, ok := resolved.(types.Executer); !ok {
-                                                p.error(name.Pos(), "Unexecutible resolved `%v' (%T).", v.Strval(), name)
-                                        }
-                                }
-                        }
-                }
-
-                cd := ast.ClosureDelegate{
-                        TokPos: pos,
-                        Lparen: lpos,
-                        Name: name,
-                        Resolved: resolved,
-                        Args: rest,
-                        Rparen: rpos,
-                        TokLp: tokLp,
-                        Tok: tok,
-                }
-                if tok == token.DOLLAR {
-                        return &ast.DelegateExpr{ cd }
-                } else {
-                        return &ast.ClosureExpr{ cd }
-                }
+                return p.parseClosureDelegate()
 
         case token.LPAREN:
                 return p.parseGroupExpr()
 
-        case token.PCON:
-                pos, tok := p.pos, p.tok; p.next()
-                //for p.tok == token.PCON { p.next() }
-                return &ast.PathSegExpr{ pos, tok }
-        case token.PERIOD, token.DOTDOT:
-                pos, tok := p.pos, p.tok; p.next()
-                /*if p.tok == token.PCON {
-                        return &ast.PathSegExpr{ pos, tok }
-                } else if tok == token.PERIOD {
-                        // TODO: select from the current context
-                        return &ast.Bareword{ pos, "." }
-                } else {
-                        // TODO: select from the parent context
-                        return &ast.Bareword{ pos, ".." }
-                }*/
-                return &ast.PathSegExpr{ pos, tok }
+        case token.PERIOD, token.DOTDOT, token.PCON:
+                return p.parsePathExpr()
                 
         case token.PERC:
-                var (
-                        y ast.Expr
-                        pos = p.pos
-                )
-                if p.next(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
-                        y = p.checkExpr(p.parseExpr(false))
-                        //fmt.Printf("PERC: %T %v %v(%v)\n", y, y, p.tok, p.lit)
-                }
-                return &ast.PercExpr{
-                        X: nil,
-                        OpPos: pos,
-                        Y: y,
-                }
+                return p.parsePercExpr()
                 
         case token.MINUS:
-                var (
-                        pos = p.pos
-                        x ast.Expr
-                )
-                // Flag expressions, excluding "-)" "-]" "-}" "-\n"
-                if p.next(); p.tok == token.RPAREN || p.tok == token.RBRACK || p.tok == token.RBRACE ||
-                        p.tok == token.LINEND || p.lineComment != nil {
-                        x = &ast.Bareword{ ValuePos: p.pos }
-                } else {
-                        x = p.checkExpr(p.parseExpr(false))
-                }
-                return &ast.FlagExpr{ DashPos: pos, Name: x }
-
-        case token.PROJECT, token.MODULE, token.USE, token.EXPORT, token.INCLUDE, 
-             token.IMPORT, token.INSTANCE, token.FILES:
-                if p.inRhs || p.bits&composingNoKeyword != 0 {
-                        pos, lit := p.pos, p.lit
-                        p.next()
-                        // convert keyword into Bareword
-                        return &ast.Bareword{
-                                ValuePos: pos,
-                                Value: lit,
-                        }
-                }
-                fallthrough
+                return p.parseFlagExpr()
 
         default:
                 if p.tok.IsClosure() || p.tok.IsDelegate() {
-                        pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
-                        p.next()
-
-                        resolved := p.runtime.Resolve(s, anywhere)
-                        if resolved == nil {
-                                p.error(pos, "Undefined reference `%v' (%v).", s, tok)
-                        } else if _, ok := resolved.(types.Caller); !ok {
-                                p.error(pos, "Uncallable resolved `%T'.", resolved)
-                        }
-                        
-                        cd := ast.ClosureDelegate{
-                                TokPos: pos,
-                                Lparen: token.NoPos,
-                                Name: &ast.Bareword{ p.pos, s },
-                                Resolved: resolved,
-                                Rparen: token.NoPos,
-                                Tok: tok,
-                        }
-                        if tok.IsDelegate() {
-                                return &ast.DelegateExpr{ cd }
-                        } else {
-                                return &ast.ClosureExpr{ cd }
-                        }
+                        return p.parseSpecialClosureDelegate()
                 } else if p.tok.IsKeyword() { // keywords here are barewords
-                        tok, pos := p.tok, p.pos
-                        p.next() // Advanced behind the keyword
-                        return &ast.Bareword{ pos, tok.String() }
+                        return p.parseBareword()
+                } else {
+                        return p.parseBadExpr()
                 }
-
-                pos := p.pos
-                p.warn(pos, "weird '%v'\n", p.tok)
-                p.errorExpected(pos, "clause or expression")
-                p.next() // go to next token
-                return &ast.BadExpr{ From:pos, To:p.pos }
         }
 }
 
@@ -1026,27 +1047,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         }
                 }
         case token.PCON:
-                //fmt.Printf("PCON: %T %v %v %v\n", x, x, x.End(), p.pos)
-                if joint /*&& p.bits&composingPCON == 0*/ {
-                        p.bits |= composingPCON
-                        pat := &ast.PathExpr{ 
-                                PosBeg: p.pos,
-                                Segments: []ast.Expr{x},
-                                PosEnd: p.pos,
-                        }
-                        //fmt.Printf("path: %v (%T)\n", x, x)
-                        // Drop continual '/' tokens.
-                        ConcatPath: for p.tok == token.PCON { p.next() }
-                        y := p.checkExpr(p.parseExpr(lhs))
-                        pat.Segments = append(pat.Segments, y)
-                        pat.PosEnd = y.End()
-                        //fmt.Printf("path: %v (%T)\n", y, y)
-                        if p.tok == token.PCON {
-                                goto ConcatPath
-                        }
-                        p.bits &= ^composingPCON
-                        x = pat
-                }
+                // See p.parsePathExpr()
         case token.PERC:
                 if joint /*&& p.bits&composingPERC == 0*/ {
                         p.bits |= composingPERC
@@ -1063,7 +1064,7 @@ func (p *parser) parseComposing(x ast.Expr, lhs bool) ast.Expr {
                         p.bits |= composing
                 Compose:
                         y = p.checkExpr(p.parseExpr(lhs))
-                        //fmt.Printf("compose: %T %T\n", x, y)
+                        fmt.Printf("compose: %T %T\n", x, y)
                         x = &ast.Barecomp{ []ast.Expr{ x, y } }
                         if x.End() == p.pos && p.lineComment == nil {
                                 switch p.tok {
@@ -1091,7 +1092,9 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 	if p.trace {
 		defer un(trace(p, "Expression"))
 	}
-        x = p.parseComposing(p.parseExpr0(lhs), lhs)
+        // FIXME: use type-based recursive composing, e.g.:
+        //     p.parseInitialExpr(lhs).compose(p)
+        x = p.parseComposing(p.parseInitialExpr(lhs), lhs)
         return
 }
 
