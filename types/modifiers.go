@@ -183,7 +183,9 @@ func modifierCD(prog *Program, value Value, args... Value) (result Value, err er
 func parseDependList(prog *Program, dependList *List) (depends *List, err error) {
         depends = new(List)
         for _, depend := range dependList.Elems {
-                //fmt.Printf("compare: depend: %T %v\n", depend, depend)
+                if trace_compare {
+                        fmt.Printf("compare:Depend: %v (%T)\n", depend, depend)
+                }
                 switch d := depend.(type) {
                 case *List:
                         if dl, e := parseDependList(prog, d); e != nil {
@@ -289,7 +291,11 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
                 return nil, &breaker{ s, false }
         }
 
-        //fmt.Printf("compare: %v (%T)\n", targetVal, targetVal)
+        if trace_compare {
+                fmt.Printf("compare:Target: %v (%T)\n", targetVal, targetVal)
+                //fmt.Printf("compare: %T %v (%v)\n", targetVal, targetVal, Reveal(targetVal))
+                //fmt.Printf("compare: %T %v (%v)\n", targetVal, targetVal, Reveal(Disclose(prog.disctx, targetVal)))
+        }
 
         if targetVal = Reveal(targetVal); targetVal == nil || targetVal.Type() == NoneType {
                 return nil, &breaker{ "no target", false }
@@ -313,8 +319,6 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
                 prog.auto("^", depends)
         }
 
-        //fmt.Printf("compare: %v (%T), depends: %v\n", targetVal, targetVal, depends)
-        
         // Comparing target with depends.
 
         var (

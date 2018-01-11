@@ -39,8 +39,8 @@ time
 bareword
 string
 compound
-path
-path
+path /path/to/somewhere
+path ./subdir/in/somewhere
 barefile
 barefile
 barecomp
@@ -64,7 +64,10 @@ barefile
 barecomp
 barefile bareword bareword group
 barefile list list
-`))
+barecomp -I/path/to/include
+barecomp -I%s/include
+list
+`, wd))
                         if !bytes.Equal(v, h) { t.Errorf("bad header:\n%s\n%s", v, h) }
 
                         v = []byte(fmt.Sprintf(``))

@@ -29,7 +29,7 @@ const (
         DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
         DATE     // 1979-05-27 (internet date format - RFC3339)
         TIME     // 07:32:00.999999 (internet time format - RFC3339)
-        URI      // 'mailto:Duzy.Chan@example.com' (uniform resource identifier - RFC3986)
+        URI      // 'mailto:duzy.chan@example.com' (uniform resource identifier - RFC3986)
 	STRING   // 'abc'
         ESCAPE   // \", \\n, etc. (see value.EscapeChar)
         COMPOUND // "abc $(foo) 123"

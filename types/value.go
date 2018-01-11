@@ -20,6 +20,7 @@ import (
 )
 
 const (
+        trace_compare = false
         trace_prepare = false
 )
 
@@ -57,6 +58,11 @@ func (*value) String() string     { return "" }
 func (*value) Strval() string     { return "" }
 func (*value) Integer() int64     { return 0 }
 func (*value) Float() float64     { return 0 }
+
+// TODO: use it with (compare) modifier
+type comparable interface {
+        compare(target Value)
+}
 
 // Preparer prepares prerequisites of targets.
 type Preparer struct {
@@ -533,6 +539,9 @@ func (p *Barefile) prepare(pc *Preparer) error {
                 fmt.Printf("prepare:Barefile: %v (project %v, %v)\n", p, pc.entry.project.name, pc.entry)
         }
         if p.File != nil {
+                if s := p.Name.Strval(); s != p.File.Name {
+                        p.File.Name = s // Fix it in case of '$@.o' was parsed and became '.o'.
+                }
                 return p.File.prepare(pc)
         } else {
                 return pc.prepareTargetValue(p)
@@ -623,7 +632,7 @@ func (p *PathSeg) Strval() (s string) {
 }
 
 type File struct {
-        value
+        value            // satisify Value interface
         Name string      // represented name (e.g. relative filename)
         Match *FileMap   // matched pattern (see 'files' directive)
         Dir string       // full directory in which the file should be or was found
@@ -649,6 +658,9 @@ func (p *File) IsKnown() bool { return p.Match != nil }
 func (p *File) IsExists() bool { return p.Info != nil }
 
 func (p *File) prepare(pc *Preparer) error {
+        if trace_prepare {
+                fmt.Printf("prepare:File: %v (%v) (project %v, %v)\n", p.Name, p, pc.program.project.name, pc.entry)
+        }
         if err, brk := p.explicitly(pc); err != nil || brk {
                 return err
         }
@@ -664,15 +676,15 @@ func (p *File) prepare(pc *Preparer) error {
 func (p *File) explicitly(pc *Preparer) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (%v) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (%v explicitly) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
                 }
                 // Find concrete entry (by file represented name)
                 if _, obj := project.scope.Find(p.Name); obj != nil {
                         if trace_prepare {
                                 fmt.Printf("prepare:File: %v (found %v) (project %v, %v)\n", p.Name, obj, project.name, pc.entry)
                         }
-                        if err = pc.Prepare(obj); err == nil {
-                                trybrk = true
+                        if err, trybrk = pc.Prepare(obj), true; err != nil {
+                                // ...
                         }
                 }
                 return
@@ -682,7 +694,7 @@ func (p *File) explicitly(pc *Preparer) (error, bool) {
 func (p *File) implicitly(pc *Preparer) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (%v) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (%v implicitly) (project %s, %v)\n", p.Name, p, project.name, pc.entry)
                 }
                 for _, ps := range project.FindPatterns(p.Name) {
                         if trace_prepare {

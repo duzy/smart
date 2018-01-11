@@ -27,8 +27,8 @@ eval println $(typeof 08:50:00)
 eval println $(typeof foobar)
 eval println $(typeof 'string')
 eval println $(typeof "compound $.")
-eval println $(typeof /path/to/somewhere)
-eval println $(typeof ./subdir/in/somewhere)
+eval println $(typeof /path/to/somewhere) /path/to/somewhere
+eval println $(typeof ./subdir/in/somewhere) ./subdir/in/somewhere
 eval println $(typeof foobar.o)
 eval println $(typeof foobar.c)
 eval println $(typeof foobar.h)
@@ -59,3 +59,7 @@ eval println $(typeof $@,foo,bar,(1 2 3))
 
 # list arguments
 eval println $(typeof $@,foo bar,1 2 3)
+
+eval println $(typeof -I/path/to/include) -I/path/to/include
+eval println $(typeof -I$//include) -I$//include
+eval println $(typeof -I /path/to/include)

@@ -378,11 +378,16 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                         v = values.Barecomp(a...)
                 }
         case *ast.Barefile:
-                if a, err := l.expr(x.Name); err != nil {
-                        return nil, err
-                } else if file, _ := x.File.(*types.File); file != nil {
-                        v = values.Barefile(a, file)
-                } else {
+                if file, _ := x.File.(*types.File); file != nil {
+                        if x.Val != nil {
+                                v = values.Barefile(x.Val.(types.Value), file)
+                        } else if a, err := l.expr(x.Name); err != nil {
+                                return nil, err
+                        } else if a != nil {
+                                v = values.Barefile(a, file)
+                        }
+                }
+                if v == nil {
                         err = fmt.Errorf("Invalid barefile '%s'", x.Name)
                 }
         case *ast.GlobExpr: // Just "*"
@@ -1065,7 +1070,9 @@ func (pc *parseContext) MapFile(pat string, paths []string) {
 
 func (pc *parseContext) File(s string) (f *types.File) {
         if pc.project != nil {
-                f = pc.project.ToFile(s)
+                if f = pc.project.ToFile(s); f != nil {
+                        // fmt.Printf("file: %v %v\n", f, pc.scope)
+                }
         }
         return
 }
@@ -1185,12 +1192,10 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
                         return
                 }
         }
-        if ec&parser.CastDepends == 0 {
+        if ec&parser.DependValue == 0 {
                 return
         }
 
-        //fmt.Printf("Reveal: depend: %T %v (%v)\n", res, res, res.Strval())
-        
         // Cast depends so that it's could be easily used.
 
         if def, ok := res.(*types.Def); ok && def != nil {

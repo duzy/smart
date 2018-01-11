@@ -148,6 +148,7 @@ func (p *Project) SearchFile(filename string) *File {
 func (p *Project) isFile(s string) (v bool) {
         if len(s) > 0 {
                 for _, filemap := range p.filemap {
+                        //fmt.Printf("filemap: %v %v (%v)\n", filemap, s, filemap.Match(s))
                         if filemap.Match(s) {
                                 return true
                         }

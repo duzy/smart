@@ -53,8 +53,7 @@ test "%s/many/greeting" = "%s/many/greeting"
 test -f include/greeting.h
 update file 'src/greeting.c' ... (ok)
 gcc -DXXX -Iinclude -c -o obj/greeting.o src/greeting.c
-ar rvs libgreeting.a obj/greeting.o
-a - obj/greeting.o
+ar rs libgreeting.a obj/greeting.o
 smart:  Leaving directory '%s/many/greeting'
 update file 'hello.cpp' ... (ok)
 g++ -DXXX -Iinclude -I%s/many/greeting/include -DTEST=1 -std=c++1z -c hello.cpp -o hello.o

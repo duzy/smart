@@ -160,8 +160,9 @@ type (
 
         // A Barefile node represents a bare file expression (with extension).
         Barefile struct {
-                Name    Expr      // basename
+                Name    Expr     // basename
                 File interface{} // *types.File
+                Val interface{}  // name value, to avoid re-eval Name expr.
         }
 
         // A GlobExpr node represents an expression containing glob characters "*?".

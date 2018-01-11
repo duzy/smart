@@ -44,19 +44,13 @@ type EvalBits int
 const (
         KeepClosures EvalBits = 1<<iota
         KeepDelegates
-        CastDepends
 
-        // Expends delegates and closures.
-        disclosure = 0
+        // Wants value for rule depends.
+        DependValue
 
-        // Keeps closures
-        immediate = KeepClosures
-
-        // Keeps delegates and closures.
-        delegation = KeepClosures | KeepDelegates
-
-        // Keeps closures, convertion for rule depends
-        ruledepend = delegation/*KeepClosures*/ | CastDepends
+        // Wants v.Strval(), expends delegates and closures,
+        // turn off KeepClosures, KeepDelegates.
+        StringValue = 0
 )
 
 type RuntimeObj ast.Symbol
@@ -64,7 +58,7 @@ type RuntimeObj ast.Symbol
 type RuntimeContext interface {
         Getwd() string
         
-        File(s string) *types.File
+        File(name string) *types.File
         MapFile(pat string, paths []string)
 
         DeclareProject(name *ast.Bareword, params types.Value) error
