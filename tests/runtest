@@ -73,6 +73,7 @@ if test ! -z "$@"; then
     runtests "$@"
 else
     runtests \
+        typeof \
 	basechain \
 	basecpp \
 	check_outputs \
@@ -84,6 +85,7 @@ else
 	params \
 	search_file \
 	use_posix_thread \
+        path \
 	&& true
     runtestcase TestInternal
 fi
