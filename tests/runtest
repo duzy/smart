@@ -25,6 +25,7 @@ function cleanup() {
        hello/{hello,hello.o,hello.cpp} \
        hellodock/{1,2}.log \
        hellodock/{hello,hello.o,hello.cpp} \
+       params/{1,2}.log \
        search_file/{1,2}.log \
        search_file/hello \
        search_file/obj/hello.o \
