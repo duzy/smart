@@ -24,9 +24,9 @@ all: \
 path//to///overthere:
 	println $(typeof $@) $@
 
-sub: sub/foo.o sub/bar.o
+sub:[(compare)]: sub/foo.o sub/bar.o
 	println "$^ -> $@"
-sub/foo.o: foo.c
+sub/foo.o:[(compare)]: foo.c
 	println "compile $^ -> $@"
-sub/bar.o: bar.c
+sub/bar.o:[(compare)]: bar.c src/baz.c
 	println "compile $^ -> $@"
