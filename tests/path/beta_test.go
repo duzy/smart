@@ -29,7 +29,7 @@ RuleEntry ./path/to/somewhere
 RuleEntry ../path/to/anywhere
 RuleEntry path/to/overthere
 compile foo.c -> sub/foo.o
-compile bar.c -> sub/bar.o
+compile bar.c src/baz.c -> sub/bar.o
 sub/foo.o sub/bar.o -> sub
 `))
                         if !bytes.Equal(v, s) { t.Errorf("bad output:\n%s\n%s", v, s) }
