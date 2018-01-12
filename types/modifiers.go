@@ -22,11 +22,15 @@ import (
 
 type breaker struct {
         message string
-        okay bool // it's good to continue
+        good bool // it's good to continue
 }
 
 func (p *breaker) Error() string {
         return p.message
+}
+
+func breakf(good bool, s string, a... interface{}) *breaker {
+        return &breaker{ fmt.Sprintf(s, a...), good }
 }
 
 type modifier func(prog *Program, value Value, args... Value) (Value, error)
@@ -46,8 +50,8 @@ var (
 
                 `cd`:           modifierCD,
 
-                `compare`:      modifierCompare,
-                `grep-compare`: modifierGrepCompare,
+                `compare`:         modifierCompare,
+                `grep-compare`:    modifierGrepCompare,
                 `grep-dependents`: modifierGrepDependents,
 
                 `check`:        modifierCheck,
@@ -98,7 +102,7 @@ func modifierStatusEquals(prog *Program, value Value, args... Value) (result Val
                         result = v; return
                 }
         }
-        err = &breaker{ fmt.Sprintf("bad status (%v, expects %v)", v, a), false }
+        err = breakf(false, "bad status (%v, expects %v)", v, a)
         return
 }
 
@@ -109,7 +113,7 @@ func modifierStdoutEquals(prog *Program, value Value, args... Value) (result Val
                         result = v; return
                 }
         }
-        err = &breaker{ fmt.Sprintf("bad stdout (%v, expects %v)", v, a), false }
+        err = breakf(false, "bad stdout (%v, expects %v)", v, a)
         return
 }
 
@@ -120,7 +124,7 @@ func modifierStderrEquals(prog *Program, value Value, args... Value) (result Val
                         result = v; return
                 }
         }
-        err = &breaker{ fmt.Sprintf("bad stderr (%v, expects %v)", v, a), false }
+        err = breakf(false, "bad stderr (%v, expects %v)", v, a)
         return
 }
 
@@ -195,7 +199,7 @@ func parseDependList(prog *Program, dependList *List) (depends *List, err error)
                         }
                 case *ExecResult:
                         if d.Status != 0 {
-                                err = &breaker{ "got shell failure", false }
+                                err = breakf(false, "got shell failure")
                                 return // target shall be updated
                         } else {
                                 depends.Append(d)
@@ -224,7 +228,7 @@ func parseDependList(prog *Program, dependList *List) (depends *List, err error)
         return
 }
 
-func getCompareDepends(prog *Program, targetVal Value) (depends *List, err error) {
+func getCompareDepends(prog *Program) (depends *List, err error) {
         def := prog.scope.Lookup("^").(*Def)
         dependVal, _ := def.Call()
         dependVal = Reveal(dependVal)
@@ -246,8 +250,7 @@ func compareTargetDepend(prog *Program, target, depend Value, tt time.Time) (out
                         dependFile.Info, _ = os.Stat(dependFile.Strval())
                 }
                 if dependFile.Info == nil {
-                        err = &breaker{ fmt.Sprintf("no file or directory '%v'", dependFile),
-                                false }
+                        err = breakf(false, "no file or directory '%v'", dependFile)
                         return
                 }
                 if t := dependFile.Info.ModTime(); t.After(tt) {
@@ -272,7 +275,7 @@ func compareTargetDepend(prog *Program, target, depend Value, tt time.Time) (out
         return
 }
 
-func modifierCompare(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCompare_0(prog *Program, value Value, args... Value) (result Value, err error) {
         var (
                 targetVal Value
                 depends = new(List)
@@ -288,17 +291,16 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
                 def.Assign(targetVal)
         } else if nargs > 1 {
                 s := fmt.Sprintf("accepts only one optional argument (%v)", args)
-                return nil, &breaker{ s, false }
+                return nil, breakf(false, s)
         }
 
         if trace_compare {
-                fmt.Printf("compare:Target: %v (%T)\n", targetVal, targetVal)
-                //fmt.Printf("compare: %T %v (%v)\n", targetVal, targetVal, Reveal(targetVal))
                 //fmt.Printf("compare: %T %v (%v)\n", targetVal, targetVal, Reveal(Disclose(prog.disctx, targetVal)))
+                fmt.Printf("compare:Target: %v (%T) (%v)\n", targetVal, targetVal, Reveal(targetVal))
         }
 
         if targetVal = Reveal(targetVal); targetVal == nil || targetVal.Type() == NoneType {
-                return nil, &breaker{ "no target", false }
+                return nil, breakf(false, "no target")
         }
 
         // deal with list.
@@ -308,11 +310,11 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
                         targetVal = t.Elems[0]
                 } else {
                         s := fmt.Sprintf("compare: multiple targets (%v)", targetVal)
-                        return nil, &breaker{ s, false }
+                        return nil, breakf(false, s)
                 }
         }
 
-        if depends, err = getCompareDepends(prog, targetVal); err != nil {
+        if depends, err = getCompareDepends(prog); err != nil {
                 return
         } else if depends != nil && depends.Len() > 0 {
                 prog.auto("<", depends.Get(0))
@@ -339,16 +341,16 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
                                         targetFile = &File{ Name: s }
                                 } else {
                                         fmt.Fprintf(os.Stdout, "%v: %v->%v is not file\n", t.Position, p.Name(), s)
-                                        err = &breaker{ fmt.Sprintf("unknown %v->%v (%v)", p.Name(), s, class), false }
+                                        err = breakf(false, "unknown %v->%v (%v)", p.Name(), s, class)
                                         return
                                 }
                         } else*/ {
-                                err = &breaker{ fmt.Sprintf("unknown entry (%v '%v')", class, s), false }
+                                err = breakf(false, "unknown entry (%v '%v')", class, s)
                                 return
                         }}
                 }
                 if targetFile == nil {
-                        err = &breaker{ fmt.Sprintf("unknown target (%T '%v')", targetVal, targetVal), false }
+                        err = breakf(false, "unknown target (%T '%v')", targetVal, targetVal)
                         return
                 } else if nargs == 1 {
                         // Replace the value of "$@"
@@ -378,7 +380,24 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
                         }
                 }
         }
-        err = &breaker{ fmt.Sprintf("%s already up to date", targetVal), true }
+        err = breakf(true, "%s already up to date", targetVal)
+        return
+}
+
+func modifierCompare(prog *Program, value Value, args... Value) (result Value, err error) {
+        var target = prog.scope.Lookup("@").(*Def)
+        if nargs := len(args); nargs == 1 {
+                target.Assign(args[0])
+        } else if nargs > 1 {
+                s := fmt.Sprintf("accepts only one optional argument (%v)", args)
+                return nil, breakf(false, s)
+        }
+
+        if c, e := NewComparer(prog.globe, target); e != nil {
+                err = e
+        } else if err = c.Compare(prog.scope.Lookup("^")); err == nil {
+                result = MakeListOrScalar(c.result)
+        }
         return
 }
 
@@ -477,7 +496,7 @@ func modifierCheck(prog *Program, value Value, args... Value) (result Value, err
         var exeres, _ = value.(*ExecResult)
         if exeres == nil {
                 s := fmt.Sprintf("bad value (%T)", value)
-                err = &breaker{ s, false }
+                err = breakf(false, s)
                 return
         }
         ForArgs: for _, arg := range args {
@@ -487,31 +506,31 @@ func modifierCheck(prog *Program, value Value, args... Value) (result Value, err
                         case "status":
                                 if exeres.Status != int(t.Value.Integer()) {
                                         s := fmt.Sprintf("bad status (%v) (expects %v)", exeres.Status, t.Value)
-                                        err = &breaker{ s, false }
+                                        err = breakf(false, s)
                                         break ForArgs
                                 }
                         case "stdout":
                                 if v := exeres.Stdout.Buf; v != nil {
                                         if v.String() != t.Value.Strval() {
                                                 s := fmt.Sprintf("bad stdout (%v) (expects %v)", v, t.Value)
-                                                err = &breaker{ s, false }
+                                                err = breakf(false, s)
                                                 break ForArgs
                                         }
                                 } else {
                                         s := fmt.Sprintf("bad stdout (expects %v)", t.Value)
-                                        err = &breaker{ s, false }
+                                        err = breakf(false, s)
                                         break ForArgs
                                 }
                         case "stderr":
                                 if v := exeres.Stderr.Buf; v != nil {
                                         if v.String() != t.Value.Strval() {
                                                 s := fmt.Sprintf("bad stderr (%v) (expects %v)", v, t.Value)
-                                                err = &breaker{ s, false }
+                                                err = breakf(false, s)
                                                 break ForArgs
                                         }
                                 } else {
                                         s := fmt.Sprintf("bad stderr (expects %v)", t.Value)
-                                        err = &breaker{ s, false }
+                                        err = breakf(false, s)
                                         break ForArgs
                                 }
                         default:
@@ -544,7 +563,7 @@ func modifierCheckDir(prog *Program, value Value, args... Value) (result Value, 
                 }
                 result = &Path{Elements{segments}, nil}
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not exists", targetVal), false }
+                err = breakf(false, "file %s not exists", targetVal)
         }
         return
 }
@@ -563,7 +582,7 @@ func modifierCheckFile(prog *Program, value Value, args... Value) (result Value,
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
                 result = &File{ Name: filename }
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not exists", targetVal), false }
+                err = breakf(false, "file %s not exists", targetVal)
         }
         return
 }
@@ -587,8 +606,7 @@ func modifierWriteFile(prog *Program, value Value, args... Value) (result Value,
                         os.Remove(filename)
                 }
         } else {
-                err = &breaker{ fmt.Sprintf("file %s not generated", targetDef.Value), 
-                        false }
+                err = breakf(false, "file %s not generated", targetDef.Value)
         }
         return
 }
@@ -667,8 +685,7 @@ func modifierUpdateFile(prog *Program, value Value, args... Value) (result Value
                 if !slient {
                         fmt.Printf(". (%s)\n", err)
                 }
-                err = &breaker{ fmt.Sprintf("file %s not updated", targetDef.Value), 
-                        false }
+                err = breakf(false, "file %s not updated", targetDef.Value)
         }
         return
 }

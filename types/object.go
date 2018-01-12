@@ -310,6 +310,37 @@ func (d *Def) Get(name string) (Value, error) {
         return nil, fmt.Errorf("No such property `%s' (Def)", name)
 }
 
+func (d *Def) compare(c *Comparer) error {
+        if trace_compare {
+                fmt.Printf("compare:Def: %v (%v %T)\n", d, c.target, c.target)
+        }
+        return c.compare(d.Value)
+}
+
+func (d *Def) compareFileDepend(c *Comparer, file *File) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Def: %v (depends: %v) (%v %T)\n", d, file, c.target, c.target)
+        }
+        if comp, _ := d.Value.(comparable); comp != nil {
+                err = comp.compareFileDepend(c, file)
+        } else {
+                err = breakf(false, "incomparable target (%v)", d.Value)
+        }
+        return
+}
+
+func (d *Def) comparePathDepend(c *Comparer, path *Path) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Def: %v (depends: %v) (%v %T)\n", d, path, c.target, c.target)
+        }
+        if comp, _ := d.Value.(comparable); comp != nil {
+                err = comp.comparePathDepend(c, path)
+        } else {
+                err = breakf(false, "incomparable target (%v)", d.Value)
+        }
+        return
+}
+
 func (scope *Scope) InsertDef(project *Project, name string, value Value) (def *Def, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 def = &Def{
@@ -475,6 +506,72 @@ func (entry *RuleEntry) setcaller(pc *Preparer) (prev *Preparer) {
         return
 }
 
+func (entry *RuleEntry) compare(c *Comparer) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:RuleEntry: %v (%v) (%v %T)\n", entry.name, entry.class, c.target, c.target)
+        }
+        switch entry.class {
+        case ExplicitFileEntry, StemmedFileEntry:
+                err = c.target.compareFileDepend(c, entry.file)
+        case ExplicitPathEntry:
+                err = c.target.comparePathDepend(c, entry.path)
+        default:
+                err = breakf(false, "incomparable entry (%v)", entry.name)
+        }
+        return
+}
+
+func (entry *RuleEntry) compareFileDepend(c *Comparer, file *File) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:RuleEntry:File: %v (%v) (depends: %v) (%v %T)\n", entry.name, entry.class, file, c.target, c.target)
+        }
+        switch entry.class {
+        case ExplicitFileEntry, StemmedFileEntry:
+                if entry.file != nil {
+                        err = entry.file.compareFileDepend(c, file)
+                } else {
+                        err = breakf(false, "nil file entry (%v)", entry.name)
+                }
+        case ExplicitPathEntry:
+                if entry.path != nil {
+                        err = entry.path.compareFileDepend(c, file)
+                } else {
+                        err = breakf(false, "nil file entry (%v)", entry.name)
+                }
+        default:
+                err = breakf(false, "incomparable entry (%v)", entry.name)
+        }
+        return
+}
+
+func (entry *RuleEntry) comparePathDepend(c *Comparer, path *Path) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:RuleEntry:Path: %v (%v) (depends: %v) (%v %T)\n", entry.name, entry.class, path, c.target, c.target)
+        }
+        switch entry.class {
+        case ExplicitFileEntry, StemmedFileEntry:
+                if entry.file != nil {
+                        err = entry.file.comparePathDepend(c, path)
+                } else {
+                        err = breakf(false, "nil file entry (%v)", entry.name)
+                }
+        case ExplicitPathEntry:
+                if entry.path != nil {
+                        err = entry.path.comparePathDepend(c, path)
+                } else {
+                        err = breakf(false, "nil file entry (%v)", entry.name)
+                }
+        default:
+                if trace_compare {
+                        fmt.Printf("compare:RuleEntry:Path: %v (%v) (incomparable) (%v %T)\n", entry.name, entry.class, c.target, c.target)
+                }
+                if false {
+                        err = breakf(false, "incomparable entry (%v)", entry.name)
+                }
+        }
+        return
+}
+
 func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 switch entry.class {
@@ -557,6 +654,18 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                                 pc.targets.Append(file)
                         } else {
                                 pc.targets.Append(caller.program.project.SearchFile(dd.Strval()))
+                        }
+                case ExplicitPathEntry:
+                        if trace_prepare {
+                                fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
+                                        entry.name, entry.class, dd, dd, entry.path, pc.entry)
+                        }
+                        if entry.path == nil {
+                                pc.targets.Append(entry)
+                        } else if entry.path.File == nil {
+                                pc.targets.Append(entry.path)
+                        } else {
+                                pc.targets.Append(entry.path.File)
                         }
                 default:
                         if res != nil && res.Type() != NoneType {

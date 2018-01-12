@@ -281,7 +281,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         var lang string
                         if lang, err = prog.modify(op, out); err != nil {
                                 if p, ok := err.(*breaker); ok {
-                                        if p.okay {
+                                        if p.good {
                                                 // Discard err and change dialect to
                                                 // avoid default interpreter being
                                                 // called.
