@@ -33,6 +33,9 @@ function cleanup() {
        use_posix_thread/{example,example.o,example.cpp} \
        typeof/{1,2}.log \
        path/{1,2}.log \
+       filepath/{1,2}.log \
+       filepath/{hello,main.o} \
+       filepath/src/{foo,bar,baz}.o \
 	&& true
 }
 
@@ -86,6 +89,7 @@ else
 	search_file \
 	use_posix_thread \
         path \
+        filepath \
 	&& true
     runtestcase TestInternal
 fi

@@ -312,14 +312,14 @@ func (d *Def) Get(name string) (Value, error) {
 
 func (d *Def) compare(c *Comparer) error {
         if trace_compare {
-                fmt.Printf("compare:Def: %v (%v %T)\n", d, c.target, c.target)
+                fmt.Printf("compare:Def: %v (%v %T)\n", d.Value, c.target, c.target)
         }
         return c.compare(d.Value)
 }
 
 func (d *Def) compareFileDepend(c *Comparer, file *File) (err error) {
         if trace_compare {
-                fmt.Printf("compare:Def: %v (depends: %v) (%v %T)\n", d, file, c.target, c.target)
+                fmt.Printf("compare:Def:File: %v (depends: %v) (%v %T)\n", d.Value, file, c.target, c.target)
         }
         if comp, _ := d.Value.(comparable); comp != nil {
                 err = comp.compareFileDepend(c, file)
@@ -331,7 +331,7 @@ func (d *Def) compareFileDepend(c *Comparer, file *File) (err error) {
 
 func (d *Def) comparePathDepend(c *Comparer, path *Path) (err error) {
         if trace_compare {
-                fmt.Printf("compare:Def: %v (depends: %v) (%v %T)\n", d, path, c.target, c.target)
+                fmt.Printf("compare:Def:Path: %v (depends: %v) (%v %T)\n", d.Value, path, c.target, c.target)
         }
         if comp, _ := d.Value.(comparable); comp != nil {
                 err = comp.comparePathDepend(c, path)
@@ -618,7 +618,18 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
 
 func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:Execute: %v (%v) (%v, %v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                switch entry.class {
+                case GeneralRuleEntry:
+                        fmt.Printf("prepare:Execute: %v (%v) (project %v, %v)\n", entry.name, entry.class, pc.entry.project.name, pc.entry)
+                case ExplicitFileEntry:
+                        fmt.Printf("prepare:Execute: %v (%v) (%v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.entry.project.name, pc.entry)
+                case StemmedFileEntry:
+                        fmt.Printf("prepare:Execute: %v (%v) (%v, stem=%v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                case StemmedRuleEntry:
+                        fmt.Printf("prepare:Execute: %v (%v, stem=%v) (project %v, %v)\n", entry.name, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                default:
+                        fmt.Printf("prepare:Execute: %v (%v) (project %v, %v)\n", entry.name, entry.class, pc.entry.project.name, pc.entry)
+                }
         }
 
         var (
@@ -629,15 +640,14 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         // Fixes program context if the starting entry and depended entry are
         // in different projects. This ensure disclosures work.
         ForCallers: for c := pc; c != nil; c = c.program.caller {
-                if trace_prepare {
+                if c.program.project != prog.project {
+                        if caller = c; trace_prepare {
+                                fmt.Printf("prepare:Execute: %v (%s -> %s) 🗸 \n", entry.name, prog.project.name, caller.program.project.name)
+                        }
+                        break ForCallers
+                } else if trace_prepare {
                         fmt.Printf("prepare:Execute: %v (%s -> %s)\n", entry.name, prog.project.name, c.program.project.name)
                 }
-                if c.program.project != prog.project {
-                        caller = c; break ForCallers
-                }
-        }
-        if trace_prepare {
-                fmt.Printf("prepare:Execute: %v (%s -> %s) 🗸 \n", entry.name, prog.project.name, caller.program.project.name)
         }
         defer prog.setCallerContext(prog.setCallerContext(caller, caller.program.project.scope))
 

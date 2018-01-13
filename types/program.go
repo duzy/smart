@@ -21,8 +21,6 @@ type dependPatternUnfit struct {
 
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
-const trace_workdir = false
-
 type workinfo struct {
         project *Project
         print bool
@@ -88,6 +86,9 @@ func leaveWorkdir(wi *workinfo) {
 
                 // Go back to previous dir.
                 if n--; 0 <= n && n < len(workstack) {
+                        if trace_workdir {
+                                fmt.Printf("leaving: %v\n", workstack[n].project.AbsPath())
+                        }
                         if err := os.Chdir(workstack[n].project.AbsPath()); err != nil {
                                 fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
                         }
@@ -199,11 +200,24 @@ func (prog *Program) hasCDDash() (res bool) {
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
-        defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
-
         if trace_prepare {
-                fmt.Printf("program.Execute: %v (%v) (%v) (%v) (%v)\n", entry.name, entry.file, entry, prog.depends, prog.project.AbsPath())
+                switch entry.class {
+                case GeneralRuleEntry:
+                        fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.name, entry.class, prog.depends, prog.project.AbsPath())
+                case ExplicitFileEntry:
+                        fmt.Printf("program.Execute: %v (file: %v) (%v) (%v) (%v)\n", entry.name, entry.file, entry.class, prog.depends, prog.project.AbsPath())
+                case ExplicitPathEntry:
+                        fmt.Printf("program.Execute: %v (path: %v) (%v) (%v) (%v)\n", entry.name, entry.path, entry.class, prog.depends, prog.project.AbsPath())
+                case StemmedFileEntry:
+                        fmt.Printf("program.Execute: %v (file: %v) (%v, stem=%v) (%v) (%v)\n", entry.name, entry.file, entry.class, entry.stem, prog.depends, prog.project.AbsPath())
+                case StemmedRuleEntry:
+                        fmt.Printf("program.Execute: %v (%v, stem=%v) (%v) (%v)\n", entry.name, entry.class, entry.stem, prog.depends, prog.project.AbsPath())
+                default:
+                        fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.name, entry.class, prog.depends, prog.project.AbsPath())
+                }
         }
+
+        defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
 
         var argn = 0
         for _, a := range args {

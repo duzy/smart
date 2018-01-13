@@ -22,6 +22,7 @@ import (
 const (
         trace_compare = false
         trace_prepare = false
+        trace_workdir = true && trace_prepare
 )
 
 // Value represents a value of a type.
@@ -573,6 +574,42 @@ func (p *Barefile) referencing(o Object) bool {
         return p.Name.referencing(o)
 }
 
+func (p *Barefile) compare(c *Comparer) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Barefile: %v (%v %T)\n", p.Name, c.target, c.target)
+        }
+        if p.File != nil {
+                err = p.File.compare(c)
+        } else {
+                err = breakf(false, "no such file '%v'", p)
+        }
+        return
+}
+
+func (p *Barefile) compareFileDepend(c *Comparer, d *File) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Barefile:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+        }
+        if p.File != nil {
+                err = p.File.compareFileDepend(c, d)
+        } else {
+                err = breakf(false, "no such file '%v'", p)
+        }
+        return
+}
+
+func (p *Barefile) comparePathDepend(c *Comparer, d *Path) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Barefile:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+        }
+        if p.File != nil {
+                err = p.File.comparePathDepend(c, d)
+        } else {
+                err = breakf(false, "no such path '%v'", p)
+        }
+        return
+}
+
 func (p *Barefile) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Barefile: %v (project %v, %v)\n", p, pc.entry.project.name, pc.entry)
@@ -647,6 +684,20 @@ func (p *Path) disclose(scope *Scope) (Value, error) {
         }
         return nil, nil
 }
+
+/*func (p *Path) Dir() (s string) { // Same as `filepath.Dir(p.Strval())`.
+        if n := len(p.Elems); n > 0 {
+                s = filepath.Base(p.Elems[n-1].Strval())
+        }
+        return filepath.Dir(p.Strval())
+}
+
+func (p *Path) Base() (s string) { // Same as `filepath.Base(p.Strval())`.
+        if n := len(p.Elems); n > 0 {
+                s = filepath.Base(p.Elems[n-1].Strval())
+        }
+        return
+}*/
 
 func (p *Path) compare(c *Comparer) (err error) {
         if trace_compare {
@@ -732,11 +783,26 @@ func (p *Path) comparePathDepend(c *Comparer, d *Path) (err error) {
 func (p *Path) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 if p.File != nil {
-                        fmt.Printf("prepare:Path: %v (file: %v) (%v)\n", p, p.File, pc.entry)
+                        fmt.Printf("prepare:Path: %v (file: %v) (%v, %v)\n", p, p.File, pc.program.project.name, pc.entry)
                 } else {
-                        fmt.Printf("prepare:Path: %v (%v)\n", p, pc.entry)
+                        fmt.Printf("prepare:Path: %v (%v, %v)\n", p, pc.program.project.name, pc.entry)
                 }
         }
+        if p.File == nil {
+                var ( s = p.Strval(); name = filepath.Base(s) )
+                err, _ = pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
+                        if project.isFile(name) {
+                                if file := project.SearchFile(s); file != nil {
+                                        p.File, trybrk = file, file.IsExists() //IsKnown()
+                                }
+                        }
+                        if trace_prepare && p.File != nil {
+                                fmt.Printf("prepare:Path: %v (found file '%v' in %v) (%v, %v)\n", p, p.File, project.name, pc.program.project.name, pc.entry)
+                        }
+                        return
+                })
+        }
+
         if p.File != nil {
                 return p.File.prepare(pc)
         } else if e := pc.prepareTargetValue(p); e == nil {
@@ -816,7 +882,7 @@ func (p *File) compare(c *Comparer) (err error) {
 
 func (p *File) compareFileDepend(c *Comparer, d *File) (err error) {
         if trace_compare {
-                fmt.Printf("compare:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+                fmt.Printf("compare:File:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         
         var ( tt time.Time; ts = p.Strval() )
@@ -850,7 +916,7 @@ func (p *File) compareFileDepend(c *Comparer, d *File) (err error) {
 
 func (p *File) comparePathDepend(c *Comparer, d *Path) (err error) {
         if trace_compare {
-                fmt.Printf("compare:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+                fmt.Printf("compare:File:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
 
         var ( tt time.Time; ts = p.Strval() )
@@ -1077,7 +1143,7 @@ func (p *List) compare(c *Comparer) (err error) {
 
 func (p *List) compareFileDepend(c *Comparer, d *File) (err error) {
         if trace_compare {
-                fmt.Printf("compare:List: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+                fmt.Printf("compare:List:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         if n := len(p.Elems); n == 1 {
                 if elem, _ := p.Elems[0].(comparable); elem != nil {
@@ -1095,7 +1161,7 @@ func (p *List) compareFileDepend(c *Comparer, d *File) (err error) {
 
 func (p *List) comparePathDepend(c *Comparer, d *Path) (err error) {
         if trace_compare {
-                fmt.Printf("compare:List: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+                fmt.Printf("compare:List:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         if n := len(p.Elems); n == 1 {
                 if elem, _ := p.Elems[0].(comparable); elem != nil {
@@ -1299,6 +1365,45 @@ func (p *delegate) referencing(o Object) bool {
                 }
         }
         return false
+}
+
+func (p *delegate) compare(c *Comparer) error {
+        if trace_compare {
+                fmt.Printf("compare:delegate: %v (%v %T)\n", p, c.target, c.target)
+        }
+        return c.compare(p.Value())
+}
+
+func (p *delegate) compareFileDepend(c *Comparer, d *File) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:delegate:File: %v (%v %T)\n", p, c.target, c.target)
+        }
+        var value = p.Value()
+        if comp, _ := value.(comparable); comp != nil {
+                err = comp.compareFileDepend(c, d)
+        } else {
+                err = fmt.Errorf("incomparable target (%v)", value)
+                if trace_compare {
+                        fmt.Printf("compare:delegate:File: %v (incomparable: %v %T)\n", p, value, value)
+                }
+        }
+        return
+}
+
+func (p *delegate) comparePathDepend(c *Comparer, d *Path) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:delegate:Path: %v (%v %T)\n", p, c.target, c.target)
+        }
+        var value = p.Value()
+        if comp, _ := value.(comparable); comp != nil {
+                err = comp.comparePathDepend(c, d)
+        } else {
+                err = fmt.Errorf("incomparable target (%v)", value)
+                if trace_compare {
+                        fmt.Printf("compare:delegate:Path: %v (incomparable: %v %T)\n", p, value, value)
+                }
+        }
+        return
 }
 
 func (p *delegate) prepare(pc *Preparer) (err error) {
@@ -1539,7 +1644,7 @@ func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEn
                 entry = new(RuleEntry); *entry = *patent
                 entry.name = name
                 entry.stem = stem
-                if patent.project.isFile(name) {
+                if patent.project.isFile(filepath.Base(name)) {
                         entry.class = StemmedFileEntry
                         if false && entry.file == nil {
                                 entry.file = entry.project.SearchFile(name)

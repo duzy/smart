@@ -30,18 +30,19 @@ func (filemap *FileMap) Match(filename string) (matched bool) {
         list1 := filepath.SplitList(filename)
         if n := len(list0); n == 0 {
                 // FIXME: match any?
-        } else if n == len(list1) {
+        } else if m := len(list1); n == m { // foo/*.o <-> src/foo.o
                 for i, pat := range list0 {
                         var s = list1[i]
                         if v, _ := filepath.Match(pat, s); !v {
                                 return false
                         }
                 }
-
                 matched = true
+        } else if false && n == 1 && m > 0 { // *.o <-> src/foo.o
+                var ( pat = list0[0]; s = list1[m-1] )
+                matched, _ = filepath.Match(pat, s)
         }
-        
-        return true
+        return
 }
 
 type Project struct {
