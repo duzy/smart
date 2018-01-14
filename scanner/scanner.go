@@ -217,6 +217,9 @@ func (s *Scanner) skipUselessWhitespace(lf bool) {
                         }
                 case '\\':
                         if s.next(); s.ch == '\n' {
+                                if i := s.offset+1; i < len(s.src) && s.src[i] == '\n' {
+                                        break loopSkip // Avoid skipping \\\n\n 
+                                }
                                 for s.next(); s.ch == '\t'; {
                                         // Eat \t afert a continual
                                         s.next()
