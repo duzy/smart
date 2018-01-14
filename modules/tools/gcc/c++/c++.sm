@@ -36,13 +36,17 @@ program:[((bin objects)) (cd -) (compare $(bin)) (dock shell -oe)]: $(objects)
 
 %.o:[(cd -) (compare) (dock shell -oe)]: %.cpp
 	$(COMPILE) $^ -o $@
+%.o:[(cd -) (compare) (dock shell -oe)]: %.cxx
+	$(COMPILE) $^ -o $@
+%.o:[(cd -) (compare) (dock shell -oe)]: %.c++
+	$(COMPILE) $^ -o $@
 %.o:[(cd -) (compare) (dock shell -oe)]: %.cc
 	$(COMPILE) $^ -o $@
 %.o:[(cd -) (compare) (dock shell -oe)]: %.C
 	$(COMPILE) $^ -o $@
 
 # https://github.com/google/re2/wiki/Syntax
-%.cpp %.cc %.C %.h %.hpp %.hh %.H:[(cd -) \
+%.cpp %.cxx %.c++ %.cc %.C %.h %.hpp %.hxx %.h++ %.hh %.H:[(cd -) \
   (grep-compare -discard-missing \
     '\s*#\s*include\s*<(.*)>' \
     '\s*#\s*include\s*"(.*)"')]

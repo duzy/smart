@@ -1,0 +1,24 @@
+project (tools/gcc/c++)
+
+files (
+    main.cc => alt
+    *.c++ => bar
+    *.o => obj
+    hello
+)
+
+objects := main.o \
+  foo.1.o \
+  foo.2.o \
+  foo.3.o \
+  foo.4.o \
+  foo.5.o \
+  foo.6.o \
+  1.o 2.o 3.o\
+  src/baz1.o \
+  src/baz2.o \
+  src/baz3.o \
+  src/baz4.o \
+
+hello:[(shell -oe)]: program($@,$(objects))
+	./hello
