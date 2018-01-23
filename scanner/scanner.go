@@ -642,6 +642,13 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 
 fraction:
 	if s.ch == '.' {
+                if n := s.offset+2; n < len(s.src) {
+                        if ch := rune(s.src[n]); /*unicode.IsSpace(ch) { // 1. -> FLOAT 1.0
+                                // do nothing here
+                        } else if*/ !isDigit(ch) { // 1.o -> INT 1    DOT .    STRING o
+                                goto exit
+                        }
+                }
 		tok = token.FLOAT
 		s.next()
 		s.scanMantissa(10)
@@ -1021,13 +1028,16 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.COMMA
                         s.skipPostLineFeeds = true
                 case '.':
-                        if s.ch == '.' {
+                        if tok = token.PERIOD; s.ch == '.' {
                                 tok = token.DOTDOT
                                 s.next()
                         } else if isDigit(s.ch) {
-                                tok, lit = s.scanNumber(true)
-                        } else {
-                                tok = token.PERIOD
+                                if n := s.offset-2; n > -1 && unicode.IsSpace(rune(s.src[n])) { // skip xxx.1 
+                                        tok, lit = s.scanNumber(true)
+                                        /*if s.offset < len(s.src) && !unicode.IsSpace(rune(s.src[s.offset])) {
+                                                tok = token.STRING
+                                        }*/
+                                }
                         }
                         //s.skipPostLineFeeds = true
                 case ':':

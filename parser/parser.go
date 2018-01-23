@@ -478,6 +478,7 @@ func (p *parser) parseBareword(lhs bool) (x ast.Expr) {
 	}
 
         x = &ast.Bareword{ ValuePos: pos, Value:value }
+
         p.next() // skip bareword
 
         /*var composed = false
@@ -1034,7 +1035,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
                 tok, pos, end := p.tok, p.pos, p.pos+token.Pos(len(dots))
                 if p.next(); end != p.pos {
                         // '.' and '..' used as bareword
-                        return p.parseBareword(lhs)
+                        return &ast.Bareword{ pos, dots }
                 } else if p.tok == token.PCON { // check / after . or ..
                         return p.parsePathExpr(lhs, &ast.PathSegExpr{ pos, tok })
                 } else /*if tok == token.PERIOD*/ {
@@ -1231,7 +1232,9 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
                         continue
                 }
-                //fmt.Printf("files: %T %v\n", ee.Data, ee.Data)
+                if false {
+                        fmt.Printf("files: %T %v\n", ee.Data, ee.Data)
+                }
                 switch v := ee.Data.(type) {
                 case *types.Pair:
                         var (

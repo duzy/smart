@@ -6,16 +6,18 @@
 package types
 
 import (
-        //"github.com/duzy/smart/token"
+        "github.com/duzy/smart/token"
         "crypto/sha256"
         "path/filepath"
-        //"strings"
+        "strings"
         "errors"
         "bytes"
         //"sort"
         "fmt"
         "os"
 )
+
+const strPathSep = string(filepath.Separator)
 
 type HashBytes [sha256.Size]byte
 
@@ -26,19 +28,22 @@ type FileMap struct {
 
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(filename string) (matched bool) {
-        list0 := filepath.SplitList(filemap.Pattern)
-        list1 := filepath.SplitList(filename)
+        list0 := strings.Split(filemap.Pattern, strPathSep)
+        list1 := strings.Split(filename, strPathSep)
         if n := len(list0); n == 0 {
                 // FIXME: match any?
-        } else if m := len(list1); n == m { // foo/*.o <-> src/foo.o
+        } else if m := len(list1); n == m { // foo/*.o  <->  src/foo.o
                 for i, pat := range list0 {
                         var s = list1[i]
+                        /*if s[0]=='.' && pat[0]=='*' {
+                                s = s[1:] // .foo.o|*.o  =>  foo.o|*.o
+                        }*/
                         if v, _ := filepath.Match(pat, s); !v {
                                 return false
                         }
                 }
                 matched = true
-        } else if false && n == 1 && m > 0 { // *.o <-> src/foo.o
+        } else if n == 1 && m > 1 { // *.o  <->  src/foo.o
                 var ( pat = list0[0]; s = list1[m-1] )
                 matched, _ = filepath.Match(pat, s)
         }
@@ -97,17 +102,12 @@ func (p *Project) SearchFile(filename string) *File {
                 projDir = p.AbsPath()
         )
 
-        /*if filepath.IsAbs(filename) {
-                file.Info, _ = os.Stat(filename)
-                goto SearchBases
-        }*/
-
         ForFiles: for _, filemap := range p.FileMaps() {
-                // Match the filename (not base). Note that '*.c' won't match 'src/x.c'.
+                // Match the filename (no base), '*.c' won't match 'src/x.c'.
                 if filemap.Match(filename) {
                         file.Match = &filemap
                 } else {
-                        continue
+                        continue ForFiles
                 }
 
                 for _, path := range filemap.Paths {
@@ -119,20 +119,27 @@ func (p *Project) SearchFile(filename string) *File {
                                 dir = filepath.Join(projDir, dir)
                         }
 
-                        if file.Dir == "" {
-                                if file.Dir = dir; !abs {
-                                        file.Sub = path
-                                }
-                        }
+                        //fmt.Printf("match: %v %v %v %v %v\n", dir, path, filename, filemap.Paths, p.FileMaps())
 
                         if fi, _ := os.Stat(filepath.Join(dir, filename)); fi != nil {
                                 if file.Info, file.Dir = fi, dir; !abs {
                                         file.Sub = path 
                                 }
                                 break ForFiles
-                        } else if false {
-                                fmt.Printf("SearchFile: %v: %v\n", p.Name(), filename)
+                        } else if file.Dir == "" {
+                                if file.Dir = dir; !abs {
+                                        file.Sub = path
+                                }
                         }
+                        if false {
+                                fmt.Printf("SearchFile: %v: %v (%v)\n", p.Name(), filename, dir)
+                        }
+                }
+        }
+
+        if file.Info == nil && file.Dir == "" {
+                if file.Info, _ = os.Stat(filepath.Join(projDir, filename)); file.Info != nil {
+                        file.Dir = projDir
                 }
         }
 
@@ -149,7 +156,9 @@ func (p *Project) SearchFile(filename string) *File {
 func (p *Project) isFile(s string) (v bool) {
         if len(s) > 0 {
                 for _, filemap := range p.filemap {
-                        //fmt.Printf("filemap: %v %v (%v)\n", filemap, s, filemap.Match(s))
+                        if false {
+                                fmt.Printf("IsFile: %v %v (%v) (%s)\n", filemap, s, filemap.Match(s), p.name)
+                        }
                         if filemap.Match(s) {
                                 return true
                         }
@@ -183,7 +192,7 @@ type PatternStem struct {
 }
 
 func (ps *PatternStem) String() string {
-        return "<" + ps.Patent.Strval() + "~" + ps.Stem + ">"
+        return ps.Patent.Strval() + "(" + ps.Stem + ")"
 }
 
 func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
@@ -193,11 +202,11 @@ func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
 func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 if ps.file != nil {
-                        fmt.Printf("prepare:PatternStem: %v (file: %v) (project %v, %v)\n", ps, ps.file, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:PatternStem: %v (%v) (file: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.file, pc.entry.project.name, pc.entry)
                 } else if ps.source != "" {
-                        fmt.Printf("prepare:PatternStem: %v (source: %v) (project %v, %v)\n", ps, ps.source, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:PatternStem: %v (%v) (source: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.source, pc.entry.project.name, pc.entry)
                 } else {
-                        fmt.Printf("prepare:PatternStem: %v (project %v, %v)\n", ps, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:PatternStem: %v (%v) (%v -> %v)\n", ps, ps.Patent.class, pc.entry.project.name, pc.entry)
                 }
         }
         
@@ -223,29 +232,34 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         ForStems: for i, stem := range stems {
                 if entry, err = ps.Patent.MakeConcreteEntry(stem); err != nil {
                         return
-                } else if trace_prepare {
-                        fmt.Printf("prepare:PatternStem: %v (stems[%d/%d]: %v) (file: %v) (%v) (project %v, %v)\n", ps, i, len(stems), stem, ps.file, entry.class, pc.entry.project.name, pc.entry)
                 }
 
-                if entry.class == StemmedFileEntry && ps.file == nil {
-                        project := pc.program.project
-                        if pc.program.hasCDDash() {
-                                project = pc.program.caller.program.project
-                        }
-                        var file = project.SearchFile(entry.name)
-                        if !file.IsKnown() {
-                                file.Dir = project.AbsPath()
-                        }
-                        if trace_prepare {
-                                fmt.Printf("prepare:PatternStem: %v (stems[%d/%d]: %v) (file: %v) (%v)\n", ps, i, len(stems), stem, file, project.name)
-                        }
-                        if false {
-                                if err = file.prepare(pc); err == nil {
-                                        break ForStems
+                var project = pc.program.project
+                if pc.program.hasCDDash() {
+                        project = pc.program.caller.program.project
+                }
+
+                // Correct stemmed entry class.
+                if entry.class != StemmedFileEntry && pc.entry.class == StemmedFileEntry && ps.file != nil {
+                        // TODO: if project.isFile(entry.name)
+                        entry.class = StemmedFileEntry     
+                }
+                
+                if entry.class == StemmedFileEntry {
+                        if ps.file == nil {
+                                var file = project.SearchFile(entry.name)
+                                if !file.IsKnown() {
+                                        file.Dir = project.AbsPath()
                                 }
-                        } else {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:PatternStem: %v ([%d/%d]: %v) (file: %v) (%v)\n", ps, i, len(stems), stem, file, project.name)
+                                }
                                 ps.file = file
                         }
+                }
+
+                if trace_prepare {
+                        fmt.Printf("prepare:PatternStem: %v (%v) ([%d/%d]: %v %v) (file: %v) (%v -> %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file, pc.entry.project.name, pc.entry)
                 }
 
                 // Set stem for the current preparation.
@@ -330,21 +344,22 @@ func (p *Project) SetGlobPatternProgram(pp *GlobPattern, class RuleEntryClass, p
                 return
         }
         
-        var (
-                entry *RuleEntry
-                alt Object
-        )
-        if entry, alt = p.scope.InsertEntry(p, class, pp.Strval()); alt != nil {
-                if entry, _ = alt.(*RuleEntry); entry == nil {
-                        err = errors.New(fmt.Sprintf("Pattern '%v' already taken as `%T', failed mapping entry.", p, alt))
-                }
+        // Patterns don't calls p.scope.InsertEntry(...)
+        var entry = &RuleEntry{
+                object{
+                        parent:  p.scope,
+                        project: p,
+                        name:    pp.Strval(),
+                        typ:     RuleEntryType,
+                        ord:     0,
+                },
+                class, 
+                nil, nil, "", nil,
+                []*Program{ prog },
+                token.Position{},
         }
-        if entry != nil && err == nil {
-                entry.class = class
-                entry.programs = append(entry.programs, prog)
-                patent = &PatternEntry{ entry, pp }
-                p.patterns = append(p.patterns, patent)
-        }
+        patent = &PatternEntry{ entry, pp }
+        p.patterns = append(p.patterns, patent)
         return
 }
 

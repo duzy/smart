@@ -1,20 +1,27 @@
 project (tools/gcc/c++)
 
+# TODO: test file conflicts, e.g. 'error.*' found
+# 'error.c', 'error.cc' should confuse (???).
 files (
     main.cc => alt
-    *.c++ => bar
+    other.* => alt
+    alt/*.c => . # ./alt/*.c
+    alt/*.o => . # ./alt/*.o
+    src/*.o => . # ./src/*.o
+    *.c++ => ( . bar ) # ./*.c++, bar/*.c++
     *.o => obj
     hello
 )
 
-objects := main.o \
+objects := main.o other.o \
   foo.1.o \
-  foo.2.o \
-  foo.3.o \
-  foo.4.o \
+  fo.o.2.o \
+  f.o.o.3.o \
+  f.o.o.4.o \
   foo.5.o \
   foo.6.o \
   1.o 2.o 3.o\
+  alt/foo.o \
   src/baz1.o \
   src/baz2.o \
   src/baz3.o \

@@ -1,14 +1,14 @@
 project (tools/gcc/c)
 
 files (
-    *.cpp *.cc *.C
-    *.hpp *.hh *.H
+    *.cpp *.cc *.C *.cxx *.c++
+    *.hpp *.hh *.H *.hxx *.h++
 )
 
 CXX = g++
 
-CPPFLAGS += -std=c++1z
-CXXFLAGS =
+CPPFLAGS =
+CXXFLAGS = -std=c++1z
 
 # FIXME: naming COMPILE.cc, COMPILE.cpp, COMPILE.C
 COMPILE-cc = &(CXX) &(CFLAGS) &(CXXFLAGS) &(CPPFLAGS) &(TARGET_ARCH) -c

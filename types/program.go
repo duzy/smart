@@ -203,17 +203,17 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         if trace_prepare {
                 switch entry.class {
                 case GeneralRuleEntry:
-                        fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.name, entry.class, prog.depends, prog.project.AbsPath())
+                        fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.name, prog.depends, entry.class, prog.project.AbsPath())
                 case ExplicitFileEntry:
-                        fmt.Printf("program.Execute: %v (file: %v) (%v) (%v) (%v)\n", entry.name, entry.file, entry.class, prog.depends, prog.project.AbsPath())
+                        fmt.Printf("program.Execute: %v (%v) (file: %v) (%v) (%v)\n", entry.name, prog.depends, entry.file, entry.class, prog.project.AbsPath())
                 case ExplicitPathEntry:
-                        fmt.Printf("program.Execute: %v (path: %v) (%v) (%v) (%v)\n", entry.name, entry.path, entry.class, prog.depends, prog.project.AbsPath())
+                        fmt.Printf("program.Execute: %v (%v) (path: %v) (%v) (%v)\n", entry.name, prog.depends, entry.path, entry.class, prog.project.AbsPath())
                 case StemmedFileEntry:
-                        fmt.Printf("program.Execute: %v (file: %v) (%v, stem=%v) (%v) (%v)\n", entry.name, entry.file, entry.class, entry.stem, prog.depends, prog.project.AbsPath())
+                        fmt.Printf("program.Execute: %v (%v) (file: %v) (%v, stem=%v) (%v)\n", entry.name, prog.depends, entry.file, entry.class, entry.stem, prog.project.AbsPath())
                 case StemmedRuleEntry:
-                        fmt.Printf("program.Execute: %v (%v, stem=%v) (%v) (%v)\n", entry.name, entry.class, entry.stem, prog.depends, prog.project.AbsPath())
+                        fmt.Printf("program.Execute: %v (%v) (%v, stem=%v) (%v)\n", entry.name, prog.depends, entry.class, entry.stem, prog.project.AbsPath())
                 default:
-                        fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.name, entry.class, prog.depends, prog.project.AbsPath())
+                        fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.name, prog.depends, entry.class, prog.project.AbsPath())
                 }
         }
 

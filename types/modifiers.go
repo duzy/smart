@@ -165,7 +165,7 @@ func modifierCD(prog *Program, value Value, args... Value) (result Value, err er
         if n := len(args); n == 1 {
                 var dir = args[0].Strval()
                 if dir == "-" {
-                        project := prog.caller.program.project
+                        project := prog.caller.project //prog.caller.program.project
                         dir = project.AbsPath()
                         if trace_prepare {
                                 fmt.Printf("prepare:CD: %s (%s) (%s)\n", dir, project.name, prog.project.name)

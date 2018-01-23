@@ -36,6 +36,11 @@ function cleanup() {
        filepath/{1,2}.log \
        filepath/{hello,main.o} \
        filepath/src/{foo,bar,baz}.o \
+       files/{1,2}.log \
+       files/hello \
+       files/alt/{foo,other}.o \
+       files/obj/{1,2,3,foo.1,fo.o.2,f.o.o.3,f.o.o.4,foo.5,foo.6,main}.o \
+       files/src/{baz1,baz2,baz3,baz4}.o \
 	&& true
 }
 

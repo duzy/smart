@@ -576,22 +576,31 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 switch entry.class {
                 case GeneralRuleEntry:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (project %v, %v)\n", entry.name, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.entry.project.name, pc.entry)
                 case ExplicitFileEntry:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, entry.file, pc.entry.project.name, pc.entry)
                 case StemmedFileEntry:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v, stem=%v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v, stem=%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.stem, entry.file, pc.entry.project.name, pc.entry)
                 case StemmedRuleEntry:
-                        fmt.Printf("prepare:RuleEntry: %v (%v, stem=%v) (project %v, %v)\n", entry.name, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v, stem=%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.stem, pc.entry.project.name, pc.entry)
                 default:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (project %v, %v)\n", entry.name, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.entry.project.name, pc.entry)
                 }
         }
 
         // Set prepare context 
         defer entry.setcaller(entry.setcaller(pc))
 
-        ForPrograms: for _, prog := range entry.Programs() {
+        if trace_prepare {
+                for i, prog := range entry.programs {
+                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%v -> %v)\n", entry.name, i, prog.depends, pc.entry.project.name, pc.entry)
+                }
+        }
+
+        ForPrograms: for i, prog := range entry.programs {
+                if trace_prepare {
+                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%s) (%v -> %v)\n", entry.name, i, prog.depends, entry.class, pc.entry.project.name, pc.entry)
+                }
                 if prog == pc.program {
                         err = fmt.Errorf("depended on itself")
                         fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
@@ -600,17 +609,9 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                 if err = pc.execute(entry, prog); err == nil {
                         break ForPrograms
                 } else if _, ok := err.(unknownTargetError); ok {
-                        //if pc.file != nil {
-                        //        fmt.Printf("prepare:RuleEntry: %v (%v) (FIXME: unknown %v) (%v)\n", entry, pc.file.Name, ute.target, pc.entry)
-                        //}
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                        break ForPrograms
-                } else {
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                        if entry.class == StemmedFileEntry {
-                                // Don't try other programs if it's pattern.
-                                break ForPrograms
-                        }
+                        break ForPrograms // Don't try other programs if it's unknown.
+                } else if entry.class == StemmedFileEntry {
+                        break ForPrograms // Don't try other programs if it's pattern.
                 }
         }
         return
@@ -620,15 +621,18 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         if trace_prepare {
                 switch entry.class {
                 case GeneralRuleEntry:
-                        fmt.Printf("prepare:Execute: %v (%v) (project %v, %v)\n", entry.name, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.entry.project.name, pc.entry)
                 case ExplicitFileEntry:
-                        fmt.Printf("prepare:Execute: %v (%v) (%v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v) (file: %v) (%v -> %v)\n", entry.name, prog.depends, entry.class, entry.file, pc.entry.project.name, pc.entry)
                 case StemmedFileEntry:
-                        fmt.Printf("prepare:Execute: %v (%v) (%v, stem=%v) (project %v, %v)\n", entry.name, entry.file, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v, stem=%v) (file: %v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.stem, entry.file, pc.entry.project.name, pc.entry)
                 case StemmedRuleEntry:
-                        fmt.Printf("prepare:Execute: %v (%v, stem=%v) (project %v, %v)\n", entry.name, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v, stem=%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.stem, pc.entry.project.name, pc.entry)
                 default:
-                        fmt.Printf("prepare:Execute: %v (%v) (project %v, %v)\n", entry.name, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.entry.project.name, pc.entry)
+                }
+                for i, depent := range prog.depends {
+                        fmt.Printf("prepare:Execute: %v (depend[%d]: %v %v)\n", entry.name, i, depent, entry.stem)
                 }
         }
 
@@ -691,8 +695,11 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                                 }
                         }
                 }
-        } else if trace_prepare {
-                fmt.Printf("prepare:Execute: %v (err: %v) (%v)\n", entry, err, pc.entry)
+        } else {
+                fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
+                if trace_prepare {
+                        fmt.Printf("prepare:Execute: %v (%v) (error) (%v)\n", entry.name, prog.depends, pc.entry)
+                }
         }
         return
 }
