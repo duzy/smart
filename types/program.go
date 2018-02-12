@@ -303,6 +303,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                                         }
                                 }
                                 if err != nil {
+                                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                                         err = fmt.Errorf("%v: %v", op, err)
                                 }
                                 break ForPipeline
@@ -311,6 +312,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         }
                 default:
                         err = fmt.Errorf("unknown modifier (%T `%v')", v, v)
+                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         break ForPipeline
                 }
         }

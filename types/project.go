@@ -235,7 +235,7 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
                 }
 
                 var project = pc.program.project
-                if pc.program.hasCDDash() {
+                if pc.program.caller != nil && pc.program.hasCDDash() {
                         project = pc.program.caller.program.project
                 }
 
