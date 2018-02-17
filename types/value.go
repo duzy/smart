@@ -8,6 +8,7 @@ package types
 import (
         "github.com/duzy/smart/token"
         "path/filepath"
+        "regexp"
         "time"
         "net/url"
         "reflect"
@@ -1625,9 +1626,26 @@ func (p *YAML) Float() float64 { return 0 }
 type ExecBuffer struct {
         Tie io.Writer
         Buf *bytes.Buffer
+        Line *regexp.Regexp
+        Subm [][][][]byte
+        line []byte
 }
 
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
+        if p.Line != nil {
+                i := bytes.Index(b, []byte("\n"))
+                if i == -1 {
+                        p.line = append(p.line, b...)
+                } else {
+                        p.line = append(p.line, b[:i]...)
+                }
+                if m := p.Line.FindAllSubmatch(p.line, -1); m != nil {
+                        p.Subm = append(p.Subm, m)
+                }
+                if i != -1 {
+                        p.line = b[i+1:]
+                }
+        }
         if p.Tie != nil {
                 if n, err = p.Tie.Write(b); err != nil {
                         return

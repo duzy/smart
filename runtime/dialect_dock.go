@@ -11,8 +11,10 @@ import (
         "github.com/duzy/smart/values"
         "os/exec"
         "strings"
+        "regexp"
         "bytes"
         "bufio"
+        "time"
         "fmt"
         "io"
         "os"
@@ -22,6 +24,11 @@ const (
         DockImageVarName = "dock->image" // docker image
         DockExecVarName = "dock->exec" // docker exec image
         DockDefaultContainer = "smart-dock-container"
+)
+
+var (
+        rxNoSuchContainer = regexp.MustCompile(`Error response from daemon: No such container: (.*)`)
+        ensureSkips = make(map[string]bool)
 )
 
 type dialectDock struct {
@@ -98,7 +105,9 @@ func (s *dialectDock) ensureContainerRunning(prog *types.Program, container stri
 
         if err = cmd.Run(); err == nil {
                 if foundID == "" {
-                        err = s.runContainer(prog, container)
+                        if err = s.runContainer(prog, container); err == nil {
+                                time.Sleep(time.Second)
+                        }
                 }
         }
         return
@@ -253,8 +262,10 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                         cmd, a = "docker", append(a, dxi, shi, "-c", src)
                 }
 
-                if err = s.ensureContainerRunning(prog, dxi); err != nil {
-                        return
+                if false {
+                        if err = s.ensureContainerRunning(prog, dxi); err != nil {
+                                return
+                        }
                 }
 
                 var sh = exec.Command(cmd, a...)
@@ -271,11 +282,29 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
                 if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
                 if stdin   { sh.Stdin = os.Stdin }
+                exeres.Stderr.Line = rxNoSuchContainer
+                RunCommand: exeres.Stderr.Subm = nil
                 if err = sh.Run(); err == nil {
                         exeres.Status, source = 0, ""
                 } else {
-                        var s = err.Error()
-                        if n, e := fmt.Sscanf(s, "exit status %v", &exeres.Status); n == 1 && e == nil {
+                        var str = err.Error()
+                        if n, e := fmt.Sscanf(str, "exit status %v", &exeres.Status); n == 1 && e == nil {
+                                if exeres.Stderr.Subm != nil {
+                                        var (
+                                                name = string(exeres.Stderr.Subm[0][0][1])
+                                                skip, _ = ensureSkips[name]
+                                        )
+                                        if !skip {
+                                                ensureSkips[name] = true
+                                                if err = s.runContainer(prog, name); err == nil {
+                                                        fmt.Printf("smart: %s started\n", name)
+                                                        c := exec.Command(cmd, a...)
+                                                        c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
+                                                        sh = c
+                                                        goto RunCommand
+                                                }
+                                        }
+                                }
                                 if silent {
                                         err = nil
                                 } else {
