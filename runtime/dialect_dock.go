@@ -77,7 +77,7 @@ func (s *dialectDock) ensureContainerRunning(prog *types.Program, container stri
                         if e != nil {
                                 break
                         }
-                        if fields := strings.Split(s, "\t"); len(fields) == 2 {
+                        if fields := strings.Split(s, "\t"); len(fields) == 3 {
                                 if names := strings.Split(fields[2], ","); len(names) > 0 {
                                         foundID, foundImage = fields[0], fields[1]
                                 }
