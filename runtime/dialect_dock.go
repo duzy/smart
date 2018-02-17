@@ -8,20 +8,100 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
-        //"github.com/duzy/smart/values"
+        "github.com/duzy/smart/values"
         "os/exec"
         "strings"
         "bytes"
+        "bufio"
         "fmt"
+        "io"
         "os"
 )
 
 const (
         DockImageVarName = "dock->image" // docker image
         DockExecVarName = "dock->exec" // docker exec image
+        DockDefaultContainer = "smart-dock-container"
 )
 
 type dialectDock struct {
+}
+
+func (s *dialectDock) runContainer(prog *types.Program, container string) (err error) {
+        var _, dockSym = prog.Scope().Find("dock")
+        if pn, ok := dockSym.(*types.ProjectName); ok && pn != nil {
+                var (
+                        scope = pn.Project().Scope()
+                        _, symContainer = scope.Find("container")
+                        _, symImage = scope.Find("image")
+                        _, symStart = scope.Find("start")
+                        _, symRun = scope.Find("run")
+                )
+                if defContainer, _ := symContainer.(*types.Def); defContainer != nil {
+                        if s := defContainer.Value.Strval(); s != container {
+                                return fmt.Errorf("dock %s, not %s", s, container)
+                        }
+                }
+                if start, _ := symStart.(*types.RuleEntry); start != nil {
+                        _, err = start.Execute()
+                } else if run, _ := symRun.(*types.RuleEntry); run != nil {
+                        _, err = run.Execute(values.String("sh -i"))
+                } else if defImage, _ := symImage.(*types.Def); defImage != nil {
+                        fmt.Printf("todo: run container: %T %v %v\n", symImage, symImage, container)
+                }
+        }
+        return
+}
+
+func (s *dialectDock) ensureContainerRunning(prog *types.Program, container string) (err error) {
+        var (
+                stdoutR, stdoutW = io.Pipe()
+                stderrR, stderrW = io.Pipe()
+                enviro = os.Environ()
+                cmd = exec.Command(`docker`, `ps`,
+                        `--filter`, `status=running`,
+                        //`--filter`, fmt.Sprintf(`ancestor=%s`, image),
+                        `--filter`, fmt.Sprintf(`name=%s`, container),
+                        `--format`, `{{.ID}}\t{{.Image}}\t{{.Names}}`,
+                )
+                foundID, foundImage string
+        )
+        cmd.Stdout, cmd.Stderr, cmd.Env = stdoutW, stderrW, enviro
+        defer stdoutW.Close()
+        defer stderrW.Close()
+
+        go func(r io.Reader) {
+                var buf = bufio.NewReader(r)
+                for {
+                        s, e := buf.ReadString('\n')
+                        if e != nil {
+                                break
+                        }
+                        if fields := strings.Split(s, "\t"); len(fields) == 2 {
+                                if names := strings.Split(fields[2], ","); len(names) > 0 {
+                                        foundID, foundImage = fields[0], fields[1]
+                                }
+                        }
+                }
+        }(stdoutR)
+
+        go func(r io.Reader) {
+                var buf = bufio.NewReader(r)
+                for {
+                        s, e := buf.ReadString('\n')
+                        if e != nil {
+                                break
+                        }
+                        fmt.Printf("%s", s)
+                }
+        }(stderrR)
+
+        if err = cmd.Run(); err == nil {
+                if foundID == "" {
+                        err = s.runContainer(prog, container)
+                }
+        }
+        return
 }
 
 func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
@@ -62,7 +142,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 
                 var (
                         src = source
-                        dxi = "smart-dock-image" // context.Find(DockImageVarName)
+                        dxi = DockDefaultContainer
                         _, obj = prog.Scope().Find(DockExecVarName)
                         envars []types.Value // disclosed values
                 )
@@ -171,6 +251,10 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                         cmd, a = shi, []string{ "-c", src }
                 } else {
                         cmd, a = "docker", append(a, dxi, shi, "-c", src)
+                }
+
+                if err = s.ensureContainerRunning(prog, dxi); err != nil {
+                        return
                 }
 
                 var sh = exec.Command(cmd, a...)
