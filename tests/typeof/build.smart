@@ -36,8 +36,8 @@ eval println $(typeof foo.bar.a)
 eval println $(typeof (foo bar))
 eval println $(typeof foo=bar)
 eval println $(typeof foo=>bar)
-eval println $(typeof -foo)
 eval println $(typeof -foo=bar)
+eval println $(typeof -foo)
 
 # keywords used as bareword
 eval println $(typeof use)
