@@ -56,8 +56,8 @@ gcc -DXXX -Iinclude -c -o obj/greeting.o src/greeting.c
 ar rs libgreeting.a obj/greeting.o
 smart:  Leaving directory '%s/many/greeting'
 update file 'hello.cpp' ... (ok)
-g++ -DXXX -Iinclude -I%s/many/greeting/include -DTEST=1 -std=c++1z -c hello.cpp -o hello.o
-g++ -DTEST=1 -std=c++1z -L%s/many/greeting hello.o  -lgreeting -o hello
+g++ -DXXX -Iinclude -I%s/many/greeting/include -std=c++1z -DTEST=1 -c hello.cpp -o hello.o
+g++ -std=c++1z -DTEST=1 -L%s/many/greeting hello.o  -lgreeting -o hello
 ./hello
 Hello World!
 smart:  Leaving directory '%s/many'

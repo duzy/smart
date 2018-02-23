@@ -25,7 +25,7 @@ func TestCheckLog1(t *testing.T) {
                         var v = []byte(wd)
                         if !bytes.Equal(v, a) { t.Errorf("bad path:\n%s\n%s", v, a) }
 
-                        v = []byte(fmt.Sprintf(`CPPFLAGS: -std=c++1z -DPTHREAD
+                        v = []byte(fmt.Sprintf(`CPPFLAGS: -DPTHREAD
 LDLIBS: -lpthread
 LOADLIBES: 
 `))
