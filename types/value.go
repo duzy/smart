@@ -1043,7 +1043,7 @@ func (p *File) checkPatternDepend(pc *Preparer, project *Project, ps *PatternSte
                         fmt.Printf("prepare:File: %v (implicitly: %v missing in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.project.name, pc.entry)
                 }
         }
-        if sym, _ := project.scope.Find(name); sym != nil {
+        if _, sym := project.scope.Find(name); sym != nil {
                 if trace_prepare {
                         fmt.Printf("prepare:File: %v (implicitly: found %v in %s) (%v -> %v)\n", p.Name, sym, project.name, pc.entry.project.name, pc.entry)
                 }
@@ -1782,7 +1782,7 @@ func (p *GlobPattern) prepare(pc *Preparer) (err error) {
         }
 
         var target = p.MakeString(pc.stem)
-        
+
         // Check if target is a file (if source entry is file).
         if brk := false; pc.entry.file != nil { //! See also `File.checkPatternDepend`.
                 err, brk = pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
@@ -1792,7 +1792,7 @@ func (p *GlobPattern) prepare(pc *Preparer) (err error) {
                                 }
                                 defer pc.setProject(pc.setProject(project))
                                 err, trybrk = file.prepare(pc), true
-                        } else if sym, _ := project.scope.Find(target); sym != nil {
+                        } else if _, sym := project.scope.Find(target); sym != nil {
                                 if trace_prepare {
                                         fmt.Printf("prepare:GlobPattern: %v(%v) (found %v in %v) (%v -> %v)\n", p, pc.stem, sym, project.name, pc.entry.project.name, pc.entry)
                                 }

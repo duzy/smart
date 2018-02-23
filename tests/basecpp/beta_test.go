@@ -29,8 +29,8 @@ func TestCheckLog1(t *testing.T) {
                         if !bytes.Equal(v, h) { t.Errorf("bad header:\n%s\n%s", v, h) }
 
                         v = []byte(fmt.Sprintf(`update file 'hello.cpp' ... (ok)
-g++ -DTEST=1 -std=c++1z -c hello.cpp -o hello.o
-g++ -DTEST=1 -std=c++1z hello.o   -o hello
+g++ -std=c++1z -DTEST=1 -c hello.cpp -o hello.o
+g++ -std=c++1z -DTEST=1 hello.o   -o hello
 ./hello
 Hello World!
 `))
