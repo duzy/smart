@@ -88,7 +88,7 @@ func (p *parser) init(ctx *Context, fset *token.FileSet, filename string, src []
         }
 	p.scanner.Init(p.file, src, eh, m)
 
-	p.mode = mode //| Trace
+	p.mode = mode | Trace
 	p.trace = p.mode&Trace != 0 // for convenience (p.trace is used frequently)
 
 	p.next()
