@@ -88,7 +88,7 @@ func (p *parser) init(ctx *Context, fset *token.FileSet, filename string, src []
         }
 	p.scanner.Init(p.file, src, eh, m)
 
-	p.mode = mode //| Trace
+	p.mode = mode | Trace
 	p.trace = p.mode&Trace != 0 // for convenience (p.trace is used frequently)
 
 	p.next()
@@ -480,13 +480,6 @@ func (p *parser) parseBareword(lhs bool) (x ast.Expr) {
         x = &ast.Bareword{ ValuePos: pos, Value:value }
 
         p.next() // skip bareword
-
-        /*var composed = false
-        if x, composed = p.tryParseComposeExpr(lhs, x); !composed {
-                if file := p.runtime.File(value); file != nil {
-                        x = &ast.Barefile{ x, file, nil }
-                }
-        }*/
         return
 }
 
@@ -589,13 +582,11 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         }
 
         DoneSelect: res = &ast.EvaluatedExpr{ rhs, fieldValue }
-        /*if p.tok == token.SELECT {
-                p.next() // Drop '.' before continuing selecting.
-                // Continue the selection recursivly
+        if p.tok == token.SELECT {
+                p.next() // Drop '->' before next selection.
+                // Continue the selection recursivly.
                 res = p.parseSelect(res)
-        } else if p.tok == token.PERIOD {
-                p.warn(p.pos, "Replaced PERIOD by SELECT (->)")
-        }*/
+        }
         return
 }
 
@@ -711,7 +702,7 @@ func (p *parser) parseGlobExpr(lhs bool) (x ast.Expr) {
         
         x = &ast.GlobExpr{ TokPos:p.pos, Tok:p.tok }
         p.next() // skip '*'
-        return x //p.tryComposeExpr(lhs, x)
+        return x
 }
 
 func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
@@ -851,7 +842,7 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) ast.Expr {
                 p.error(x.Pos(), e)
         }
 
-        return x //p.tryComposeExpr(lhs, x)
+        return x
 }
 
 func (p *parser) parsePathExpr(lhs bool, start ast.Expr) ast.Expr {
@@ -1062,44 +1053,6 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
         }
 }
 
-func (p *parser) parseComposeExpr(lhs bool, x ast.Expr) (composed ast.Expr) { // x.expr
-	if p.trace {
-		// defer un(trace(p, "Composed"))
-	}
-        
-        switch p.tok {
-        /*case token.PCON: // ie. subdir/in/somewhere
-                if p.bits&composingPCON == 0 {
-                        composed = p.parsePathExpr(lhs, x)
-                }*/
-        /*case token.PERIOD: // ie. file.c
-                if p.bits&composingPERIOD == 0 {
-                        composed = p.parseDotExpr(lhs, x, true)
-                }*/
-        /*case token.PERC: // foo%bar
-                if p.bits&composingPERC == 0 {
-                        composed = p.parsePercExpr(lhs, x)
-                }*/
-        default:
-                // fmt.Printf("compose: %v %v\n", x, p.tok)
-        }
-        return
-}
-
-func (p *parser) tryParseComposeExpr(lhs bool, x ast.Expr) (ast.Expr, bool) {
-        var ok bool
-        if x.End() == p.pos {
-                if t := p.parseComposeExpr(lhs, x); t != nil {
-                        x, ok = t, true
-                }
-        }
-        return x, ok
-}
-
-func (p *parser) tryComposeExpr(lhs bool, x ast.Expr) ast.Expr {
-        x, _ = p.tryParseComposeExpr(lhs, x); return x
-}
-
 func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
 	if p.trace {
 		defer un(trace(p, "Composed"))
@@ -1166,7 +1119,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                         // fmt.Printf("composed: %v (%v)\n", x, y)
                 }}
         }
-        return x //p.tryComposeExpr(lhs, x)
+        return x
 }
 
 func (p *parser) parseNextExpr(lhs bool) ast.Expr {

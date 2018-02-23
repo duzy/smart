@@ -48,7 +48,7 @@ barecomp
 group
 pair
 pair
-flag
+pair
 flag
 bareword
 bareword
