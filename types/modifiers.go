@@ -34,7 +34,7 @@ func breakf(good bool, s string, a... interface{}) *breaker {
         return &breaker{ fmt.Sprintf(s, a...), good }
 }
 
-type modifier func(pos token.Position, prog *Program, value Value, args... Value) (Value, error)
+type modifierFunc func(pos token.Position, prog *Program, value Value, args... Value) (Value, error)
 
 const (
         TheShellEnvarsDef = "shell->envars"
@@ -43,7 +43,7 @@ const (
 )
 
 var (
-        modifiers = map[string]modifier{
+        modifiers = map[string]modifierFunc{
                 `select`:       modifierSelect,
 
                 `args`:         modifierSetArgs, // interpreter args

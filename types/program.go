@@ -98,6 +98,12 @@ func leaveWorkdir(wi *workinfo) {
         }
 }
 
+type modifier struct {
+        position token.Position
+        name string
+        args []Value
+}
+
 // Program (TODO: moving program into `types` package)
 type Program struct {
         globe   *Globe
@@ -108,7 +114,7 @@ type Program struct {
         params  []string // named parameters
         depends []Value // *RuleEntry, *Barefile
         recipes []Value
-        pipline []Value
+        pipline []modifier
         position token.Position
 }
 
@@ -170,31 +176,28 @@ func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err err
         return
 }
 
-func (prog *Program) modify(g *Group, out *Def) (dialect string, err error) {
+func (prog *Program) modify(m modifier, out *Def) (dialect string, err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
-        var name = g.Get(0).Strval()
-        if f, ok := modifiers[name]; ok {
+        if f, ok := modifiers[m.name]; ok {
                 var value = out.Value
-                if value, err = f(prog.position, prog, value, g.Slice(1)...); err == nil && value !=  nil {
+                if value, err = f(prog.position, prog, value, m.args...); err == nil && value !=  nil {
                         out.Assign(value)
                 }
-        } else if i, _ := dialects[name]; i != nil {
-                err = prog.interpret(i, out, g.Slice(1))
-                dialect = name // return dialect name
+        } else if i, _ := dialects[m.name]; i != nil {
+                err = prog.interpret(i, out, m.args)
+                dialect = m.name // return dialect name
         } else {
-                err = fmt.Errorf("no modifier or dialect '%s'", name)
+                err = fmt.Errorf("no modifier or dialect '%s'", m.name)
         }
         return
 }
 
 func (prog *Program) hasCDDash() (res bool) {
-        for _, p := range prog.pipline {
-                if g, _ := p.(*Group); g != nil {
-                        if a := g.Elems; len(a) > 1 && a[0].Strval() == "cd" && a[1].Strval() == "-" {
-                                res = true
-                        }
+        for _, m := range prog.pipline {
+                if m.name == "cd" && len(m.args) > 0 && m.args[0].Strval() == "-" {
+                        res = true
                 }
         }
         return
@@ -290,31 +293,24 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         //              smart statments going here...
         //              
         var dialect string
-        ForPipeline: for _, v := range prog.pipline {
-                switch op := v.(type) {
-                case *Group:
-                        var lang string
-                        if lang, err = prog.modify(op, out); err != nil {
-                                if p, ok := err.(*breaker); ok {
-                                        if p.good {
-                                                // Discard err and change dialect to
-                                                // avoid default interpreter being
-                                                // called.
-                                                err, dialect = nil, "--"
-                                        }
+        ForPipeline: for _, m := range prog.pipline {
+                var lang string
+                if lang, err = prog.modify(m, out); err != nil {
+                        if p, ok := err.(*breaker); ok {
+                                if p.good {
+                                        // Discard err and change dialect to
+                                        // avoid default interpreter being
+                                        // called.
+                                        err, dialect = nil, "--"
                                 }
-                                if err != nil {
-                                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                                        err = fmt.Errorf("%v: %v", op, err)
-                                }
-                                break ForPipeline
-                        } else if lang != "" && dialect == "" {
-                                dialect = lang
                         }
-                default:
-                        err = fmt.Errorf("unknown modifier (%T `%v')", v, v)
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
+                        if err != nil {
+                                fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
+                                err = fmt.Errorf("%v: %v", m.name, err)
+                        }
                         break ForPipeline
+                } else if lang != "" && dialect == "" {
+                        dialect = lang
                 }
         }
         if err == nil && dialect == "" {
@@ -328,8 +324,18 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         return
 }
 
-func (prog *Program) SetModifiers(modifiers... Value) (err error) {
-        prog.pipline = modifiers
+func (prog *Program) AddModifier(position token.Position, operation Value) (err error) {
+        switch g := operation.(type) {
+        case *Group:
+                prog.pipline = append(prog.pipline, modifier{
+                        position,
+                        g.Get(0).Strval(),
+                        g.Slice(1),
+                })
+        default:
+                err = fmt.Errorf("unknown modifier (%T `%v')", operation, operation)
+                fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
+        }
         return
 }
 
