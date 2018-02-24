@@ -31,38 +31,23 @@ var (
         ensureSkips = make(map[string]bool)
 )
 
-type dialectDock struct {
-}
+type dialectDock struct {}
 
-func (s *dialectDock) runContainer(prog *types.Program, container string) (err error) {
-        var _, dockSym = prog.Scope().Find("dock")
-        if pn, ok := dockSym.(*types.ProjectName); ok && pn != nil {
-                var (
-                        scope = pn.Project().Scope()
-                        _, symContainer = scope.Find("container")
-                        _, symImage = scope.Find("image")
-                        _, symStart = scope.Find("start")
-                        _, symRun = scope.Find("run")
-                )
-                if defContainer, _ := symContainer.(*types.Def); defContainer != nil {
-                        if s := defContainer.Value.Strval(); s != container {
-                                return fmt.Errorf("dock %s, but %s", container, s)
-                        }
-                }
-                if start, _ := symStart.(*types.RuleEntry); start != nil {
-                        _, err = start.Execute(prog.Position())
-                } else if run, _ := symRun.(*types.RuleEntry); run != nil {
-                        _, err = run.Execute(prog.Position(), values.String("sh -i"))
-                } else if defImage, _ := symImage.(*types.Def); defImage != nil {
-                        err = fmt.Errorf("todo: run container: %T %v %v\n", symImage, symImage, container)
-                }
-        } else {
-                err = fmt.Errorf("no docking for %v\n", container)
+func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName) (err error) {
+        var (
+                scope = dock.Project().Scope()
+                start = scope.FindEntry("start")
+                run = scope.FindEntry("run")
+        )
+        if start != nil {
+                _, err = start.Execute(prog.Position())
+        } else if run != nil {
+                _, err = run.Execute(prog.Position(), values.String("sh -i"))
         }
         return
 }
 
-func (s *dialectDock) ensureContainerRunning(prog *types.Program, container string) (err error) {
+func (s *dialectDock) ensureContainerRunning(prog *types.Program, dock *types.ProjectName, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -107,7 +92,7 @@ func (s *dialectDock) ensureContainerRunning(prog *types.Program, container stri
 
         if err = cmd.Run(); err == nil {
                 if foundID == "" {
-                        if err = s.runContainer(prog, container); err == nil {
+                        if err = s.runContainer(prog, dock); err == nil {
                                 time.Sleep(time.Second)
                         }
                 }
@@ -116,8 +101,32 @@ func (s *dialectDock) ensureContainerRunning(prog *types.Program, container stri
 }
 
 func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
+        var (
+                _, dockSym = prog.Scope().Find("dock")
+                dock, _ = dockSym.(*types.ProjectName)
+        )
+        if dock == nil {
+                err = fmt.Errorf("docking unavailable\n")
                 return
+        }
+
+        var (
+                dockScope = dock.Project().Scope()
+                container = strings.TrimSpace(dockScope.DiscloseDef(prog.Scope(), "container"))
+                image = strings.TrimSpace(dockScope.DiscloseDef(prog.Scope(), "image"))
+        )
+        if image == "" {
+        }
+        if container == "" {
+                err = fmt.Errorf("unknown container"); return
+        } else if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
+                return
+        }
+
+        if false {
+                if err = s.ensureContainerRunning(prog, dock, container); err != nil {
+                        return
+                }
         }
 
         var (
@@ -125,7 +134,6 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 source string
                 shi = "sh" // interpreter
         )
-
         ForRecipes: for _, recipe := range recipes {
                 if source += recipe.Strval(); strings.HasSuffix(source, "\\") {
                         source += "\n" // give back the line feed
@@ -153,23 +161,8 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 
                 var (
                         src = source
-                        dxi = DockDefaultContainer
-                        _, obj = prog.Scope().Find(DockExecVarName)
                         envars []types.Value // disclosed values
                 )
-                if obj == nil { _, obj = prog.Scope().Find(DockExecVarName) }
-                if obj != nil {
-                        if v, e := obj.(types.Caller).Call(prog.Position()); e != nil {
-                                err = e; return
-                        } else if v == nil {
-                                // nothing changed
-                        } else if v, err = types.Disclose(prog.Scope(), v); err != nil {
-                                return
-                        } else if s := strings.TrimSpace(v.Strval()); s != "" {
-                                dxi = s
-                        }
-                }
-                
                 if envarsDef, _ := prog.Scope().Lookup(types.TheShellEnvarsDef).(*types.Def); envarsDef != nil {
                         if l, _ := envarsDef.Value.(*types.List); l != nil {
                                 for _, v := range l.Elems {
@@ -185,8 +178,8 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 var (
                         verbout, verberr, saveout, saveerr, stdin, silent bool
                         nocd bool
-                        a = []string{ "exec" }
                         cmd string
+                        a = []string{ "exec" }
                 )
                 ForArgs: for _, v := range args {
                         switch t := v.(type) {
@@ -256,20 +249,12 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                         shi = defaultShellInterpreter
                 }
 
-                if dxi == "" {
-                        return nil, fmt.Errorf("unknown script interpreter")
-                } else if dxi == "-" {
+                if container == "-" {
                         cmd, a = shi, []string{ "-c", src }
                 } else {
-                        cmd, a = "docker", append(a, dxi, shi, "-c", src)
+                        cmd, a = "docker", append(a, container, shi, "-c", src)
                 }
-
-                if false {
-                        if err = s.ensureContainerRunning(prog, dxi); err != nil {
-                                return
-                        }
-                }
-
+                
                 var sh = exec.Command(cmd, a...)
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
@@ -298,8 +283,8 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                                         )
                                         if !skip {
                                                 ensureSkips[name] = true
-                                                if err = s.runContainer(prog, name); err == nil {
-                                                        fmt.Printf("smart: %s started\n", name)
+                                                if err = s.runContainer(prog, dock); err == nil {
+                                                        fmt.Printf("smart: started %s (needs %s)\n", container, name) // name
                                                         c := exec.Command(cmd, a...)
                                                         c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
                                                         sh = c

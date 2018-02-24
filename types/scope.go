@@ -181,3 +181,22 @@ func (s *Scope) String() string {
 	s.WriteTo(&buf, 0, false)
 	return buf.String()
 }
+
+func (s *Scope) FindDef(name string) *Def {
+        _, sym := s.Find(name)
+        return sym.(*Def)
+}
+
+func (s *Scope) FindEntry(name string) *RuleEntry {
+        _, sym := s.Find(name)
+        return sym.(*RuleEntry)
+}
+
+func (s *Scope) DiscloseDef(context *Scope, name string) (str string) {
+        if def := s.FindDef(name); def != nil {
+                if v, e := def.Disclose(context); e == nil {
+                        str = v.Strval()
+                }
+        }
+        return
+}

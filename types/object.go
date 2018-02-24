@@ -297,21 +297,12 @@ func (d *Def) AssignExec(a... Value) (Value, error) {
 }
 
 func (d *Def) Call(pos token.Position, a... Value) (Value, error) {
-        /* switch o := d.Value.(type) {
-        case Caller:
-                return o.Call(pos, a...)
-        case Executer:
-                if result, err := o.Execute(pos, a...); err == nil {
-                        return &List{Elements{result}}, nil
-                } else {
-                        return nil, err
-                }
-        default:
-                // TODO: parameterization, e.g. $1, $2, $3, $4, $5
-                return d.Value, nil
-        } */
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
         return d.Value, nil
+}
+
+func (d *Def) Disclose(scope *Scope) (Value, error) {
+        return Disclose(scope, d.Value)
 }
 
 func (d *Def) Get(name string) (Value, error) {
