@@ -46,16 +46,18 @@ func (s *dialectDock) runContainer(prog *types.Program, container string) (err e
                 )
                 if defContainer, _ := symContainer.(*types.Def); defContainer != nil {
                         if s := defContainer.Value.Strval(); s != container {
-                                return fmt.Errorf("dock %s, not %s", s, container)
+                                return fmt.Errorf("dock %s, but %s", container, s)
                         }
                 }
                 if start, _ := symStart.(*types.RuleEntry); start != nil {
-                        _, err = start.Execute()
+                        _, err = start.Execute(prog.Position())
                 } else if run, _ := symRun.(*types.RuleEntry); run != nil {
-                        _, err = run.Execute(values.String("sh -i"))
+                        _, err = run.Execute(prog.Position(), values.String("sh -i"))
                 } else if defImage, _ := symImage.(*types.Def); defImage != nil {
-                        fmt.Printf("todo: run container: %T %v %v\n", symImage, symImage, container)
+                        err = fmt.Errorf("todo: run container: %T %v %v\n", symImage, symImage, container)
                 }
+        } else {
+                err = fmt.Errorf("no docking for %v\n", container)
         }
         return
 }
@@ -157,7 +159,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 )
                 if obj == nil { _, obj = prog.Scope().Find(DockExecVarName) }
                 if obj != nil {
-                        if v, e := obj.(types.Caller).Call(); e != nil {
+                        if v, e := obj.(types.Caller).Call(prog.Position()); e != nil {
                                 err = e; return
                         } else if v == nil {
                                 // nothing changed

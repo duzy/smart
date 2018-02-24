@@ -296,7 +296,20 @@ func (d *Def) AssignExec(a... Value) (Value, error) {
         return d.Assign(&String{strings.TrimSpace(stdout.String())})
 }
 
-func (d *Def) Call(a... Value) (Value, error) {
+func (d *Def) Call(pos token.Position, a... Value) (Value, error) {
+        /* switch o := d.Value.(type) {
+        case Caller:
+                return o.Call(pos, a...)
+        case Executer:
+                if result, err := o.Execute(pos, a...); err == nil {
+                        return &List{Elements{result}}, nil
+                } else {
+                        return nil, err
+                }
+        default:
+                // TODO: parameterization, e.g. $1, $2, $3, $4, $5
+                return d.Value, nil
+        } */
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
         return d.Value, nil
 }
@@ -370,8 +383,8 @@ type Builtin struct {
 }
 
 func (p *Builtin) Strval() string { return fmt.Sprintf("builtin %v", p.name) }
-func (p *Builtin) Call(a... Value) (Value, error) {
-        return p.f(p.parent, a...)
+func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) {
+        return p.f(pos, p.parent, a...)
 }
 
 func (scope *Scope) InsertBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
@@ -477,9 +490,9 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) (prev *Path) {
 
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
-func (entry *RuleEntry) Execute(a... Value) (result []Value, err error) {
+func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value, err error) {
         if entry.class == GlobRuleEntry || entry.class == StemmedFileEntry {
-                return nil, fmt.Errorf("Calling pattern entry '%s'.", entry.Name())
+                return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
         for _, program := range entry.programs {
                 if v, e := program.Execute(entry, a); e != nil {
@@ -657,7 +670,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
-                switch dd, _ := prog.scope.Lookup("@").(*Def).Call(); entry.class {
+                switch dd, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position); entry.class {
                 case ExplicitFileEntry, StemmedFileEntry:
                         if trace_prepare {
                                 fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",

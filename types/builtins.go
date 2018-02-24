@@ -7,7 +7,7 @@
 package types
 
 import (
-        //"github.com/duzy/smart/token"
+        "github.com/duzy/smart/token"
         "encoding/base64"
         "path/filepath"
         "io/ioutil"
@@ -20,7 +20,7 @@ import (
         "os"
 )
 
-type BuiltinFunc func(context *Scope, args... Value) (Value, error)
+type BuiltinFunc func(pos token.Position, context *Scope, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
         `typeof`: builtinTypeOf,
@@ -127,7 +127,7 @@ func EscapedString(v Value) (s string) {
         return
 }
 
-func builtinTypeOf(context *Scope, args... Value) (res Value, err error) {
+func builtinTypeOf(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
                 // Arguments are passed in a list:
@@ -161,16 +161,16 @@ func builtinTypeOf(context *Scope, args... Value) (res Value, err error) {
         return MakeListOrScalar(elems), nil
 }
 
-func builtinError(context *Scope, args... Value) (Value, error) {
+func builtinError(pos token.Position, context *Scope, args... Value) (Value, error) {
         var s bytes.Buffer
         for _, a := range args {
                 fmt.Fprintf(&s, "%s", a.Strval())
         }
-        fmt.Fprintf(os.Stderr, "error: %v\n", s.String())
+        fmt.Fprintf(os.Stderr, "%s: %v\n", pos, s.String())
         return nil, fmt.Errorf("%v", s.String())
 }
 
-func builtinAssertValid(context *Scope, args... Value) (Value, error) {
+func builtinAssertValid(pos token.Position, context *Scope, args... Value) (Value, error) {
         for _, a := range args {
                 if s := a.Strval(); s == "" {
                         return nil, fmt.Errorf("invalid value")
@@ -179,7 +179,7 @@ func builtinAssertValid(context *Scope, args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinLogicalOr(context *Scope, args... Value) (Value, error) {
+func builtinLogicalOr(pos token.Position, context *Scope, args... Value) (Value, error) {
         for _, a := range args {
                 if val := Reveal(a); val == nil {
                         // discard
@@ -190,7 +190,7 @@ func builtinLogicalOr(context *Scope, args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinEnv(context *Scope, args... Value) (Value, error) {
+func builtinEnv(pos token.Position, context *Scope, args... Value) (Value, error) {
         var vals []Value
         for _, a := range args {
                 if val := Reveal(a); val == nil {
@@ -202,7 +202,7 @@ func builtinEnv(context *Scope, args... Value) (Value, error) {
         return MakeListOrScalar(vals), nil
 }
 
-func builtinPrint(context *Scope, args... Value) (Value, error) {
+func builtinPrint(pos token.Position, context *Scope, args... Value) (Value, error) {
         var x = len(args)
         for i, a := range args {
                 if 0 < i && i < x {
@@ -213,7 +213,7 @@ func builtinPrint(context *Scope, args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinPrintl(context *Scope, args... Value) (Value, error) {
+func builtinPrintl(pos token.Position, context *Scope, args... Value) (Value, error) {
         var x = len(args)
         for i, a := range args {
                 if 0 < i && i < x {
@@ -228,13 +228,13 @@ func builtinPrintl(context *Scope, args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinPrintln(context *Scope, args... Value) (Value, error) {
-        builtinPrint(context, args...)
+func builtinPrintln(pos token.Position, context *Scope, args... Value) (Value, error) {
+        builtinPrint(pos, context, args...)
         fmt.Printf("\n")
         return nil, nil
 }
 
-func builtinPlus(context *Scope, args... Value) (result Value, err error) {
+func builtinPlus(pos token.Position, context *Scope, args... Value) (result Value, err error) {
         var num int64
         for _, a := range args {
                 num += a.Integer()
@@ -242,7 +242,7 @@ func builtinPlus(context *Scope, args... Value) (result Value, err error) {
         return &Int{integer{num}}, nil
 }
 
-func builtinMinus(context *Scope, args... Value) (result Value, err error) {
+func builtinMinus(pos token.Position, context *Scope, args... Value) (result Value, err error) {
         var num int64
         for i, a := range args {
                 if i == 0 {
@@ -254,7 +254,7 @@ func builtinMinus(context *Scope, args... Value) (result Value, err error) {
         return &Int{integer{num}}, nil
 }
 
-func builtinJoin(context *Scope, args... Value) (res Value, err error) {
+func builtinJoin(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         if args, err = JoinEval(context, args...); err != nil {
                 return
         }
@@ -268,7 +268,7 @@ func builtinJoin(context *Scope, args... Value) (res Value, err error) {
         return nil, nil
 }
 
-func builtinJointQuote(context *Scope, args... Value) (res Value, err error) {
+func builtinJointQuote(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         if args, err = JoinEval(context, args...); err != nil {
                 return
         }
@@ -282,7 +282,7 @@ func builtinJointQuote(context *Scope, args... Value) (res Value, err error) {
         return nil, nil
 }
 
-func builtinField(context *Scope, args... Value) (Value, error) {
+func builtinField(pos token.Position, context *Scope, args... Value) (Value, error) {
         if l := len(args); l >= 2 {
                 n := int(args[0].Integer()) - 1 // starting from 1
                 s := args[1].Strval()
@@ -300,12 +300,12 @@ func builtinField(context *Scope, args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinFields(context *Scope, args... Value) (Value, error) {
+func builtinFields(pos token.Position, context *Scope, args... Value) (Value, error) {
         // TODO: ...
         return nil, nil
 }
 
-func builtinString(context *Scope, args... Value) (result Value, err error) {
+func builtinString(pos token.Position, context *Scope, args... Value) (result Value, err error) {
         var s bytes.Buffer
         for i, a := range args {
                 if i > 0 { s.WriteString(" ") }
@@ -314,7 +314,7 @@ func builtinString(context *Scope, args... Value) (result Value, err error) {
         return &String{s.String()}, nil
 }
 
-func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, err error) {
+func builtinFilterValues(pos token.Position, context *Scope, neg bool, args... Value) (res Value, err error) {
         if len(args) > 1 {
                 var pats []Value
                 switch pat := args[0].(type) {
@@ -356,7 +356,7 @@ func builtinFilterValues(context *Scope, neg bool, args... Value) (res Value, er
 }
 
 // $(subst from,to,text)
-func builtinSubst(context *Scope, args... Value) (res Value, err error) {
+func builtinSubst(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var (
@@ -376,7 +376,7 @@ func builtinSubst(context *Scope, args... Value) (res Value, err error) {
 // TODO:
 //   $(var:pattern=replacement)
 //   $(var:suffix=replacement)
-func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
+func builtinPatsubst(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(patsubst pattern,replacement,text)
         var list []Value
         if nargs := len(args); nargs > 2 {
@@ -435,15 +435,15 @@ func builtinPatsubst(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinStrip(context *Scope, args... Value) (res Value, err error) {
-        return builtinTrimSpace(context, args...)
+func builtinStrip(pos token.Position, context *Scope, args... Value) (res Value, err error) {
+        return builtinTrimSpace(pos, context, args...)
 }
 
-func builtinTrimSpace(context *Scope, args... Value) (res Value, err error) {
-        return builtinTrim(context, append([]Value{ UniversalNone }, args...)...)
+func builtinTrimSpace(pos token.Position, context *Scope, args... Value) (res Value, err error) {
+        return builtinTrim(pos, context, append([]Value{ UniversalNone }, args...)...)
 }
 
-func builtinTitle(context *Scope, args... Value) (res Value, err error) {
+func builtinTitle(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var list []Value
         for _, a := range args {
                 if val := Reveal(a); val == nil {
@@ -458,7 +458,7 @@ func builtinTitle(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrim(context *Scope, args... Value) (res Value, err error) {
+func builtinTrim(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var (
                 list []Value
                 cutset string
@@ -482,7 +482,7 @@ func builtinTrim(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimLeft(context *Scope, args... Value) (res Value, err error) {
+func builtinTrimLeft(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var (
                 list []Value
                 cutset string
@@ -506,7 +506,7 @@ func builtinTrimLeft(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimRight(context *Scope, args... Value) (res Value, err error) {
+func builtinTrimRight(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var (
                 list []Value
                 cutset string
@@ -530,7 +530,7 @@ func builtinTrimRight(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimPrefix(context *Scope, args... Value) (res Value, err error) {
+func builtinTrimPrefix(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var (
                 list []Value
                 cutset string
@@ -554,7 +554,7 @@ func builtinTrimPrefix(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimSuffix(context *Scope, args... Value) (res Value, err error) {
+func builtinTrimSuffix(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var (
                 list []Value
                 cutset string
@@ -578,7 +578,7 @@ func builtinTrimSuffix(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
+func builtinTrimExt(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var (
                 list []Value
                 ext string
@@ -602,7 +602,7 @@ func builtinTrimExt(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinIndent(context *Scope, args... Value) (res Value, err error) {
+func builtinIndent(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var (
                 l []Value
                 s string // indent
@@ -625,54 +625,54 @@ func builtinIndent(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFindstring(context *Scope, args... Value) (res Value, err error) {
+func builtinFindstring(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(findstring find,text)
         return
 }
 
-func builtinFilter(context *Scope, args... Value) (res Value, err error) {
+func builtinFilter(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(filter pattern…,text)
-        res, err = builtinFilterValues(context, false, args...)
+        res, err = builtinFilterValues(pos, context, false, args...)
         return
 }
 
-func builtinFilterOut(context *Scope, args... Value) (res Value, err error) {
+func builtinFilterOut(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(filter-out pattern…,text)
-        res, err = builtinFilterValues(context, true, args...)
+        res, err = builtinFilterValues(pos, context, true, args...)
         return
 }
 
-func builtinSort(context *Scope, args... Value) (res Value, err error) {
+func builtinSort(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(sort list)
         return
 }
 
-func builtinWord(context *Scope, args... Value) (res Value, err error) {
+func builtinWord(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(word n,text)
         return
 }
 
-func builtinWordList(context *Scope, args... Value) (res Value, err error) {
+func builtinWordList(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(wordlist s,e,text)
         return
 }
 
-func builtinWords(context *Scope, args... Value) (res Value, err error) {
+func builtinWords(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(words n,text)
         return
 }
 
-func builtinFirstWord(context *Scope, args... Value) (res Value, err error) {
+func builtinFirstWord(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(firstword names...)
         return
 }
 
-func builtinLastWord(context *Scope, args... Value) (res Value, err error) {
+func builtinLastWord(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         // $(lastword names...)
         return
 }
 
-func builtinEncodeBase64(context *Scope, args... Value) (res Value, err error) {
+func builtinEncodeBase64(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         if len(args) > 0 {
                 buf := new(bytes.Buffer)
                 enc := base64.NewEncoder(base64.StdEncoding, buf)
@@ -685,7 +685,7 @@ func builtinEncodeBase64(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinDecodeBase64(context *Scope, args... Value) (res Value, err error) {
+func builtinDecodeBase64(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         if len(args) > 0 {
                 var list []Value
                 for _, a := range args {
@@ -702,7 +702,7 @@ func builtinDecodeBase64(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinBase(context *Scope, args... Value) (Value, error) {
+func builtinBase(pos token.Position, context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
@@ -714,7 +714,7 @@ func builtinBase(context *Scope, args... Value) (Value, error) {
         return MakeListOrScalar(l), nil
 }
 
-func builtinDirDir(context *Scope, args... Value) (Value, error) {
+func builtinDirDir(pos token.Position, context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
@@ -726,7 +726,7 @@ func builtinDirDir(context *Scope, args... Value) (Value, error) {
         return MakeListOrScalar(l), nil
 }
 
-func builtinDir(context *Scope, args... Value) (Value, error) {
+func builtinDir(pos token.Position, context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
@@ -738,7 +738,7 @@ func builtinDir(context *Scope, args... Value) (Value, error) {
         return MakeListOrScalar(l), nil
 }
 
-func builtinDirs(context *Scope, args... Value) (Value, error) {
+func builtinDirs(pos token.Position, context *Scope, args... Value) (Value, error) {
         var (
                 l []Value
                 s string
@@ -763,7 +763,7 @@ func builtinDirs(context *Scope, args... Value) (Value, error) {
         return MakeListOrScalar(l), nil
 }
 
-func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
+func builtinMkdir(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -804,7 +804,7 @@ func builtinMkdir(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinMkdirAll(context *Scope, args... Value) (res Value, err error) {
+func builtinMkdirAll(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -845,7 +845,7 @@ func builtinMkdirAll(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinChdir(context *Scope, args... Value) (res Value, err error) {
+func builtinChdir(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         if len(args) == 1 {
                 err = os.Chdir(args[0].Strval())
         } else {
@@ -854,7 +854,7 @@ func builtinChdir(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRename(context *Scope, args... Value) (res Value, err error) {
+func builtinRename(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -897,7 +897,7 @@ func builtinRename(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRemove(context *Scope, args... Value) (res Value, err error) {
+func builtinRemove(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         if args, err = JoinEval(context, args...); err != nil {
                 return
         }
@@ -918,7 +918,7 @@ func builtinRemove(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRemoveAll(context *Scope, args... Value) (res Value, err error) {
+func builtinRemoveAll(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         if args, err = JoinEval(context, args...); err != nil {
                 return
         }
@@ -944,7 +944,7 @@ func builtinRemoveAll(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTruncate(context *Scope, args... Value) (res Value, err error) {
+func builtinTruncate(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -988,7 +988,7 @@ func builtinTruncate(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinLink(context *Scope, args... Value) (res Value, err error) {
+func builtinLink(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1031,7 +1031,7 @@ func builtinLink(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinSymlink(context *Scope, args... Value) (res Value, err error) {
+func builtinSymlink(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1074,7 +1074,7 @@ func builtinSymlink(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinReadDir(context *Scope, args... Value) (res Value, err error) {
+func builtinReadDir(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var l []Value
         for _, a := range args {
                 var fis []os.FileInfo
@@ -1094,7 +1094,7 @@ func builtinReadDir(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
+func builtinReadFile(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var l []Value
         for _, a := range args {
                 var s []byte
@@ -1110,7 +1110,7 @@ func builtinReadFile(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinWriteFile(context *Scope, args... Value) (res Value, err error) {
+func builtinWriteFile(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1165,7 +1165,7 @@ func builtinWriteFile(context *Scope, args... Value) (res Value, err error) {
         return
 }
 
-func builtinReturn(context *Scope, args... Value) (res Value, err error) {
+func builtinReturn(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         var value Value
         if x := len(args); x == 0 {
                 value = args[x]

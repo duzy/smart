@@ -55,7 +55,7 @@ func (ctx *Context) Run(targets... string) (err error) {
 
         if len(targets) == 0 {
                 if entry := mm.DefaultEntry(); entry != nil {
-                        if result, err = entry.Execute(); err == nil {
+                        if result, err = entry.Execute(entry.Position); err == nil {
                                 updated += 1
                         }
                 }
@@ -108,7 +108,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 // The the base project scope as execution context. For
                                 // example of 'base.test', the entry 'test' can resolve
                                 // '&(FOO)', '&(BAR)', etc.
-                                if result, err = entry.Execute(v...); err == nil {
+                                if result, err = entry.Execute(entry.Position, v...); err == nil {
                                         updated += 1
                                 } else {
                                         //fmt.Printf("%v\n", err)

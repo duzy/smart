@@ -905,7 +905,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 lpos, tokLp = p.pos, p.tok
                 name = p.checkExpr(p.parseNextExpr(false)) // skipped LPAREN, LBRACE
                 if (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
-                        (tokLp == token.LBRACE && p.tok != token.RBRACE) {
+                   (tokLp == token.LBRACE && p.tok != token.RBRACE) {
                         rest = append(rest, p.parseListExpr(false))
                         for p.tok == token.COMMA {
                                 p.next()
@@ -953,6 +953,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
         }
 
         cd := ast.ClosureDelegate{
+                Position: p.file.Position(pos),
                 TokPos: pos,
                 Lparen: lpos,
                 Name: name,
@@ -1398,7 +1399,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 } else if def, _ = s.(*types.Def); def != nil {
                         if prev != nil && prev != def /*&& prev.Parent() != def.Parent()*/ {
                                 def.SetOrigin(prev.Origin())
-                                def.Assign(types.Delegate(prev))
+                                def.Assign(types.Delegate(p.file.Position(pos), prev))
                         }
                 } else if s != nil {
                         p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", name, s)
@@ -1931,6 +1932,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         case token.EVAL:
                 return p.parseGenericClause(token.EVAL, p.expect(token.EVAL), p.parseEvalSpec)
         case token.DOCK:
+                p.warn(p.pos, "dock clause is deprecated, use dock package instead")
                 return p.parseGenericClause(token.DOCK, p.expect(token.DOCK), p.parseDockSpec)
 	case token.USE:
                 pos := p.expect(token.USE)

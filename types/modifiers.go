@@ -7,6 +7,7 @@
 package types
 
 import (
+        "github.com/duzy/smart/token"
         "path/filepath"
         "hash/crc64"
         "strings"
@@ -33,7 +34,7 @@ func breakf(good bool, s string, a... interface{}) *breaker {
         return &breaker{ fmt.Sprintf(s, a...), good }
 }
 
-type modifier func(prog *Program, value Value, args... Value) (Value, error)
+type modifier func(pos token.Position, prog *Program, value Value, args... Value) (Value, error)
 
 const (
         TheShellEnvarsDef = "shell->envars"
@@ -95,7 +96,7 @@ func promptShellResult(value Value, n int) {
         }
 }
 
-func modifierStatusEquals(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierStatusEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         v, a := getGroupElem(value, 1, nil), ""
         if v != nil && len(args) == 1 {
                 if a = args[0].Strval(); a == v.Strval() {
@@ -106,7 +107,7 @@ func modifierStatusEquals(prog *Program, value Value, args... Value) (result Val
         return
 }
 
-func modifierStdoutEquals(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierStdoutEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         v, a := getGroupElem(value, 2, nil), ""
         if v != nil && len(args) == 1 {
                 if a = args[0].Strval(); a == v.Strval() {
@@ -117,7 +118,7 @@ func modifierStdoutEquals(prog *Program, value Value, args... Value) (result Val
         return
 }
 
-func modifierStderrEquals(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierStderrEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         v, a := getGroupElem(value, 3, nil), ""
         if v != nil && len(args) == 1 {
                 if a = args[0].Strval(); a == v.Strval() {
@@ -128,7 +129,7 @@ func modifierStderrEquals(prog *Program, value Value, args... Value) (result Val
         return
 }
 
-func modifierSelect(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierSelect(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         if g, ok := value.(*Group); ok && len(args) > 0 {
                 result = g.Get(int(args[0].Integer()))
         } else {
@@ -137,12 +138,12 @@ func modifierSelect(prog *Program, value Value, args... Value) (result Value, er
         return
 }
 
-func modifierSetArgs(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierSetArgs(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         // TODO: preserve args for interpreter
         return
 }
 
-func modifierSetEnv(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         if args, err = JoinEval(prog.scope, args...); err != nil {
                 return
         }
@@ -161,7 +162,7 @@ func modifierSetEnv(prog *Program, value Value, args... Value) (result Value, er
         return
 }
 
-func modifierCD(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         if n := len(args); n == 1 {
                 var dir = args[0].Strval()
                 if dir == "-" {
@@ -187,7 +188,7 @@ func modifierCD(prog *Program, value Value, args... Value) (result Value, err er
         return
 }
 
-func parseDependList(prog *Program, dependList *List) (depends *List, err error) {
+func parseDependList(pos token.Position, prog *Program, dependList *List) (depends *List, err error) {
         depends = new(List)
         for _, depend := range dependList.Elems {
                 if trace_compare {
@@ -195,7 +196,7 @@ func parseDependList(prog *Program, dependList *List) (depends *List, err error)
                 }
                 switch d := depend.(type) {
                 case *List:
-                        if dl, e := parseDependList(prog, d); e != nil {
+                        if dl, e := parseDependList(pos, prog, d); e != nil {
                                 err = e; return
                         } else {
                                 depends.Elems = append(depends.Elems, dl.Elems...)
@@ -231,19 +232,19 @@ func parseDependList(prog *Program, dependList *List) (depends *List, err error)
         return
 }
 
-func getCompareDepends(prog *Program) (depends *List, err error) {
+func getCompareDepends(pos token.Position, prog *Program) (depends *List, err error) {
         def := prog.scope.Lookup("^").(*Def)
-        dependVal, _ := def.Call()
+        dependVal, _ := def.Call(pos)
         dependVal = Reveal(dependVal)
         if dependList, _ := dependVal.(*List); dependList != nil && dependList.Len() > 0 {
-                if depends, err = parseDependList(prog, dependList); err != nil {
+                if depends, err = parseDependList(pos, prog, dependList); err != nil {
                         return
                 }
         }
         return
 }
 
-func compareTargetDepend(prog *Program, target, depend Value, tt time.Time) (outdated bool, err error) {
+func compareTargetDepend(pos token.Position, prog *Program, target, depend Value, tt time.Time) (outdated bool, err error) {
         //fmt.Printf("compare: %v -> %v (%v)\n", target, depend, prog.context.outdated)
         //fmt.Printf("compare: %v: %v (%T)\n", target, depend, depend)
         if dependFile, okay := depend.(*File); okay && dependFile != nil {
@@ -278,14 +279,14 @@ func compareTargetDepend(prog *Program, target, depend Value, tt time.Time) (out
         return
 }
 
-func modifierCompare_0(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCompare_0(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var (
                 targetVal Value
                 depends = new(List)
                 nargs   = len(args)
         )
         if def := prog.scope.Lookup("@").(*Def); nargs == 0 {
-                targetVal, _ = def.Call()
+                targetVal, _ = def.Call(pos)
         } else if nargs == 1 {
                 //switch targetVal = args[0]; t := targetVal.(type) {
                 //case *List: targetVal = t.Elems[0]
@@ -317,7 +318,7 @@ func modifierCompare_0(prog *Program, value Value, args... Value) (result Value,
                 }
         }
 
-        if depends, err = getCompareDepends(prog); err != nil {
+        if depends, err = getCompareDepends(pos, prog); err != nil {
                 return
         } else if depends != nil && depends.Len() > 0 {
                 prog.auto("<", depends.Get(0))
@@ -375,7 +376,7 @@ func modifierCompare_0(prog *Program, value Value, args... Value) (result Value,
                 for _, depend := range depends.Elems {
                         switch depend.(type) {
                         case *File:
-                                outdated, err = compareTargetDepend(prog, targetVal, depend, tt)
+                                outdated, err = compareTargetDepend(pos, prog, targetVal, depend, tt)
                                 //fmt.Printf("compare-target-depend: %v (%v)\n", outdated, err)
                                 if err != nil || outdated {
                                         return
@@ -387,7 +388,7 @@ func modifierCompare_0(prog *Program, value Value, args... Value) (result Value,
         return
 }
 
-func modifierCompare(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCompare(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var target = prog.scope.Lookup("@").(*Def)
         if nargs := len(args); nargs == 1 {
                 target.Assign(args[0])
@@ -404,22 +405,22 @@ func modifierCompare(prog *Program, value Value, args... Value) (result Value, e
         return
 }
 
-func modifierGrepCompare(prog *Program, value Value, args... Value) (result Value, err error) {
-        if v, e := modifierGrepDependents(prog, value, args...); e != nil {
+func modifierGrepCompare(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+        if v, e := modifierGrepDependents(pos, prog, value, args...); e != nil {
                 err = e; return
         } else if v != nil {
                 def := prog.scope.Lookup("^").(*Def)
                 old := def.Value
                 def.Assign(v)
-                result, err = modifierCompare(prog, value)
+                result, err = modifierCompare(pos, prog, value)
                 def.Assign(old)
         }
         return
 }
 
-func modifierGrepDependents(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierGrepDependents(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var (
-                targetVal, _ = prog.scope.Lookup("@").(Caller).Call()
+                targetVal, _ = prog.scope.Lookup("@").(Caller).Call(pos)
                 targetName = targetVal.Strval()
                 rxs []*regexp.Regexp                
                 f *os.File
@@ -495,7 +496,7 @@ func modifierGrepDependents(prog *Program, value Value, args... Value) (result V
 // (check status=1 stdout="foobar" stderr="")
 // (check file=filename.txt)
 // (check dir=directory)
-func modifierCheck(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCheck(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var exeres, _ = value.(*ExecResult)
         if exeres == nil {
                 s := fmt.Sprintf("bad value (%T)", value)
@@ -548,13 +549,13 @@ func modifierCheck(prog *Program, value Value, args... Value) (result Value, err
         return
 }
 
-func modifierCheckDir(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCheckDir(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*Def)
                 targetVal Value
                 filename string
         )
-        if targetVal, err = targetDef.Call(); err != nil {
+        if targetVal, err = targetDef.Call(pos); err != nil {
                 return
         } else {
                 filename = targetVal.Strval()
@@ -571,13 +572,13 @@ func modifierCheckDir(prog *Program, value Value, args... Value) (result Value, 
         return
 }
 
-func modifierCheckFile(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCheckFile(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*Def)
                 targetVal Value
                 filename string
         )
-        if targetVal, err = targetDef.Call(); err != nil {
+        if targetVal, err = targetDef.Call(pos); err != nil {
                 return
         } else {
                 filename = targetVal.Strval()
@@ -590,13 +591,13 @@ func modifierCheckFile(prog *Program, value Value, args... Value) (result Value,
         return
 }
 
-func modifierWriteFile(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierWriteFile(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*Def)
                 targetVal Value
                 filename string
         )
-        if targetVal, err = targetDef.Call(); err != nil {
+        if targetVal, err = targetDef.Call(pos); err != nil {
                 return
         } else {
                 filename = targetVal.Strval()
@@ -614,7 +615,7 @@ func modifierWriteFile(prog *Program, value Value, args... Value) (result Value,
         return
 }
 
-func modifierUpdateFile(prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*Def)
                 nargs = len(args)
@@ -622,7 +623,7 @@ func modifierUpdateFile(prog *Program, value Value, args... Value) (result Value
                 targetVal Value
                 filename string
         )
-        if targetVal, err = targetDef.Call(); err != nil {
+        if targetVal, err = targetDef.Call(pos); err != nil {
                 return
         }
         if nargs == 0 {

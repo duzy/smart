@@ -197,6 +197,7 @@ type (
         // Delegate expressions: $(foo a1,a2,a3), $(foo), $foo
         // Closure expressions: &(foo a1,a2,a3), &(foo), &foo
         ClosureDelegate struct {
+                Position token.Position // file position of TokPos
                 TokPos token.Pos  // position of $ or &
                 Lparen token.Pos  // left paren position (could be zero)
                 Name Expr         // name being referred

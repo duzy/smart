@@ -306,7 +306,7 @@ func (l *Loader) closuredelegate(x *ast.ClosureDelegate) (obj types.Object, args
 
 func (l *Loader) closure(x *ast.ClosureExpr) (types.Value, error) {
         if obj, args, err := l.closuredelegate(&x.ClosureDelegate); err == nil {
-                return types.Closure(obj, args...), nil
+                return types.Closure(x.Position, obj, args...), nil
         } else {
                 return nil, err
         }
@@ -314,7 +314,7 @@ func (l *Loader) closure(x *ast.ClosureExpr) (types.Value, error) {
 
 func (l *Loader) delegate(x *ast.DelegateExpr) (v types.Value, err error) {
         if obj, args, err := l.closuredelegate(&x.ClosureDelegate); err == nil {
-                return types.Delegate(obj, args...), nil
+                return types.Delegate(x.Position, obj, args...), nil
         } else {
                 return nil, err
         }
@@ -497,6 +497,7 @@ func (l *Loader) exprs(exprs []ast.Expr) (values []types.Value, err error) {
 
 func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
         var (
+                position = l.pc.Position(pos)
                 entry *types.RuleEntry
                 obj types.Object
         )
@@ -513,7 +514,7 @@ func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
                 return fmt.Errorf("Project `%v' has invalid 'use' entry (%T).", usee.Name(), obj)
         }
 
-        results, err := entry.Execute(/* ... */)
+        results, err := entry.Execute(position)
         if err != nil {
                 return err
         }
@@ -547,7 +548,7 @@ func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
 
                 // Append the delegate if not referenced yet.
                 if !types.Refs(newDef, def) {
-                        newDef.Append(types.Delegate(def))
+                        newDef.Append(types.Delegate(position, def))
                 }
 
                 //fmt.Printf("useProject: %s: %s: %v (%s)\n", l.project.Name(), usee.Name(), newDef, def.Strval())
@@ -635,12 +636,13 @@ func (l *Loader) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                 if v, err = l.expr(spec.Props[0]); err != nil {
                         return
                 }
+                var position = l.pc.Position(spec.Props[0].Pos())
                 switch op := v.(type) {
                 case types.Caller:
                         if a, err := l.exprs(spec.Props[1:]); err != nil {
                                 return nil, err
                         } else {
-                                res, _ = op.Call(a...)
+                                res, _ = op.Call(position, a...)
                         }
                 default:
                         if _, obj := l.scope.Find(op.Strval()); obj != nil {
@@ -648,7 +650,7 @@ func (l *Loader) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                                         if a, err := l.exprs(spec.Props[1:]); err != nil {
                                                 return nil, err
                                         } else {
-                                                res, err = f.Call(a...)
+                                                res, err = f.Call(position, a...)
                                         }
                                 }
                         } else {

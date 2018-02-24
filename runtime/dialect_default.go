@@ -36,11 +36,11 @@ LoopRecipes:
                                 //fmt.Printf("dialectDefault: def: %s: %p %v (%s)\n", prog.project.Name(), t, t, t.Strval())
 
                         case types.Caller:
-                                v, e = t.Call(stmt.Slice(1)...)
+                                v, e = t.Call(prog.Position(), stmt.Slice(1)...)
 
                         case types.Executer:
                                 var a []types.Value
-                                if a, e = t.Execute(stmt.Slice(1)...); e == nil {
+                                if a, e = t.Execute(prog.Position(), stmt.Slice(1)...); e == nil {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {

@@ -112,6 +112,7 @@ type Program struct {
         position token.Position
 }
 
+func (prog *Program) Position() token.Position { return prog.position }
 func (prog *Program) Scope() *Scope { return prog.scope }
 
 func (prog *Program) setCallerContext(pc *Preparer, ctx *Scope) (pc0 *Preparer, ctx0 *Scope) {
@@ -162,7 +163,7 @@ func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err err
                         out.Assign(value)
                 }
                 def := prog.scope.Lookup("@").(*Def)
-                if target, err = def.Call(); err == nil {
+                if target, err = def.Call(prog.position); err == nil {
                         _, _, err = prog.project.UpdateCmdHash(target, recipes)
                 }
         }
@@ -176,7 +177,7 @@ func (prog *Program) modify(g *Group, out *Def) (dialect string, err error) {
         var name = g.Get(0).Strval()
         if f, ok := modifiers[name]; ok {
                 var value = out.Value
-                if value, err = f(prog, value, g.Slice(1)...); err == nil && value !=  nil {
+                if value, err = f(prog.position, prog, value, g.Slice(1)...); err == nil && value !=  nil {
                         out.Assign(value)
                 }
         } else if i, _ := dialects[name]; i != nil {

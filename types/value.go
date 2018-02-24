@@ -55,11 +55,11 @@ type Value interface {
 type value struct {}
 func (*value) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*value) referencing(_ Object) bool { return false }
-func (*value) Type() Type         { return InvalidType }
-func (*value) String() string     { return "" }
-func (*value) Strval() string     { return "" }
-func (*value) Integer() int64     { return 0 }
-func (*value) Float() float64     { return 0 }
+func (*value) Type() Type     { return InvalidType }
+func (*value) String() string { return "" }
+func (*value) Strval() string { return "" }
+func (*value) Integer() int64 { return 0 }
+func (*value) Float() float64 { return 0 }
 
 type Comparer struct {
         //program *Program
@@ -1302,11 +1302,13 @@ func (p *Pair) referencing(o Object) bool {
 
 // Delegate wraps '$(foo a,b,c)' into Valuer
 type delegate struct {
+        p token.Position
         o Object
         a []Value
         dc *Scope // disclosed context
 }
-func (p *delegate) Type() Type         { return DelegateType }
+func (p *delegate) Position() token.Position { return p.p }
+func (p *delegate) Type() Type { return DelegateType }
 func (p *delegate) String() (s string) {
         var na = len(p.a)
         s = "$"
@@ -1336,7 +1338,7 @@ func (p *delegate) Value() (res Value) {
         switch o := p.o.(type) {
         case Caller:
                 if args, err := p.discloseArgs(p.o.Parent()); err == nil {
-                        res, _ = o.Call(args...)
+                        res, _ = o.Call(p.p, args...)
                 }
         case Executer:
                 // FIXME: disclosed context not applied?
@@ -1345,7 +1347,7 @@ func (p *delegate) Value() (res Value) {
                         scope = p.o.Parent()
                 }
                 if args, err := p.discloseArgs(scope); err == nil {
-                        if v, err := o.Execute(args...); err == nil {
+                        if v, err := o.Execute(p.p, args...); err == nil {
                                 res = &List{Elements{v}}
                         }
                 }
@@ -1386,7 +1388,7 @@ func (p *delegate) disclose(scope *Scope) (Value, error) {
         }
 
         if o != nil || n > 0 {
-                return &delegate{ o, a, scope }, nil
+                return &delegate{ p.p, o, a, scope }, nil
         }
         return nil, nil
 }
@@ -1469,10 +1471,12 @@ func (p *delegate) prepare(pc *Preparer) (err error) {
 }
 
 type closure struct {
+        p token.Position
         o Object
         a []Value
 }
 
+func (p *closure) Position() token.Position { return p.p }
 func (p *closure) Type() Type { return ClosureType }
 func (p *closure) String() (s string) {
         var na = len(p.a)
@@ -1491,7 +1495,7 @@ func (p *closure) String() (s string) {
 }
 func (p *closure) Strval() string {
         if o, _ := p.o.(Caller); o != nil {
-                if v, e := o.Call(/* No arguments! */); e == nil {
+                if v, e := o.Call(p.p); e == nil {
                         return v.Strval()
                 }
         }
@@ -1529,9 +1533,9 @@ func (p *closure) disclose(scope *Scope) (Value, error) {
 
         switch o := obj.(type) {
         case Caller:
-                return o.Call(args...)
+                return o.Call(p.p, args...)
         case Executer:
-                if result, err := o.Execute(args...); err == nil {
+                if result, err := o.Execute(p.p, args...); err == nil {
                         return &List{Elements{result}}, nil
                 } else {
                         return nil, err
@@ -1736,7 +1740,6 @@ type GlobPattern struct {
         Suffix Value
 }
 
-func (p *GlobPattern) Pos() *token.Position { return nil }
 func (p *GlobPattern) String() string { return p.Strval() }
 func (p *GlobPattern) Strval() (s string) {
         if p.Prefix != nil {
@@ -1829,7 +1832,6 @@ func NewRegexpPattern() Pattern {
         return &RegexpPattern{}
 }
 
-func (p *RegexpPattern) Pos() *token.Position { return nil }
 func (p *RegexpPattern) String() string { return p.Strval() }
 func (p *RegexpPattern) Strval() (s string) { return "" }
 func (p *RegexpPattern) Match(s string) (matched bool, stem string) {
@@ -1848,15 +1850,15 @@ type Valuer interface {
 }
 
 type Caller interface {
-        Call(args... Value) (Value, error)
+        Call(pos token.Position, args... Value) (Value, error)
 }
 
 type Executer interface {
-        Execute(a... Value) (result []Value, err error)
+        Execute(pos token.Position, a... Value) (result []Value, err error)
 }
 
-type Poser interface {
-        Pos() *token.Position
+type Positioner interface {
+        Position() token.Position
 }
 
 type Namer interface {
@@ -1874,14 +1876,14 @@ type NameScoper interface {
 
 type positional struct {
         Value
-        pos *token.Position
+        pos token.Position
 }
 
-// Pos() returns the position of the value occurs position in file or nil.
-func (p *positional) Pos() *token.Position { return p.pos }
+// Position() returns the position of the value occurs position in file or nil.
+func (p *positional) Position() token.Position { return p.pos }
 
 // Positional wraps a value with a valid position
-func Positional(v Value, pos *token.Position) Poser {
+func Positional(v Value, pos token.Position) Positioner {
         if p, ok := v.(*positional); ok {
                 p.pos = pos
                 return p
@@ -1974,15 +1976,15 @@ func JoinEval(scope *Scope, args... Value) (elems []Value, err error) {
         return
 }
 
-func Delegate(obj Object, args... Value) Value {
-        return &delegate{ obj, args, nil }
+func Delegate(pos token.Position, obj Object, args... Value) Value {
+        return &delegate{ pos, obj, args, nil }
 }
 
-func Closure(obj Object, args... Value) Value {
+func Closure(pos token.Position, obj Object, args... Value) Value {
         if obj == nil {
                 panic("closure of nil")
         }
-        return &closure{ obj, args }
+        return &closure{ pos, obj, args }
 }
 
 func Refs(a Value, o Object) bool {
