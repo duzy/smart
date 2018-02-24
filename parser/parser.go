@@ -547,7 +547,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         }
         if objectName == "@" {
                 // If resolving @ in a rule (program) scope selection context,
-                // e.g. '$(@.FOO)', Resolve have to ensure @ is pointing to the global
+                // e.g. '$(@->FOO)', Resolve have to ensure @ is pointing to the global
                 // @ package.
                 where = global
         }
@@ -862,14 +862,17 @@ func (p *parser) parsePathExpr(lhs bool, start ast.Expr) ast.Expr {
                 for p.next(); p.tok == token.PCON && pos+1 == p.pos; {
                         pos = p.pos; p.next() // skips repeated '/' sequence
                 }
-                if pos+1 == p.pos {
-                        // x := p.checkExpr(p.parseExpr(false))
-                        x := p.checkExpr(p.parseComposedExpr(false))
-                        path.Segments = append(path.Segments, x)
-                        if p.tok != token.PCON || x.End() != p.pos {
-                                break BuildPath
-                        }
-                } else {
+
+                switch p.tok {
+                case token.RPAREN, token.RBRACE:
+                        break BuildPath
+                default:if pos+1 < p.pos {
+                        break BuildPath 
+                }}
+                
+                x := p.checkExpr(p.parseComposedExpr(false)) // p.checkExpr(p.parseExpr(false))
+                path.Segments = append(path.Segments, x)
+                if p.tok != token.PCON || x.End() != p.pos {
                         break BuildPath
                 }
         }
