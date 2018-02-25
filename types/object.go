@@ -193,13 +193,11 @@ type Def struct {
         Value Value
 }
 
-func (d *Def) disclose(scope *Scope) (Value, error) {
-        if v, e := d.Value.disclose(scope); e != nil {
-                return nil, e
-        } else if v != nil {
-                return &Def{ d.object, d.origin, v }, nil
-        }
-        return nil, nil
+func (d *Def) disclose(scope *Scope) (res Value, err error) {
+        var v Value
+        if v, err = d.Value.disclose(scope); err != nil { return }
+        if v != nil { res = &Def{ d.object, d.origin, v }}
+        return
 }
 
 func (d *Def) referencing(o Object) bool {
@@ -207,8 +205,8 @@ func (d *Def) referencing(o Object) bool {
         return d.Value.referencing(o)
 }
 
-func (d *Def) String() string {
-        s := "define " + d.name
+func (d *Def) String() (s string) {
+        s = d.name
         if d.origin == ImmediateDef {
                 s += " := "
         } else {
@@ -219,7 +217,7 @@ func (d *Def) String() string {
         } else {
                 s += d.Value.String()
         }
-        return s
+        return fmt.Sprintf("Def{%s}", s)
 }
 func (d *Def) Strval() (s string, e error) {
         s = d.name + "="
@@ -238,12 +236,12 @@ func (d *Def) Strval() (s string, e error) {
 func (d *Def) Origin() DefOrigin { return d.origin }
 func (d *Def) SetOrigin(k DefOrigin) { d.origin = k }
 
-func (d *Def) Assign(v Value) (Value, error) {
+func (d *Def) Assign(v Value) (res Value, err error) {
         if v == nil {
                 v = UniversalNone
         } else if v.referencing(d) {
-                err := fmt.Errorf("Recursive variable `%s' references itself.", d.name)
-                return nil, err
+                err = fmt.Errorf("Recursive variable `%s' references itself.", d.name)
+                return
         }
         
         switch d.origin {
@@ -251,9 +249,10 @@ func (d *Def) Assign(v Value) (Value, error) {
                 d.Value = v // Keeps delegates and closures.
         case ImmediateDef:
                 // Eval expends delegates in the value.
-                d.Value = Reveal(v)
+                if d.Value, err = Reveal(v); err != nil { return }
         }
-        return d.Value, nil
+        res = d.Value
+        return
 }
 
 func (d *Def) Append(va... Value) (Value, error) {
@@ -303,12 +302,15 @@ func (d *Def) AssignExec(a... Value) (res Value, err error) {
         return d.Assign(&String{strings.TrimSpace(stdout.String())})
 }
 
-func (d *Def) Call(pos token.Position, a... Value) (Value, error) {
+func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
-        return d.Value, nil
+        if res, err = Reveal(d.Value); err != nil {
+                //fmt.Printf("%v: %v\n", d.position, err)
+        }
+        return
 }
 
-func (d *Def) Disclose(scope *Scope) (Value, error) {
+func (d *Def) DiscloseValue(scope *Scope) (Value, error) {
         return Disclose(scope, d.Value)
 }
 

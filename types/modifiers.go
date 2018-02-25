@@ -265,11 +265,9 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
 func getCompareDepends(pos token.Position, prog *Program) (depends *List, err error) {
         def := prog.scope.Lookup("^").(*Def)
         dependVal, _ := def.Call(pos)
-        dependVal = Reveal(dependVal)
+        if dependVal, err = Reveal(dependVal); err != nil { return }
         if dependList, _ := dependVal.(*List); dependList != nil && dependList.Len() > 0 {
-                if depends, err = parseDependList(pos, prog, dependList); err != nil {
-                        return
-                }
+                depends, err = parseDependList(pos, prog, dependList)
         }
         return
 }
@@ -333,11 +331,12 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
 
         if trace_compare {
                 //fmt.Printf("compare: %T %v (%v)\n", targetVal, targetVal, Reveal(Disclose(prog.disctx, targetVal)))
-                fmt.Printf("compare:Target: %v (%T) (%v)\n", targetVal, targetVal, Reveal(targetVal))
+                fmt.Printf("compare:Target: %v\n", targetVal)
         }
 
-        if targetVal = Reveal(targetVal); targetVal == nil || targetVal.Type() == NoneType {
-                return nil, breakf(false, "no target")
+        if targetVal, err = Reveal(targetVal); err != nil { return }
+        if targetVal == nil || targetVal.Type() == NoneType {
+                err = breakf(false, "no target"); return
         }
 
         // deal with list.
@@ -347,7 +346,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                         targetVal = t.Elems[0]
                 } else {
                         s := fmt.Sprintf("compare: multiple targets (%v)", targetVal)
-                        return nil, breakf(false, s)
+                        err = breakf(false, s); return
                 }
         }
 

@@ -410,11 +410,9 @@ func (p *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes, err er
                 return
         } */
         for _, recipe := range recipes {
-                if str, err = Reveal(recipe).Strval(); err == nil {
-                        fmt.Fprintf(val, "%v", str)
-                } else {
-                        return
-                }
+                if recipe, err = Reveal(recipe); err != nil { return }
+                if str, err = recipe.Strval(); err != nil { return }
+                fmt.Fprintf(val, "%v", str)
         }
         copy(k[:], key.Sum(nil))
         copy(v[:], val.Sum(nil))

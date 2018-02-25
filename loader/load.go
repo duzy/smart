@@ -1197,9 +1197,8 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
                 }
         }
         if ec&parser.KeepDelegates == 0 {
-                if res = types.Reveal(res); res == nil {
-                        return
-                }
+                if res, err = types.Reveal(res); err != nil { return }
+                if res == nil { return }
         }
         if ec&parser.DependValue == 0 {
                 return

@@ -86,7 +86,8 @@ func NewComparer(globe *Globe, target Value) (c *Comparer, err error) {
         if trace_compare {
                 // fmt.Printf("compare:Target: %v (%T) (revealed: %v)\n", target, target, Reveal(target))
         }
-        if target = Reveal(target); target == nil || target.Type() == NoneType {
+        if target, err = Reveal(target); err != nil { return }
+        if target == nil || target.Type() == NoneType {
                 err = breakf(false, "comparing no target")
         } else if t, _ := target.(comparable); t != nil {
                 c = &Comparer{ globe, t, target, nil, nil }
@@ -575,8 +576,7 @@ func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *Elements) ToList() *List         { return &List{*p} }
 
 func (p *Elements) disclose(scope *Scope) ([]Value, int, error) {
-        var elems []Value
-        var num = 0 
+        var ( elems []Value; num int )
         for _, elem := range p.Elems {
                 //fmt.Printf("Elements.disclose: %T %v\n", elem, elem)
                 if elem == nil {
@@ -627,13 +627,12 @@ func (p *Barecomp) Strval() (s string, e error) {
         return
 }
 
-func (p *Barecomp) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.Elements.disclose(scope); err != nil {
-                return nil, err
-        } else if num > 0 {
-                return &Barecomp{ Elements{ elems } }, nil
+func (p *Barecomp) disclose(scope *Scope) (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.disclose(scope); err == nil && num > 0 {
+                res = &Barecomp{ Elements{ elems } }
         }
-        return nil, nil
+        return
 }
 
 func (p *Barecomp) prepare(pc *Preparer) error {
@@ -1475,10 +1474,10 @@ func (p *delegate) String() (s string) {
         s += ")"
         return
 }
-func (p *delegate) Strval() (string, error) { if v, e := p.Value(); e == nil { return v.Strval() } else { return "", e }}
-func (p *delegate) Integer() (int64, error) { if v, e := p.Value(); e == nil { return v.Integer() } else { return 0, e }}
-func (p *delegate) Float() (float64, error) { if v, e := p.Value(); e == nil { return v.Float() } else { return 0, e }}
-func (p *delegate) Value() (res Value, err error) {
+func (p *delegate) Strval() (string, error) { if v, e := p.eval(); e == nil { return v.Strval() } else { return "", e }}
+func (p *delegate) Integer() (int64, error) { if v, e := p.eval(); e == nil { return v.Integer() } else { return 0, e }}
+func (p *delegate) Float() (float64, error) { if v, e := p.eval(); e == nil { return v.Float() } else { return 0, e }}
+func (p *delegate) eval() (res Value, err error) {
         var (
                 args []Value
                 scope = p.dc
@@ -1569,15 +1568,15 @@ func (p *delegate) referencing(o Object) bool {
         return false
 }
 
-func (p *delegate) compare(c *Comparer) error {
+func (p *delegate) compare(c *Comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:delegate: %v (%v %T)\n", p, c.target, c.target)
         }
-        if v, e := p.Value(); e == nil {
-                return c.compare(v)
-        } else {
-                return e
+        var v Value
+        if v, err = p.eval(); err == nil {
+                err = c.compare(v)
         }
+        return
 }
 
 func (p *delegate) compareFileDepend(c *Comparer, d *File) (err error) {
@@ -1585,7 +1584,7 @@ func (p *delegate) compareFileDepend(c *Comparer, d *File) (err error) {
                 fmt.Printf("compare:delegate:File: %v (%v %T)\n", p, c.target, c.target)
         }
         var value Value
-        if value, err = p.Value(); err != nil { return }
+        if value, err = p.eval(); err != nil { return }
         if comp, _ := value.(comparable); comp != nil {
                 err = comp.compareFileDepend(c, d)
         } else {
@@ -1602,7 +1601,7 @@ func (p *delegate) comparePathDepend(c *Comparer, d *Path) (err error) {
                 fmt.Printf("compare:delegate:Path: %v (%v %T)\n", p, c.target, c.target)
         }
         var value Value
-        if value, err = p.Value(); err != nil { return }
+        if value, err = p.eval(); err != nil { return }
         if comp, _ := value.(comparable); comp != nil {
                 err = comp.comparePathDepend(c, d)
         } else {
@@ -1618,10 +1617,10 @@ func (p *delegate) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:delegate: %v (%v -> %v)\n", p, pc.entry.project.name, pc.entry)
         }
-        for _, d := range Join(Reveal(p)) {
-                if err = pc.Prepare(d); err != nil {
-                        break
-                }
+        var val Value
+        if val, err = Reveal(p); err != nil { return }
+        for _, d := range Join(val) {
+                if err = pc.Prepare(d); err != nil { break }
         }
         return
 }
@@ -1637,7 +1636,7 @@ func (p *closure) Type() Type { return ClosureType }
 func (p *closure) String() (s string) {
         var na = len(p.a)
         s = "&"
-        s += "(" //if na > 0 { s += "(" }
+        s += "("
         // FIXME: needs the original name value to represent the original form
         s += p.o.Name()
         if na > 0 {
@@ -1649,28 +1648,48 @@ func (p *closure) String() (s string) {
         s += ")"
         return
 }
-func (p *closure) Strval() (s string, err error) {
-        /* if o, _ := p.o.(Caller); o != nil {
-                var v Value
-                if v, err = o.Call(p.p); err != nil { return }
-                return v.Strval()
-        } */
-        return p.o.Strval() 
-}
 func (p *closure) Integer() (int64, error) { return p.o.Integer() }
 func (p *closure) Float() (float64, error) { return p.o.Float() }
+func (p *closure) Strval() (s string, err error) {
+        var v Value
+        if v, err = p.eval(); err == nil {
+                s, err = v.Strval()
+        }
+        return
+}
+func (p *closure) eval() (res Value, err error) {
+        switch o := p.o.(type) {
+        default: err = fmt.Errorf("unknown closure object %v", p.o)
+        case Caller:
+                if res, err = o.Call(p.p, p.a...); err != nil {
+                        err = fmt.Errorf("&(%s): %v", p.o.Name(), err)
+                }
+        case Executer:
+                var a []Value
+                if a, err = o.Execute(p.p, p.a...); err != nil {
+                        err = fmt.Errorf("&{%s}: %v", p.o.Name(), err)
+                } else {
+                        res = &List{Elements{a}}
+                }
+        }
+        if err != nil {
+                fmt.Printf("%v: %v\n", p.p, err)
+        } else if res == nil {
+                res = UniversalNone 
+        }
+        return
+}
 func (p *closure) disclose(scope *Scope) (res Value, err error) {
-        //fmt.Printf("closure.disclose: %T %v\n", p.o, p.o)
-        var ( obj = p.o; v Value )
-        if _, o := scope.Find(p.o.Name()); o != nil {
-                obj = o
+        var ( o Object; v Value; changed bool )
+        if _, o = scope.Find(p.o.Name()); o == nil {
+                o = p.o
         }
 
-        // Disclose the p.o, it's value may have disclosures.
-        if v, err = obj.disclose(scope); err != nil {
+        // Disclose the object, it's value may have disclosures.
+        if v, err = o.disclose(scope); err != nil {
                 return
-        } else if o, _ := v.(Object); o != nil {
-                obj = o
+        } else if obj, _ := v.(Object); obj != nil {
+                o, changed = obj, true
         }
 
         var args []Value
@@ -1678,28 +1697,13 @@ func (p *closure) disclose(scope *Scope) (res Value, err error) {
                 if v, err = a.disclose(scope); err != nil {
                         return
                 } else if v != nil {
-                        a = v
+                        a, changed = v, true
                 }
                 args = append(args, a)
         }
 
-        switch o := obj.(type) {
-        default: err = fmt.Errorf("unknown closure object %v", obj)
-        case Caller:
-                if res, err = o.Call(p.p, args...); err != nil {
-                        err = fmt.Errorf("&(%s): %v", p.o.Name(), err)
-                }
-        case Executer:
-                if args, err = o.Execute(p.p, args...); err != nil {
-                        err = fmt.Errorf("&{%s}: %v", p.o.Name(), err)
-                } else {
-                        res = &List{Elements{args}}
-                }
-        }
-        if err != nil {
-                fmt.Printf("%v: %v\n", p.p, err)
-        } else if res == nil {
-                res = UniversalNone 
+        if changed && err == nil {
+                res = &closure{ p.p, o, args }
         }
         return
 }
@@ -2084,27 +2088,28 @@ func NameScope(name string, scope *Scope) NameScoper {
         return &namescoper{ name, scope }
 }
 
+func revealElems(elems []Value) (result []Value, changed int, err error) {
+        for _, elem := range elems {
+                var v Value
+                if v, err = Reveal(elem); err != nil { return }
+                if v != elem { changed += 1 }
+                result = append(result, v)
+        }
+        return
+}
+
 // Reveal expends delegates and Valuer recursively.
-func Reveal(v Value) (res Value) {
+func Reveal(v Value) (res Value, err error) {
         switch t := v.(type) {
+        case *delegate: res, err = t.eval()
         case *List:
-                var (
-                        elems []Value
-                        num = 0 // number of revealed elements
-                )
-                for i, elem := range t.Elems {
-                        elems = append(elems, Reveal(elem))
-                        if elems[i] != t.Elems[i] {
-                                num += 1
-                        }
-                }
+                var ( elems []Value; num = 0 )
+                if elems, num, err = revealElems(t.Elems); err != nil { return }
                 if num > 0 {
                         res = &List{Elements{elems}}
                 } else {
                         res = t
                 }
-        case Valuer:
-                res = Reveal(t.Value())
         default:
                 res = v
         }
@@ -2112,16 +2117,19 @@ func Reveal(v Value) (res Value) {
 }
 
 // Disclose expends closures to normal value recursively.
-func Disclose(scope *Scope, value Value) (Value, error) {
+func Disclose(scope *Scope, value Value) (res Value, err error) {
         if false {
                 fmt.Printf("Disclose: %T %v\n", value, value)
         }
-        if v, err := value.disclose(scope); err != nil {
-                return nil, err
+        var v Value
+        if v, err = value.disclose(scope); err != nil {
+                return
         } else if v != nil {
-                value = v
+                res = v
+        } else {
+                res = value
         }
-        return value, nil
+        return
 }
 
 // Join combines lists recursively into one list.
@@ -2140,9 +2148,10 @@ func Join(args... Value) (elems []Value) {
 }
 
 // JoinReveal join revealed elements into one list.
-func JoinReveal(args... Value) (elems []Value) {
+func JoinReveal(args... Value) (elems []Value, err error) {
         for _, elem := range args {
-                elems = append(elems, Join(Reveal(elem))...)
+                if elem, err = Reveal(elem); err != nil { break }
+                elems = append(elems, Join(elem)...)
         }
         return
 }
@@ -2150,10 +2159,9 @@ func JoinReveal(args... Value) (elems []Value) {
 // JoinEval join evaluated (disclosed and revealed) elements into one list.
 func JoinEval(scope *Scope, args... Value) (elems []Value, err error) {
         for _, elem := range args {
-                if elem, err = Disclose(scope, elem); err != nil {
-                        break
-                }
-                elems = append(elems, Join(Reveal(elem))...)
+                if elem, err = Disclose(scope, elem); err != nil { break }
+                if elem, err = Reveal(elem); err != nil { break }
+                elems = append(elems, Join(elem)...)
         }
         return
 }

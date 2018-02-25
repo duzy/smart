@@ -194,19 +194,17 @@ func builtinAssertValid(pos token.Position, context *Scope, args... Value) (Valu
         return nil, nil
 }
 
-func builtinLogicalOr(pos token.Position, context *Scope, args... Value) (Value, error) {
+func builtinLogicalOr(pos token.Position, context *Scope, args... Value) (res Value, err error) {
         for _, a := range args {
-                if val := Reveal(a); val == nil {
-                        // discard
-                } else if v, err := val.Strval(); err == nil {
-                        if strings.TrimSpace(v) != "" {
-                                return val, nil
-                        }
-                } else {
-                        return nil, err
+                if a, err = Reveal(a); err != nil { return }
+                if a == nil { continue } // discard nil
+                var s string
+                if s, err = a.Strval(); err != nil { return }
+                if strings.TrimSpace(s) != "" { 
+                        res = a; break
                 }
         }
-        return nil, nil
+        return
 }
 
 func builtinEnv(pos token.Position, context *Scope, args... Value) (res Value, err error) {
@@ -216,7 +214,8 @@ func builtinEnv(pos token.Position, context *Scope, args... Value) (res Value, e
                 v string
         )
         for _, a := range args {
-                if val = Reveal(a); val == nil {
+                if val, err = Reveal(a); err != nil { return }
+                if val == nil {
                         // discard
                 } else if v, err = val.Strval(); err == nil {
                         if s := strings.TrimSpace(v); s != "" {
@@ -428,8 +427,9 @@ func builtinFilterValues(pos token.Position, context *Scope, neg bool, args... V
                         return false
                 }
                 if len(pats) > 0 {
-                        var elems []Value
-                        for _, v := range JoinReveal(args[1:]...) {
+                        var elems, a []Value
+                        if a, err = JoinReveal(args[1:]...); err != nil { return }
+                        for _, v := range a {
                                 var okay = f(v)
                                 if err != nil { return }
                                 if neg { okay = !okay }
@@ -449,19 +449,13 @@ func builtinSubst(pos token.Position, context *Scope, args... Value) (res Value,
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var s, s1, s2 string
-                if s1, err = args[0].Strval(); err != nil {
-                        return
-                }
-                if s2, err = args[1].Strval(); err != nil {
-                        return
-                }
-                for _, arg := range JoinReveal(args[2:]...) {
-                        if s, err = arg.Strval(); err != nil {
-                                return
-                        }
-                        list = append(list, &String{
-                                strings.Replace(s, s1, s2, -1),
-                        })
+                if s1, err = args[0].Strval(); err != nil { return }
+                if s2, err = args[1].Strval(); err != nil { return }
+                var a []Value
+                if a, err = JoinReveal(args[2:]...); err != nil { return }
+                for _, arg := range a {
+                        if s, err = arg.Strval(); err != nil { return }
+                        list = append(list, &String{ strings.Replace(s, s1, s2, -1) })
                 }
         }
         res = MakeListOrScalar(list)
@@ -475,7 +469,9 @@ func builtinPatsubst(pos token.Position, context *Scope, args... Value) (res Val
         // $(patsubst pattern,replacement,text)
         var list []Value
         if nargs := len(args); nargs > 2 {
-                for _, arg := range JoinReveal(args[2:]...) {
+                var a []Value
+                if a, err = JoinReveal(args[2:]...); err != nil { return }
+                for _, arg := range a {
                         var (
                                 a, s string // stemp
                                 m bool // matched
@@ -566,9 +562,10 @@ func builtinTitle(pos token.Position, context *Scope, args... Value) (res Value,
                 s string
         )
         for _, a := range args {
-                if val := Reveal(a); val == nil {
+                if a, err = Reveal(a); err != nil { return }
+                if a == nil {
                         // discard
-                } else if s, err = val.Strval(); err != nil {
+                } else if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         list = append(list, strval(strings.Title(s)))
@@ -586,9 +583,10 @@ func builtinTrim(pos token.Position, context *Scope, args... Value) (res Value, 
                 cutset, s string
         )
         for i, a := range args {
-                if val := Reveal(a); val == nil {
+                if a, err = Reveal(a); err != nil { return }
+                if a == nil {
                         // discard
-                } else if s, err = val.Strval(); err != nil {
+                } else if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -612,9 +610,10 @@ func builtinTrimLeft(pos token.Position, context *Scope, args... Value) (res Val
                 cutset, s string
         )
         for i, a := range args {
-                if val := Reveal(a); val == nil {
+                if a, err = Reveal(a); err != nil { return }
+                if a == nil {
                         // discard
-                } else if s, err = val.Strval(); err != nil {
+                } else if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -638,9 +637,10 @@ func builtinTrimRight(pos token.Position, context *Scope, args... Value) (res Va
                 cutset, s string
         )
         for i, a := range args {
-                if val := Reveal(a); val == nil {
+                if a, err = Reveal(a); err != nil { return }
+                if a == nil {
                         // discard
-                } else if s, err = val.Strval(); err != nil {
+                } else if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -664,9 +664,10 @@ func builtinTrimPrefix(pos token.Position, context *Scope, args... Value) (res V
                 cutset, s string
         )
         for i, a := range args {
-                if val := Reveal(a); val == nil {
+                if a, err = Reveal(a); err != nil { return }
+                if a == nil {
                         // discard
-                } else if s, err = val.Strval(); err != nil {
+                } else if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -690,9 +691,10 @@ func builtinTrimSuffix(pos token.Position, context *Scope, args... Value) (res V
                 cutset, s string
         )
         for i, a := range args {
-                if val := Reveal(a); val == nil {
+                if a, err = Reveal(a); err != nil { return }
+                if a == nil {
                         // discard
-                } else if s, err = val.Strval(); err != nil {
+                } else if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -716,9 +718,10 @@ func builtinTrimExt(pos token.Position, context *Scope, args... Value) (res Valu
                 ext, s string
         )
         for i, a := range args {
-                if val := Reveal(a); val == nil {
+                if a, err = Reveal(a); err != nil { return }
+                if a == nil {
                         // discard
-                } else if s, err = val.Strval(); err != nil {
+                } else if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 && len(args) > 1 {
