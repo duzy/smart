@@ -82,56 +82,80 @@ func getGroupElem(value Value, n int, v Value) Value {
         return v
 }
 
-func promptShellResult(value Value, n int) {
-        if g, ok := value.(*Group); ok {
-                if elem := g.Get(0); elem != nil && elem.Strval() == "shell" {
-                        if elem = g.Get(n); elem != nil {
-                                if s := elem.Strval(); strings.HasSuffix(s, "\n") {
-                                        fmt.Printf("%s", s)
-                                } else if s != "" {
-                                        fmt.Printf("%s\n", s)
+func promptShellResult(value Value, n int) (err error) {
+        if g, ok := value.(*Group); ok && g != nil {
+                if elem := g.Get(0); elem != nil {
+                        var str string
+                        if str, err = elem.Strval(); err == nil && str == "shell" {
+                                if elem = g.Get(n); elem != nil {
+                                        if str, err = elem.Strval(); err != nil {
+                                                return
+                                        } else if strings.HasSuffix(str, "\n") {
+                                                fmt.Printf("%s", str)
+                                        } else if str != "" {
+                                                fmt.Printf("%s\n", str)
+                                        }
                                 }
                         }
                 }
         }
+        return
 }
 
 func modifierStatusEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        v, a := getGroupElem(value, 1, nil), ""
+        var v = getGroupElem(value, 1, nil)
         if v != nil && len(args) == 1 {
-                if a = args[0].Strval(); a == v.Strval() {
+                var a, s string
+                if a, err = args[0].Strval(); err != nil {
+                        return
+                } else if s, err = v.Strval(); err != nil {
+                        return
+                } else if s == a {
                         result = v; return
                 }
         }
-        err = breakf(false, "bad status (%v, expects %v)", v, a)
+        err = breakf(false, "bad status (%v)", v)
         return
 }
 
 func modifierStdoutEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        v, a := getGroupElem(value, 2, nil), ""
+        v := getGroupElem(value, 2, nil)
         if v != nil && len(args) == 1 {
-                if a = args[0].Strval(); a == v.Strval() {
+                var a, s string
+                if a, err = args[0].Strval(); err != nil {
+                        return
+                } else if s, err = v.Strval(); err != nil {
+                        return
+                } else if s == a {
                         result = v; return
                 }
         }
-        err = breakf(false, "bad stdout (%v, expects %v)", v, a)
+        err = breakf(false, "bad stdout (%v)", v)
         return
 }
 
 func modifierStderrEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        v, a := getGroupElem(value, 3, nil), ""
+        v := getGroupElem(value, 3, nil)
         if v != nil && len(args) == 1 {
-                if a = args[0].Strval(); a == v.Strval() {
+                var a, s string
+                if a, err = args[0].Strval(); err != nil {
+                        return
+                } else if s, err = v.Strval(); err != nil {
+                        return
+                } else if s == a {
                         result = v; return
                 }
         }
-        err = breakf(false, "bad stderr (%v, expects %v)", v, a)
+        err = breakf(false, "bad stderr (%v)", v)
         return
 }
 
 func modifierSelect(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         if g, ok := value.(*Group); ok && len(args) > 0 {
-                result = g.Get(int(args[0].Integer()))
+                var num int64
+                if num, err = args[0].Integer(); err == nil {
+                        result = g.Get(int(num))
+                }
         } else {
                 result = UniversalNone
         }
@@ -164,7 +188,10 @@ func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Valu
 
 func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         if n := len(args); n == 1 {
-                var dir = args[0].Strval()
+                var dir string
+                if dir, err = args[0].Strval(); err != nil {
+                        return
+                }
                 if dir == "-" {
                         project := prog.project
                         if prog.caller != nil {
@@ -211,11 +238,14 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
                 case *RuleEntry:
                         switch d.Class() {
                         case ExplicitFileEntry:
-                                depends.Append(&File{ Name: d.Strval() })
+                                var name string
+                                if name, err = d.Strval(); err == nil {
+                                        depends.Append(&File{ Name:name })
+                                }
                         case GeneralRuleEntry, GlobRuleEntry:
                                 depends.Append(d)
                         default:
-                                Fail("compare: unsupported entry depend `%v' (%v)", d.Strval(), d.Class())
+                                err = fmt.Errorf("unsupported entry depend `%v' (%v)", d, d.Class())
                         }
                 case *String:
                         /*if prog.project.IsFile(d.Strval()) {
@@ -226,7 +256,7 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
                 case *File:
                         depends.Append(d)
                 default:
-                        Fail("compare: unsupported depend `%T' (%v) (%v)", depend, depend, prog.depends)
+                        err = fmt.Errorf("unsupported entry depend `%v' (%v)", depend, prog.depends)
                 }
         }
         return
@@ -248,17 +278,20 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
         //fmt.Printf("compare: %v -> %v (%v)\n", target, depend, prog.context.outdated)
         //fmt.Printf("compare: %v: %v (%T)\n", target, depend, depend)
         if dependFile, okay := depend.(*File); okay && dependFile != nil {
-                if t, ok := prog.globe.Timestamps[dependFile.Strval()]; ok && t.After(tt) {
+                var str string
+                if str, err = dependFile.Strval(); err != nil { return }
+                if t, ok := prog.globe.Timestamps[str]; ok && t.After(tt) {
                         outdated = true; return // target is outdated
                 } else if dependFile.Info == nil {
-                        dependFile.Info, _ = os.Stat(dependFile.Strval())
+                        dependFile.Info, _ = os.Stat(str)
                 }
                 if dependFile.Info == nil {
                         err = breakf(false, "no file or directory '%v'", dependFile)
                         return
                 }
                 if t := dependFile.Info.ModTime(); t.After(tt) {
-                        prog.globe.Timestamps[target.Strval()] = t
+                        if str, err = target.Strval(); err != nil { return }
+                        prog.globe.Timestamps[str] = t
                         outdated = true; return // target is outdated
                 } else {
                         var recipes []Value
@@ -332,24 +365,29 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                 tt time.Time
         )
         if targetVal != nil && targetVal.Type() != NoneType {
-                var targetFile *File
+                var (
+                        targetFile *File
+                        name string
+                )
+                if name, err = targetVal.Strval(); err != nil { return }
                 switch t := targetVal.(type) {
                 case *File: targetFile = t
-                case *Barefile: targetFile = &File{ Name: t.Strval() }
+                case *Barefile: 
+                        targetFile = &File{ Name:name }
                 case *RuleEntry:
-                        switch class, s := t.class, t.Strval(); class {
+                        switch class := t.class; class {
                         case ExplicitFileEntry, StemmedFileEntry:
-                                targetFile = t.file //&File{ Name: s }
+                                targetFile = t.file //&File{ Name:name }
                         default:/*if p := t.Project(); p != nil {
                                 if p.IsFile(s) {
-                                        targetFile = &File{ Name: s }
+                                        targetFile = &File{ Name:name }
                                 } else {
                                         fmt.Fprintf(os.Stdout, "%v: %v->%v is not file\n", t.Position, p.Name(), s)
                                         err = breakf(false, "unknown %v->%v (%v)", p.Name(), s, class)
                                         return
                                 }
                         } else*/ {
-                                err = breakf(false, "unknown entry (%v '%v')", class, s)
+                                err = breakf(false, "unknown entry (%v '%v')", class, name)
                                 return
                         }}
                 }
@@ -364,7 +402,9 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
 
                 // In case passing a unstated target file.
                 if targetFile.Info == nil && targetFile != nil {
-                        targetFile.Info, _ = os.Stat(targetFile.Strval())
+                        var str string
+                        if str, err = targetFile.Strval(); err != nil { return }
+                        targetFile.Info, _ = os.Stat(str)
                 }
                 if fi := targetFile.Info; fi != nil {
                         tt = fi.ModTime()
@@ -421,11 +461,14 @@ func modifierGrepCompare(pos token.Position, prog *Program, value Value, args...
 func modifierGrepDependents(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         var (
                 targetVal, _ = prog.scope.Lookup("@").(Caller).Call(pos)
-                targetName = targetVal.Strval()
+                targetName string
                 rxs []*regexp.Regexp                
                 f *os.File
                 optDiscardMissing = false
         )
+        if targetName, err = targetVal.Strval(); err != nil {
+                return
+        }
 
         if len(args) == 0 {
                 return nil, errors.New("No arguments provided.")
@@ -436,15 +479,26 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
         for _, arg := range args {
                 switch a := arg.(type) {
                 case *Flag:
-                        switch a.Name.Strval() {
+                        var name string
+                        if name, err = a.Name.Strval(); err != nil {
+                                return
+                        }
+                        switch name {
                         case "discard-missing": optDiscardMissing = true
                         }
                 case *Pair:
                         //fmt.Printf("todo: grep-dependents: %v\n", a)
                 default:
+                        var (
+                                str string
+                                x *regexp.Regexp
+                        )
+                        if str, err = a.Strval(); err != nil {
+                                return
+                        }
                         // https://github.com/google/re2/wiki/Syntax
-                        if x, e := regexp.Compile(a.Strval()); e != nil {
-                                err = e; return
+                        if x, err = regexp.Compile(str); err != nil {
+                                return
                         } else {
                                 rxs = append(rxs, x)
                         }
@@ -506,16 +560,24 @@ func modifierCheck(pos token.Position, prog *Program, value Value, args... Value
         ForArgs: for _, arg := range args {
                 switch t := arg.(type) {
                 case *Pair:
-                        switch t.Key.Strval() {
+                        var (
+                                key, str string
+                                num int64
+                        )
+                        if key, err = t.Key.Strval(); err != nil { return }
+                        switch key {
                         case "status":
-                                if exeres.Status != int(t.Value.Integer()) {
+                                if num, err = t.Value.Integer(); err != nil { return }
+                                if exeres.Status != int(num) {
                                         s := fmt.Sprintf("bad status (%v) (expects %v)", exeres.Status, t.Value)
                                         err = breakf(false, s)
                                         break ForArgs
                                 }
                         case "stdout":
                                 if v := exeres.Stdout.Buf; v != nil {
-                                        if v.String() != t.Value.Strval() {
+                                        if str, err = t.Value.Strval(); err != nil { 
+                                                return
+                                        } else if v.String() != str {
                                                 s := fmt.Sprintf("bad stdout (%v) (expects %v)", v, t.Value)
                                                 err = breakf(false, s)
                                                 break ForArgs
@@ -527,7 +589,9 @@ func modifierCheck(pos token.Position, prog *Program, value Value, args... Value
                                 }
                         case "stderr":
                                 if v := exeres.Stderr.Buf; v != nil {
-                                        if v.String() != t.Value.Strval() {
+                                        if str, err = t.Value.Strval(); err != nil {
+                                                return
+                                        } else if v.String() != str {
                                                 s := fmt.Sprintf("bad stderr (%v) (expects %v)", v, t.Value)
                                                 err = breakf(false, s)
                                                 break ForArgs
@@ -557,8 +621,8 @@ func modifierCheckDir(pos token.Position, prog *Program, value Value, args... Va
         )
         if targetVal, err = targetDef.Call(pos); err != nil {
                 return
-        } else {
-                filename = targetVal.Strval()
+        } else if filename, err = targetVal.Strval(); err != nil {
+                return
         }
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsDir() {
                 var segments []Value
@@ -580,8 +644,8 @@ func modifierCheckFile(pos token.Position, prog *Program, value Value, args... V
         )
         if targetVal, err = targetDef.Call(pos); err != nil {
                 return
-        } else {
-                filename = targetVal.Strval()
+        } else if filename, err = targetVal.Strval(); err != nil {
+                return
         }
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
                 result = &File{ Name: filename }
@@ -595,16 +659,19 @@ func modifierWriteFile(pos token.Position, prog *Program, value Value, args... V
         var (
                 targetDef, _ = prog.scope.Lookup("@").(*Def)
                 targetVal Value
-                filename string
+                filename, str string
+                f *os.File
         )
         if targetVal, err = targetDef.Call(pos); err != nil {
                 return
-        } else {
-                filename = targetVal.Strval()
+        } else if filename, err = targetVal.Strval(); err != nil {
+                return
         }
-        if f, err := os.Create(filename); err == nil {
+        if f, err = os.Create(filename); err == nil {
                 defer f.Close()
-                if _, err = f.WriteString(value.Strval()); err == nil {
+                if str, err = value.Strval(); err != nil {
+                        return
+                } else if _, err = f.WriteString(str); err == nil {
                         result = &File{ Name: filename }
                 } else {
                         os.Remove(filename)
@@ -621,24 +688,27 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 nargs = len(args)
                 perm = os.FileMode(0640) // sys default 0666
                 targetVal Value
-                filename string
+                filename, content, s string
+                num int64
+                f *os.File
         )
         if targetVal, err = targetDef.Call(pos); err != nil {
                 return
         }
         if nargs == 0 {
-                filename = targetVal.Strval()
+                if filename, err = targetVal.Strval(); err != nil { return }
         } else {
-                filename = args[0].Strval()
+                if filename, err = args[0].Strval(); err != nil { return }
                 if nargs > 1 {
-                        perm = os.FileMode(args[1].Integer() & 0777)
+                        if num, err = args[1].Integer(); err != nil { return }
+                        perm = os.FileMode(num & 0777)
                 }
         }
 
         // Check existed file content checksum
-        var content = value.Strval()
-        f, err := os.Open(filename)
-        if err == nil && f != nil {
+        if content, err = value.Strval(); err != nil { return }
+        if f, err = os.Open(filename); err != nil { return }
+        if f != nil {
                 defer f.Close()
                 if st, _ := f.Stat(); st.Mode().Perm() != perm {
                         if err = f.Chmod(perm); err != nil {
@@ -662,7 +732,8 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 }
         }
 
-        var slient = len(args) > 0 && args[0].Strval() == "slient"
+        if s, err = args[0].Strval(); err != nil { return }
+        var slient = len(args) > 0 && s == "slient"
         if !slient {
                 //s, _ := os.Getwd()
                 //fmt.Printf("update file `%v' (%s) ..", filename, s)

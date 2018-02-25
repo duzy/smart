@@ -112,9 +112,10 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 
         var (
                 dockScope = dock.Project().Scope()
-                container = strings.TrimSpace(dockScope.DiscloseDef(prog.Scope(), "container"))
-                image = strings.TrimSpace(dockScope.DiscloseDef(prog.Scope(), "image"))
+                container, image string
         )
+        if container, err = dockScope.DiscloseDef(prog.Scope(), "container"); err != nil { return }
+        if image, err = dockScope.DiscloseDef(prog.Scope(), "image"); err != nil { return }
         if image == "" {
         }
         if container == "" {
@@ -131,11 +132,12 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 
         var (
                 exeres = new(types.ExecResult)
-                source string
+                source, str string
                 shi = "sh" // interpreter
         )
         ForRecipes: for _, recipe := range recipes {
-                if source += recipe.Strval(); strings.HasSuffix(source, "\\") {
+                if str, err = recipe.Strval(); err != nil { return }
+                if source += str; strings.HasSuffix(source, "\\") {
                         source += "\n" // give back the line feed
                         continue ForRecipes
                 }
@@ -178,16 +180,19 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 var (
                         verbout, verberr, saveout, saveerr, stdin, silent bool
                         nocd bool
-                        cmd string
+                        cmd, str string
                         a = []string{ "exec" }
                 )
                 ForArgs: for _, v := range args {
                         switch t := v.(type) {
                         case *types.Pair:
                                 if f, _ := t.Key.(*types.Flag); f != nil {
-                                        switch f.Name.Strval() {
+                                        var name, value string
+                                        if name, err = f.Name.Strval(); err != nil { return }
+                                        switch name {
                                         case "dump": // -dump=xxx
-                                                switch t.Value.Strval() {
+                                                if value, err = t.Value.Strval(); err != nil { return }
+                                                switch value {
                                                 case "stdout": verbout = true
                                                 case "stderr": verberr = true
                                                 }
@@ -195,7 +200,9 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                                         }
                                 }
                         case *types.Flag:
-                                switch t.Name.Strval() {
+                                var name string
+                                if name, err = t.Name.Strval(); err != nil { return }
+                                switch name {
                                 case "s" : silent = true;  continue ForArgs
                                 case "so": saveout = true; continue ForArgs
                                 case "se": saveerr = true; continue ForArgs
@@ -213,35 +220,45 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                                 case "nocd": nocd = true; continue ForArgs
                                 }
                         default:
-                                shi = args[0].Strval()
+                                if shi, err = args[0].Strval(); err != nil { return }
                                 continue ForArgs
                         }
-                        a = append(a, v.Strval())
+                        if str, err = v.Strval(); err == nil {
+                                a = append(a, str)
+                        } else {
+                                return
+                        }
                 }
 
                 wd := prog.Scope().Lookup(types.TheCurrWorkDirDef).(*types.Def)
-                if s := wd.Value.Strval(); s != "" || nocd {
+                if str, err = wd.Value.Strval(); err != nil { return }
+                if str != "" || nocd {
                         if false {
-                                fmt.Printf("dialectDock.evaluate: %s\n", s)
+                                fmt.Printf("dialectDock.evaluate: %s\n", str)
                         }
                         if t := strings.TrimSpace(source); t == "" {
-                                src = fmt.Sprintf("cd '%s'", s)
+                                src = fmt.Sprintf("cd '%s'", str)
                         } else if strings.HasPrefix(t, "#") {
-                                src = fmt.Sprintf("cd '%s' %s", s, t)
+                                src = fmt.Sprintf("cd '%s' %s", str, t)
                         } else {
                                 // Insert a "\n" before the right paren ')' to ensure that
                                 // it's working with something like "true #comment...".
-                                src = fmt.Sprintf("cd '%s' && (%s\n)", s, t)
+                                src = fmt.Sprintf("cd '%s' && (%s\n)", str, t)
                         }
-                        if s = ""; len(envars) > 0 {
+                        if str = ""; len(envars) > 0 {
                                 for i, env := range envars {
-                                        if i > 0 { s += " && " }
-                                        p := env.(*types.Pair)
-                                        s += "export "
-                                        s += p.Key.Strval() + "=\""
-                                        s += p.Value.Strval() + "\""
+                                        var (
+                                                p = env.(*types.Pair)
+                                                k, v string
+                                        )
+                                        if k, err = p.Key.Strval(); err != nil { return }
+                                        if v, err = p.Value.Strval(); err != nil { return }
+                                        if i > 0 { str += " && " }
+                                        str += "export "
+                                        str += k + "=\""
+                                        str += v + "\""
                                 }
-                                src = fmt.Sprintf("%s && %s", s, src)
+                                src = fmt.Sprintf("%s && %s", str, src)
                         }
                 }
 
@@ -260,8 +277,10 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 for _, v := range envars {
                         if v, err = types.Disclose(prog.Scope(), v); err != nil {
                                 return
+                        } else if str, err = v.Strval(); err == nil {
+                                sh.Env = append(sh.Env, str)
                         } else {
-                                sh.Env = append(sh.Env, v.Strval())
+                                return
                         }
                 }
                 if verbout { exeres.Stdout.Tie = os.Stdout }

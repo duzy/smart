@@ -35,13 +35,13 @@ type Value interface {
         String() string
 
         // Strval returns the string form of the value.
-        Strval() string
+        Strval() (string, error)
 
         // Integer returns the integer form of the value.
-        Integer() int64
+        Integer() (int64, error)
 
         // Float returns the float form of the value.
-        Float() float64
+        Float() (float64, error)
 
         // disclose method, also prevents creating new Value type from
         // other packages.
@@ -55,11 +55,11 @@ type Value interface {
 type value struct {}
 func (*value) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*value) referencing(_ Object) bool { return false }
-func (*value) Type() Type     { return InvalidType }
-func (*value) String() string { return "" }
-func (*value) Strval() string { return "" }
-func (*value) Integer() int64 { return 0 }
-func (*value) Float() float64 { return 0 }
+func (*value) Type() Type { return InvalidType }
+func (*value) String() string { return fmt.Sprintf("value{}") }
+func (*value) Strval() (string, error) { return "", nil }
+func (*value) Integer() (int64, error) { return 0, nil }
+func (*value) Float() (float64, error) { return 0, nil }
 
 type Comparer struct {
         //program *Program
@@ -232,14 +232,21 @@ func (p *Argumented) String() (s string) {
         s += ")"
         return
 }
-func (p *Argumented) Strval() (s string) {
-        s = p.Value.Strval()
+func (p *Argumented) Strval() (s string, err error) {
+        if s, err = p.Value.Strval(); err != nil {
+                return
+        }
         s += "("
         for i, a := range p.Args {
                 if i > 0 {
                         s += ","
                 }
-                s += a.Strval()
+                var v string
+                if v, err = a.Strval(); err == nil {
+                        s += v
+                } else {
+                        break
+                }
         }
         s += ")"
         return
@@ -273,28 +280,54 @@ type integer struct {
 }
 func (p *integer) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (p *integer) referencing(_ Object) bool { return false }
-func (p *integer) Integer() int64      { return p.Value }
-func (p *integer) Float() float64      { return float64(p.Value) }
+func (p *integer) Integer() (int64, error) { return p.Value, nil }
+func (p *integer) Float() (float64, error) { return float64(p.Value), nil }
 
 type Bin struct { integer }
 func (p *Bin) Type() Type          { return BinType }
-func (p *Bin) String() string      { return p.Strval() }
-func (p *Bin) Strval() string      { return strconv.FormatInt(int64(p.Value),2) }
+func (p *Bin) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Bin{%s}!(%s)", p.Value, e)
+        }
+}
+func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),2), nil }
 
 type Oct struct { integer }
 func (p *Oct) Type() Type          { return OctType }
-func (p *Oct) String() string      { return p.Strval() }
-func (p *Oct) Strval() string      { return strconv.FormatInt(int64(p.Value),8) }
+func (p *Oct) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Oct{%s}!(%s)", p.Value, e)
+        }
+}
+func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),8), nil }
 
 type Int struct { integer }
 func (p *Int) Type() Type          { return IntType }
-func (p *Int) String() string      { return p.Strval() }
-func (p *Int) Strval() string      { return strconv.FormatInt(int64(p.Value),10) }
+func (p *Int) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Int{%s}!(%s)", p.Value, e)
+        }
+}
+func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),10), nil }
 
 type Hex struct { integer }
 func (p *Hex) Type() Type          { return HexType }
-func (p *Hex) String() string      { return p.Strval() }
-func (p *Hex) Strval() string      { return strconv.FormatInt(int64(p.Value),16) }
+func (p *Hex) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Hex{%s}!(%s)", p.Value, e)
+        }
+}
+func (p *Hex) Strval() (string, error) {
+        return strconv.FormatInt(int64(p.Value),16), nil 
+}
 
 type Float struct {
         Value float64
@@ -302,10 +335,18 @@ type Float struct {
 func (p *Float) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (p *Float) referencing(_ Object) bool { return false }
 func (p *Float) Type() Type        { return FloatType }
-func (p *Float) String() string    { return p.Strval() }
-func (p *Float) Strval() string    { return strconv.FormatFloat(float64(p.Value),'g', -1, 64) }
-func (p *Float) Integer() int64    { return int64(p.Value) }
-func (p *Float) Float() float64    { return p.Value }
+func (p *Float) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Float{%v}!(%s)", p.Value, e)
+        }
+}
+func (p *Float) Strval() (string, error) {
+        return strconv.FormatFloat(float64(p.Value),'g', -1, 64), nil 
+}
+func (p *Float) Integer() (int64, error) { return int64(p.Value), nil }
+func (p *Float) Float() (float64, error) { return p.Value, nil }
 
 type DateTime struct {
         Value time.Time 
@@ -313,39 +354,63 @@ type DateTime struct {
 func (*DateTime) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*DateTime) referencing(_ Object) bool { return false }
 func (p *DateTime) Type() Type     { return DateTimeType }
-func (p *DateTime) String() string { return p.Strval() }
-func (p *DateTime) Strval() string { return time.Time(p.Value).Format("2006-01-02T15:04:05.999999999Z07:00") } // time.RFC3339Nano
-func (p *DateTime) Integer() int64 { return p.Value.Unix() }
-func (p *DateTime) Float() float64 { return float64(p.Integer()) }
+func (p *DateTime) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("DateTime{%v}!(%s)", p.Value, e)
+        }
+}
+func (p *DateTime) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
+func (p *DateTime) Integer() (int64, error) { return p.Value.Unix(), nil }
+func (p *DateTime) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 type Date struct { DateTime }
 func (*Date) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*Date) referencing(_ Object) bool { return false }
 func (p *Date) Type() Type         { return DateType }
-func (p *Date) String() string     { return p.Strval() }
-func (p *Date) Strval() string     { return time.Time(p.Value).Format("2006-01-02") }
-func (p *Date) Integer() int64     { return p.Value.Unix() }
-func (p *Date) Float() float64     { return float64(p.Integer()) }
+func (p *Date) String() string     {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Date{%v}!(%s)", p.Value, e)
+        }
+}
+func (p *Date) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02"), nil }
+func (p *Date) Integer() (int64, error) { return p.Value.Unix(), nil }
+func (p *Date) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 type Time struct { DateTime }
 func (*Time) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*Time) referencing(_ Object) bool { return false }
-func (p *Time) Type() Type         { return TimeType }
-func (p *Time) String() string     { return p.Strval() }
-func (p *Time) Strval() string     { return time.Time(p.Value).Format("15:04:05.999999999Z07:00") }
-func (p *Time) Integer() int64     { return p.Value.Unix() }
-func (p *Time) Float() float64     { return float64(p.Integer()) }
+func (p *Time) Type() Type { return TimeType }
+func (p *Time) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Time{%v}!(%s)", p.Value, e)
+        }
+}
+func (p *Time) Strval() (string, error) { return time.Time(p.Value).Format("15:04:05.999999999Z07:00"), nil }
+func (p *Time) Integer() (int64, error) { return p.Value.Unix(), nil }
+func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 type Uri struct {
         Value *url.URL
 }
 func (*Uri) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*Uri) referencing(_ Object) bool { return false }
-func (p *Uri) Type() Type          { return UriType }
-func (p *Uri) String() string      { return p.Strval() }
-func (p *Uri) Strval() string      { return p.Value.String() }
-func (p *Uri) Integer() int64      { return int64(len(p.Value.String())) }
-func (p *Uri) Float() float64      { return float64(p.Integer()) }
+func (p *Uri) Type() Type { return UriType }
+func (p *Uri) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Uri{%v}!(%s)", p.Value, e)
+        }
+}
+func (p *Uri) Strval() (string, error) { return p.Value.String(), nil }
+func (p *Uri) Integer() (int64, error) { return int64(len(p.Value.String())), nil }
+func (p *Uri) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 type String struct {
         Value string
@@ -360,9 +425,9 @@ func (p *String) String() string {
                 return "'" + p.Value + "'" 
         }
 }
-func (p *String) Strval() string   { return p.Value }
-func (p *String) Integer() int64   { i, _ := strconv.ParseInt(p.Value, 10, 64); return i }
-func (p *String) Float() float64   { f, _ := strconv.ParseFloat(p.Value, 64); return f }
+func (p *String) Strval() (string, error) { return p.Value, nil }
+func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
+func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
 
 func (p *String) prepare(pc *Preparer) error {
         if trace_prepare {
@@ -378,10 +443,10 @@ type Bareword struct {
 func (_ *Bareword) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (_ *Bareword) referencing(_ Object) bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
-func (p *Bareword) String() string { return p.Value }
-func (p *Bareword) Strval() string { return p.Value }
-func (p *Bareword) Integer() int64 { return 0 }
-func (p *Bareword) Float() float64 { return float64(p.Integer()) }
+func (p *Bareword) String() string { return fmt.Sprintf("Bareword{%s}", p.Value) }
+func (p *Bareword) Strval() (string, error) { return p.Value, nil }
+func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
+func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
 
 func (p *Bareword) prepare(pc *Preparer) error {
         if trace_prepare {
@@ -396,7 +461,11 @@ func (pc *Preparer) prepareTargetValue(value Value) error {
                 return e
         } else {
                 if v == nil { v = value }
-                return pc.prepareTarget(v.Strval())
+                if s, e := v.Strval(); e == nil {
+                        return pc.prepareTarget(s)
+                } else {
+                        return e
+                }
         }
 }
 
@@ -445,8 +514,15 @@ func (pc *Preparer) implicitTarget(target string) (error, bool) {
                 if trace_prepare {
                         fmt.Printf("prepare:Target: %v (project %s) (%v)\n", target, project.name, pc.entry)
                 }
+
                 defer pc.setProject(pc.setProject(project))
-                for _, ps := range project.FindPatterns(target) {
+
+                var pss []*PatternStem
+                if pss, err = project.FindPatterns(target); err != nil {
+                        return
+                }
+
+                for _, ps := range pss {
                         if trace_prepare {
                                 fmt.Printf("prepare:Target: %v (stemmed %v) (%v -> %v)\n", target, ps, project.name, pc.entry)
                         }
@@ -469,14 +545,14 @@ func (pc *Preparer) implicitTarget(target string) (error, bool) {
 type Elements struct {
         Elems []Value
 }
-func (p *Elements) Float() float64 { return float64(p.Integer()) }
-func (p *Elements) Integer() int64 {
-        var n = len(p.Elems)
-        if n == 1 {
+func (p *Elements) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Elements) Integer() (int64, error) {
+        if n := len(p.Elems); n == 1 {
                 // If there's only one element, treat it as a scalar.
                 return p.Elems[0].Integer()
+        } else {
+                return int64(n), nil
         }
-        return int64(n)
 }
 func (p *Elements) Len() int                    { return len(p.Elems) }
 func (p *Elements) Append(v... Value)           { p.Elems = append(p.Elems, v...) }
@@ -529,6 +605,7 @@ func (p *Elements) referencing(o Object) bool {
 type Barecomp struct {
         Elements
 }
+func (p *Barecomp) Type() Type { return BarecompType }
 func (p *Barecomp) String() (s string) {
         for _, e := range p.Elems {
                 switch t := e.(type) {
@@ -536,17 +613,19 @@ func (p *Barecomp) String() (s string) {
                 default: s += t.String()
                 }
         }
-        return
+        return fmt.Sprintf("Barecomp{%s}", s)
 }
-func (p *Barecomp) Strval() (s string) {
-        for _, e := range p.Elems {
-                s += e.Strval()
+func (p *Barecomp) Strval() (s string, e error) {
+        for _, elem := range p.Elems {
+                var v string
+                if v, e = elem.Strval(); e == nil {
+                        s += v
+                } else {
+                        break
+                }
         }
         return
 }
-func (p *Barecomp) Type() Type     { return BarecompType }
-func (p *Barecomp) Integer() int64 { return int64(len(p.Elems)) }
-func (p *Barecomp) Float() float64 { return float64(p.Integer()) }
 
 func (p *Barecomp) disclose(scope *Scope) (Value, error) {
         if elems, num, err := p.Elements.disclose(scope); err != nil {
@@ -572,10 +651,17 @@ type Barefile struct {
         File *File
 }
 func (p *Barefile) Type() Type { return BarefileType }
-func (p *Barefile) String() string { return p.Name.String() }
-func (p *Barefile) Strval() string { return p.Name.Strval() }
-func (p *Barefile) Integer() int64 { return 0 }
-func (p *Barefile) Float() float64 { return float64(p.Integer()) }
+func (p *Barefile) String() string { return fmt.Sprintf("Barefile{%s}", p.Name.String()) }
+func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
+func (p *Barefile) Integer() (res int64, err error) {
+        var ( str string; fi os.FileInfo )
+        if str, err = p.Name.Strval(); err != nil { return }
+        if fi, err = os.Stat(str); err == nil {
+                res = fi.Size()
+        }
+        return
+}
+func (p *Barefile) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *Barefile) disclose(scope *Scope) (Value, error) {
         if name, err := p.Name.disclose(scope); err != nil {
                 return nil, err
@@ -629,7 +715,9 @@ func (p *Barefile) prepare(pc *Preparer) error {
                 fmt.Printf("prepare:Barefile: %v (%v -> %v)\n", p, pc.entry.project.name, pc.entry)
         }
         if p.File != nil {
-                if s := p.Name.Strval(); s != p.File.Name {
+                if s, e := p.Name.Strval(); e != nil {
+                        return e
+                } else if s != p.File.Name {
                         p.File.Name = s // Fix it in case of '$@.o' was parsed and became '.o'.
                 }
                 return p.File.prepare(pc)
@@ -642,10 +730,10 @@ type Glob struct {
         Tok token.Token
 }
 func (p *Glob) Type() Type { return GlobType }
-func (p *Glob) String() (s string) { return p.Tok.String() }
-func (p *Glob) Strval() string { return p.Tok.String() }
-func (p *Glob) Integer() int64 { return 0 }
-func (p *Glob) Float() float64 { return float64(p.Integer()) }
+func (p *Glob) String() (s string) { return fmt.Sprintf("Glob{%s}", p.Tok.String()) }
+func (p *Glob) Strval() (string, error) { return p.Tok.String(), nil }
+func (p *Glob) Integer() (int64, error) { return 0, nil }
+func (p *Glob) Float() (float64, error) { return 0, nil }
 func (p *Glob) disclose(scope *Scope) (Value, error) { return nil, nil }
 func (p *Glob) referencing(o Object) bool { return false }
 
@@ -668,16 +756,18 @@ func (p *Path) String() (s string) {
                 }
         }
         // TODO: add '/' if there's such a suffix
-        return
+        return fmt.Sprintf("Path{%s}", s)
 }
-func (p *Path) Strval() (s string) {
+func (p *Path) Strval() (s string, e error) {
         // TODO: add '/' for root dir
         var sep = true
         for i, seg := range p.Elems {
                 if i > 0 && sep {
                         s += string(os.PathSeparator) 
                 }
-                s += seg.Strval()
+                var v string
+                if v, e = seg.Strval(); e != nil { return }
+                s += v
                 if ps, ok := seg.(*PathSeg); ok && ps != nil && ps.Value == '/' {
                         sep = false
                 } else {
@@ -687,9 +777,9 @@ func (p *Path) Strval() (s string) {
         // TODO: add '/' if there's such a suffix
         return
 }
-func (p *Path) Integer() int64     { return 0 }
-func (p *Path) Float() float64     { return float64(p.Integer()) }
-func (p *Path) Type() Type         { return PathType }
+func (p *Path) Integer() (int64, error) { return 0, nil }
+func (p *Path) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Path) Type() Type { return PathType }
 func (p *Path) disclose(scope *Scope) (Value, error) {
         if elems, num, err := p.Elements.disclose(scope); err != nil {
                 return nil, err
@@ -728,7 +818,9 @@ func (p *Path) compareFileDepend(c *Comparer, d *File) (err error) {
                 return p.File.compareFileDepend(c, d)
         }
                 
-        var ( tt time.Time; ts = p.Strval() )
+        var tt time.Time
+        ts, err := p.Strval()
+        if err != nil { return }
         if p.File != nil && p.File.Info != nil {
                 tt = p.File.Info.ModTime()
         } else if info, _ := os.Stat(ts); info != nil {
@@ -737,7 +829,9 @@ func (p *Path) compareFileDepend(c *Comparer, d *File) (err error) {
                 return // Returns nil to request update.
         }
 
-        var ( dt time.Time; ds = d.Strval() )
+        var dt time.Time
+        ds, err := d.Strval()
+        if err != nil { return }
         if t, ok := c.globe.Timestamps[ds]; ok {
                 dt = t
         } else if d.Info != nil {
@@ -765,7 +859,9 @@ func (p *Path) comparePathDepend(c *Comparer, d *Path) (err error) {
                 return p.File.comparePathDepend(c, d)
         }
 
-        var ( tt time.Time; ts = p.Strval() )
+        var tt time.Time
+        ts, err := p.Strval()
+        if err != nil { return }
         if p.File != nil && p.File.Info != nil {
                 tt = p.File.Info.ModTime()
         } else if info, _ := os.Stat(ts); info != nil {
@@ -774,7 +870,9 @@ func (p *Path) comparePathDepend(c *Comparer, d *Path) (err error) {
                 return // Returns nil to request update.
         }
 
-        var ( dt time.Time; ds = d.Strval() )
+        var dt time.Time
+        ds, err := d.Strval()
+        if err != nil { return }
         if t, ok := c.globe.Timestamps[ds]; ok {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
@@ -803,7 +901,8 @@ func (p *Path) prepare(pc *Preparer) (err error) {
                 }
         }
         if p.File == nil {
-                var ( s = p.Strval(); name = filepath.Base(s) )
+                var ( s, e = p.Strval(); name = filepath.Base(s) )
+                if e != nil { err = e; return }
                 err, _ = pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                         if project.isFile(name) {
                                 if file := project.SearchFile(s); file != nil {
@@ -851,12 +950,19 @@ type PathSeg struct {
         value
 }
 func (p *PathSeg) Type() Type { return PathSegType }
-func (p *PathSeg) String() string { return p.Strval() }
-func (p *PathSeg) Strval() (s string) {
+func (p *PathSeg) String() string { 
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("PathSeg{%s}!(%s)", p.Value, e)
+        }
+}
+func (p *PathSeg) Strval() (s string, e error) {
         switch p.Value {
         case '/': s = "/"
         case '.': s = "."
         case '^': s = ".."
+        default: e = fmt.Errorf("unknown pathseg (%s)", p.Value)
         }
         return
 }
@@ -871,9 +977,12 @@ type File struct {
 }
 func (p *File) Type() Type { return FileType }
 
+func (p *File) String() string {
+        return fmt.Sprintf("File{%s}", p.Fullname())
+}
+
 // Strval returns the relative filename (aka. Project.SearchFile).
-func (p *File) Strval() string { return filepath.Join(p.Sub, p.Name) }
-func (p *File) String() string { return p.Fullname() }
+func (p *File) Strval() (string, error) { return filepath.Join(p.Sub, p.Name), nil }
 
 func (p *File) Fullname() string { return filepath.Join(p.Dir, p.Name) }
 func (p *File) Basename() string {
@@ -899,7 +1008,9 @@ func (p *File) compareFileDepend(c *Comparer, d *File) (err error) {
                 fmt.Printf("compare:File:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         
-        var ( tt time.Time; ts = p.Strval() )
+        var tt time.Time
+        ts, err := p.Strval()
+        if err != nil { return }
         if p.Info != nil {
                 tt = p.Info.ModTime()
         } else if p.Info, _ = os.Stat(ts); p.Info != nil {
@@ -908,7 +1019,9 @@ func (p *File) compareFileDepend(c *Comparer, d *File) (err error) {
                 return // Returns nil to request update.
         }
 
-        var ( dt time.Time; ds = d.Strval() )
+        var dt time.Time
+        ds, err := d.Strval()
+        if err != nil { return }
         if t, ok := c.globe.Timestamps[ds]; ok {
                 dt = t
         } else if d.Info != nil {
@@ -933,7 +1046,9 @@ func (p *File) comparePathDepend(c *Comparer, d *Path) (err error) {
                 fmt.Printf("compare:File:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
 
-        var ( tt time.Time; ts = p.Strval() )
+        var tt time.Time
+        ts, err := p.Strval()
+        if err != nil { return }
         if p.Info != nil {
                 tt = p.Info.ModTime()
         } else if p.Info, _ = os.Stat(ts); p.Info != nil {
@@ -942,7 +1057,9 @@ func (p *File) comparePathDepend(c *Comparer, d *Path) (err error) {
                 return // Returns nil to request update.
         }
 
-        var ( dt time.Time; ds = d.Strval() )
+        var dt time.Time
+        ds, err := d.Strval()
+        if err != nil { return }
         if t, ok := c.globe.Timestamps[ds]; ok {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
@@ -1002,16 +1119,24 @@ func (p *File) implicitly(pc *Preparer) (error, bool) {
                 if trace_prepare {
                         fmt.Printf("prepare:File: %v (implicitly: %v in %v) (%v -> %v)\n", p.Name, p, project.name, pc.entry.project.name, pc.entry)
                 }
+
                 defer pc.setProject(pc.setProject(project))
-                ForPatterns: for i, ps := range project.FindPatterns(p.Name) {
+
+                var pss []*PatternStem
+                if pss, err = project.FindPatterns(p.Name); err != nil {
+                        return
+                }
+
+                ForPatterns: for i, ps := range pss {
                         for _, prog := range ps.Patent.programs {
                                 if trace_prepare {
                                         fmt.Printf("prepare:File: %v (implicitly:%d: %v : %v) (in %v)\n", p.Name, i, ps, prog.depends, project.name)
                                 }
                                 for _, dep := range prog.depends {
-                                        var g, _ = dep.(*GlobPattern)
-                                        if g != nil && !p.checkPatternDepend(pc, project, ps, prog, g) {
-                                                continue ForPatterns
+                                        var ( g, _ = dep.(*GlobPattern); ok bool )
+                                        if g != nil {
+                                                if ok, err = p.checkPatternDepend(pc, project, ps, prog, g); err != nil { return }
+                                                if !ok { continue ForPatterns }
                                         }
                                 }
                         }
@@ -1030,15 +1155,16 @@ func (p *File) implicitly(pc *Preparer) (error, bool) {
         })
 }
 
-func (p *File) checkPatternDepend(pc *Preparer, project *Project, ps *PatternStem, prog *Program, g *GlobPattern) bool {
-        var name = g.MakeString(ps.Stem)
+func (p *File) checkPatternDepend(pc *Preparer, project *Project, ps *PatternStem, prog *Program, g *GlobPattern) (res bool, err error) {
+        var name string
+        if name, err = g.MakeString(ps.Stem); err != nil { return }
         if file := project.ToFile(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
                 //fmt.Printf("prepare:File: %v (implicitly:=: %v in %s)\n", p.Name, file, project.name)
                 if file.IsExists() {
                         if trace_prepare {
                                 fmt.Printf("prepare:File: %v (implicitly: %v exists in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.project.name, pc.entry)
                         }
-                        return true
+                        res = true
                 } else if trace_prepare && false {
                         fmt.Printf("prepare:File: %v (implicitly: %v missing in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.project.name, pc.entry)
                 }
@@ -1047,14 +1173,14 @@ func (p *File) checkPatternDepend(pc *Preparer, project *Project, ps *PatternSte
                 if trace_prepare {
                         fmt.Printf("prepare:File: %v (implicitly: found %v in %s) (%v -> %v)\n", p.Name, sym, project.name, pc.entry.project.name, pc.entry)
                 }
-                return true
+                res = true
         }
 
         // TODO: recursive find patterns:
         /*if project.FindPatterns(name) != nil {
-                return true
+                res = true
         }*/
-        return false
+        return
 }
 
 func (p *File) search(pc *Preparer) (error, bool) {
@@ -1066,7 +1192,9 @@ func (p *File) search(pc *Preparer) (error, bool) {
                 return nil, true
         }
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                if f := project.SearchFile(p.Strval()); !f.IsKnown() {
+                str, err := p.Strval()
+                if err != nil { return }
+                if f := project.SearchFile(str); !f.IsKnown() {
                         if trace_prepare {
                                 fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v -> %v)\n",
                                         p.Name, f, project.name, pc.entry)
@@ -1086,16 +1214,19 @@ func (p *File) search(pc *Preparer) (error, bool) {
 type Flag struct {
         Name Value
 }
+func (p *Flag) Type() Type { return FlagType }
 func (p *Flag) String() (s string) {
         s = "-" + p.Name.String()
         return
 }
-func (p *Flag) Strval() string {
-        return "-" + p.Name.Strval()
+func (p *Flag) Strval() (s string, e error) {
+        if s, e = p.Name.Strval(); e == nil { 
+                 s = "-" + s
+        }
+        return
 }
-func (p *Flag) Integer() int64     { return 0 }
-func (p *Flag) Float() float64     { return float64(p.Integer()) }
-func (p *Flag) Type() Type         { return FlagType }
+func (p *Flag) Integer() (int64, error) { return 0, nil }
+func (p *Flag) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 func (p *Flag) disclose(scope *Scope) (Value, error) {
         if name, err := p.Name.disclose(scope); err != nil {
@@ -1124,15 +1255,20 @@ func (p *Compound) String() (s string) {
         s += "\""
         return
 }
-func (p *Compound) Strval() (s string) {
+func (p *Compound) Strval() (s string, err error) {
         for _, e := range p.Elems {
-                s += e.Strval()
+                var v string
+                if v, err = e.Strval(); err == nil {
+                        s += v
+                } else {
+                        break
+                }
         }
         return
 }
-func (p *Compound) Integer() int64 { return int64(len(p.Elems)) }
-func (p *Compound) Float() float64 { return float64(p.Integer()) }
-func (p *Compound) Type() Type     { return CompoundType }
+func (p *Compound) Type() Type { return CompoundType }
+func (p *Compound) Integer() (int64, error) { return int64(len(p.Elems)), nil }
+func (p *Compound) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 func (p *Compound) disclose(scope *Scope) (Value, error) {
         if elems, num, err := p.Elements.disclose(scope); err != nil {
@@ -1146,6 +1282,7 @@ func (p *Compound) disclose(scope *Scope) (Value, error) {
 type List struct {
         Elements
 }
+func (p *List) Type() Type { return ListType }
 func (p *List) String() (s string) {
         for i, e := range p.Elems {
                 if 0 < i {
@@ -1155,20 +1292,22 @@ func (p *List) String() (s string) {
         }
         return
 }
-func (p *List) Strval() (s string) {
+func (p *List) Strval() (s string, err error) {
         var x = 0
         for _, e := range p.Elems {
-                if v := e.Strval(); v != "" {
-                        if 0 < x {
-                                s += " "
+                var v string
+                if v, err = e.Strval(); err == nil {
+                        if v != "" {
+                                if 0 < x { s += " " }
+                                s += v
+                                x += 1
                         }
-                        s += v
-                        x += 1
+                } else {
+                        break
                 }
         }
         return
 }
-func (p *List) Type() Type         { return ListType }
 
 func (p *List) disclose(scope *Scope) (Value, error) {
         if elems, num, err := p.Elements.disclose(scope); err != nil {
@@ -1230,13 +1369,14 @@ func (p *List) comparePathDepend(c *Comparer, d *Path) (err error) {
 type Group struct {
         List
 }
-func (p *Group) String() string {
-        return "(" + p.List.String() + ")"
-}
-func (p *Group) Strval() string {
-        return "(" + p.List.Strval() + ")"
-}
 func (p *Group) Type() Type { return GroupType }
+func (p *Group) String() string { return "(" + p.List.String() + ")" }
+func (p *Group) Strval() (s string, err error) {
+        if s, err = p.List.Strval(); err == nil {
+                s = "(" + s + ")"
+        }
+        return
+}
 
 func (p *Group) disclose(scope *Scope) (Value, error) {
         if elems, num, err := p.Elements.disclose(scope); err != nil {
@@ -1261,20 +1401,24 @@ type Pair struct { // key=value
         Key Value
         Value Value
 }
-func (p *Pair) String() string {
-        return p.Key.String() + "=" + p.Value.String()
+func (p *Pair) Type() Type { return PairType }
+func (p *Pair) String() string { return p.Key.String() + "=" + p.Value.String() }
+func (p *Pair) Strval() (s string, err error) {
+        var k, v string
+        if k, err = p.Key.Strval(); err != nil {
+                if v, err = p.Value.Strval(); err == nil {
+                        s = k + "=" + v
+                }
+        }
+        return
 }
-func (p *Pair) Strval() string {
-        return p.Key.Strval() + "=" + p.Value.Strval()
-}
-func (p *Pair) Integer() int64     { return p.Value.Integer() }
-func (p *Pair) Float() float64     { return p.Value.Float() }
-func (p *Pair) Type() Type         { return PairType }
+func (p *Pair) Integer() (int64, error) { return p.Value.Integer() }
+func (p *Pair) Float() (float64, error) { return p.Value.Float() }
 
-func (p *Pair) SetValue(v Value)   { p.Value = v }
+func (p *Pair) SetValue(v Value) { p.Value = v }
 func (p *Pair) SetKey(k Value) {
         switch o := k.(type) {
-        case *Pair:   k = o.Key
+        case *Pair: k = o.Key
         }
         if k.Type().Bits()&IsKeyName != 0 {
                 p.Key = k
@@ -1331,31 +1475,38 @@ func (p *delegate) String() (s string) {
         s += ")"
         return
 }
-func (p *delegate) Strval() string   { return p.Value().Strval() }
-func (p *delegate) Integer() int64   { return p.Value().Integer() }
-func (p *delegate) Float() float64   { return p.Value().Float() }
-func (p *delegate) Value() (res Value) {
+func (p *delegate) Strval() (string, error) { if v, e := p.Value(); e == nil { return v.Strval() } else { return "", e }}
+func (p *delegate) Integer() (int64, error) { if v, e := p.Value(); e == nil { return v.Integer() } else { return 0, e }}
+func (p *delegate) Float() (float64, error) { if v, e := p.Value(); e == nil { return v.Float() } else { return 0, e }}
+func (p *delegate) Value() (res Value, err error) {
+        var (
+                args []Value
+                scope = p.dc
+        )
+        if scope == nil { scope = p.o.Parent() }
+
+        // FIXME: disclosed context not applied?
+        if args, err = p.discloseArgs(scope); err != nil {
+                return
+        }
+        
         switch o := p.o.(type) {
+        default: err = fmt.Errorf("unknown delegated object %v", o)
         case Caller:
-                if args, err := p.discloseArgs(p.o.Parent()); err == nil {
-                        res, _ = o.Call(p.p, args...)
+                if res, err = o.Call(p.p, args...); err != nil {
+                        err = fmt.Errorf("$(%s): %v", p.o.Name(), err)
                 }
         case Executer:
-                // FIXME: disclosed context not applied?
-                var scope = p.dc
-                if scope == nil {
-                        scope = p.o.Parent()
+                if args, err = o.Execute(p.p, args...); err != nil {
+                        err = fmt.Errorf("${%s}: %v", p.o.Name(), err)
+                } else {
+                        res = &List{Elements{args}}
                 }
-                if args, err := p.discloseArgs(scope); err == nil {
-                        if v, err := o.Execute(p.p, args...); err == nil {
-                                res = &List{Elements{v}}
-                        }
-                }
-        default:
-                fmt.Printf("delegate.value: unknown (%T %v)\n", p.o, p.o)
         }
-        if res == nil {
-                res = UniversalNone
+        if err != nil {
+                fmt.Printf("%v: %v\n", p.p, err)
+        } else if res == nil {
+                res = UniversalNone 
         }
         return
 }
@@ -1399,7 +1550,6 @@ func (p *delegate) discloseArgs(scope *Scope) (args []Value, err error) {
                         // TODO: errors...
                         return nil, e
                 } else if v != nil {
-                        //fmt.Printf("delegate.value: %v -> %v\n", a, v)
                         a = v
                 }
                 args = append(args, a)
@@ -1423,14 +1573,19 @@ func (p *delegate) compare(c *Comparer) error {
         if trace_compare {
                 fmt.Printf("compare:delegate: %v (%v %T)\n", p, c.target, c.target)
         }
-        return c.compare(p.Value())
+        if v, e := p.Value(); e == nil {
+                return c.compare(v)
+        } else {
+                return e
+        }
 }
 
 func (p *delegate) compareFileDepend(c *Comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:delegate:File: %v (%v %T)\n", p, c.target, c.target)
         }
-        var value = p.Value()
+        var value Value
+        if value, err = p.Value(); err != nil { return }
         if comp, _ := value.(comparable); comp != nil {
                 err = comp.compareFileDepend(c, d)
         } else {
@@ -1446,7 +1601,8 @@ func (p *delegate) comparePathDepend(c *Comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:delegate:Path: %v (%v %T)\n", p, c.target, c.target)
         }
-        var value = p.Value()
+        var value Value
+        if value, err = p.Value(); err != nil { return }
         if comp, _ := value.(comparable); comp != nil {
                 err = comp.comparePathDepend(c, d)
         } else {
@@ -1493,58 +1649,59 @@ func (p *closure) String() (s string) {
         s += ")"
         return
 }
-func (p *closure) Strval() string {
-        if o, _ := p.o.(Caller); o != nil {
-                if v, e := o.Call(p.p); e == nil {
-                        return v.Strval()
-                }
-        }
+func (p *closure) Strval() (s string, err error) {
+        /* if o, _ := p.o.(Caller); o != nil {
+                var v Value
+                if v, err = o.Call(p.p); err != nil { return }
+                return v.Strval()
+        } */
         return p.o.Strval() 
 }
-func (p *closure) Integer() int64       { return p.o.Integer() }
-func (p *closure) Float() float64       { return p.o.Float() }
-func (p *closure) disclose(scope *Scope) (Value, error) {
+func (p *closure) Integer() (int64, error) { return p.o.Integer() }
+func (p *closure) Float() (float64, error) { return p.o.Float() }
+func (p *closure) disclose(scope *Scope) (res Value, err error) {
         //fmt.Printf("closure.disclose: %T %v\n", p.o, p.o)
-        var obj = p.o
+        var ( obj = p.o; v Value )
         if _, o := scope.Find(p.o.Name()); o != nil {
                 obj = o
         }
 
         // Disclose the p.o, it's value may have disclosures.
-        if v, e := obj.disclose(scope); e != nil {
-                return nil, e
+        if v, err = obj.disclose(scope); err != nil {
+                return
         } else if o, _ := v.(Object); o != nil {
                 obj = o
         }
 
-        var (
-                //scope = p.o.Parent()
-                args []Value
-        )
+        var args []Value
         for _, a := range p.a {
-                if v, e := a.disclose(scope); e != nil {
-                        return nil, e
+                if v, err = a.disclose(scope); err != nil {
+                        return
                 } else if v != nil {
-                        //fmt.Printf("delegate.value: %v -> %v\n", a, v)
                         a = v
                 }
                 args = append(args, a)
         }
 
         switch o := obj.(type) {
+        default: err = fmt.Errorf("unknown closure object %v", obj)
         case Caller:
-                return o.Call(p.p, args...)
-        case Executer:
-                if result, err := o.Execute(p.p, args...); err == nil {
-                        return &List{Elements{result}}, nil
-                } else {
-                        return nil, err
+                if res, err = o.Call(p.p, args...); err != nil {
+                        err = fmt.Errorf("&(%s): %v", p.o.Name(), err)
                 }
-        default:
-                err := fmt.Errorf("Unsupported closure object `%T' (%v)", obj, obj)
-                return nil, err
+        case Executer:
+                if args, err = o.Execute(p.p, args...); err != nil {
+                        err = fmt.Errorf("&{%s}: %v", p.o.Name(), err)
+                } else {
+                        res = &List{Elements{args}}
+                }
         }
-        return nil, nil
+        if err != nil {
+                fmt.Printf("%v: %v\n", p.p, err)
+        } else if res == nil {
+                res = UniversalNone 
+        }
+        return
 }
 
 func (p *closure) referencing(o Object) bool {
@@ -1579,8 +1736,8 @@ type Plain struct {
         Value string
         Name string
 }
-func (*Plain) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*Plain) referencing(_ Object) bool { return false }
+func (p *Plain) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *Plain) referencing(_ Object) bool { return false }
 func (p *Plain) Type() Type  { return PlainType }
 func (p *Plain) String() string {
         s := "(plain"
@@ -1590,42 +1747,42 @@ func (p *Plain) String() string {
         s += " " + p.Value + ")"
         return s
 }
-func (p *Plain) Strval() string   { return p.Value }
-func (p *Plain) Integer() int64   { i, _ := strconv.ParseInt(p.Value, 10, 64); return i }
-func (p *Plain) Float() float64   { f, _ := strconv.ParseFloat(p.Value, 64); return f }
+func (p *Plain) Strval() (string, error) { return p.Value, nil }
+func (p *Plain) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
+func (p *Plain) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
 
 type JSON struct {
         Value Value
 }
-func (*JSON) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*JSON) referencing(_ Object) bool { return false }
+func (p *JSON) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *JSON) referencing(_ Object) bool { return false }
 func (p *JSON) Type() Type { return JSONType }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
-func (p *JSON) Strval() string { return p.Value.Strval() }
-func (p *JSON) Integer() int64 { return 0 }
-func (p *JSON) Float() float64 { return 0 }
+func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
+func (p *JSON) Integer() (int64, error) { return 0, nil }
+func (p *JSON) Float() (float64, error) { return 0, nil }
 
 type XML struct {
         Value Value
 }
-func (*XML) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*XML) referencing(_ Object) bool { return false }
+func (p *XML) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *XML) referencing(_ Object) bool { return false }
 func (p *XML) Type() Type { return XMLType }
 func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
-func (p *XML) Strval() string { return p.Value.Strval() }
-func (p *XML) Integer() int64 { return 0 }
-func (p *XML) Float() float64 { return 0 }
+func (p *XML) Strval() (string, error) { return p.Value.Strval() }
+func (p *XML) Integer() (int64, error) { return 0, nil }
+func (p *XML) Float() (float64, error) { return 0, nil }
 
 type YAML struct {
         Value Value
 }
-func (*YAML) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (*YAML) referencing(_ Object) bool { return false }
+func (p *YAML) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *YAML) referencing(_ Object) bool { return false }
 func (p *YAML) Type() Type { return YAMLType }
 func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
-func (p *YAML) Strval() string { return p.Value.Strval() }
-func (p *YAML) Integer() int64 { return 0 }
-func (p *YAML) Float() float64 { return 0 }
+func (p *YAML) Strval() (string, error) { return p.Value.Strval() }
+func (p *YAML) Integer() (int64, error) { return 0, nil }
+func (p *YAML) Float() (float64, error) { return 0, nil }
 
 type ExecBuffer struct {
         Tie io.Writer
@@ -1676,9 +1833,9 @@ type ExecResult struct {
 func (p *ExecResult) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (p *ExecResult) referencing(_ Object) bool { return false }
 func (p *ExecResult) Type() Type { return ExecResultType }
-func (p *ExecResult) Integer() int64 { return int64(p.Status) }
-func (p *ExecResult) Float() float64 { return float64(p.Status) }
-func (p *ExecResult) Strval() (s string) {
+func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
+func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
+func (p *ExecResult) Strval() (s string, err error) {
         if p.Stdout.Buf != nil {
                 s = p.Stdout.Buf.String()
         }
@@ -1701,15 +1858,15 @@ func (p *ExecResult) String() string {
 type Pattern interface {
         Value
         MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error)
-        Match(s string) (matched bool, stem string)
+        Match(s string) (matched bool, stem string, err error)
 }
 
 type pattern struct {
 }
 
 func (p *pattern) Type() Type        { return PatternType }
-func (p *pattern) Integer() int64    { return 0 }
-func (p *pattern) Float() float64    { return 0 }
+func (p *pattern) Integer() (int64, error) { return 0, nil }
+func (p *pattern) Float() (float64, error) { return 0, nil }
 func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
         if patent.class == GlobRuleEntry {
                 entry = new(RuleEntry); *entry = *patent
@@ -1740,20 +1897,31 @@ type GlobPattern struct {
         Suffix Value
 }
 
-func (p *GlobPattern) String() string { return p.Strval() }
-func (p *GlobPattern) Strval() (s string) {
+func (p *GlobPattern) String() string { return fmt.Sprintf("%s%%%s", p.Prefix.String(), p.Suffix.String()) }
+func (p *GlobPattern) Strval() (s string, err error) {
         if p.Prefix != nil {
-                s = p.Prefix.Strval()
+                var v string
+                if v, err = p.Prefix.Strval(); err == nil {
+                        s = v
+                } else {
+                        return
+                }
         }
         s += "%"
         if p.Suffix != nil {
-                s += p.Suffix.Strval()
+                var v string
+                if v, err = p.Suffix.Strval(); err == nil {
+                        s += v
+                } else {
+                        return
+                }
         }
         return
 }
-func (p *GlobPattern) Match(s string) (matched bool, stem string) {
-        if prefix := p.Prefix.Strval(); prefix == "" || strings.HasPrefix(s, prefix) {
-                if suffix := p.Suffix.Strval(); suffix == "" || strings.HasSuffix(s, suffix) {
+func (p *GlobPattern) Match(s string) (matched bool, stem string, err error) {
+        var prefix, suffix string
+        if prefix, err = p.Prefix.Strval(); err != nil && prefix == "" || strings.HasPrefix(s, prefix) {
+                if suffix, err = p.Suffix.Strval(); err != nil && suffix == "" || strings.HasSuffix(s, suffix) {
                         if a, b := len(prefix), len(s)-len(suffix); a < b {
                                 matched, stem = true, s[a:b]
                         }
@@ -1762,12 +1930,19 @@ func (p *GlobPattern) Match(s string) (matched bool, stem string) {
         return
 }
 
-func (p *GlobPattern) MakeString(stem string) string {
-        return p.Prefix.Strval() + stem + p.Suffix.Strval()
+func (p *GlobPattern) MakeString(stem string) (s string, err error) {
+        if s, err = p.Prefix.Strval(); err == nil {
+                var v string
+                if v, err = p.Suffix.Strval(); err == nil {
+                        s += stem + v
+                }
+        }
+        return
 }
 
 func (p *GlobPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
-        name := p.MakeString(stem)
+        var name string
+        if name, err = p.MakeString(stem); err != nil { return }
         return p.makeEntry(patent, name, stem)
 }
 
@@ -1784,7 +1959,8 @@ func (p *GlobPattern) prepare(pc *Preparer) (err error) {
                 return
         }
 
-        var target = p.MakeString(pc.stem)
+        var target string
+        if target, err = p.MakeString(pc.stem); err != nil { return }
 
         // Check if target is a file (if source entry is file).
         if brk := false; pc.entry.file != nil { //! See also `File.checkPatternDepend`.
@@ -1832,9 +2008,15 @@ func NewRegexpPattern() Pattern {
         return &RegexpPattern{}
 }
 
-func (p *RegexpPattern) String() string { return p.Strval() }
-func (p *RegexpPattern) Strval() (s string) { return "" }
-func (p *RegexpPattern) Match(s string) (matched bool, stem string) {
+func (p *RegexpPattern) String() string {
+        if s, e := p.Strval(); e == nil {
+                return fmt.Sprintf("RegexpPattern{%s}", s)
+        } else {
+                return fmt.Sprintf("RegexpPattern{%s}!(%s)", s, e)
+        }
+}
+func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
+func (p *RegexpPattern) Match(s string) (matched bool, stem string, err error) {
         // TODO: regexp matching...
         return
 }

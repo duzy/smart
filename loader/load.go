@@ -121,7 +121,7 @@ func (l *Loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
 func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
         var (
                 linfo = l.loads[len(l.loads)-1]
-                specName string
+                specName, s string
                 params []types.Value
                 useList []types.Value
                 nouse bool
@@ -129,7 +129,9 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
         errArg = -1 // means no wrong args
         if 0 < len(spec.Props) {
                 if ee, ok := spec.Props[0].(*ast.EvaluatedExpr); ok && ee.Data != nil {
-                        specName = ee.Data.(types.Value).Strval()
+                        if specName, err = ee.Data.(types.Value).Strval(); err != nil {
+                                return
+                        }
                 } else {
                         return ErrorIllImport, -1
                 }
@@ -141,14 +143,16 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                                 v := ee.Data.(types.Value)
                                 switch t := v.(type) {
                                 case *types.Flag:
-                                        switch s := t.Name.Strval(); s {
+                                        if s, err = t.Name.Strval(); err != nil { return }
+                                        switch s {
                                         case "nouse": nouse = true
                                         default: params = append(params, v)
                                         }
                                 case *types.Pair: // -param=value
                                         switch tt := t.Key.(type) {
                                         case *types.Flag:
-                                                switch s := tt.Name.Strval(); s {
+                                                if s, err = tt.Name.Strval(); err != nil { return }
+                                                switch s {
                                                 case "use": useList = append(useList, t.Value)
                                                 default: params = append(params, v)
                                                 }
@@ -158,7 +162,8 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                                 case *types.Argumented: // -param(value)
                                         switch tt := t.Value.(type) {
                                         case *types.Flag:
-                                                switch s := tt.Name.Strval(); s {
+                                                if s, err = tt.Name.Strval(); err != nil { return }
+                                                switch s {
                                                 case "use": useList = append(useList, t.Args...)
                                                 default: params = append(params, v)
                                                 }
@@ -463,9 +468,11 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                         err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.Parent())
                         return nil, err
                 }
-                
-                if def.Name() != name.Strval() {
-                        err = fmt.Errorf("Symbol `%s' differs from `%s'", name.Strval(), def.Name())
+
+                var str string
+                if str, err = name.Strval(); err != nil { return }
+                if def.Name() != str {
+                        err = fmt.Errorf("Symbol `%s' differs from `%s'", str, def.Name())
                         return nil, err
                 }
 
@@ -645,7 +652,9 @@ func (l *Loader) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                                 res, _ = op.Call(position, a...)
                         }
                 default:
-                        if _, obj := l.scope.Find(op.Strval()); obj != nil {
+                        var str string
+                        if str, err = op.Strval(); err != nil { return }
+                        if _, obj := l.scope.Find(str); obj != nil {
                                 if f, _ := obj.(types.Caller); f != nil {
                                         if a, err := l.exprs(spec.Props[1:]); err != nil {
                                                 return nil, err
@@ -654,7 +663,7 @@ func (l *Loader) eval(spec *ast.EvalSpec) (res types.Value, err error) {
                                         }
                                 }
                         } else {
-                                err = fmt.Errorf("Eval undefined `%s'", op.Strval())
+                                err = fmt.Errorf("Eval undefined `%s'", str)
                         }
                 }
         }
@@ -754,7 +763,9 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
                 }
 
                 class := types.GeneralRuleEntry
-                if name = target.Strval(); name == "use" {
+                if name, err = target.Strval(); err != nil {
+                        return
+                } else if name == "use" {
                         if n == 0 && len(clause.Targets) == 1 {
                                 class = types.UseRuleEntry
                         } else {
@@ -778,25 +789,20 @@ func (l *Loader) rule(clause *ast.RuleClause) (err error) {
         return
 }
 
-func (l *Loader) include(spec *ast.IncludeSpec) error {
+func (l *Loader) include(spec *ast.IncludeSpec) (err error) {
         var (
                 linfo = l.loads[len(l.loads)-1]
-                specVal, err = l.expr(spec.Props[0])
+                specVal types.Value
+                specName string
                 params []types.Value
         )
-        if err != nil {
-                return err
-        }
-
+        if specVal, err = l.expr(spec.Props[0]); err != nil { return }
+        if specName, err = specVal.Strval(); err != nil { return }
         if len(spec.Props) > 1 {
-                params, err = l.exprs(spec.Props[1:])
-                if err != nil {
-                        return err
-                }
+                if params, err = l.exprs(spec.Props[1:]); err != nil { return err }
         }
 
         var (
-                specName = specVal.Strval()
                 jointPath = filepath.Join(linfo.absDir, specName)
                 absDir, baseName = filepath.Split(jointPath)
         )
@@ -848,7 +854,7 @@ func (l *Loader) loadProjectBases(linfo *loadinfo, params types.Value) (err erro
                 isDir bool
         )
         ParamsLoop: for _, elem := range g.Elems {
-                specName = elem.Strval()
+                if specName, err = elem.Strval(); err != nil { return }
                 absPath, isDir, err = l.searchSpecPath(linfo, specName)
                 if err != nil {
                         break ParamsLoop

@@ -50,7 +50,7 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                 envarsDef, _ = prog.Scope().Lookup(types.TheShellEnvarsDef).(*types.Def)
                 exeres = new(types.ExecResult)
                 envars []types.Value // disclosed values
-                source string
+                source, str string
         )
         if envarsDef != nil {
                 if l, _ := envarsDef.Value.(*types.List); l != nil {
@@ -64,7 +64,8 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                 }
         }
         for _, recipe := range recipes {
-                source += recipe.Strval() // trimRightSpaces(recipe.Strval())
+                if str, err = recipe.Strval(); err != nil { return }
+                source += str // trimRightSpaces(str)
                 if strings.HasSuffix(source, "\\") {
                         source += "\n" // give back the line feed
                         continue
@@ -107,14 +108,19 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                 if len(args) == 0 {
                         sh = exec.Command(s.interpreter, s.xopt, source)
                 } else {
-                        var a []string
+                        var (
+                                key, value string
+                                a []string
+                        )
                         ForArgs: for _, v := range args {
                                 switch t := v.(type) {
                                 case *types.Pair:
                                         if f, _ := t.Key.(*types.Flag); f != nil {
-                                                switch f.Name.Strval() {
+                                                if key, err = f.Name.Strval(); err != nil { return }
+                                                if value, err = t.Value.Strval(); err != nil { return }
+                                                switch key {
                                                 case "dump": // -dump=xxx
-                                                        switch t.Value.Strval() {
+                                                        switch value {
                                                         case "stdout": verbout = true
                                                         case "stderr": verberr = true
                                                         }
@@ -122,7 +128,8 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                                                 }
                                         }
                                 case *types.Flag:
-                                        switch t.Name.Strval() {
+                                        if key, err = t.Name.Strval(); err != nil { return }
+                                        switch key {
                                         case "s" : silent = true;  continue ForArgs
                                         case "so": saveout = true; continue ForArgs
                                         case "se": saveerr = true; continue ForArgs
@@ -139,7 +146,11 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                                                 continue ForArgs
                                         }
                                 }
-                                a = append(a, v.Strval())
+                                if str, err = v.Strval(); err == nil {
+                                        a = append(a, str)
+                                } else {
+                                        return
+                                }
                         }
                         a = append(a, s.xopt, source)
                         sh = exec.Command(s.interpreter, a...)
@@ -148,8 +159,10 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                 for _, v := range envars {
                         if v, err = types.Disclose(prog.Scope(), v); err != nil {
                                 return
+                        } else if str, err = v.Strval(); err == nil {
+                                sh.Env = append(sh.Env, str)
                         } else {
-                                sh.Env = append(sh.Env, v.Strval())
+                                return
                         }
                 }
                 if verbout { exeres.Stdout.Tie = os.Stdout }

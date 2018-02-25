@@ -43,7 +43,7 @@ func enterWorkdir(prog *Program, print bool) (wi *workinfo) {
         }
         if wd, err := os.Getwd(); err == nil {
                 if s := workstack[l-1].project.AbsPath(); s != wd {
-                        fmt.Fprintf(os.Stderr, "smart: diverged `%s` `%s`\n", wd, s)
+                        fmt.Fprintf(os.Stderr, "%s: changed workdir '%s' (project '%s')\n", prog.position, s, wd)
                 }
                 if print = print && !prog.hasCDDash(); print {
                         for i := l-1; i > -1; i-- {
@@ -202,8 +202,16 @@ func (prog *Program) modify(m modifier, out *Def) (dialect string, err error) {
 
 func (prog *Program) hasCDDash() (res bool) {
         for _, m := range prog.pipline {
-                if m.name == "cd" && len(m.args) > 0 && m.args[0].Strval() == "-" {
-                        res = true
+                if m.name == "cd" && len(m.args) > 0 {
+                        var (
+                                s string
+                                e error
+                        )
+                        if s, e = m.args[0].Strval(); e != nil {
+                                // TODO: error...
+                        } else if s == "-" {
+                                res = true
+                        }
                 }
         }
         return
@@ -233,7 +241,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         for _, a := range args {
                 switch t := a.(type) {
                 case *Pair:
-                        prog.auto(t.Key.Strval(), t.Value)
+                        var s string
+                        if s, err = t.Key.Strval(); err != nil { return }
+                        prog.auto(s, t.Value)
                 default:
                         prog.auto(strconv.Itoa(argn+1), a)
                         if argn < len(prog.params) {
@@ -260,9 +270,14 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.auto("@", entry)
         }
 
+        var prerequsites []Value
+        if prerequsites, err = prog.disclose(prog.depends); err != nil {
+                return
+        }
+
         // Calculate and prepare depends and files.
         pc := NewPreparer(prog, entry)
-        if err = pc.Prepare(prog.depends); err != nil {
+        if err = pc.Prepare(prerequsites); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 }
@@ -298,9 +313,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         //      some-modifier : - :
         //              smart statments going here...
         //              
-        var dialect string
+        var dialect, lang string
         ForPipeline: for _, m := range prog.pipline {
-                var lang string
                 if lang, err = prog.modify(m, out); err != nil {
                         if p, ok := err.(*breaker); ok {
                                 if p.good {
@@ -310,10 +324,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                                         err, dialect = nil, "--"
                                 }
                         }
-                        if err != nil {
-                                fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
-                                err = fmt.Errorf("%v: %v", m.name, err)
-                        }
+                        if err != nil { fmt.Fprintf(os.Stdout, "%s: %s: %v\n", m.position, m.name, err) }
                         break ForPipeline
                 } else if lang != "" && dialect == "" {
                         dialect = lang
@@ -333,10 +344,12 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 func (prog *Program) AddModifier(position token.Position, operation Value) (err error) {
         switch g := operation.(type) {
         case *Group:
+                var name string
+                if name, err = g.Get(0).Strval(); err != nil {
+                        return
+                }
                 prog.pipline = append(prog.pipline, modifier{
-                        position,
-                        g.Get(0).Strval(),
-                        g.Slice(1),
+                        position, name, g.Slice(1),
                 })
         default:
                 err = fmt.Errorf("unknown modifier (%T `%v')", operation, operation)
@@ -363,6 +376,16 @@ func dependEquals(a, b Value) bool {
         }
 
         // TODO: more advanced checking "the same depend"
-        
-        return a.Strval() == b.Strval()
+
+        var (
+                sa, sb string
+                err error
+        )
+        if sa, err = a.Strval(); err != nil {
+                return false
+        }
+        if sb, err = b.Strval(); err != nil {
+                return false
+        }
+        return sa == sb
 }

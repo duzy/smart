@@ -56,10 +56,17 @@ LoopRecipes:
                         if e == nil && v != nil {
                                 list.Append(v)
                                 if g, _ := v.(*types.Group); g != nil {
-                                        if s, c := g.Get(0), g.Get(1); s != nil && c != nil &&
-                                                s.Strval() == "shell" && c.Integer() != 0 {
-                                                //fmt.Printf("evaluate: %v\n", v)
-                                                break LoopRecipes
+                                        if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
+                                                var (
+                                                        str string
+                                                        num int64
+                                                )
+                                                if str, err = s.Strval(); err != nil { return }
+                                                if num, err = c.Integer(); err != nil { return }
+                                                if str == "shell" && num != 0 {
+                                                        //fmt.Printf("evaluate: %v\n", v)
+                                                        break LoopRecipes
+                                                }
                                         }
                                 }
                         } else if p, _ := e.(*types.Returner); p != nil {

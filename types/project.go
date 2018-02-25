@@ -191,8 +191,14 @@ type PatternStem struct {
         file *File // source file matched the pattern
 }
 
-func (ps *PatternStem) String() string {
-        return ps.Patent.Strval() + "(" + ps.Stem + ")"
+func (ps *PatternStem) String() (s string) {
+        var e error
+        if s, e = ps.Patent.Strval(); e == nil {
+                s = s + "(" + ps.Stem + ")"
+        } else {
+                s = fmt.Sprintf("PatternStem{%s}!(%s)", ps, e)
+        }
+        return
 }
 
 func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
@@ -221,8 +227,12 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
 
         // Find all useful stems.
         ForSources: for _, source := range sources {
+                var ( 
+                        matched bool
+                        stem string
+                )
                 if source == "" { continue }
-                if matched, stem := ps.Patent.Pattern.Match(source); matched && stem != "" {
+                if matched, stem, err = ps.Patent.Pattern.Match(source); matched && stem != "" {
                         for _, s := range stems { if s == stem { continue ForSources } }
                         stems = append(stems, stem)
                 }
@@ -275,14 +285,25 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         return
 }
 
-func (p *Project) FindPatterns(s string) (res []*PatternStem) {
+func (p *Project) FindPatterns(s string) (res []*PatternStem, err error) {
         for _, p := range p.patterns {
-                if found, stem := p.Pattern.Match(s); found && stem != "" {
+                var (
+                        found bool
+                        stem string
+                )
+                if found, stem, err = p.Pattern.Match(s); err != nil {
+                        return
+                } else if found && stem != "" {
                         res = append(res, &PatternStem{ p, stem, "", nil })
                 }
         }
         for _, base := range p.bases {
-                res = append(res, base.FindPatterns(s)...)
+                var a []*PatternStem
+                if a, err = base.FindPatterns(s); err == nil {
+                        res = append(res, a...)
+                } else {
+                        return
+                }
         }
         return
 }
@@ -298,15 +319,18 @@ func (p *Project) Entry(name string) (entry *RuleEntry, err error) {
         
         // TODO: Improves patter searching on base chain. 
         //fmt.Printf("Project.Entry: %v: %v %v\n", name, p.patterns, p.scope)
-        if pss := p.FindPatterns(name); pss != nil {
-                for _, ps := range pss {
-                        if ps.Patent.programs == nil {
-                                continue // FIXME: ???
-                        }
-                        //fmt.Printf("%s: %v has %v programs\n", name, ps.Patent.Name(), len(ps.Patent.programs))
-                        if entry, err = ps.MakeConcreteEntry(); entry != nil || err != nil {
-                                return
-                        }
+        var pss []*PatternStem
+        if pss, err = p.FindPatterns(name); err != nil {
+                return
+        }
+
+        for _, ps := range pss {
+                if ps.Patent.programs == nil {
+                        continue // FIXME: ???
+                }
+                //fmt.Printf("%s: %v has %v programs\n", name, ps.Patent.Name(), len(ps.Patent.programs))
+                if entry, err = ps.MakeConcreteEntry(); entry != nil || err != nil {
+                        return
                 }
         }
         return
@@ -345,11 +369,16 @@ func (p *Project) SetGlobPatternProgram(pp *GlobPattern, class RuleEntryClass, p
         }
         
         // Patterns don't calls p.scope.InsertEntry(...)
+        var name string
+        if name, err = pp.Strval(); err != nil {
+                return
+        }
+        
         var entry = &RuleEntry{
                 object{
                         parent:  p.scope,
                         project: p,
-                        name:    pp.Strval(),
+                        name:    name,
                         typ:     RuleEntryType,
                         ord:     0,
                 },
@@ -363,16 +392,29 @@ func (p *Project) SetGlobPatternProgram(pp *GlobPattern, class RuleEntryClass, p
         return
 }
 
-func (p *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes) {
+func (p *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes, err error) {
         var (
                 key = sha256.New()
                 val = sha256.New()
+                str string
         )
         fmt.Fprintf(key, "%s", p.AbsPath())
-        fmt.Fprintf(key, "%s", target.Strval())
-        //fmt.Fprintf(key, "%s", depend.Strval())
+        if str, err = target.Strval(); err == nil {
+                fmt.Fprintf(key, "%s", str)
+        } else {
+                return
+        }
+        /* if str, err = depend.Strval(); err == nil {
+                fmt.Fprintf(key, "%s", str)
+        } else {
+                return
+        } */
         for _, recipe := range recipes {
-                fmt.Fprintf(val, "%v", Reveal(recipe).Strval())
+                if str, err = Reveal(recipe).Strval(); err == nil {
+                        fmt.Fprintf(val, "%v", str)
+                } else {
+                        return
+                }
         }
         copy(k[:], key.Sum(nil))
         copy(v[:], val.Sum(nil))
@@ -387,9 +429,12 @@ func (p *Project) hashDir(k []byte) string {
 
 func (p *Project) CheckCmdHash(target Value, recipes []Value) (same bool, err error) {
         var (
-                k, v = p.CmdHash(target, recipes)
+                k, v HashBytes
                 dir = p.hashDir(k[:])
         )
+        if k, v, err = p.CmdHash(target, recipes); err != nil {
+                return
+        }
         if f, e := os.Open(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
                 var h []byte
                 if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
@@ -406,7 +451,9 @@ func (p *Project) CheckCmdHash(target Value, recipes []Value) (same bool, err er
 }
 
 func (p *Project) UpdateCmdHash(target Value, recipes []Value) (k, v HashBytes, err error) {
-        k, v = p.CmdHash(target, recipes)
+        if k, v, err = p.CmdHash(target, recipes); err != nil {
+                return
+        }
         dir := p.hashDir(k[:])
         if err = os.MkdirAll(dir, 0700); err != nil {
                 return

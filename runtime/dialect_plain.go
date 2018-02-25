@@ -14,14 +14,12 @@ type dialectPlain struct {
 }
 
 func (t *dialectPlain) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        var name string
+        var str, name string
         if len(args) > 0 {
-                name = args[0].Strval()
+                if name, err = args[0].Strval(); err != nil { return }
         }
-        result = &types.Plain{
-                joinRecipesString(recipes...),
-                name,
-        }
+        if str, err = joinRecipesString(recipes...); err != nil { return }
+        result = &types.Plain{ str, name, }
         return
 }
 

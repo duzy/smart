@@ -192,10 +192,10 @@ func (s *Scope) FindEntry(name string) *RuleEntry {
         return sym.(*RuleEntry)
 }
 
-func (s *Scope) DiscloseDef(context *Scope, name string) (str string) {
+func (s *Scope) DiscloseDef(context *Scope, name string) (str string, err error) {
         if def := s.FindDef(name); def != nil {
                 if v, e := def.Disclose(context); e == nil {
-                        str = v.Strval()
+                        str, err = v.Strval()
                 }
         }
         return

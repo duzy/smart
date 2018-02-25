@@ -55,8 +55,8 @@ func (obj *object) Project() *Project     { return obj.project }
 func (obj *object) Name() string          { return obj.name }
 
 func (obj *object) Type() Type            { return obj.typ }
-func (obj *object) Strval() string        { return obj.String() }
-func (obj *object) String() string        { return fmt.Sprintf("object %v", obj.name) }
+func (obj *object) String() string { return fmt.Sprintf("object{%v}", obj.name) }
+func (obj *object) Strval() (string, error) { return obj.String(), nil }
 
 func (obj *object) Get(name string) (Value, error) {
         return nil, fmt.Errorf("No such property `%s' (Object).", name)
@@ -78,10 +78,10 @@ type ProjectName struct {
 func (n *ProjectName) Type() Type { return ProjectNameType }
 func (n *ProjectName) Project() *Project { return n.project }
 func (n *ProjectName) String() string  {
-        return fmt.Sprintf("project %s %p", n.name, n.project)
+        return fmt.Sprintf("ProjectName{%s}", n.name)
 }
-func (n *ProjectName) Strval() string  {
-        return fmt.Sprintf("project %s %p", n.name, n.project)
+func (n *ProjectName) Strval() (string, error)  {
+        return fmt.Sprintf("project %s", n.name), nil
 }
 
 func (n *ProjectName) Get(name string) (Value, error) {
@@ -143,12 +143,8 @@ type ScopeName struct {
 // containing the import statement.
 func (n *ScopeName) Type() Type { return ScopeNameType }
 func (n *ScopeName) Scope() *Scope { return n.scope }
-func (n *ScopeName) String() string  {
-        return fmt.Sprintf("scope %s %p", n.name, n.scope)
-}
-func (n *ScopeName) Strval() string  {
-        return fmt.Sprintf("scope %s %p", n.name, n.scope)
-}
+func (n *ScopeName) String() string  { return fmt.Sprintf("ScopeName{%s}", n.name) }
+func (n *ScopeName) Strval() (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
 
 func (n *ScopeName) Get(name string) (Value, error) {
         if sym := n.scope.Resolve(name); sym != nil {
@@ -225,14 +221,19 @@ func (d *Def) String() string {
         }
         return s
 }
-func (d *Def) Strval() string {
-        s := d.name + "="
+func (d *Def) Strval() (s string, e error) {
+        s = d.name + "="
         if d.Value == nil {
                 s += "<nil>"
         } else {
-                s += d.Value.Strval()
+                var v string
+                if v, e = d.Value.Strval(); e == nil {
+                        s += v
+                } else {
+                        return
+                }
         }
-        return s
+        return
 }
 func (d *Def) Origin() DefOrigin { return d.origin }
 func (d *Def) SetOrigin(k DefOrigin) { d.origin = k }
@@ -280,17 +281,23 @@ func (d *Def) Append(va... Value) (Value, error) {
         return d.Value, nil
 }
 
-func (d *Def) AssignExec(a... Value) (Value, error) {
+func (d *Def) AssignExec(a... Value) (res Value, err error) {
         var (
                 stdout bytes.Buffer
                 stderr bytes.Buffer
         )
         for _, v := range a {
-                sh := exec.Command("sh", "-c", v.Strval())
-                sh.Stdout, sh.Stderr = &stdout, &stderr
-                if err := sh.Run(); err != nil {
-                        v, _ = d.Assign(UniversalNone)
-                        return v, err
+                var s string
+                if s, err = v.Strval(); err == nil {
+                        sh := exec.Command("sh", "-c", s)
+                        sh.Stdout, sh.Stderr = &stdout, &stderr
+                        if err = sh.Run(); err != nil {
+                                res, err = d.Assign(UniversalNone)
+                                return
+                        }
+                } else {
+                        res, err = d.Assign(UniversalNone)
+                        return
                 }
         }
         return d.Assign(&String{strings.TrimSpace(stdout.String())})
@@ -373,7 +380,8 @@ type Builtin struct {
         f BuiltinFunc
 }
 
-func (p *Builtin) Strval() string { return fmt.Sprintf("builtin %v", p.name) }
+func (p *Builtin) String() string { return fmt.Sprintf("Builtin{%v}", p.name) }
+func (p *Builtin) Strval() (string, error) { return fmt.Sprintf("builtin %v", p.name), nil }
 func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) {
         return p.f(pos, p.parent, a...)
 }
@@ -440,8 +448,8 @@ type RuleEntry struct {
         Position token.Position
 }
 
-func (entry *RuleEntry) String() string { return fmt.Sprintf("entry %v", entry.name) }
-func (entry *RuleEntry) Strval() (s string) { return entry.name }
+func (entry *RuleEntry) String() string { return fmt.Sprintf("RuleEntry{%v}", entry.name) }
+func (entry *RuleEntry) Strval() (s string, e error) { return entry.name, nil }
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 func (entry *RuleEntry) Programs() []*Program { return entry.programs }
@@ -671,7 +679,11 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                                 // TODO: assert(file == entry.file)
                                 pc.targets.Append(file)
                         } else {
-                                pc.targets.Append(caller.program.project.SearchFile(dd.Strval()))
+                                var s string
+                                if s, err = dd.Strval(); err != nil {
+                                        return
+                                }
+                                pc.targets.Append(caller.program.project.SearchFile(s))
                         }
                 case ExplicitPathEntry:
                         if trace_prepare {

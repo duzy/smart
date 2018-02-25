@@ -497,6 +497,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                 fieldName string
                 where = anywhere
                 rhs = p.checkExpr(p.parseNextExpr(false)) // skip '->'
+                err error
         )
 
         switch t := rhs.(type) {
@@ -505,7 +506,9 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         case *ast.EvaluatedExpr: // foo->bar->xxx
                 if t.Data != nil {
                         if v, _ := t.Data.(types.Value); v != nil {
-                                fieldName = v.Strval()
+                                if fieldName, err = v.Strval(); err != nil {
+                                        p.error(t.Pos(), "%s", err)
+                                }
                         }
                 }
                 if fieldName == "" {
@@ -514,7 +517,9 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                 }
         default:
                 if v, e := p.runtime.Eval(rhs, StringValue); e == nil && v != nil {
-                        fieldName = v.Strval()
+                        if fieldName, err = v.Strval(); err != nil {
+                                p.error(t.Pos(), "%s", err)
+                        }
                 } else if v == nil {
                         p.error(t.Pos(), "Select operand (%T) evals to nil.", t)
                         goto DoneSelect
@@ -537,7 +542,9 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                 goto DoneSelect
         default:
                 if v, e := p.runtime.Eval(lhs, StringValue); e == nil && v != nil {
-                        objectName = v.Strval()
+                        if objectName, err = v.Strval(); err != nil {
+                                p.error(t.Pos(), "%s", err)
+                        }
                 } else if v == nil {
                         p.error(t.Pos(), "Select operand `%T' eval to nil.", t)
                 } else {
@@ -808,6 +815,7 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) ast.Expr {
 	}
         
         defer p.setbits(p.setbit(composingPERIOD))
+
         var comp *ast.Barecomp
         if comp, _ = x.(*ast.Barecomp); comp == nil {
                 comp = &ast.Barecomp{ Elems:[]ast.Expr{ x } }
@@ -835,7 +843,11 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) ast.Expr {
 
         // Processing barefile (must discluse in case of '$@.o', etc.).
         if v, e := p.runtime.Eval(x, StringValue); e == nil && v != nil {
-                if file := p.runtime.File(v.Strval()); file != nil {
+                var s string
+                if s, e = v.Strval(); e != nil {
+                        p.error(x.Pos(), "%s", e)
+                }
+                if file := p.runtime.File(s); file != nil {
                         x = &ast.Barefile{ x, file, v }
                 }
         } else if e != nil {
@@ -935,18 +947,24 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 p.error(pos, "Name `%T' eval to nil", name)
         } else {
                 a = &ast.EvaluatedExpr{ name, v }
-                if resolved = p.runtime.Resolve(v.Strval(), anywhere); resolved == nil {
-                        p.error(name.Pos(), "Undefined reference `%v' (%T).", v.Strval(), name)
+
+                var s string
+                if s, e = v.Strval(); e != nil {
+                        p.error(name.Pos(), "%s", e)
+                }
+                
+                if resolved = p.runtime.Resolve(s, anywhere); resolved == nil {
+                        p.error(name.Pos(), "Undefined reference `%v' (%T).", s, name)
                 } else {
                         name = a
                         switch tokLp {
                         case token.LPAREN:
                                 if _, ok := resolved.(types.Caller); !ok {
-                                        p.error(name.Pos(), "Uncallable resolved `%v' (%T).", v.Strval(), name)
+                                        p.error(name.Pos(), "Uncallable resolved `%v' (%T).", s, name)
                                 }
                         case token.LBRACE:
                                 if _, ok := resolved.(types.Executer); !ok {
-                                        p.error(name.Pos(), "Unexecutible resolved `%v' (%T).", v.Strval(), name)
+                                        p.error(name.Pos(), "Unexecutible resolved `%v' (%T).", s, name)
                                 }
                         }
                 }
@@ -1196,19 +1214,24 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                 case *types.Pair:
                         var (
                                 paths []string
-                                s = v.Key.Strval()
+                                s, e = v.Key.Strval()
                         )
+                        if e != nil { p.error(prop.Pos(), "%s", e) }
                         switch vv := v.Value.(type) {
                         case *types.Group:
                                 for _, elem := range vv.Elems {
-                                        paths = append(paths, elem.Strval())
+                                        if s, e = elem.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
+                                        paths = append(paths, s)
                                 }
                         default:
-                                paths = append(paths, vv.Strval())
+                                if s, e = vv.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
+                                paths = append(paths, s)
                         }
                         p.runtime.MapFile(s, paths)
                 case types.Value:
-                        p.runtime.MapFile(v.Strval(), nil)
+                        if s, e := v.Strval(); e != nil { p.error(prop.Pos(), "%s", e) } else {
+                                p.runtime.MapFile(s, nil)
+                        }
                 default:
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
                 }
@@ -1222,8 +1245,10 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
                 panic("expected evaluated expr (eval)")
         } else if name, _ := ee.Data.(types.Value); name == nil {
                 p.error(ee.Pos(), "Invalid eval symbol (%T).", ee.Data)
-        } else if spec.Resolved = p.runtime.Resolve(name.Strval(), anywhere); spec.Resolved == nil {
-                p.error(ee.Pos(), "Undefined eval symbol `%s' (%v).", name.Strval(), name)
+        } else if s, err := name.Strval(); err != nil {
+                p.error(spec.Props[0].Pos(), err)
+        } else if spec.Resolved = p.runtime.Resolve(s, anywhere); spec.Resolved == nil {
+                p.error(ee.Pos(), "Undefined eval symbol `%s' (%v).", s, name)
         } else if err := p.runtime.ClauseEval(spec); err != nil {
                 p.error(spec.Pos(), err)
         }
@@ -1368,7 +1393,9 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         name = t.Name() // name is previously defined (e.g. in another scope)
                         ident = &ast.Bareword{ ident.Pos(), name }
                 default: //case *types.Bareword:
-                        name = v.Strval()
+                        if name, e = v.Strval(); e != nil {
+                                p.error(ident.Pos(), "%s", e)
+                        }
                 }
 
                 if name == "docker-exec-image" {
@@ -1621,7 +1648,8 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         }
                                         v, e := p.runtime.Eval(kv.Key, StringValue)
                                         if e == nil {
-                                                var name = v.Strval()
+                                                var name string
+                                                if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
                                                 if sym, alt := p.runtime.Symbol(name, types.DefType); alt != nil {
                                                         p.error(p.pos, "Name `%s' already taken (%T).", name, alt)
                                                 } else if sym == nil {
@@ -1642,7 +1670,8 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         switch elem.(type) {
                                         case *ast.Bareword, *ast.Barecomp:
                                                 if v, e := p.runtime.Eval(elem, StringValue); e == nil {
-                                                        var name = v.Strval()
+                                                        var name string
+                                                        if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
                                                         if sym, alt := p.runtime.Symbol(name, types.DefType); alt != nil {
                                                                 p.error(p.pos, "Name `%s' already taken, not parameter (%T).", name, alt)
                                                         } else if sym == nil {
@@ -1662,21 +1691,21 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                         case *ast.DelegateExpr, *ast.ClosureExpr, *ast.Barecomp, *ast.BasicLit:
                                 v, e := p.runtime.Eval(n, StringValue)
                                 if e != nil {
-                                        p.error(n.Pos(), "%v (%v)", e, n)
-                                        goto next
+                                        p.error(n.Pos(), "%v (%v)", e, n); goto next
                                 }
-                                if name, pos = v.Strval(), x.Pos(); name == "" {
-                                        p.error(n.Pos(), "empty name (%v)", n)
-                                        goto next
+                                if name, e = v.Strval(); e != nil {
+                                        p.error(n.Pos(), "%v", e); goto next
+                                } else if name == "" {
+                                        p.error(n.Pos(), "empty name (%v)", n); goto next
                                 }
+                                pos = x.Pos()
                                 goto checkName
                         default:
                                 p.error(n.Pos(), "unsupported dialect or modifier (%T)", t.Elems[0])
                                 goto next
                         }
                 default:
-                        p.error(x.Pos(), "unsupported modifier")
-                        goto next
+                        p.error(x.Pos(), "unsupported modifier"); goto next
                 }
                 goto addModifier
 
@@ -1751,8 +1780,10 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         continue
                 }
 
-                var name = v.Strval()
-                if name == "" {
+                var name string
+                if name, e = v.Strval(); e != nil {
+                        p.error(target.Pos(), "%v", e); continue
+                } else if name == "" {
                         p.error(target.Pos(), "empty name (%v)", target); continue
                 } else if name == "use" {
                         if i == 0 && len(targets) == 1 {
