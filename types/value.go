@@ -2166,6 +2166,11 @@ func JoinEval(scope *Scope, args... Value) (elems []Value, err error) {
         return
 }
 
+func Eval(scope *Scope, value Value) (res Value, err error) {
+        if value, err = Disclose(scope, value); err != nil { return }
+        res, err = Reveal(value); return
+}
+
 func Delegate(pos token.Position, obj Object, args... Value) Value {
         return &delegate{ pos, obj, args, nil }
 }
