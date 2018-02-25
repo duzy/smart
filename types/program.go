@@ -140,18 +140,18 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
         return
 }
 
-func (prog *Program) discloseRecipes() (recipes []Value, err error) {
-        context := prog.disctx
+func (prog *Program) disclose(values []Value) (result []Value, err error) {
+        var context = prog.disctx
         if context == nil {
                 context = prog.scope
         }
-        for _, recipe := range prog.recipes {
-                if v, e := Disclose(context, recipe); e != nil {
+        for _, value := range values {
+                if v, e := Disclose(context, value); e != nil {
                         return nil, e
                 } else if v != nil {
-                        recipe = v
+                        value = v
                 }
-                recipes = append(recipes, recipe) // EvalElems
+                result = append(result, value)
         }
         return
 }
@@ -161,7 +161,7 @@ func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err err
                 recipes []Value
                 target, value Value
         )
-        if recipes, err = prog.discloseRecipes(); err != nil {
+        if recipes, err = prog.disclose(prog.recipes); err != nil {
                 return
         }
         if value, err = i.Evaluate(prog, params, recipes); err == nil {
@@ -181,8 +181,14 @@ func (prog *Program) modify(m modifier, out *Def) (dialect string, err error) {
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
         if f, ok := modifiers[m.name]; ok {
-                var value = out.Value
-                if value, err = f(prog.position, prog, value, m.args...); err == nil && value !=  nil {
+                var (
+                        value = out.Value
+                        args []Value
+                )
+                if args, err = prog.disclose(m.args); err != nil {
+                        return
+                }
+                if value, err = f(prog.position, prog, value, args...); err == nil && value !=  nil {
                         out.Assign(value)
                 }
         } else if i, _ := dialects[m.name]; i != nil {

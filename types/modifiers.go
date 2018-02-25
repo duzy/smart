@@ -262,7 +262,7 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
                         outdated = true; return // target is outdated
                 } else {
                         var recipes []Value
-                        if recipes, err = prog.discloseRecipes(); err != nil {
+                        if recipes, err = prog.disclose(prog.recipes); err != nil {
                                 return
                         }
                         if same, e := prog.project.CheckCmdHash(target, recipes); e == nil {
