@@ -456,7 +456,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 
 func (p *parser) parseBadExpr(lhs bool) (x ast.Expr) {
         pos := p.pos
-        p.warn(pos, "weird '%v'\n", p.tok)
+        p.warn(pos, "bad '%v'\n", p.tok)
         p.errorExpected(pos, "clause or expression")
         p.next() // go to next token
         return &ast.BadExpr{ From:pos, To:p.pos }
@@ -488,6 +488,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
 		defer un(trace(p, "Select"))
 	}
 
+        p.next() // skip '->'
         defer p.setbits(p.setbit(composingSELECT))
 
         var (
@@ -496,7 +497,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                 fieldValue types.Value
                 fieldName string
                 where = anywhere
-                rhs = p.checkExpr(p.parseNextExpr(false)) // skip '->'
+                rhs = p.checkExpr(p.parseExpr(false))
                 err error
         )
 
@@ -590,7 +591,6 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
 
         DoneSelect: res = &ast.EvaluatedExpr{ rhs, fieldValue }
         if p.tok == token.SELECT {
-                p.next() // Drop '->' before next selection.
                 // Continue the selection recursivly.
                 res = p.parseSelect(res)
         }
@@ -1130,7 +1130,9 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 
                 case token.COMPOSED, token.COMMA, token.COLON:
                 case token.RPAREN, token.RBRACK, token.RBRACE:
-                case token.LINEND: // By pass the above tokens for further composion!
+                case token.SELECT, token.LINEND:
+                        // Compose nothing at this point!
+
                 default:if x.End() == p.pos { // further composing
                         var y = p.parseComposedExpr(lhs)
                         if comp, _ := x.(*ast.Barecomp); comp == nil {

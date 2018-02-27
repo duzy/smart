@@ -1,5 +1,7 @@
 project
 
+import ./plains
+
 eval println $.
 eval println $/
 eval println &.
@@ -15,3 +17,10 @@ foo:[(cd -)]: &(dir)/foobar
 	@echo $(CWD)
 	@pwd
 	@touch $@ && ls $@
+
+plain-foo-1:
+	error "$@ undefined"
+plain-foo-2:
+	error "$@ undefined"
+plain:[(plain text)]
+	&{plain-foo-1}; &{plain-foo-2}; &{plains->plain-foo-3}

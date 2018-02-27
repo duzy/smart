@@ -8,6 +8,7 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
+        //"fmt"
 )
 
 type dialectPlain struct {
@@ -19,6 +20,7 @@ func (t *dialectPlain) Evaluate(prog *types.Program, args []types.Value, recipes
                 if name, err = args[0].Strval(); err != nil { return }
         }
         if str, err = joinRecipesString(recipes...); err != nil { return }
+        //fmt.Printf("plain: %s\n", str)
         result = &types.Plain{ str, name, }
         return
 }

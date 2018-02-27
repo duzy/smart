@@ -109,6 +109,7 @@ type Program struct {
         globe   *Globe
         project *Project
         scope   *Scope
+        closure *Scope
         disctx  *Scope
         caller  *Preparer
         params  []string // named parameters
@@ -142,12 +143,13 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
 
 func (prog *Program) disclose(values []Value) (result []Value, err error) {
         var context = prog.disctx
-        if context == nil {
-                context = prog.scope
-        }
+        if  context == nil { context = prog.closure }
+        if  context == nil { context = prog.scope }
+        //fmt.Printf("disclose: %v\t%v\t%v\n", prog.project.name, prog.disctx, prog.closure)
         for _, value := range values {
-                if v, e := Disclose(context, value); e != nil {
-                        return nil, e
+                var v Value
+                if v, err = value.disclose(context); err != nil {
+                        return
                 } else if v != nil {
                         value = v
                 }

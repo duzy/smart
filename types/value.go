@@ -1688,8 +1688,21 @@ func (p *closure) disclose(scope *Scope) (res Value, err error) {
         // Disclose the object, it's value may have disclosures.
         if v, err = o.disclose(scope); err != nil {
                 return
-        } else if obj, _ := v.(Object); obj != nil {
-                o, changed = obj, true
+        } else if v != nil {
+                if o, _ = v.(Object); o != nil {
+                        changed = true
+                } else {
+                        err = fmt.Errorf("invalid closure %v", v)
+                        return
+                }
+        }
+
+        switch t := o.(type) {
+        case *RuleEntry:
+                //fmt.Printf("closure: %v %v\n", t, scope)
+                for _, prog := range t.programs {
+                        prog.closure = scope
+                }
         }
 
         var args []Value

@@ -4,4 +4,16 @@ import ./test
 
 dir = default
 
+nonthing:
+
+plain-foo-1:[(plain text)]
+	foo-plain-1
+plain-foo-2:[(plain text)]
+	foo-plain-2
+plain-foo-3:[(plain text)]
+	foo-plain-3
+plain-text:[(plain text)]
+	${test->plain}
 all: test->foo
+	println &{plain-text}
+	println $(test->plains->foo)

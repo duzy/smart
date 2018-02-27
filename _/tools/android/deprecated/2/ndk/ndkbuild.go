@@ -289,7 +289,7 @@ func (n *delegate) dumpSingle(abi string) (res *dump) {
         }
 
         if c.Run("", vars...) {
-                //fmt.Printf( "%v", c.GetStdout().String() )
+                //fmt.Printf("%v", c.GetStdout().String())
                 ctx, e := NewContext("DummyDump", c.GetStdout().Bytes(), nil)
                 if e != nil { Fatal("DummyDump: %v", e) }
                 //res.appName = ctx.Call("NDK_APP_NAME")
