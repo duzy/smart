@@ -56,7 +56,7 @@ func enterWorkdir(prog *Program, print bool) (wi *workinfo) {
                         }
                 }
                 if trace_workdir {
-                        fmt.Printf("entering: %v (%v)\n", project.AbsPath(), print)
+                        fmt.Printf("entering: %v (print=%v)\n", project.AbsPath(), print)
                 }
                 if print {
                         fmt.Printf("smart: Entering directory '%s'\n", project.AbsPath())

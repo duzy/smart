@@ -119,7 +119,12 @@ func (ctx *Context) Run(targets... string) (err error) {
         }
         if err == nil && result != nil && len(result) > 0 {
                 for _, v := range result {
-                        fmt.Printf(v.Strval())
+                        var s string
+                        if s, err = v.Strval(); err != nil {
+                                fmt.Printf("%s [%s]", v, err)
+                        } else {
+                                fmt.Printf("%s", s)
+                        }
                 }
         }
         return
