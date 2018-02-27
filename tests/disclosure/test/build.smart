@@ -23,4 +23,4 @@ plain-foo-1:
 plain-foo-2:
 	error "$@ undefined"
 plain:[(plain text)]
-	&{plain-foo-1}; &{plain-foo-2}; &{plains->plain-foo-3}
+	&{plain-foo-1}; &{plain-foo-2}; &{plains->plain-foo-3}; ${plains->plain-foo-3}

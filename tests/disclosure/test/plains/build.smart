@@ -7,4 +7,4 @@ plain-foo-1:
 plain-foo-2:
 	error "$@ undefined"
 plain-foo-3:[(plain text)]
-	&{plain-foo-1} &{plain-foo-2} '$@'
+	plains: &{plain-foo-1} &{plain-foo-2} '$@'

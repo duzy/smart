@@ -126,6 +126,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 fmt.Printf("%s", s)
                         }
                 }
+                fmt.Printf("\n")
         }
         return
 }

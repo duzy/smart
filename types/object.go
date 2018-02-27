@@ -299,24 +299,26 @@ func (d *Def) AssignExec(a... Value) (res Value, err error) {
                         return
                 }
         }
-        return d.Assign(&String{strings.TrimSpace(stdout.String())})
+        return d.Assign(strval(strings.TrimSpace(stdout.String())))
 }
 
 func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
-        if res, err = Reveal(d.Value); err != nil {
+        if d.origin != ImmediateDef {
+                res = d.Value
+        } else if res, err = Reveal(d.Value); err != nil {
                 //fmt.Printf("%v: %v\n", d.position, err)
         }
         return
 }
 
 func (d *Def) DiscloseValue(scope *Scope) (Value, error) {
-        return Disclose(scope, d.Value)
+        return d.Value.disclose(scope)
 }
 
 func (d *Def) Get(name string) (Value, error) {
         switch name {
-        case "name": return &String{d.name}, nil
+        case "name": return strval(d.name), nil
         case "value": return d.Value, nil
         }
         //fmt.Printf("%v %v\n", d.name, d.parent)
@@ -508,8 +510,8 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
 
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
-        case "class": return &String{entry.class.String()}, nil
-        case "name": return &String{entry.name}, nil
+        case "class": return strval(entry.class.String()), nil
+        case "name": return strval(entry.name), nil
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
 }
@@ -667,6 +669,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                         fmt.Printf("prepare:Execute: %v (%s -> %s)\n", entry.name, prog.project.name, c.program.project.name)
                 }
         }
+        
         defer prog.setCallerContext(prog.setCallerContext(caller, caller.program.project.scope))
 
         // Execute the updating program.

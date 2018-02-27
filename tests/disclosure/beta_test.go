@@ -38,7 +38,21 @@ default/foobar
 default
 .
 %s
-`, wd, wd, wd))
+smart: Entering directory '%s/test'
+smart: Entering directory '%s/test/plains'
+smart:  Leaving directory '%s/test/plains'
+smart: Entering directory '%s/test/plains'
+smart:  Leaving directory '%s/test/plains'
+smart:  Leaving directory '%s/test'
+disclosure: plain-foo-1 default; disclosure: plain-foo-2 default; disclosure: plain-foo-3 default; plains: disclosure: plain-foo-1 default disclosure: plain-foo-2 default 'plain-foo-3'
+test-plains-foo
+smart: Entering directory '%s/test'
+smart: Entering directory '%s/test/plains'
+smart:  Leaving directory '%s/test/plains'
+smart: Entering directory '%s/test/plains'
+smart:  Leaving directory '%s/test/plains'
+smart:  Leaving directory '%s/test'
+`, wd, wd, wd, wd, wd, wd, wd, wd, wd, wd, wd, wd, wd, wd, wd))
                         if !bytes.Equal(v, s) { t.Errorf("bad output:\n%s\n%s", v, s) }
 
                         v = []byte(``)

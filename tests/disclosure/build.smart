@@ -4,16 +4,13 @@ import ./test
 
 dir = default
 
-nonthing:
+start: test->foo
+	println ${test->plain}
+	println $(test->plains->foo)
 
 plain-foo-1:[(plain text)]
-	foo-plain-1
+	disclosure: $@ $(dir)
 plain-foo-2:[(plain text)]
-	foo-plain-2
+	disclosure: $@ $(dir)
 plain-foo-3:[(plain text)]
-	foo-plain-3
-plain-text:[(plain text)]
-	${test->plain}
-all: test->foo
-	println &{plain-text}
-	println $(test->plains->foo)
+	disclosure: $@ $(dir)

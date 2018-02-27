@@ -186,8 +186,6 @@ func (pc *Preparer) disctx() (context *Scope) {
         return
 }
 
-func (pc *Preparer) Targets() *List { return pc.targets }
-
 func (pc *Preparer) forEachExternalCaller(f func (*Project) (bool, error)) (err error, brk bool) {
         var triedm = map[*Project]bool{ pc.program.project:true }
         if brk, err = f(pc.program.project); brk {
@@ -457,17 +455,12 @@ func (p *Bareword) prepare(pc *Preparer) error {
         return pc.prepareTarget(p.Value)
 }
 
-func (pc *Preparer) prepareTargetValue(value Value) error {
-        if v, e := value.disclose(pc.disctx()); e != nil {
-                return e
-        } else {
-                if v == nil { v = value }
-                if s, e := v.Strval(); e == nil {
-                        return pc.prepareTarget(s)
-                } else {
-                        return e
-                }
-        }
+func (pc *Preparer) prepareTargetValue(value Value) (err error) {
+        var ( v Value; s string )
+        if v, err = value.disclose(pc.disctx()); err != nil { return }
+        if v == nil { v = value }
+        if s, err = v.Strval(); err != nil { return }
+        return pc.prepareTarget(s)
 }
 
 // patternPrepareError indicates an error occurred in preparing a pattern.
@@ -575,22 +568,18 @@ func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *Elements) ToList() *List         { return &List{*p} }
 
-func (p *Elements) disclose(scope *Scope) ([]Value, int, error) {
-        var ( elems []Value; num int )
+func (p *Elements) disclose(scope *Scope) (elems []Value, num int, err error) {
+        var v Value
         for _, elem := range p.Elems {
-                //fmt.Printf("Elements.disclose: %T %v\n", elem, elem)
-                if elem == nil {
-                        continue
-                }
-                if v, e := elem.disclose(scope); e != nil {
-                        return nil, 0, e
-                } else if v != nil {
+                if elem == nil { continue }
+                if v, err = elem.disclose(scope); err != nil { return }
+                if v != nil {
                         elem = v
                         num += 1
                 }
                 elems = append(elems, elem)
         }
-        return elems, num, nil
+        return
 }
 
 func (p *Elements) referencing(o Object) bool {
@@ -661,13 +650,14 @@ func (p *Barefile) Integer() (res int64, err error) {
         return
 }
 func (p *Barefile) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *Barefile) disclose(scope *Scope) (Value, error) {
-        if name, err := p.Name.disclose(scope); err != nil {
-                return nil, err
+func (p *Barefile) disclose(scope *Scope) (res Value, err error) {
+        var name Value
+        if name, err = p.Name.disclose(scope); err != nil {
+                return
         } else if name != nil {
-                return &Barefile{ name, p.File }, nil
+                res = &Barefile{ name, p.File }
         }
-        return nil, nil
+        return
 }
 func (p *Barefile) referencing(o Object) bool {
         return p.Name.referencing(o)
@@ -779,13 +769,11 @@ func (p *Path) Strval() (s string, e error) {
 func (p *Path) Integer() (int64, error) { return 0, nil }
 func (p *Path) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *Path) Type() Type { return PathType }
-func (p *Path) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.Elements.disclose(scope); err != nil {
-                return nil, err
-        } else if num > 0 {
-                return &Path{ Elements{ elems }, p.File }, nil
-        }
-        return nil, nil
+func (p *Path) disclose(scope *Scope) (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.disclose(scope); err != nil { return }
+        if num > 0 { res = &Path{ Elements{ elems }, p.File } }
+        return
 }
 
 /*func (p *Path) Dir() (s string) { // Same as `filepath.Dir(p.Strval())`.
@@ -1227,13 +1215,11 @@ func (p *Flag) Strval() (s string, e error) {
 func (p *Flag) Integer() (int64, error) { return 0, nil }
 func (p *Flag) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
-func (p *Flag) disclose(scope *Scope) (Value, error) {
-        if name, err := p.Name.disclose(scope); err != nil {
-                return nil, err
-        } else if name != nil {
-                return &Flag{ name }, nil
-        }
-        return nil, nil
+func (p *Flag) disclose(scope *Scope) (res Value, err error) {
+        var name Value
+        if name, err = p.Name.disclose(scope); err != nil { return }
+        if name != nil { res = &Flag{ name } }
+        return
 }
 
 func (p *Flag) referencing(o Object) bool {
@@ -1269,13 +1255,11 @@ func (p *Compound) Type() Type { return CompoundType }
 func (p *Compound) Integer() (int64, error) { return int64(len(p.Elems)), nil }
 func (p *Compound) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
-func (p *Compound) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.Elements.disclose(scope); err != nil {
-                return nil, err
-        } else if num > 0 {
-                return &Compound{ Elements{ elems } }, nil
-        }
-        return nil, nil
+func (p *Compound) disclose(scope *Scope) (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.disclose(scope); err != nil { return }
+        if num > 0 { res = &Compound{ Elements{ elems } } }
+        return
 }
 
 type List struct {
@@ -1308,13 +1292,11 @@ func (p *List) Strval() (s string, err error) {
         return
 }
 
-func (p *List) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.Elements.disclose(scope); err != nil {
-                return nil, err
-        } else if num > 0 {
-                return &List{ Elements{ elems } }, nil
-        }
-        return nil, nil
+func (p *List) disclose(scope *Scope) (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.disclose(scope); err != nil { return }
+        if num > 0 { res = &List{ Elements{ elems } } }
+        return
 }
 
 func (p *List) compare(c *Comparer) (err error) {
@@ -1377,13 +1359,11 @@ func (p *Group) Strval() (s string, err error) {
         return
 }
 
-func (p *Group) disclose(scope *Scope) (Value, error) {
-        if elems, num, err := p.Elements.disclose(scope); err != nil {
-                return nil, err
-        } else if num > 0 {
-                return &Group{ List{ Elements{ elems } } }, nil
-        }
-        return nil, nil
+func (p *Group) disclose(scope *Scope) (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.disclose(scope); err != nil { return }
+        if num > 0 { res = &Group{ List{ Elements{ elems } } } }
+        return
 }
 
 //type Map struct {
@@ -1426,17 +1406,16 @@ func (p *Pair) SetKey(k Value) {
         }
 }
 
-func (p *Pair) disclose(scope *Scope) (Value, error) {
-        if k, err := p.Key.disclose(scope); err != nil {
-                return nil, err
-        } else if v, err := p.Value.disclose(scope); err != nil {
-                return nil, err
-        } else if k != nil || v != nil {
+func (p *Pair) disclose(scope *Scope) (res Value, err error) {
+        var k, v Value
+        if k, err = p.Key.disclose(scope); err != nil { return }
+        if v, err = p.Value.disclose(scope); err != nil { return }
+        if k != nil || v != nil {
                 if k == nil { k = p.Key }
                 if v == nil { v = p.Value }
-                return &Pair{ k, v }, nil
+                res = &Pair{ k, v }
         }
-        return nil, nil
+        return
 }
 
 func (p *Pair) referencing(o Object) bool {
@@ -1448,7 +1427,7 @@ type delegate struct {
         p token.Position
         o Object
         a []Value
-        dc *Scope // disclosed context
+        closure *Scope // disclosed context
 }
 func (p *delegate) Position() token.Position { return p.p }
 func (p *delegate) Type() Type { return DelegateType }
@@ -1480,7 +1459,7 @@ func (p *delegate) Float() (float64, error) { if v, e := p.eval(); e == nil { re
 func (p *delegate) eval() (res Value, err error) {
         var (
                 args []Value
-                scope = p.dc
+                scope = p.closure
         )
         if scope == nil { scope = p.o.Parent() }
 
@@ -1510,37 +1489,35 @@ func (p *delegate) eval() (res Value, err error) {
         return
 }
 
-func (p *delegate) disclose(scope *Scope) (Value, error) {
-        var (
-                o Object
-                a []Value
-                n = 0
-        )
-
-        if v, e := p.o.disclose(scope); e != nil {
-                return nil, e
-        } else if v != nil {
-                o, _ = v.(Object)
-        } else {
-                o = p.o
-        }
-
-        //fmt.Printf("delegate.disclose: %T -> %T\n", p.o, o)
-
-        for _, t := range p.a {
-                //fmt.Printf("delegate.disclose: a: %T %v\n", t, t)
-                if v, e := t.disclose(scope); e != nil {
-                        return nil, e
-                } else if v != nil {
-                        t, n = v, n+1
+func (p *delegate) disclose(scope *Scope) (res Value, err error) {
+        var ( o = p.o; v Value; changed bool )
+        if v, err = o.disclose(scope); err != nil { return }
+        if v != nil {
+                if o, _ = v.(Object); o != nil {
+                        changed = true
+                } else {
+                        err = fmt.Errorf("invalid delegate %v", v)
+                        return
                 }
-                a = append(a, t)
         }
 
-        if o != nil || n > 0 {
-                return &delegate{ p.p, o, a, scope }, nil
+        switch t := o.(type) {
+        case *RuleEntry:
+                for _, prog := range t.programs {
+                        prog.closure = scope
+                }
         }
-        return nil, nil
+
+        var args []Value
+        for _, a := range p.a {
+                if v, err = a.disclose(scope); err != nil { return }
+                if v != nil { a, changed = v, true }
+                args = append(args, a)
+        }
+        if changed && err == nil {
+                res = &delegate{ p.p, o, args, scope }
+        }
+        return
 }
 
 func (p *delegate) discloseArgs(scope *Scope) (args []Value, err error) {
@@ -1629,6 +1606,7 @@ type closure struct {
         p token.Position
         o Object
         a []Value
+        closure *Scope
 }
 
 func (p *closure) Position() token.Position { return p.p }
@@ -1665,6 +1643,11 @@ func (p *closure) eval() (res Value, err error) {
                         err = fmt.Errorf("&(%s): %v", p.o.Name(), err)
                 }
         case Executer:
+                if t, _ := o.(*RuleEntry); t != nil && p.closure != nil {
+                        for _, prog := range t.programs {
+                                prog.closure = p.closure
+                        }
+                }
                 var a []Value
                 if a, err = o.Execute(p.p, p.a...); err != nil {
                         err = fmt.Errorf("&{%s}: %v", p.o.Name(), err)
@@ -1681,14 +1664,15 @@ func (p *closure) eval() (res Value, err error) {
 }
 func (p *closure) disclose(scope *Scope) (res Value, err error) {
         var ( o Object; v Value; changed bool )
-        if _, o = scope.Find(p.o.Name()); o == nil {
+        if _, o = scope.Find(p.o.Name()); o != nil {
+                changed = true
+        } else {
                 o = p.o
         }
 
         // Disclose the object, it's value may have disclosures.
-        if v, err = o.disclose(scope); err != nil {
-                return
-        } else if v != nil {
+        if v, err = o.disclose(scope); err != nil { return }
+        if v != nil {
                 if o, _ = v.(Object); o != nil {
                         changed = true
                 } else {
@@ -1699,7 +1683,6 @@ func (p *closure) disclose(scope *Scope) (res Value, err error) {
 
         switch t := o.(type) {
         case *RuleEntry:
-                //fmt.Printf("closure: %v %v\n", t, scope)
                 for _, prog := range t.programs {
                         prog.closure = scope
                 }
@@ -1707,16 +1690,12 @@ func (p *closure) disclose(scope *Scope) (res Value, err error) {
 
         var args []Value
         for _, a := range p.a {
-                if v, err = a.disclose(scope); err != nil {
-                        return
-                } else if v != nil {
-                        a, changed = v, true
-                }
+                if v, err = a.disclose(scope); err != nil { return }
+                if v != nil { a, changed = v, true }
                 args = append(args, a)
         }
-
         if changed && err == nil {
-                res = &closure{ p.p, o, args }
+                res = &closure{ p.p, o, args, scope }
         }
         return
 }
@@ -2134,14 +2113,8 @@ func Disclose(scope *Scope, value Value) (res Value, err error) {
         if false {
                 fmt.Printf("Disclose: %T %v\n", value, value)
         }
-        var v Value
-        if v, err = value.disclose(scope); err != nil {
-                return
-        } else if v != nil {
-                res = v
-        } else {
-                res = value
-        }
+        if res, err = value.disclose(scope); err != nil { return }
+        if res == nil { res = value }
         return
 }
 
@@ -2192,7 +2165,7 @@ func Closure(pos token.Position, obj Object, args... Value) Value {
         if obj == nil {
                 panic("closure of nil")
         }
-        return &closure{ pos, obj, args }
+        return &closure{ pos, obj, args, nil }
 }
 
 func Refs(a Value, o Object) bool {

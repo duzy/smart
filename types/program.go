@@ -128,6 +128,12 @@ func (prog *Program) setCallerContext(pc *Preparer, ctx *Scope) (pc0 *Preparer, 
         return
 }
 
+func (prog *Program) setClosure(ctx *Scope) (old *Scope) {
+        old = prog.closure
+        prog.closure = ctx
+        return
+}
+
 func (prog *Program) auto(name string, value Value) (auto *Def) {
         var alt Object
         if auto, alt = prog.scope.InsertDef(prog.project, name, value); alt != nil {
@@ -142,10 +148,9 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
 }
 
 func (prog *Program) disclose(values []Value) (result []Value, err error) {
-        var context = prog.disctx
-        if  context == nil { context = prog.closure }
+        var context = prog.closure
+        if  context == nil { context = prog.disctx }
         if  context == nil { context = prog.scope }
-        //fmt.Printf("disclose: %v\t%v\t%v\n", prog.project.name, prog.disctx, prog.closure)
         for _, value := range values {
                 var v Value
                 if v, err = value.disclose(context); err != nil {
@@ -284,8 +289,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 }
                 return
-        } else if pc.Targets().Len() > 0 {
-                var elems = pc.Targets().Elems[:]
+        } else if pc.targets.Len() > 0 {
+                var elems = pc.targets.Elems[:]
                 for i := 0; i < len(elems); i += 1 {
                         for j := i + 1; j < len(elems); j += 1 {
                                 if dependEquals(elems[i], elems[j]) {
@@ -294,9 +299,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                                 }
                         }
                 }
-                pc.Targets().Elems = elems
-                prog.auto("<", pc.Targets().Elems[0])
-                prog.auto("^", pc.Targets())
+                pc.targets.Elems = elems
+                prog.auto("<", pc.targets.Elems[0])
+                prog.auto("^", pc.targets)
         }
 
         var out = prog.auto("-", UniversalNone)
