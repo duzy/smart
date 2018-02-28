@@ -42,7 +42,7 @@ func enterWorkdir(prog *Program, print bool) (wi *workinfo) {
                 }
         }
         if wd, err := os.Getwd(); err == nil {
-                if s := workstack[l-1].project.AbsPath(); wd != s {
+                if s := workstack[l-1].project.AbsPath(); wd != s && false {
                         fmt.Fprintf(os.Stderr, "%s: workdir changed ('%s' != (project)'%s')\n", prog.position, wd, s)
                 }
                 if print = print && !prog.hasCDDash(); print {
