@@ -312,10 +312,6 @@ func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
         return
 }
 
-func (d *Def) DiscloseValue(scope *Scope) (Value, error) {
-        return d.Value.disclose(scope)
-}
-
 func (d *Def) Get(name string) (Value, error) {
         switch name {
         case "name": return strval(d.name), nil

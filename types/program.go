@@ -121,6 +121,12 @@ type Program struct {
 
 func (prog *Program) Position() token.Position { return prog.position }
 func (prog *Program) Scope() *Scope { return prog.scope }
+func (prog *Program) Closure() *Scope {
+        var context = prog.closure
+        if  context == nil { context = prog.disctx }
+        if  context == nil { context = prog.scope }
+        return context
+}
 
 func (prog *Program) setCallerContext(pc *Preparer, ctx *Scope) (pc0 *Preparer, ctx0 *Scope) {
         pc0, ctx0 = prog.caller, prog.disctx
@@ -148,9 +154,7 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
 }
 
 func (prog *Program) disclose(values []Value) (result []Value, err error) {
-        var context = prog.closure
-        if  context == nil { context = prog.disctx }
-        if  context == nil { context = prog.scope }
+        var context = prog.Closure()
         for _, value := range values {
                 var v Value
                 if v, err = value.disclose(context); err != nil {

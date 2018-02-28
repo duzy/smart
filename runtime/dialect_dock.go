@@ -114,15 +114,11 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 dockScope = dock.Project().Scope()
                 container, image string
         )
-        if container, err = dockScope.DiscloseDef(prog.Scope(), "container"); err != nil { return }
-        if image, err = dockScope.DiscloseDef(prog.Scope(), "image"); err != nil { return }
-        if image == "" {
-        }
-        if container == "" {
-                err = fmt.Errorf("unknown container"); return
-        } else if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
-                return
-        }
+        if container, err = dockScope.DiscloseDef(prog.Closure(), "container"); err != nil { return }
+        if image, err = dockScope.DiscloseDef(prog.Closure(), "image"); err != nil { return }
+        if container == "" { err = fmt.Errorf("unknown container"); return }
+        if image == "" { err = fmt.Errorf("unknown image"); return }
+        if args, err = types.JoinEval(prog.Closure(), args...); err != nil { return }
 
         if false {
                 if err = s.ensureContainerRunning(prog, dock, container); err != nil {
@@ -168,7 +164,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 if envarsDef, _ := prog.Scope().Lookup(types.TheShellEnvarsDef).(*types.Def); envarsDef != nil {
                         if l, _ := envarsDef.Value.(*types.List); l != nil {
                                 for _, v := range l.Elems {
-                                        if v, err = types.Disclose(prog.Scope(), v); err != nil {
+                                        if v, err = types.Disclose(prog.Closure(), v); err != nil {
                                                 return
                                         } else {
                                                 envars = append(envars, v)
@@ -275,7 +271,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 var sh = exec.Command(cmd, a...)
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
-                        if v, err = types.Disclose(prog.Scope(), v); err != nil {
+                        if v, err = types.Disclose(prog.Closure(), v); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)
