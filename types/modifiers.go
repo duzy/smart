@@ -706,8 +706,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
 
         // Check existed file content checksum
         if content, err = value.Strval(); err != nil { return }
-        if f, err = os.Create(filename); err != nil { return }
-        if f != nil {
+        if f, err = os.Open(filename); err == nil && f != nil {
                 defer f.Close()
                 if st, _ := f.Stat(); st.Mode().Perm() != perm {
                         if err = f.Chmod(perm); err != nil {
@@ -731,11 +730,12 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 }
         }
 
-        if s, err = args[0].Strval(); err != nil { return }
+        if len(args) > 0 {
+                if s, err = args[0].Strval(); err != nil { return }
+        }
+
         var slient = len(args) > 0 && s == "slient"
         if !slient {
-                //s, _ := os.Getwd()
-                //fmt.Printf("update file `%v' (%s) ..", filename, s)
                 fmt.Printf("update file '%v' ..", filename)
         }
 
