@@ -195,9 +195,9 @@ func (s *Scope) FindEntry(name string) *RuleEntry {
 func (s *Scope) DiscloseDef(context *Scope, name string) (str string, err error) {
         if def := s.FindDef(name); def != nil {
                 var v Value
-                if v, err = def.Value.disclose(context); err != nil { return }
-                if v == nil { v = def.Value }
-                str, err = v.Strval()
+                if v, err = def.DiscloseValue(context); err == nil && v != nil {
+                        str, err = v.Strval()
+                }
         }
         return
 }
