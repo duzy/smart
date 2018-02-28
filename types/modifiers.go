@@ -706,7 +706,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
 
         // Check existed file content checksum
         if content, err = value.Strval(); err != nil { return }
-        if f, err = os.Open(filename); err != nil { return }
+        if f, err = os.Create(filename); err != nil { return }
         if f != nil {
                 defer f.Close()
                 if st, _ := f.Stat(); st.Mode().Perm() != perm {
