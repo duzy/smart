@@ -296,49 +296,36 @@ func builtinMinus(pos token.Position, context *Scope, args... Value) (result Val
 }
 
 func builtinJoin(pos token.Position, context *Scope, args... Value) (res Value, err error) {
-        if args, err = JoinEval(context, args...); err != nil {
-                return
-        }
+        if args, err = JoinEval(context, args...); err != nil { return }
         if l := len(args); l >= 2 {
                 var (
                         fields []string
                         v string
                 )
                 for _, a := range args[:l-1] {
-                        if v, err = a.Strval(); err == nil {
-                                fields = append(fields, v)
-                        } else {
-                                return nil, err
-                        }
+                        if v, err = a.Strval(); err != nil { return }
+                        if v != "" { fields = append(fields, v) }
                 }
-                if v, err = args[l-1].Strval(); err == nil {
-                        return &String{strings.Join(fields, v)}, nil
-                } else {
-                        return nil, err
-                }
+                if v, err = args[l-1].Strval(); err != nil { return }
+                res = &String{strings.Join(fields, v)}
         }
-        return nil, nil
+        return
 }
 
 func builtinJointQuote(pos token.Position, context *Scope, args... Value) (res Value, err error) {
-        if args, err = JoinEval(context, args...); err != nil {
-                return
-        }
+        if args, err = JoinEval(context, args...); err != nil { return }
         if l := len(args); l >= 3 {
                 var (
                         fields []string
                         v string
                 )
                 for _, a := range args[:l-1] {
-                        if v, err = a.Strval(); err == nil {
-                                fields = append(fields, strconv.Quote(v))
-                        } else {
-                                return nil, err
-                        }
+                        if v, err = a.Strval(); err != nil { return }
+                        if v != "" { fields = append(fields, strconv.Quote(v)) }
                 }
-                if v, err = args[l-1].Strval(); err == nil {
-                        res = &String{strings.Join(fields, v)}
-                }
+                if v, err = args[l-1].Strval(); err != nil { return }
+                if v == "" { v = " " }
+                res = &String{strings.Join(fields, v)}
         }
         return
 }
@@ -350,17 +337,11 @@ func builtinField(pos token.Position, context *Scope, args... Value) (res Value,
                         s string
                         fields []string
                 )
-                if i, err = args[0].Integer(); err != nil {
-                        return
-                }
-                if s, err = args[1].Strval(); err != nil {
-                        return
-                }
+                if i, err = args[0].Integer(); err != nil { return }
+                if s, err = args[1].Strval(); err != nil { return }
                 if l > 2 {
                         var v string
-                        if v, err = args[2].Strval(); err != nil {
-                                return
-                        }
+                        if v, err = args[2].Strval(); err != nil { return }
                         fields = strings.Split(s, v)
                 } else {
                         fields = strings.Fields(s)
@@ -752,7 +733,7 @@ func builtinIndent(pos token.Position, context *Scope, args... Value) (res Value
                         }
                         args, s = args[1:], strings.Repeat(" ", int(i))
                 } else {
-                        return nil, errors.New("Require (first/last) integer argument")
+                        return nil, errors.New("requires integer argument (first|last)")
                 }
         }
         for _, a := range args {

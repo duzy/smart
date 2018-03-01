@@ -2095,16 +2095,11 @@ func Reveal(v Value) (res Value, err error) {
         switch t := v.(type) {
         case *delegate: res, err = t.eval()
         case *List:
-                var ( elems []Value; num = 0 )
-                if elems, num, err = revealElems(t.Elems); err != nil { return }
-                if num > 0 {
-                        res = &List{Elements{elems}}
-                } else {
-                        res = t
-                }
-        default:
-                res = v
+                var ( elems []Value; changed = 0 )
+                if elems, changed, err = revealElems(t.Elems); err != nil { return }
+                if changed > 0 { res = &List{Elements{elems}} }
         }
+        if res == nil { res = v }
         return
 }
 
@@ -2121,13 +2116,18 @@ func Disclose(scope *Scope, value Value) (res Value, err error) {
 // Join combines lists recursively into one list.
 func Join(args... Value) (elems []Value) {
         for _, arg := range args {
-                switch t := arg.(type) {
+                /* switch t := arg.(type) {
                 case *List:
                         for _, elem := range t.Elems {
                                 elems = append(elems, Join(elem)...)
                         }
                 default:
                         elems = append(elems, t)
+                } */
+                if l, _ := arg.(*List); l != nil {
+                        elems = append(elems, Join(l.Elems...)...)
+                } else {
+                        elems = append(elems, arg)
                 }
         }
         return
@@ -2135,7 +2135,7 @@ func Join(args... Value) (elems []Value) {
 
 // JoinReveal join revealed elements into one list.
 func JoinReveal(args... Value) (elems []Value, err error) {
-        for _, elem := range args {
+        for _, elem := range Join(args...) {
                 if elem, err = Reveal(elem); err != nil { break }
                 elems = append(elems, Join(elem)...)
         }
@@ -2144,10 +2144,16 @@ func JoinReveal(args... Value) (elems []Value, err error) {
 
 // JoinEval join evaluated (disclosed and revealed) elements into one list.
 func JoinEval(scope *Scope, args... Value) (elems []Value, err error) {
-        for _, elem := range args {
+        for _, elem := range Join(args...) {
                 if elem, err = Disclose(scope, elem); err != nil { break }
                 if elem, err = Reveal(elem); err != nil { break }
-                elems = append(elems, Join(elem)...)
+                if l, _ := elem.(*List); l != nil {
+                        var a []Value
+                        if a, err = JoinEval(scope, l.Elems...); err != nil { return }
+                        elems = append(elems, a...)
+                } else {
+                        elems = append(elems, elem)
+                }
         }
         return
 }

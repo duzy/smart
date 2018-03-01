@@ -606,7 +606,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
         if p.lineComment != nil {
                 return true
         }
-        if p.tok == token.RPAREN || p.tok == token.RBRACK /*|| p.tok == token.COLON_RBK*/ {
+        if p.tok == token.RPAREN || p.tok == token.RBRACK || p.tok == token.RBRACE /*|| p.tok == token.COLON_RBK*/ {
                 return true
         }
         if p.tok.IsRuleDelim() {
@@ -622,7 +622,8 @@ func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
 		defer un(trace(p, "List"))
 	}
         for !p.isEndOfList(lhs) {
-                list = append(list, p.checkExpr(p.parseExpr(lhs)))
+                x := p.checkExpr(p.parseExpr(lhs))
+                list = append(list, x)
                 // If there's a comment right after the parsed expression, we break
                 // the expression list to treat the end-of-line comment like a LINEND.
                 if p.lineComment != nil {

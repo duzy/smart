@@ -120,7 +120,7 @@ const (
 
 const (
         isCompoundLine    context = 1 << iota
-        isCompoundString
+        isCompoundString    // "...."
         isCompoundCallIdent // $.....
         isCompoundCallParen // $(...)
         isCompoundCallBrace // ${...}
@@ -804,7 +804,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	pos = s.file.Pos(s.offset)
 
         if s.context&(isCompoundLine|isCompoundString) != 0 {
-                //fmt.Printf("context: '%v' (%v)\n", string(s.ch), s.context)
+                // FIXME: this plain compound failed!
+                // 
+                //yaml:[((name port hosts)) (plain yaml)]
+                //	$(indent 4,$(join 'names:',$(names),"\n- "))
+                //
+                //fmt.Printf("context: '%v' (%v)\n", string(s.ch), (s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace)))
                 if s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace) == 0 {
                         switch {
                         case s.context&isCompoundLine != 0:
