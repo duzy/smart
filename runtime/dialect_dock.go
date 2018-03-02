@@ -262,7 +262,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                         shi = defaultShellInterpreter
                 }
 
-                if container == "-" {
+                if container == "-" && image == "-" {
                         cmd, a = shi, []string{ "-c", src }
                 } else {
                         cmd, a = "docker", append(a, container, shi, "-c", src)

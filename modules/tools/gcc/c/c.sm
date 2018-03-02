@@ -1,5 +1,9 @@
 project (tools/gcc/generic)
 
+import (
+    dock-auto
+)
+
 files (
     *.s
     *.c *.h
@@ -28,8 +32,6 @@ AR = ar
 #ARFLAGS = rv #crus
 ARFLAGS = rvs
 ARCHIVE = &(AR) &(ARFLAGS)
-
-dock -
 
 program:[(cd -) ((bin objects)) (compare $(bin)) (dock shell -oe)]: $(objects)
 	@if test -z "$^"; then echo "c++: link no objects"; false; else true; fi

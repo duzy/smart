@@ -1,5 +1,9 @@
 project (tools/gcc/c)
 
+import (
+    dock-auto
+)
+
 files (
     *.cpp *.cc *.C *.cxx *.c++
     *.hpp *.hh *.H *.hxx *.h++
@@ -21,8 +25,6 @@ LDFLAGS =
 LINK-cc = &(CXX) &(CXXFLAGS) &(CPPFLAGS) &(LDFLAGS) &(TARGET_ARCH)
 LINK-o = &(CXX) &(LDFLAGS) &(TARGET_ARCH)
 LINK = $(LINK-cc)
-
-dock -
 
 program:[((bin objects)) (cd -) (compare $(bin)) (dock shell -oe)]: $(objects)
 	@if test -z "$^"; then echo "c++.link: '$$^' is empty ($(objects))"; false; else true; fi
