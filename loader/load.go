@@ -1027,7 +1027,7 @@ func (l *Loader) load(specName, absPath string, source interface{}) error {
 }
 
 func (l *Loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (err error) {
-        //fmt.Printf("loadDir: %v: %v (%v)\n", l.project.Name(), specName, absDir)
+        //fmt.Printf("loadDir: %v: %v (%v)\n", l.project, specName, absDir)
 
         if !filepath.IsAbs(absDir) {
                 panic(fmt.Sprintf("Invalid abs name `%s' (%s).", absDir, specName))

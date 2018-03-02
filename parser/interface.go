@@ -336,19 +336,22 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
 
 	mods = make(map[string]*ast.Project)
 	ListLoop: for _, d := range list {
-                filename, mo, linked := filepath.Join(path, d.Name()), d.Mode(), ""
+                var (
+                        filename, mo = filepath.Join(path, d.Name()), d.Mode()
+                        linked, linkPath = "", path
+                )
                 for fn := filename; mo&os.ModeSymlink != 0; {
                         if s, err := os.Readlink(fn); err != nil {
                                 continue ListLoop
                         } else {
-                                if !filepath.IsAbs(s) {
-                                        s = filepath.Join(path, s)
-                                }
+                                rel := !filepath.IsAbs(s)
+                                if rel { s = filepath.Join(linkPath, s) }
                                 if fi, err := os.Lstat(s); err != nil {
                                         continue ListLoop
                                 } else {
-                                        mo, linked = fi.Mode(), s
-                                        fn = linked
+                                        if rel { linkPath = filepath.Dir(s) }
+                                        mo, fn = fi.Mode(), s
+                                        linked = fn
                                 }
                         }
                 }
