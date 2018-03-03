@@ -590,7 +590,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         }
 
         DoneSelect: res = &ast.EvaluatedExpr{ rhs, fieldValue }
-        if p.tok == token.SELECT {
+        if p.tok == token.SELECT && rhs.End() == p.pos {
                 // Continue the selection recursivly.
                 res = p.parseSelect(res)
         }

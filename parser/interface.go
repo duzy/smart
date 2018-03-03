@@ -215,17 +215,13 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 }
 
 func (c *Context) ParseConfigDir(pathname, linked string) (err error) {
-	fd, err := os.Open(linked)
-	if err != nil {
-		return
-	}
+        var fd *os.File
+	if fd, err = os.Open(linked); err != nil { return }
 	defer fd.Close()
 
-	list, err := fd.Readdir(-1)
-	if err != nil {
-		return
-	} else if len(list) == 0 {
-                return
+        var list []os.FileInfo
+	if list, err = fd.Readdir(-1); err != nil || len(list) == 0 {
+                return 
         }
 
         var (
@@ -255,32 +251,41 @@ func (c *Context) ParseConfigDir(pathname, linked string) (err error) {
 	ListLoop: for _, d := range list {
                 var name = d.Name()
                 if strings.HasPrefix(name, ".#") || 
-                        strings.HasSuffix(name, "~") {
-                        // strings.HasSuffix(name, ".smart")
-                        // strings.HasSuffix(name, ".sm")
+                   strings.HasSuffix(name, "~") || 
+                   strings.HasSuffix(name, ".smart") ||
+                   strings.HasSuffix(name, ".sm") {
                         continue ListLoop
                 }
+
                 var fullname = filepath.Join(linked, name)
+                if d.Mode()&os.ModeSymlink != 0 {
+                        var ( l string; t os.FileInfo )
+                        if l, err = os.Readlink(fullname); err != nil { continue ListLoop }
+                        if !filepath.IsAbs(l) { l = filepath.Join(linked, l) }
+                        if t, err = os.Stat(l); err != nil { continue ListLoop }
+                        if t.IsDir() { continue ListLoop }
+                }
+
                 if d.IsDir() {
                         if err = c.ParseConfigDir(filepath.Join(pathname, name), fullname); err != nil {
-                                return
+                                break ListLoop
                         }
                 } else if s, a := c.runtime.Symbol(name, types.DefType); a != nil {
-                        return fmt.Errorf("declare project: %v", err)
+                        err = fmt.Errorf("declare project: %v", err)
+                        break ListLoop
                 } else if def, _ := s.(*types.Def); def != nil {
-                        if v, e := ioutil.ReadFile(fullname); e == nil {
-                                if s := string(v); utf8.ValidString(s) {
-                                        def.SetOrigin(types.ImmediateDef)
-                                        def.Assign(values.String(s))
-                                        //fmt.Printf("%s: %v = %v\n", ident, name, s)
-                                } else {
-                                        return fmt.Errorf("%s: invalid UTF8 content", fullname)
-                                }
-                        } else {
-                                return e
+                        var ( v []byte; s string )
+                        if v, err = ioutil.ReadFile(fullname); err != nil { break ListLoop }
+                        if s = string(v); !utf8.ValidString(s) {
+                                err = fmt.Errorf("%s: invalid UTF8 content", fullname)
+                                break ListLoop
                         }
+                        def.SetOrigin(types.ImmediateDef)
+                        def.Assign(values.String(s))
+                        //fmt.Printf("%s: %v = %v\n", ident, name, s)
                 } else if s != nil {
-                        return fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
+                        err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
+                        break ListLoop
                 }
         }
         return

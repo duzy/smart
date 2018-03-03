@@ -236,8 +236,9 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                         }
                 }
                 err = l.useProject(spec.Props[0].Pos(), loaded)
-        } else {
-                fmt.Fprintf(os.Stderr, "not loaded: %v (%v)\n", specName, absPath)
+        } else if false {
+                position := l.pc.Position(spec.Props[0].Pos())
+                fmt.Fprintf(os.Stderr, "%v: not loaded %v (%v)\n", position, specName, absPath)
                 for k, v := range l.loaded {
                         fmt.Fprintf(os.Stderr, "   loaded: %v (%v)\n", v.Name(), k)
                 }
