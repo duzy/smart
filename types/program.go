@@ -181,7 +181,13 @@ func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err err
                 }
                 def := prog.scope.Lookup("@").(*Def)
                 if target, err = def.Call(prog.position); err == nil {
-                        _, _, err = prog.project.UpdateCmdHash(target, recipes)
+                        var strings []string
+                        for _, recipe := range recipes {
+                                // Avoids calling recipe.Strval() twice, so that it won't be
+                                // evaluated more than once.
+                                strings = append(strings, recipe.String())
+                        }
+                        _, _, err = prog.project.UpdateCmdHash(target, strings)
                 }
         }
         return

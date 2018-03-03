@@ -292,11 +292,17 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
                         prog.globe.Timestamps[str] = t
                         outdated = true; return // target is outdated
                 } else {
-                        var recipes []Value
+                        var (
+                                recipes []Value
+                                strings []string
+                        )
                         if recipes, err = prog.disclose(prog.recipes); err != nil {
                                 return
                         }
-                        if same, e := prog.project.CheckCmdHash(target, recipes); e == nil {
+                        for _, recipe := range recipes {
+                                strings = append(strings, recipe.String())
+                        }
+                        if same, e := prog.project.CheckCmdHash(target, strings); e == nil {
                                 outdated = !same
                         }
                 }

@@ -392,7 +392,7 @@ func (p *Project) SetGlobPatternProgram(pp *GlobPattern, class RuleEntryClass, p
         return
 }
 
-func (p *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes, err error) {
+func (p *Project) CmdHash(target Value, recipes []string) (k, v HashBytes, err error) {
         var (
                 key = sha256.New()
                 val = sha256.New()
@@ -410,9 +410,10 @@ func (p *Project) CmdHash(target Value, recipes []Value) (k, v HashBytes, err er
                 return
         } */
         for _, recipe := range recipes {
-                if recipe, err = Reveal(recipe); err != nil { return }
+                /* if recipe, err = Reveal(recipe); err != nil { return }
                 if str, err = recipe.Strval(); err != nil { return }
-                fmt.Fprintf(val, "%v", str)
+                fmt.Fprintf(val, "%v", str) */
+                fmt.Fprintf(val, "%v", recipe)
         }
         copy(k[:], key.Sum(nil))
         copy(v[:], val.Sum(nil))
@@ -425,7 +426,7 @@ func (p *Project) hashDir(k []byte) string {
                 s[0:1], s[1:2], s[2:3], s[3:])
 }
 
-func (p *Project) CheckCmdHash(target Value, recipes []Value) (same bool, err error) {
+func (p *Project) CheckCmdHash(target Value, recipes []string) (same bool, err error) {
         var (
                 k, v HashBytes
                 dir = p.hashDir(k[:])
@@ -448,7 +449,7 @@ func (p *Project) CheckCmdHash(target Value, recipes []Value) (same bool, err er
         return
 }
 
-func (p *Project) UpdateCmdHash(target Value, recipes []Value) (k, v HashBytes, err error) {
+func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes, err error) {
         if k, v, err = p.CmdHash(target, recipes); err != nil {
                 return
         }
