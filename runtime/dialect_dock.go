@@ -40,8 +40,10 @@ func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName)
                 run = scope.FindEntry("run")
         )
         if start != nil {
+                defer start.SetClosure(start.SetClosure(prog.Closure()))
                 _, err = start.Execute(prog.Position())
         } else if run != nil {
+                defer run.SetClosure(run.SetClosure(prog.Closure()))
                 _, err = run.Execute(prog.Position(), values.String("sh -i"))
         }
         return

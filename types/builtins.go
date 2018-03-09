@@ -33,9 +33,11 @@ var builtins = map[string]BuiltinFunc {
         /* TODO:
         `and`:   builtinLogicalAnd,
         `xor`:   builtinLogicalXor,
-        `not`:   builtinLogicalNot,
+        `not`:   builtinLogicalNot, */
 
-        `if`:    builtinBranchIf, */
+        `if`:    builtinBranchIf,
+        `ifeq`:  builtinBranchIfEq,
+        `ifne`:  builtinBranchIfNE,
 
         `env`:     builtinEnv,
         
@@ -202,6 +204,61 @@ func builtinLogicalOr(pos token.Position, context *Scope, args... Value) (res Va
                 if s, err = a.Strval(); err != nil { return }
                 if strings.TrimSpace(s) != "" { 
                         res = a; break
+                }
+        }
+        return
+}
+
+func builtinBranchIf(pos token.Position, context *Scope, args... Value) (res Value, err error) {
+        if n := len(args); n > 1 {
+                var (
+                        cond Value
+                        s string
+                )
+                if cond, err = Reveal(args[0]); err != nil { return }
+                if s, err = cond.Strval(); err != nil { return }
+                if strings.TrimSpace(s) != "" { 
+                        res = args[1]
+                } else if n > 1 {
+                        res = MakeListOrScalar(args[2:])
+                }
+        }
+        return
+}
+
+func builtinBranchIfEq(pos token.Position, context *Scope, args... Value) (res Value, err error) {
+        if n := len(args); n > 2 {
+                var (
+                        a, b Value
+                        s1, s2 string
+                )
+                if a, err = Reveal(args[0]); err != nil { return }
+                if b, err = Reveal(args[1]); err != nil { return }
+                if s1, err = a.Strval(); err != nil { return }
+                if s2, err = b.Strval(); err != nil { return }
+                if s1 == s2 { 
+                        res = args[2]
+                } else if n > 3 {
+                        res = MakeListOrScalar(args[3:])
+                }
+        }
+        return
+}
+
+func builtinBranchIfNE(pos token.Position, context *Scope, args... Value) (res Value, err error) {
+        if n := len(args); n > 2 {
+                var (
+                        a, b Value
+                        s1, s2 string
+                )
+                if a, err = Reveal(args[0]); err != nil { return }
+                if b, err = Reveal(args[1]); err != nil { return }
+                if s1, err = a.Strval(); err != nil { return }
+                if s2, err = b.Strval(); err != nil { return }
+                if s1 != s2 { 
+                        res = args[2]
+                } else if n > 3 {
+                        res = MakeListOrScalar(args[3:])
                 }
         }
         return

@@ -61,7 +61,10 @@ func (ctx *Context) Run(targets... string) (err error) {
                 }
         } else {
                 for _, target := range targets {
-                        var m = mm
+                        var (
+                                closure *types.Scope
+                                m = mm
+                        )
                         if names := strings.Split(target, "->"); len(names)>1 {
                                 for _, s := range names[0:len(names)-1] {
                                         var _, obj = m.Scope().Find(s)
@@ -78,6 +81,9 @@ func (ctx *Context) Run(targets... string) (err error) {
                                         if m == nil {
                                                 fmt.Printf("project '%s' not imported %v", s)
                                                 return
+                                        }
+                                        if closure == nil {
+                                                closure = m.Scope()
                                         }
                                 }
                                 target = names[len(names)-1]
@@ -104,6 +110,10 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 for _, a := range args {
                                         v = append(v, values.String(a))
                                 }
+
+                                if closure != nil {
+                                        defer entry.SetClosure(entry.SetClosure(closure))
+                                }
                                 
                                 // The the base project scope as execution context. For
                                 // example of 'base.test', the entry 'test' can resolve
@@ -111,7 +121,6 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 if result, err = entry.Execute(entry.Position, v...); err == nil {
                                         updated += 1
                                 } else {
-                                        //fmt.Printf("%v\n", err)
                                         break
                                 }
                         }

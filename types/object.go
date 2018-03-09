@@ -76,11 +76,12 @@ type ProjectName struct {
 // It is distinct from Project(), which is the project
 // containing the import statement.
 func (n *ProjectName) Type() Type { return ProjectNameType }
+func (n *ProjectName) Context() *Project { return n.object.project }
 func (n *ProjectName) Project() *Project { return n.project }
-func (n *ProjectName) String() string  {
+func (n *ProjectName) String() string {
         return fmt.Sprintf("ProjectName{%s}", n.name)
 }
-func (n *ProjectName) Strval() (string, error)  {
+func (n *ProjectName) Strval() (string, error) {
         return fmt.Sprintf("project %s", n.name), nil
 }
 
@@ -449,6 +450,7 @@ type RuleEntry struct {
         path *Path  // For ExplicitPathEntry
         stem string // For StemmedRuleEntry, StemmedFileEntry
         caller *Preparer
+        closure *Scope // Execution closure (see program.closure)
         programs []*Program
         //creator *PatternEntry
         Position token.Position
@@ -493,6 +495,12 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) (prev *Path) {
         return
 }
 
+func (entry *RuleEntry) SetClosure(closure *Scope) (old *Scope) {
+        old = entry.closure
+        entry.closure = closure
+        return
+}
+
 // RuleEntry.Execute executes the rule program only if the target
 // is outdated.
 func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value, err error) {
@@ -500,6 +508,9 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
         for _, program := range entry.programs {
+                if entry.closure != nil {
+                        defer program.setClosure(program.setClosure(entry.closure))
+                }
                 if v, e := program.Execute(entry, a); e != nil {
                         //fmt.Printf("failed: %v: %v\n", entry.Name(), e)
                         err = e; return
@@ -624,6 +635,7 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
                         fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         break ForPrograms
                 }
+
                 if err = pc.execute(entry, prog); err == nil {
                         break ForPrograms
                 } else if _, ok := err.(unknownTargetError); ok {
@@ -673,6 +685,9 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         }
         
         defer prog.setCallerContext(prog.setCallerContext(caller, caller.program.project.scope))
+        if pc.entry.closure != nil {
+                defer prog.setClosure(prog.setClosure(pc.entry.closure))
+        }
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
@@ -749,7 +764,13 @@ func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name stri
                                 typ:     RuleEntryType,
                                 ord:     0,
                         },
-                        kind, nil, nil, "", nil, nil, //nil,
+                        kind, // class
+                        nil,  // file
+                        nil,  // path
+                        "",   // stem
+                        nil,  // caller
+                        nil,  // closure
+                        nil,  // programs
                         token.Position{},
                 }
                 scope.replace(name, entry)

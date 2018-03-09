@@ -382,8 +382,12 @@ func (p *Project) SetGlobPatternProgram(pp *GlobPattern, class RuleEntryClass, p
                         typ:     RuleEntryType,
                         ord:     0,
                 },
-                class, 
-                nil, nil, "", nil,
+                class, // class
+                nil,   // file
+                nil,   // path
+                "",    // stem
+                nil,   // caller
+                nil,   // closure
                 []*Program{ prog },
                 token.Position{},
         }
