@@ -113,11 +113,19 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         }
 
         var (
+                proj = prog.Project()
+                projScope = proj.Scope()
                 dockScope = dock.Project().Scope()
                 container, image string
         )
         if container, err = dockScope.DiscloseDef(prog.Closure(), "container"); err != nil { return }
         if image, err = dockScope.DiscloseDef(prog.Closure(), "image"); err != nil { return }
+        if container == "" {
+                if container, err = projScope.DiscloseDef(prog.Closure(), "container"); err != nil { return }
+        }
+        if image == "" {
+                if image, err = projScope.DiscloseDef(prog.Closure(), "image"); err != nil { return }
+        }
         if container == "" { err = fmt.Errorf("unknown container"); return }
         if image == "" { err = fmt.Errorf("unknown image"); return }
         if args, err = types.JoinEval(prog.Closure(), args...); err != nil { return }

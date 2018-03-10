@@ -120,6 +120,7 @@ type Program struct {
 }
 
 func (prog *Program) Position() token.Position { return prog.position }
+func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
 func (prog *Program) Closure() *Scope {
         var context = prog.closure
