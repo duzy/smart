@@ -182,14 +182,20 @@ func (s *Scope) String() string {
 	return buf.String()
 }
 
-func (s *Scope) FindDef(name string) *Def {
+func (s *Scope) FindDef(name string) (def *Def) {
         _, sym := s.Find(name)
-        return sym.(*Def)
+        if sym != nil {
+                def = sym.(*Def)
+        }
+        return
 }
 
-func (s *Scope) FindEntry(name string) *RuleEntry {
+func (s *Scope) FindEntry(name string) (entry *RuleEntry) {
         _, sym := s.Find(name)
-        return sym.(*RuleEntry)
+        if sym != nil {
+                entry = sym.(*RuleEntry)
+        }
+        return
 }
 
 func (s *Scope) DiscloseDef(context *Scope, name string) (str string, err error) {
