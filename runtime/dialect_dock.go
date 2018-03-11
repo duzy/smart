@@ -36,8 +36,8 @@ type dialectDock struct {}
 func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName) (err error) {
         var (
                 scope = dock.Project().Scope()
-                start = scope.FindEntry("start")
-                run = scope.FindEntry("run")
+                start = scope.FindEntry("dock-start")
+                run = scope.FindEntry("dock-run")
         )
         if start != nil {
                 defer start.SetClosure(start.SetClosure(prog.Closure()))
@@ -118,13 +118,13 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 dockScope = dock.Project().Scope()
                 container, image string
         )
-        if container, err = dockScope.DiscloseDef(prog.Closure(), "container"); err != nil { return }
-        if image, err = dockScope.DiscloseDef(prog.Closure(), "image"); err != nil { return }
+        if container, err = projScope.DiscloseDef(prog.Closure(), "dock-container"); err != nil { return }
         if container == "" {
-                if container, err = projScope.DiscloseDef(prog.Closure(), "container"); err != nil { return }
+                if container, err = dockScope.DiscloseDef(prog.Closure(), "dock-container"); err != nil { return }
         }
+        if image, err = projScope.DiscloseDef(prog.Closure(), "dock-image"); err != nil { return }
         if image == "" {
-                if image, err = projScope.DiscloseDef(prog.Closure(), "image"); err != nil { return }
+                if image, err = dockScope.DiscloseDef(prog.Closure(), "dock-image"); err != nil { return }
         }
         if container == "" { err = fmt.Errorf("unknown container"); return }
         if image == "" { err = fmt.Errorf("unknown image"); return }
