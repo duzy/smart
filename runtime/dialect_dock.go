@@ -8,7 +8,7 @@ package runtime
 
 import (
         "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        //"github.com/duzy/smart/values"
         "os/exec"
         "strings"
         "regexp"
@@ -34,19 +34,11 @@ var (
 type dialectDock struct {}
 
 func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName) (err error) {
-        var (
-                scope = dock.NamedProject().Scope()
-                start = scope.FindEntry("dock-start")
-                run = scope.FindEntry("dock-run")
-        )
-        if start != nil {
-                defer start.SetClosure(start.SetClosure(prog.Closure()))
-                _, err = start.Execute(prog.Position())
-        } else if run != nil {
+        if run := dock.NamedProject().Scope().FindEntry("run"); run != nil {
                 defer run.SetClosure(run.SetClosure(prog.Closure()))
-                _, err = run.Execute(prog.Position(), values.String("sh -i"))
+                _, err = run.Execute(prog.Position()/*, values.String("sh -i")*/)
         } else {
-                err = fmt.Errorf("dock start entry missing")
+                err = fmt.Errorf("dock start entry undefined")
         }
         return
 }
@@ -114,20 +106,18 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 return
         }
 
-        var (
-                proj = prog.Project()
-                projScope = proj.Scope()
-                dockScope = dock.OwnerProject().Scope()
-                container, image string
-        )
-        if container, err = projScope.DiscloseDef(prog.Closure(), "dock-container"); err != nil { return }
-        if container == "" {
-                if container, err = dockScope.DiscloseDef(prog.Closure(), "dock-container"); err != nil { return }
+        var strval = func(name string) (str string, err error) {
+                if str, err = prog.Project().Scope().DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
+                if str, err = dock.NamedProject().Scope().DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
+                fmt.Printf("%v\n", dock.NamedProject().Scope())
+                fmt.Printf("%v\n", prog.Project().Scope())
+                return
         }
-        if image, err = projScope.DiscloseDef(prog.Closure(), "dock-image"); err != nil { return }
-        if image == "" {
-                if image, err = dockScope.DiscloseDef(prog.Closure(), "dock-image"); err != nil { return }
-        }
+
+        var container, image string
+        if container, err = strval("dock-container"); err != nil { return }
+        if image, err = strval("dock-image"); err != nil { return }
+
         if container == "" { err = fmt.Errorf("unknown container"); return }
         if image == "" { err = fmt.Errorf("unknown image"); return }
         if args, err = types.JoinEval(prog.Closure(), args...); err != nil { return }
