@@ -35,7 +35,7 @@ type dialectDock struct {}
 
 func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName) (err error) {
         var (
-                scope = dock.OwnerProject().Scope()
+                scope = dock.NamedProject().Scope()
                 start = scope.FindEntry("dock-start")
                 run = scope.FindEntry("dock-run")
         )
@@ -45,6 +45,8 @@ func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName)
         } else if run != nil {
                 defer run.SetClosure(run.SetClosure(prog.Closure()))
                 _, err = run.Execute(prog.Position(), values.String("sh -i"))
+        } else {
+                err = fmt.Errorf("dock start entry missing")
         }
         return
 }
