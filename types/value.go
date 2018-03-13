@@ -194,12 +194,12 @@ func (pc *Preparer) forEachExternalCaller(f func (*Project) (bool, error)) (err 
         for caller := pc.entry.caller; caller != nil; caller = caller.entry.caller {
                 // Find the last caller.
                 //if caller == pc || caller == pc.entry.caller { continue }
-                //if tried, has := triedm[caller.entry.project]; caller != pc.entry.caller && !(has&&tried) {
-                if tried, has := triedm[caller.entry.project]; !(has&&tried) {
-                        if brk, err = f(caller.entry.project); brk {
+                //if tried, has := triedm[caller.entry.owner]; caller != pc.entry.caller && !(has&&tried) {
+                if tried, has := triedm[caller.entry.owner]; !(has&&tried) {
+                        if brk, err = f(caller.entry.owner); brk {
                                 break
                         } else {
-                                triedm[caller.entry.project] = true
+                                triedm[caller.entry.owner] = true
                         }
                 }
         }
@@ -701,7 +701,7 @@ func (p *Barefile) comparePathDepend(c *Comparer, d *Path) (err error) {
 
 func (p *Barefile) prepare(pc *Preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Barefile: %v (%v -> %v)\n", p, pc.entry.project.name, pc.entry)
+                fmt.Printf("prepare:Barefile: %v (%v -> %v)\n", p, pc.entry.owner.name, pc.entry)
         }
         if p.File != nil {
                 if s, e := p.Name.Strval(); e != nil {
@@ -1085,12 +1085,12 @@ func (p *File) prepare(pc *Preparer) error {
 func (p *File) explicitly(pc *Preparer) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (explicitly: %v in %v) (%v -> %v)\n", p.Name, p, project.name, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (explicitly: %v in %v) (%v -> %v)\n", p.Name, p, project.name, pc.entry.owner.name, pc.entry)
                 }
                 // Find concrete entry (by file represented name)
                 if _, obj := project.scope.Find(p.Name); obj != nil {
                         if trace_prepare {
-                                fmt.Printf("prepare:File: %v (found %v) (%s) (%v -> %v)\n", p.Name, obj, project.name, pc.entry.project.name, pc.entry)
+                                fmt.Printf("prepare:File: %v (found %v) (%s) (%v -> %v)\n", p.Name, obj, project.name, pc.entry.owner.name, pc.entry)
                         }
                         defer pc.setProject(pc.setProject(project))
                         if err, trybrk = pc.Prepare(obj), true; err != nil {
@@ -1104,7 +1104,7 @@ func (p *File) explicitly(pc *Preparer) (error, bool) {
 func (p *File) implicitly(pc *Preparer) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (implicitly: %v in %v) (%v -> %v)\n", p.Name, p, project.name, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (implicitly: %v in %v) (%v -> %v)\n", p.Name, p, project.name, pc.entry.owner.name, pc.entry)
                 }
 
                 defer pc.setProject(pc.setProject(project))
@@ -1132,7 +1132,7 @@ func (p *File) implicitly(pc *Preparer) (error, bool) {
                                 trybrk = true; break ForPatterns // Updated successfully!
                         } else if _, ok := err.(patternPrepareError); ok {
                                 if trace_prepare {
-                                        fmt.Printf("prepare:File: %v (implicitly:%d: %v) (error: %s) (%s) (%v -> %v)\n", p.Name, i, ps, err, project.name, pc.entry.project.name, pc.entry)
+                                        fmt.Printf("prepare:File: %v (implicitly:%d: %v) (error: %s) (%s) (%v -> %v)\n", p.Name, i, ps, err, project.name, pc.entry.owner.name, pc.entry)
                                 }
                         } else {
                                 trybrk = true; break ForPatterns // Update failed!
@@ -1149,16 +1149,16 @@ func (p *File) checkPatternDepend(pc *Preparer, project *Project, ps *PatternSte
                 //fmt.Printf("prepare:File: %v (implicitly:=: %v in %s)\n", p.Name, file, project.name)
                 if file.IsExists() {
                         if trace_prepare {
-                                fmt.Printf("prepare:File: %v (implicitly: %v exists in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.project.name, pc.entry)
+                                fmt.Printf("prepare:File: %v (implicitly: %v exists in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.owner.name, pc.entry)
                         }
                         res = true
                 } else if trace_prepare && false {
-                        fmt.Printf("prepare:File: %v (implicitly: %v missing in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (implicitly: %v missing in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.owner.name, pc.entry)
                 }
         }
         if _, sym := project.scope.Find(name); sym != nil {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (implicitly: found %v in %s) (%v -> %v)\n", p.Name, sym, project.name, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (implicitly: found %v in %s) (%v -> %v)\n", p.Name, sym, project.name, pc.entry.owner.name, pc.entry)
                 }
                 res = true
         }
@@ -1436,9 +1436,9 @@ func (p *delegate) String() (s string) {
         s = "$"
         s += "(" //if na > 0 { s += "(" }
         if false {
-                if sc := p.o.Parent(); sc != nil && sc.Comment() == "use"/*use scope*/ {
+                if sc := p.o.DeclScope(); sc != nil && sc.Comment() == "use"/*use scope*/ {
                         s += sc.Comment() + "->"
-                } else if pp := p.o.Project(); pp != nil {
+                } else if pp := p.o.OwnerProject(); pp != nil {
                         s += pp.Name() + "->"
                 }
         }
@@ -1461,7 +1461,7 @@ func (p *delegate) eval() (res Value, err error) {
                 args []Value
                 scope = p.closure
         )
-        if scope == nil { scope = p.o.Parent() }
+        if scope == nil { scope = p.o.DeclScope() }
 
         // FIXME: disclosed context not applied?
         if args, err = p.discloseArgs(scope); err != nil {
@@ -1592,7 +1592,7 @@ func (p *delegate) comparePathDepend(c *Comparer, d *Path) (err error) {
 
 func (p *delegate) prepare(pc *Preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:delegate: %v (%v -> %v)\n", p, pc.entry.project.name, pc.entry)
+                fmt.Printf("prepare:delegate: %v (%v -> %v)\n", p, pc.entry.owner.name, pc.entry)
         }
         var val Value
         if val, err = Reveal(p); err != nil { return }
@@ -1868,10 +1868,10 @@ func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEn
                 entry = new(RuleEntry); *entry = *patent
                 entry.name = name
                 entry.stem = stem
-                if patent.project.isFile(filepath.Base(name)) {
+                if patent.owner.isFile(filepath.Base(name)) {
                         entry.class = StemmedFileEntry
                         if false && entry.file == nil {
-                                entry.file = entry.project.SearchFile(name)
+                                entry.file = entry.owner.SearchFile(name)
                         }
                 } else {
                         entry.class = StemmedRuleEntry
@@ -1948,7 +1948,7 @@ func (p *GlobPattern) referencing(o Object) bool {
 
 func (p *GlobPattern) prepare(pc *Preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:GlobPattern: %v(%v) (from %v) (%v -> %v)\n", p, pc.stem, pc.entry.file, pc.entry.project.name, pc.entry)
+                fmt.Printf("prepare:GlobPattern: %v(%v) (from %v) (%v -> %v)\n", p, pc.stem, pc.entry.file, pc.entry.owner.name, pc.entry)
         }
         if pc.stem == "" {
                 err = fmt.Errorf("empty stem (%s, %v)", p, pc.entry)
@@ -1963,13 +1963,13 @@ func (p *GlobPattern) prepare(pc *Preparer) (err error) {
                 err, brk = pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                         if file := project.SearchFile(target); file.IsKnown() || file.IsExists() {
                                 if trace_prepare {
-                                        fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s) (%v -> %v)\n", p, pc.stem, file, project.name, pc.entry.project.name, pc.entry)
+                                        fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s) (%v -> %v)\n", p, pc.stem, file, project.name, pc.entry.owner.name, pc.entry)
                                 }
                                 defer pc.setProject(pc.setProject(project))
                                 err, trybrk = file.prepare(pc), true
                         } else if _, sym := project.scope.Find(target); sym != nil {
                                 if trace_prepare {
-                                        fmt.Printf("prepare:GlobPattern: %v(%v) (found %v in %v) (%v -> %v)\n", p, pc.stem, sym, project.name, pc.entry.project.name, pc.entry)
+                                        fmt.Printf("prepare:GlobPattern: %v(%v) (found %v in %v) (%v -> %v)\n", p, pc.stem, sym, project.name, pc.entry.owner.name, pc.entry)
                                 }
                                 defer pc.setProject(pc.setProject(project))
                                 err, trybrk = pc.prepare(sym), true
@@ -1982,7 +1982,7 @@ func (p *GlobPattern) prepare(pc *Preparer) (err error) {
         }
         
         if trace_prepare {
-                fmt.Printf("prepare:GlobPattern: %v(%v) (target %v) (%v -> %v)\n", p, pc.stem, target, pc.entry.project.name, pc.entry)
+                fmt.Printf("prepare:GlobPattern: %v(%v) (target %v) (%v -> %v)\n", p, pc.stem, target, pc.entry.owner.name, pc.entry)
         }
         if err = pc.prepareTarget(target); err == nil {
                 return // Good!

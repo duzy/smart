@@ -23,38 +23,32 @@ import (
 type Object interface {
         Value
 
-        Parent() *Scope
-        Project() *Project
         Name() string
+
+        DeclScope() *Scope
+        OwnerProject() *Project
 
         // Get object's named property.
         Get(name string) (Value, error)
         
-	// order reflects a package-level object's source order: if object
-	// a is before object b in the source, then a.order() < b.order().
-	// order returns a value > 0 for package-level objects; it returns
-	// 0 for all other objects (including objects in file scopes).
-	order() uint32
-
-	// setParent sets the parent scope of the object.
-	setParent(*Scope)
+	// rescope sets the scope of the object.
+	rescope(*Scope)
 }
 
 // An object implements the common parts of an Object.
 type object struct {
         value
-        parent *Scope
-        project *Project
+        scope *Scope
+        owner *Project
         name string
         typ Type
-        ord uint32
 }
 
-func (obj *object) Parent() *Scope        { return obj.parent }
-func (obj *object) Project() *Project     { return obj.project }
-func (obj *object) Name() string          { return obj.name }
+func (obj *object) DeclScope() *Scope { return obj.scope }
+func (obj *object) OwnerProject() *Project { return obj.owner }
+func (obj *object) Name() string { return obj.name }
 
-func (obj *object) Type() Type            { return obj.typ }
+func (obj *object) Type() Type { return obj.typ }
 func (obj *object) String() string { return fmt.Sprintf("object{%v}", obj.name) }
 func (obj *object) Strval() (string, error) { return obj.String(), nil }
 
@@ -62,10 +56,7 @@ func (obj *object) Get(name string) (Value, error) {
         return nil, fmt.Errorf("No such property `%s' (Object).", name)
 }
 
-func (obj *object) order() uint32         { return obj.ord }
-
-func (obj *object) setParent(parent *Scope)   { obj.parent = parent }
-func (obj *object) setOrder(order uint32)     { /*assert(order > 0);*/ obj.ord = order }
+func (obj *object) rescope(scope *Scope) { obj.scope = scope }
 
 type ProjectName struct {
         object
@@ -76,8 +67,7 @@ type ProjectName struct {
 // It is distinct from Project(), which is the project
 // containing the import statement.
 func (n *ProjectName) Type() Type { return ProjectNameType }
-func (n *ProjectName) Context() *Project { return n.object.project }
-func (n *ProjectName) Project() *Project { return n.project }
+func (n *ProjectName) NamedProject() *Project { return n.project }
 func (n *ProjectName) String() string {
         return fmt.Sprintf("ProjectName{%s}", n.name)
 }
@@ -88,7 +78,7 @@ func (n *ProjectName) Strval() (string, error) {
 func (n *ProjectName) Get(name string) (Value, error) {
         if scope, sym := n.project.scope.Find(name); scope != nil && sym != nil {
                 if false {
-                        if o, _ := sym.(Object); o != nil && o.Project() != n.project {
+                        if o, _ := sym.(Object); o != nil && o.OwnerProject() != n.project {
                                 //fmt.Printf("diverged: %v (%v != %v)\n", name, o.Project().Name(), n.project.Name())
                                 //fmt.Printf("%v\n", n.project.scope)
                                 //fmt.Printf("%v\n", n.project.scope.chain)
@@ -117,15 +107,14 @@ func (p *ProjectName) prepare(pc *Preparer) (err error) {
         return
 }
 
-func (scope *Scope) InsertProjectName(container *Project, name string, project *Project) (pn *ProjectName, alt Object) {
+func (scope *Scope) InsertProjectName(owner *Project, name string, project *Project) (pn *ProjectName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 pn = &ProjectName{
                         object{
-                                parent:  scope,
-                                project: container,
-                                name:    name,
-                                typ:     ProjectNameType,
-                                ord:     0,
+                                scope: scope,
+                                owner: owner,
+                                name:  name,
+                                typ:   ProjectNameType,
                         },
                         project,
                 }
@@ -143,7 +132,7 @@ type ScopeName struct {
 // It is distinct from Project(), which is the project
 // containing the import statement.
 func (n *ScopeName) Type() Type { return ScopeNameType }
-func (n *ScopeName) Scope() *Scope { return n.scope }
+func (n *ScopeName) NamedScope() *Scope { return n.scope }
 func (n *ScopeName) String() string  { return fmt.Sprintf("ScopeName{%s}", n.name) }
 func (n *ScopeName) Strval() (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
 
@@ -155,15 +144,14 @@ func (n *ScopeName) Get(name string) (Value, error) {
         return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name())
 }
 
-func (scope *Scope) InsertScopeName(project *Project, name string, s *Scope) (sn *ScopeName, alt Object) {
+func (scope *Scope) InsertScopeName(owner *Project, name string, s *Scope) (sn *ScopeName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 sn = &ScopeName{
                         object{
-                                parent:  scope,
-                                project: project,
-                                name:    name,
-                                typ:     ScopeNameType,
-                                ord:     0,
+                                scope: scope,
+                                owner: owner,
+                                name:  name,
+                                typ:   ScopeNameType,
                         },
                         s,
                 }
@@ -359,22 +347,21 @@ func (d *Def) comparePathDepend(c *Comparer, path *Path) (err error) {
         return
 }
 
-func (scope *Scope) InsertDef(project *Project, name string, value Value) (def *Def, alt Object) {
+func (scope *Scope) InsertDef(owner *Project, name string, value Value) (def *Def, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 def = &Def{
                         object{
-                                parent:  scope,
-                                project: project,
-                                name:    name,
-                                typ:     DefType,
-                                ord:     0,
+                                scope: scope,
+                                owner: owner,
+                                name:  name,
+                                typ:   DefType,
                         },
                         TrivialDef, value,
                 }
                 scope.replace(name, def)
         } else if name == "use" {
                 if sn, ok := alt.(*ScopeName); ok && sn != nil {
-                        def, alt = sn.Scope().InsertDef(project, "=", value)
+                        def, alt = sn.DeclScope().InsertDef(owner, "=", value)
                 }
         }
         return
@@ -390,18 +377,17 @@ type Builtin struct {
 func (p *Builtin) String() string { return fmt.Sprintf("Builtin{%v}", p.name) }
 func (p *Builtin) Strval() (string, error) { return fmt.Sprintf("builtin %v", p.name), nil }
 func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) {
-        return p.f(pos, p.parent, a...)
+        return p.f(pos, p.scope, a...)
 }
 
 func (scope *Scope) InsertBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 bui = &Builtin{
                         object{
-                                parent:  scope,
-                                project: nil,
-                                name:    name, 
-                                typ:     BuiltinType,
-                                ord:     0,
+                                scope: scope,
+                                owner: nil,
+                                name:  name, 
+                                typ:   BuiltinType,
                         },
                         f,
                 }
@@ -475,7 +461,7 @@ func (entry *RuleEntry) IsFile() bool {
 func (entry *RuleEntry) SetExplicitFile(file *File) (prev *File) {
         prev = entry.file
         if file.Dir == "" {
-                file.Dir = entry.project.AbsPath()
+                file.Dir = entry.owner.AbsPath()
         }
         entry.class, entry.file = ExplicitFileEntry, file
         return
@@ -489,7 +475,7 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) (prev *Path) {
         } else {
                 entry.class, entry.file = ExplicitFileEntry, path.File
                 if path.File.Dir == "" {
-                        path.File.Dir = entry.project.AbsPath()
+                        path.File.Dir = entry.owner.AbsPath()
                 }
         }
         return
@@ -605,15 +591,15 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 switch entry.class {
                 case GeneralRuleEntry:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.entry.owner.name, pc.entry)
                 case ExplicitFileEntry:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, entry.file, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, entry.file, pc.entry.owner.name, pc.entry)
                 case StemmedFileEntry:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v, stem=%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.stem, entry.file, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v, stem=%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.stem, entry.file, pc.entry.owner.name, pc.entry)
                 case StemmedRuleEntry:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v, stem=%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v, stem=%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.stem, pc.entry.owner.name, pc.entry)
                 default:
-                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v -> %v)\n", entry.name, entry.Depends(), entry.class, pc.entry.owner.name, pc.entry)
                 }
         }
 
@@ -622,13 +608,13 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
 
         if trace_prepare {
                 for i, prog := range entry.programs {
-                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%v -> %v)\n", entry.name, i, prog.depends, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%v -> %v)\n", entry.name, i, prog.depends, pc.entry.owner.name, pc.entry)
                 }
         }
 
         ForPrograms: for i, prog := range entry.programs {
                 if trace_prepare {
-                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%s) (%v -> %v)\n", entry.name, i, prog.depends, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%s) (%v -> %v)\n", entry.name, i, prog.depends, entry.class, pc.entry.owner.name, pc.entry)
                 }
                 if prog == pc.program {
                         err = fmt.Errorf("depended on itself")
@@ -651,15 +637,15 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         if trace_prepare {
                 switch entry.class {
                 case GeneralRuleEntry:
-                        fmt.Printf("prepare:Execute: %v (%v) (%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.entry.owner.name, pc.entry)
                 case ExplicitFileEntry:
-                        fmt.Printf("prepare:Execute: %v (%v) (%v) (file: %v) (%v -> %v)\n", entry.name, prog.depends, entry.class, entry.file, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v) (file: %v) (%v -> %v)\n", entry.name, prog.depends, entry.class, entry.file, pc.entry.owner.name, pc.entry)
                 case StemmedFileEntry:
-                        fmt.Printf("prepare:Execute: %v (%v) (%v, stem=%v) (file: %v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.stem, entry.file, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v, stem=%v) (file: %v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.stem, entry.file, pc.entry.owner.name, pc.entry)
                 case StemmedRuleEntry:
-                        fmt.Printf("prepare:Execute: %v (%v) (%v, stem=%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.stem, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v, stem=%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.stem, pc.entry.owner.name, pc.entry)
                 default:
-                        fmt.Printf("prepare:Execute: %v (%v) (%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (%v) (%v -> %v)\n", entry.name, prog.depends, entry.class, pc.entry.owner.name, pc.entry)
                 }
                 for i, depent := range prog.depends {
                         fmt.Printf("prepare:Execute: %v (depend[%d]: %v %v)\n", entry.name, i, depent, entry.stem)
@@ -754,15 +740,14 @@ func (p *PatternEntry) MakeConcreteEntry(stem string) (entry *RuleEntry, err err
         return
 }
 
-func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name string) (entry *RuleEntry, alt Object) {
+func (scope *Scope) InsertEntry(owner *Project, kind RuleEntryClass, name string) (entry *RuleEntry, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 entry = &RuleEntry{
                         object{
-                                parent:  scope,
-                                project: project,
-                                name:    name,
-                                typ:     RuleEntryType,
-                                ord:     0,
+                                scope: scope,
+                                owner: owner,
+                                name:  name,
+                                typ:   RuleEntryType,
                         },
                         kind, // class
                         nil,  // file
@@ -776,7 +761,7 @@ func (scope *Scope) InsertEntry(project *Project, kind RuleEntryClass, name stri
                 scope.replace(name, entry)
         } else if name == "use" {
                 if sn, ok := alt.(*ScopeName); ok && sn != nil {
-                        entry, alt = sn.Scope().InsertEntry(project, UseRuleEntry, ":")
+                        entry, alt = sn.DeclScope().InsertEntry(owner, UseRuleEntry, ":")
                 }
         }
         return

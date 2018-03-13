@@ -579,8 +579,8 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                         // Detect diverged scope ().
                         switch v := fieldValue.(type) {
                         case *types.RuleEntry:
-                                if false && pn.Project() != v.Project() {
-                                        p.error(rhs.Pos(), "Name diverged `%v' (%v != %v).", fieldName, pn.Project().Name(), v.Project().Name())
+                                if false && pn.OwnerProject() != v.OwnerProject() {
+                                        p.error(rhs.Pos(), "Name diverged `%v' (%v != %v).", fieldName, pn.OwnerProject().Name(), v.OwnerProject().Name())
                                 }
                         case *types.Def:
                         }

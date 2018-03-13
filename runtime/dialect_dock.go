@@ -35,7 +35,7 @@ type dialectDock struct {}
 
 func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName) (err error) {
         var (
-                scope = dock.Project().Scope()
+                scope = dock.OwnerProject().Scope()
                 start = scope.FindEntry("dock-start")
                 run = scope.FindEntry("dock-run")
         )
@@ -115,7 +115,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         var (
                 proj = prog.Project()
                 projScope = proj.Scope()
-                dockScope = dock.Project().Scope()
+                dockScope = dock.OwnerProject().Scope()
                 container, image string
         )
         if container, err = projScope.DiscloseDef(prog.Closure(), "dock-container"); err != nil { return }

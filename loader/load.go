@@ -215,10 +215,10 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                 }
                 // Add loaded project to the use list ('$(use->*)')
                 if sn, _ := scope.Lookup("use").(*types.ScopeName); sn != nil {
-                        if alt := sn.Scope().Insert(pn); alt != nil {
-                                return fmt.Errorf("'%s' already defined in %v", specName, sn.Scope()), -1
+                        if alt := sn.NamedScope().Insert(pn); alt != nil {
+                                return fmt.Errorf("use: '%s' already defined in %v", specName, sn.DeclScope()), -1
                         }
-                        if _, alt := sn.Scope().InsertDef(l.project, "*"/* use list */, pn); alt != nil {
+                        if _, alt := sn.DeclScope().InsertDef(l.project, "*"/* use list */, pn); alt != nil {
                                 if def, _ := alt.(*types.Def); def != nil {
                                         // If there's no explicit use list, we just add
                                         // the ProjectName pn, so that the default entry
@@ -466,7 +466,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
 
                 def, _ := x.Sym.(*types.Def)
                 if def == nil {
-                        err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.Parent())
+                        err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.DeclScope())
                         return nil, err
                 }
 
@@ -478,8 +478,8 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 }
 
                 // Double-check the symbol in the scope.
-                if o := def.Parent().Lookup(def.Name()); o != def {
-                        err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.Parent())
+                if o := def.DeclScope().Lookup(def.Name()); o != def {
+                        err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.DeclScope())
                         return nil, err
                 }
 
@@ -513,7 +513,7 @@ func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
                 return fmt.Errorf("Project `%v' has no 'use' package.", usee.Name())
         } else if sn, ok := use.(*types.ScopeName); !ok || sn == nil {
                 return fmt.Errorf("Project `%v' has invalid 'use' package (%T).", usee.Name(), use)
-        } else if obj = sn.Scope().Lookup(":"); obj == nil {
+        } else if obj = sn.DeclScope().Lookup(":"); obj == nil {
                 return nil // The use entry is not defined.
         }
 
@@ -567,7 +567,7 @@ func (l *Loader) useProject(pos token.Pos, usee *types.Project) error {
 func (l *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
         var (
                 scope = l.project.Scope()
-                project = pn.Project()
+                project = pn.OwnerProject()
                 //useList []types.Value
         )
         if project == nil {
@@ -576,14 +576,14 @@ func (l *Loader) useProjectName(pos token.Pos, pn *types.ProjectName) error {
         
         // FIXME: defined used project in represented order
         if sn, _ := scope.Lookup("use").(*types.ScopeName); sn != nil {
-                if alt := sn.Scope().Insert(pn); alt != nil {
+                if alt := sn.DeclScope().Insert(pn); alt != nil {
                         if alt.Type().Kind() == types.ProjectNameKind {
                                 l.parseInfo(pos, "'%s' already used", pn.Name())
                         } else {
-                                return fmt.Errorf("'%s' already defined in %s", pn.Name(), sn.Scope())
+                                return fmt.Errorf("'%s' already defined in %s", pn.Name(), sn.DeclScope())
                         }
                 }
-                if _, alt := sn.Scope().InsertDef(l.project, "*"/* use list */, pn); alt != nil {
+                if _, alt := sn.DeclScope().InsertDef(l.project, "*"/* use list */, pn); alt != nil {
                         if def, _ := alt.(*types.Def); def != nil {
                                 def.Append(pn)
                         }
@@ -1092,15 +1092,15 @@ func (pc *parseContext) DeclareProject(ident *ast.Bareword, params types.Value) 
                 var (
                         linfo = pc.loads[0]
                         dec, ok = linfo.declares[ident.Value]
-                        at = pc.Globe().Scope().Lookup(ident.Value)
+                        at, _ = pc.Globe().Scope().Lookup(ident.Value).(*types.ProjectName)
                 )
                 if !ok {
-                        dec = &declare{ project: at.Project() }
+                        dec = &declare{ project: at.NamedProject() }
                         linfo.declares[ident.Value] = dec
                 }
                 dec.backproj = pc.project
                 dec.backscope = pc.scope
-                pc.project = at.Project()
+                pc.project = at.NamedProject()
                 pc.scope = pc.project.Scope()
                 return nil
         }

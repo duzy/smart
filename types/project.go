@@ -208,11 +208,11 @@ func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
 func (ps *PatternStem) prepare(pc *Preparer) (err error) {
         if trace_prepare {
                 if ps.file != nil {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (file: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.file, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:PatternStem: %v (%v) (file: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.file, pc.entry.owner.name, pc.entry)
                 } else if ps.source != "" {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (source: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.source, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:PatternStem: %v (%v) (source: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.source, pc.entry.owner.name, pc.entry)
                 } else {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (%v -> %v)\n", ps, ps.Patent.class, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:PatternStem: %v (%v) (%v -> %v)\n", ps, ps.Patent.class, pc.entry.owner.name, pc.entry)
                 }
         }
         
@@ -269,7 +269,7 @@ func (ps *PatternStem) prepare(pc *Preparer) (err error) {
                 }
 
                 if trace_prepare {
-                        fmt.Printf("prepare:PatternStem: %v (%v) ([%d/%d]: %v %v) (file: %v) (%v -> %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file, pc.entry.project.name, pc.entry)
+                        fmt.Printf("prepare:PatternStem: %v (%v) ([%d/%d]: %v %v) (file: %v) (%v -> %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file, pc.entry.owner.name, pc.entry)
                 }
 
                 // Set stem for the current preparation.
@@ -376,11 +376,10 @@ func (p *Project) SetGlobPatternProgram(pp *GlobPattern, class RuleEntryClass, p
         
         var entry = &RuleEntry{
                 object{
-                        parent:  p.scope,
-                        project: p,
-                        name:    name,
-                        typ:     RuleEntryType,
-                        ord:     0,
+                        scope: p.scope,
+                        owner: p,
+                        name:  name,
+                        typ:   RuleEntryType,
                 },
                 class, // class
                 nil,   // file
