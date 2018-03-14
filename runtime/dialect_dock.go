@@ -34,8 +34,10 @@ var (
 type dialectDock struct {}
 
 func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName) (err error) {
-        if run := dock.NamedProject().Scope().FindEntry("run"); run != nil {
-                defer run.SetClosure(run.SetClosure(prog.Closure()))
+        var dockScope = dock.NamedProject().Scope()
+        if run := dockScope.FindEntry("run"); run != nil {
+                var closure = dockScope; // TODO: combine closure with prog.Closure();
+                defer run.SetClosure(run.SetClosure(closure))
                 _, err = run.Execute(prog.Position()/*, values.String("sh -i")*/)
         } else {
                 err = fmt.Errorf("dock start entry undefined")
