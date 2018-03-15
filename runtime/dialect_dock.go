@@ -109,19 +109,18 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         }
 
         var strval = func(name string) (str string, err error) {
-                if str, err = prog.Project().Scope().DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
-                if str, err = dock.NamedProject().Scope().DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
-                fmt.Printf("%v\n", dock.NamedProject().Scope())
-                fmt.Printf("%v\n", prog.Project().Scope())
+                scope := dock.NamedProject().Scope()
+                //if str, err = prog.Project().Scope().DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
+                //if str, err = scope.DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
+                if str, err = scope.DiscloseDef(scope, name); err != nil || str != "" { return }
                 return
         }
 
         var container, image string
         if container, err = strval("dock-container"); err != nil { return }
+        if container == "" { err = fmt.Errorf("dock-container undefined"); return }
         if image, err = strval("dock-image"); err != nil { return }
-
-        if container == "" { err = fmt.Errorf("unknown container"); return }
-        if image == "" { err = fmt.Errorf("unknown image"); return }
+        if image == "" { err = fmt.Errorf("dock undefined"); return }
         if args, err = types.JoinEval(prog.Closure(), args...); err != nil { return }
 
         if false {

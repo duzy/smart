@@ -164,6 +164,9 @@ func (p *Project) isFile(s string) (v bool) {
                         }
                 }
                 for _, base := range p.bases {
+                        if base == p {
+                                panic(fmt.Sprintf("recursive base (%v)", p.name))
+                        }
                         if v = base.isFile(s); v {
                                 return
                         }
