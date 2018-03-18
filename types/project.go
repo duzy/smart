@@ -119,7 +119,7 @@ func (p *Project) SearchFile(filename string) *File {
                                 dir = filepath.Join(projDir, dir)
                         }
 
-                        //fmt.Printf("match: %v %v %v %v %v\n", dir, path, filename, filemap.Paths, p.FileMaps())
+                        // fmt.Printf("match: %v %v %v %v %v\n", dir, path, filename, filemap.Paths, p.FileMaps())
 
                         if fi, _ := os.Stat(filepath.Join(dir, filename)); fi != nil {
                                 if file.Info, file.Dir = fi, dir; !abs {

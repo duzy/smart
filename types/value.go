@@ -965,7 +965,7 @@ type File struct {
 func (p *File) Type() Type { return FileType }
 
 func (p *File) String() string {
-        return fmt.Sprintf("File{%s}", p.Fullname())
+        return fmt.Sprintf("File{%s,Exists=%v,Known=%v}", p.Fullname(), p.IsExists(), p.IsKnown())
 }
 
 // Strval returns the relative filename (aka. Project.SearchFile).
@@ -1181,7 +1181,7 @@ func (p *File) search(pc *Preparer) (error, bool) {
         return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
                 str, err := p.Strval()
                 if err != nil { return }
-                if f := project.SearchFile(str); !f.IsKnown() {
+                if f := project.SearchFile(str); /*!f.IsKnown()*/f.IsKnown() || f.IsExists() {
                         if trace_prepare {
                                 fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v -> %v)\n",
                                         p.Name, f, project.name, pc.entry)
@@ -1192,7 +1192,7 @@ func (p *File) search(pc *Preparer) (error, bool) {
                                 fmt.Printf("prepare:File: %v (search: unknown %v) (%v -> %v)\n",
                                         p.Name, p.Dir, project.name, pc.entry)
                         }
-                        err = unknownFileError{ fmt.Errorf("unknown file '%v'", p.Name), p }
+                        err = unknownFileError{ fmt.Errorf("unknown file '%v' (%v)", p.Name, f), p }
                 }
                 return
         })
