@@ -70,7 +70,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                         var _, obj = m.Scope().Find(s)
                                         switch t := obj.(type) {
                                         case *types.ProjectName:
-                                                m = t.OwnerProject()
+                                                m = t.NamedProject()
                                         case nil:
                                                 fmt.Printf("'%s' is not defined in %v", s, m.Scope())
                                                 return
