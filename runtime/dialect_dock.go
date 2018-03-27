@@ -33,10 +33,30 @@ var (
 
 type dialectDock struct {}
 
-func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName) (err error) {
-        var dockScope = dock.NamedProject().Scope()
-        if run := dockScope.FindEntry("run"); run != nil {
-                var closure = dockScope; // TODO: combine closure with prog.Closure();
+func dockFind(dock *types.Project, name string) (obj types.Object) {
+        if _, obj = dock.Scope().Find(name); obj == nil {
+                for _, p := range dock.Bases() {
+                        if _, obj = p.Scope().Find(name); obj != nil {
+                                break
+                        }
+                }
+        }
+        return
+}
+
+func (s *dialectDock) runContainer(prog *types.Program, dock *types.Project) (err error) {
+        var (
+                obj = dockFind(dock, "run")
+                run *types.RuleEntry
+        )
+        if obj != nil {
+                run, _ = obj.(*types.RuleEntry)
+        }
+        if run != nil {
+                var closure = dock.Scope(); // TODO: combine closure with prog.Closure();
+                if true {
+                        closure = prog.Closure()
+                }
                 defer run.SetClosure(run.SetClosure(closure))
                 _, err = run.Execute(prog.Position()/*, values.String("sh -i")*/)
         } else {
@@ -45,7 +65,7 @@ func (s *dialectDock) runContainer(prog *types.Program, dock *types.ProjectName)
         return
 }
 
-func (s *dialectDock) ensureContainerRunning(prog *types.Program, dock *types.ProjectName, container string) (err error) {
+func (s *dialectDock) ensureContainerRunning(prog *types.Program, dock *types.Project, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -99,20 +119,33 @@ func (s *dialectDock) ensureContainerRunning(prog *types.Program, dock *types.Pr
 }
 
 func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        var (
-                _, dockSym = prog.Scope().Find("dock")
-                dock, _ = dockSym.(*types.ProjectName)
-        )
+        var dock *types.Project
+        if prog.Project().Name() == "dock" {
+                dock =  prog.Project()
+        } else if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
+                if pn, _ := dockSym.(*types.ProjectName); pn != nil {
+                        dock = pn.NamedProject()
+                }
+        }
+
         if dock == nil {
-                err = fmt.Errorf("docking unavailable\n")
+                err = fmt.Errorf("docking unavailable (in %s)\n", prog.Project().Name())
                 return
         }
 
         var strval = func(name string) (str string, err error) {
-                scope := dock.NamedProject().Scope()
+                //scope := dock.Scope()
                 //if str, err = prog.Project().Scope().DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
                 //if str, err = scope.DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
-                if str, err = scope.DiscloseDef(scope, name); err != nil || str != "" { return }
+                //if str, err = scope.DiscloseDef(scope, name); err != nil || str != "" { return }
+                if obj := dockFind(dock, name); obj != nil {
+                        if def, _ := obj.(*types.Def); def != nil {
+                                var v types.Value
+                                if v, err = def.DiscloseValue(dock.Scope()); err == nil && v != nil {
+                                        str, err = v.Strval()
+                                }
+                        }
+                }
                 return
         }
 
@@ -120,7 +153,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         if container, err = strval("dock-container"); err != nil { return }
         if container == "" { err = fmt.Errorf("dock-container undefined"); return }
         if image, err = strval("dock-image"); err != nil { return }
-        if image == "" { err = fmt.Errorf("dock undefined"); return }
+        if image == "" { err = fmt.Errorf("dock-image undefined"); return }
         if args, err = types.JoinEval(prog.Closure(), args...); err != nil { return }
 
         if false {

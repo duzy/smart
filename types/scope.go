@@ -193,7 +193,7 @@ func (s *Scope) FindDef(name string) (def *Def) {
 func (s *Scope) FindEntry(name string) (entry *RuleEntry) {
         _, sym := s.Find(name)
         if sym != nil {
-                entry = sym.(*RuleEntry)
+                entry, _ = sym.(*RuleEntry)
         }
         return
 }

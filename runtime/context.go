@@ -82,7 +82,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                                 fmt.Printf("project '%s' not imported %v", s)
                                                 return
                                         }
-                                        if closure == nil {
+                                        if true /*closure == nil*/ {
                                                 closure = m.Scope()
                                         }
                                 }
@@ -114,7 +114,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 if closure != nil {
                                         defer entry.SetClosure(entry.SetClosure(closure))
                                 }
-                                
+
                                 // The the base project scope as execution context. For
                                 // example of 'base.test', the entry 'test' can resolve
                                 // '&(FOO)', '&(BAR)', etc.

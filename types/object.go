@@ -494,7 +494,7 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
         for _, program := range entry.programs {
-                if entry.closure != nil {
+                if true /*entry.closure != nil*/ {
                         defer program.setClosure(program.setClosure(entry.closure))
                 }
                 if v, e := program.Execute(entry, a); e != nil {
