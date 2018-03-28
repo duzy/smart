@@ -301,8 +301,8 @@ func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
         return
 }
 
-func (d *Def) DiscloseValue(scope *Scope) (res Value, err error) {
-        if res, err = d.Value.disclose(scope); err != nil { return }
+func (d *Def) DiscloseValue(cc *ClosureContext) (res Value, err error) {
+        if res, err = cc.disclose(d.Value); err != nil { return }
         if res == nil { res = d.Value }
         return
 }

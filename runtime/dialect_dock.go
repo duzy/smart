@@ -134,29 +134,16 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         }
 
         var strval = func(name string) (str string, err error) {
-                //scope := dock.Scope()
-                //if str, err = prog.Project().Scope().DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
-                //if str, err = scope.DiscloseDef(prog.Closure(), name); err != nil || str != "" { return }
-                //if str, err = scope.DiscloseDef(scope, name); err != nil || str != "" { return }
                 if obj := dockFind(dock, name); obj != nil {
                         if def, _ := obj.(*types.Def); def != nil {
-                                var (
-                                        scopes = []*types.Scope{ 
-                                                prog.Closure(),
-                                                prog.Project().Scope(),
-                                        }
-                                        v types.Value
+                                var v types.Value
+                                var cc = types.NewClosureContext(
+                                        prog.Closure(),
+                                        prog.Project().Scope(),
+                                        dock.Scope(),
                                 )
-                                if scope := dock.Scope(); scope != prog.Closure() && scope != prog.Project().Scope() {
-                                        scopes = append(scopes, scope)
-                                }
-                                for _, scope := range scopes {
-                                        v, err = def.DiscloseValue(scope)
-                                        if err == nil && v != nil {
-                                                if str, err = v.Strval(); err == nil {
-                                                        break
-                                                }
-                                        }
+                                if v, err = def.DiscloseValue(cc); err == nil && v != nil {
+                                        str, err = v.Strval()
                                 }
                         }
                 }

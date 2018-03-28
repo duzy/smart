@@ -52,6 +52,35 @@ type Value interface {
         referencing(o Object) bool
 }
 
+type ClosureContext struct {
+        scopes []*Scope
+}
+
+func (cc *ClosureContext) disclose(value Value) (res Value, err error) {
+        for _, scope := range cc.scopes {
+                if res, err = value.disclose(scope); res != nil && err == nil {
+                        break
+                }
+        }
+        return
+}
+
+func (cc *ClosureContext) Join(scope *Scope) bool {
+        for _, s := range cc.scopes {
+                if scope == s { return false }
+        }
+        cc.scopes = append(cc.scopes, scope)
+        return true
+}
+
+func NewClosureContext(scopes... *Scope) (cc *ClosureContext) {
+        cc = new(ClosureContext)
+        for _, scope := range scopes {
+                cc.Join(scope)
+        }
+        return
+}
+
 type value struct {}
 func (*value) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*value) referencing(_ Object) bool { return false }
