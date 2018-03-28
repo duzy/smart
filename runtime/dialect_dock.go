@@ -140,9 +140,23 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 //if str, err = scope.DiscloseDef(scope, name); err != nil || str != "" { return }
                 if obj := dockFind(dock, name); obj != nil {
                         if def, _ := obj.(*types.Def); def != nil {
-                                var v types.Value
-                                if v, err = def.DiscloseValue(dock.Scope()); err == nil && v != nil {
-                                        str, err = v.Strval()
+                                var (
+                                        scopes = []*types.Scope{ 
+                                                prog.Closure(),
+                                                prog.Project().Scope(),
+                                        }
+                                        v types.Value
+                                )
+                                if scope := dock.Scope(); scope != prog.Closure() && scope != prog.Project().Scope() {
+                                        scopes = append(scopes, scope)
+                                }
+                                for _, scope := range scopes {
+                                        v, err = def.DiscloseValue(scope)
+                                        if err == nil && v != nil {
+                                                if str, err = v.Strval(); err == nil {
+                                                        break
+                                                }
+                                        }
                                 }
                         }
                 }
