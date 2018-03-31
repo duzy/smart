@@ -41,7 +41,8 @@ func isTrueValue(s string) (res bool) {
 }
 
 func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        if args, err = types.JoinEval(prog.Scope(), args...); err != nil {
+        //if args, err = types.JoinEval(ClosureContext{prog.Scope()}, args...); err != nil {
+        if args, err = types.JoinEval(prog.ClosureContext(), args...); err != nil {
                 return
         }
 
@@ -55,7 +56,8 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
         if envarsDef != nil {
                 if l, _ := envarsDef.Value.(*types.List); l != nil {
                         for _, v := range l.Elems {
-                                if v, err = types.Disclose(prog.Scope(), v); err != nil {
+                                //if v, err = types.Disclose(prog.Scope(), v); err != nil {
+                                if v, err = types.Disclose(prog.ClosureContext(), v); err != nil {
                                         return
                                 } else {
                                         envars = append(envars, v)
@@ -157,7 +159,8 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                 }
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
-                        if v, err = types.Disclose(prog.Scope(), v); err != nil {
+                        //if v, err = types.Disclose(prog.Scope(), v); err != nil {
+                        if v, err = types.Disclose(prog.ClosureContext(), v); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)

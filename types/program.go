@@ -109,8 +109,7 @@ type Program struct {
         globe   *Globe
         project *Project
         scope   *Scope
-        closure *Scope
-        disctx  *Scope
+        cc ClosureContext
         caller  *Preparer
         params  []string // named parameters
         depends []Value // *RuleEntry, *Barefile
@@ -122,22 +121,22 @@ type Program struct {
 func (prog *Program) Position() token.Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
-func (prog *Program) Closure() *Scope {
-        var context = prog.closure
-        if  context == nil { context = prog.disctx }
-        if  context == nil { context = prog.scope }
-        return context
+func (prog *Program) ClosureContext() ClosureContext {
+        var cc = prog.cc
+        cc.Join(prog.scope)
+        return cc
+}
+func (prog *Program) JointClosureContext(scopes... *Scope) ClosureContext {
+        var cc = prog.cc
+        for _, scope := range scopes {
+                cc.Join(scope)
+        }
+        return cc
 }
 
-func (prog *Program) setCallerContext(pc *Preparer, ctx *Scope) (pc0 *Preparer, ctx0 *Scope) {
-        pc0, ctx0 = prog.caller, prog.disctx
-        prog.caller, prog.disctx = pc, ctx
-        return
-}
-
-func (prog *Program) setClosure(ctx *Scope) (old *Scope) {
-        old = prog.closure
-        prog.closure = ctx
+func (prog *Program) setCaller(pc *Preparer) (old *Preparer) {
+        old = prog.caller
+        prog.caller = pc
         return
 }
 
@@ -155,10 +154,10 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
 }
 
 func (prog *Program) disclose(values []Value) (result []Value, err error) {
-        var context = prog.Closure()
+        var cc = prog.ClosureContext()
         for _, value := range values {
                 var v Value
-                if v, err = value.disclose(context); err != nil {
+                if v, err = cc.disclose(value); err != nil {
                         return
                 } else if v != nil {
                         value = v

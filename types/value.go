@@ -52,29 +52,36 @@ type Value interface {
         referencing(o Object) bool
 }
 
-type ClosureContext struct {
-        scopes []*Scope
-}
+type ClosureContext []*Scope
 
-func (cc *ClosureContext) disclose(value Value) (res Value, err error) {
-        for _, scope := range cc.scopes {
+func (cc ClosureContext) disclose(value Value) (res Value, err error) {
+        for _, scope := range cc {
                 if res, err = value.disclose(scope); res != nil && err == nil {
                         break
                 }
+                //fmt.Printf("disclose:%v: %v %v %v %v\n", i, value, res, err, scope)
         }
         return
 }
 
 func (cc *ClosureContext) Join(scope *Scope) bool {
-        for _, s := range cc.scopes {
+        for _, s := range *cc {
                 if scope == s { return false }
         }
-        cc.scopes = append(cc.scopes, scope)
+        *cc = append(*cc, scope)
         return true
 }
 
-func NewClosureContext(scopes... *Scope) (cc *ClosureContext) {
-        cc = new(ClosureContext)
+func (cc *ClosureContext) set(prev ClosureContext) { *cc = prev }
+func (cc *ClosureContext) app(scopes... *Scope) ClosureContext {
+        var prev = *cc
+        for _, scope := range scopes {
+                if scope != nil { cc.Join(scope) }
+        }
+        return prev
+}
+
+func NewClosureContext(scopes... *Scope) (cc ClosureContext) {
         for _, scope := range scopes {
                 cc.Join(scope)
         }
@@ -204,13 +211,6 @@ func (pc *Preparer) prepare(value interface{}) (err error) {
                 err = p.prepare(pc)
         } else {
                 err = fmt.Errorf("Type '%T' is not prerequisite.", value)
-        }
-        return
-}
-
-func (pc *Preparer) disctx() (context *Scope) {
-        if context = pc.program.disctx; context == nil {
-                context = pc.program.scope //pc.program.project.scope
         }
         return
 }
@@ -486,7 +486,7 @@ func (p *Bareword) prepare(pc *Preparer) error {
 
 func (pc *Preparer) prepareTargetValue(value Value) (err error) {
         var ( v Value; s string )
-        if v, err = value.disclose(pc.disctx()); err != nil { return }
+        if v, err = pc.program.cc.disclose(value); err != nil { return }
         if v == nil { v = value }
         if s, err = v.Strval(); err != nil { return }
         return pc.prepareTarget(s)
@@ -1493,7 +1493,7 @@ func (p *delegate) eval() (res Value, err error) {
         if scope == nil { scope = p.o.DeclScope() }
 
         // FIXME: disclosed context not applied?
-        if args, err = p.discloseArgs(scope); err != nil {
+        if args, err = p.discloseArgs(ClosureContext{scope}); err != nil {
                 return
         }
         
@@ -1530,12 +1530,12 @@ func (p *delegate) disclose(scope *Scope) (res Value, err error) {
                 }
         }
 
-        switch t := o.(type) {
+        /*switch t := o.(type) {
         case *RuleEntry:
                 for _, prog := range t.programs {
                         prog.closure = scope
                 }
-        }
+        }*/
 
         var args []Value
         for _, a := range p.a {
@@ -1549,9 +1549,9 @@ func (p *delegate) disclose(scope *Scope) (res Value, err error) {
         return
 }
 
-func (p *delegate) discloseArgs(scope *Scope) (args []Value, err error) {
+func (p *delegate) discloseArgs(cc ClosureContext) (args []Value, err error) {
         for _, a := range p.a {
-                if v, e := Disclose(scope, a); e != nil {
+                if v, e := Disclose(cc, a); e != nil {
                         // TODO: errors...
                         return nil, e
                 } else if v != nil {
@@ -1673,9 +1673,7 @@ func (p *closure) eval() (res Value, err error) {
                 }
         case Executer:
                 if t, _ := o.(*RuleEntry); t != nil && p.closure != nil {
-                        for _, prog := range t.programs {
-                                prog.closure = p.closure
-                        }
+                        defer t.SetClosure(t.SetClosure(p.closure))
                 }
                 var a []Value
                 if a, err = o.Execute(p.p, p.a...); err != nil {
@@ -1710,12 +1708,12 @@ func (p *closure) disclose(scope *Scope) (res Value, err error) {
                 }
         }
 
-        switch t := o.(type) {
+        /*switch t := o.(type) {
         case *RuleEntry:
                 for _, prog := range t.programs {
                         prog.closure = scope
                 }
-        }
+        }*/
 
         var args []Value
         for _, a := range p.a {
@@ -1746,7 +1744,7 @@ func (p *closure) prepare(pc *Preparer) (err error) {
                 fmt.Printf("prepare:closure: %v (%v)\n", p, pc.entry)
 
         }
-        if v, e := p.disclose(pc.disctx()); e != nil {
+        if v, e := pc.program.cc.disclose(p); e != nil {
                 err = e
         } else if v == nil {
                 err = fmt.Errorf("preparing nil closure (%v)", p)
@@ -2133,11 +2131,11 @@ func Reveal(v Value) (res Value, err error) {
 }
 
 // Disclose expends closures to normal value recursively.
-func Disclose(scope *Scope, value Value) (res Value, err error) {
+func Disclose(cc ClosureContext, value Value) (res Value, err error) {
         if false {
                 fmt.Printf("Disclose: %T %v\n", value, value)
         }
-        if res, err = value.disclose(scope); err != nil { return }
+        if res, err = cc.disclose(value); err != nil { return }
         if res == nil { res = value }
         return
 }
@@ -2172,13 +2170,13 @@ func JoinReveal(args... Value) (elems []Value, err error) {
 }
 
 // JoinEval join evaluated (disclosed and revealed) elements into one list.
-func JoinEval(scope *Scope, args... Value) (elems []Value, err error) {
+func JoinEval(cc ClosureContext, args... Value) (elems []Value, err error) {
         for _, elem := range Join(args...) {
-                if elem, err = Disclose(scope, elem); err != nil { break }
+                if elem, err = Disclose(cc, elem); err != nil { break }
                 if elem, err = Reveal(elem); err != nil { break }
                 if l, _ := elem.(*List); l != nil {
                         var a []Value
-                        if a, err = JoinEval(scope, l.Elems...); err != nil { return }
+                        if a, err = JoinEval(cc, l.Elems...); err != nil { return }
                         elems = append(elems, a...)
                 } else {
                         elems = append(elems, elem)
@@ -2187,8 +2185,8 @@ func JoinEval(scope *Scope, args... Value) (elems []Value, err error) {
         return
 }
 
-func Eval(scope *Scope, value Value) (res Value, err error) {
-        if value, err = Disclose(scope, value); err != nil { return }
+func Eval(cc ClosureContext, value Value) (res Value, err error) {
+        if value, err = Disclose(cc, value); err != nil { return }
         res, err = Reveal(value); return
 }
 

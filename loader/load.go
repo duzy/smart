@@ -1193,7 +1193,7 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res types.Value, e
                 return
         }
         if ec&parser.KeepClosures == 0 {
-                if res, err = types.Disclose(pc.scope, res); err != nil || res == nil {
+                if res, err = types.Disclose(types.ClosureContext{pc.scope}, res); err != nil || res == nil {
                         return
                 }
         }

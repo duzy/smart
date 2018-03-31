@@ -353,7 +353,7 @@ func builtinMinus(pos token.Position, context *Scope, args... Value) (result Val
 }
 
 func builtinJoin(pos token.Position, context *Scope, args... Value) (res Value, err error) {
-        if args, err = JoinEval(context, args...); err != nil { return }
+        if args, err = JoinEval(ClosureContext{context}, args...); err != nil { return }
         if l := len(args); l >= 2 {
                 var (
                         fields []string
@@ -370,7 +370,7 @@ func builtinJoin(pos token.Position, context *Scope, args... Value) (res Value, 
 }
 
 func builtinJointQuote(pos token.Position, context *Scope, args... Value) (res Value, err error) {
-        if args, err = JoinEval(context, args...); err != nil { return }
+        if args, err = JoinEval(ClosureContext{context}, args...); err != nil { return }
         if l := len(args); l >= 3 {
                 var (
                         fields []string
@@ -1128,7 +1128,7 @@ func builtinRename(pos token.Position, context *Scope, args... Value) (res Value
 }
 
 func builtinRemove(pos token.Position, context *Scope, args... Value) (res Value, err error) {
-        if args, err = JoinEval(context, args...); err != nil {
+        if args, err = JoinEval(ClosureContext{context}, args...); err != nil {
                 return
         }
         var (
@@ -1155,7 +1155,7 @@ func builtinRemove(pos token.Position, context *Scope, args... Value) (res Value
 }
 
 func builtinRemoveAll(pos token.Position, context *Scope, args... Value) (res Value, err error) {
-        if args, err = JoinEval(context, args...); err != nil {
+        if args, err = JoinEval(ClosureContext{context}, args...); err != nil {
                 return
         }
         /*for _, a := range args {

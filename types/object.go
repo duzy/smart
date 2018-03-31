@@ -301,7 +301,7 @@ func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
         return
 }
 
-func (d *Def) DiscloseValue(cc *ClosureContext) (res Value, err error) {
+func (d *Def) DiscloseValue(cc ClosureContext) (res Value, err error) {
         if res, err = cc.disclose(d.Value); err != nil { return }
         if res == nil { res = d.Value }
         return
@@ -494,9 +494,7 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
         for _, program := range entry.programs {
-                if true /*entry.closure != nil*/ {
-                        defer program.setClosure(program.setClosure(entry.closure))
-                }
+                if entry.closure != nil { defer program.cc.set(program.cc.app(entry.closure)) }
                 if v, e := program.Execute(entry, a); e != nil {
                         //fmt.Printf("failed: %v: %v\n", entry.Name(), e)
                         err = e; return
@@ -670,10 +668,8 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                 }
         }
         
-        defer prog.setCallerContext(prog.setCallerContext(caller, caller.program.project.scope))
-        if pc.entry.closure != nil {
-                defer prog.setClosure(prog.setClosure(pc.entry.closure))
-        }
+        defer prog.setCaller(prog.setCaller(caller))
+        defer prog.cc.set(prog.cc.app(pc.entry.closure, caller.program.project.scope))
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {

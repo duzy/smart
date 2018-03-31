@@ -168,7 +168,7 @@ func modifierSetArgs(pos token.Position, prog *Program, value Value, args... Val
 }
 
 func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        if args, err = JoinEval(prog.scope, args...); err != nil {
+        if args, err = JoinEval(prog.ClosureContext(), args...); err != nil {
                 return
         }
         var envars = new(List)
@@ -477,7 +477,7 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
 
         if len(args) == 0 {
                 return nil, errors.New("No arguments provided.")
-        } else if args, err = JoinEval(prog.scope, args...); err != nil {
+        } else if args, err = JoinEval(prog.ClosureContext(), args...); err != nil {
                 return
         }
 
