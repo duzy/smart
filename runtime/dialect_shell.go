@@ -17,7 +17,7 @@ import (
         "os"
 )
 
-var defaultShellInterpreter = "sh"
+var defaultShellInterpreter = "bash"
 
 func trimLeftSpaces(s string) string {
         return strings.TrimLeftFunc(s, unicode.IsSpace)
