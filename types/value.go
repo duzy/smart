@@ -290,6 +290,9 @@ func (p *Argumented) prepare(pc *Preparer) error {
 
 type None struct { value }
 func (p *None) Type() Type { return NoneType }
+func (p *None) compare(c *Comparer) (err error) { return }
+func (p *None) compareFileDepend(c *Comparer, file *File) error { return nil }
+func (p *None) comparePathDepend(c *Comparer, path *Path) error { return nil }
 func (p *None) prepare(pc *Preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:None: (%v)\n", pc.entry)
