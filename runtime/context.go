@@ -62,7 +62,7 @@ func (ctx *Context) Run(targets... string) (err error) {
         } else {
                 for _, target := range targets {
                         var (
-                                closure *types.Scope
+                                closure = []*types.Scope{ mm.Scope() }
                                 m = mm
                         )
                         if names := strings.Split(target, "->"); len(names)>1 {
@@ -82,9 +82,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                                 fmt.Printf("project '%s' not imported %v", s)
                                                 return
                                         }
-                                        if true /*closure == nil*/ {
-                                                closure = m.Scope()
-                                        }
+                                        closure = append(closure, m.Scope())
                                 }
                                 target = names[len(names)-1]
                         }
@@ -111,9 +109,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                         v = append(v, values.String(a))
                                 }
 
-                                if closure != nil {
-                                        defer entry.SetClosure(entry.SetClosure(closure))
-                                }
+                                defer entry.SetClosure(entry.SetClosure(closure...)...)
 
                                 // The the base project scope as execution context. For
                                 // example of 'base.test', the entry 'test' can resolve

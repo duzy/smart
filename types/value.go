@@ -1676,7 +1676,7 @@ func (p *closure) eval() (res Value, err error) {
                 }
         case Executer:
                 if t, _ := o.(*RuleEntry); t != nil && p.closure != nil {
-                        defer t.SetClosure(t.SetClosure(p.closure))
+                        defer t.SetClosure(t.SetClosure(p.closure)...)
                 }
                 var a []Value
                 if a, err = o.Execute(p.p, p.a...); err != nil {

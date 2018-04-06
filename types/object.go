@@ -436,7 +436,7 @@ type RuleEntry struct {
         path *Path  // For ExplicitPathEntry
         stem string // For StemmedRuleEntry, StemmedFileEntry
         caller *Preparer
-        closure *Scope // Execution closure (see program.closure)
+        closure []*Scope // Execution closure (see program.closure)
         programs []*Program
         //creator *PatternEntry
         Position token.Position
@@ -481,7 +481,7 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) (prev *Path) {
         return
 }
 
-func (entry *RuleEntry) SetClosure(closure *Scope) (old *Scope) {
+func (entry *RuleEntry) SetClosure(closure... *Scope) (old []*Scope) {
         old = entry.closure
         entry.closure = closure
         return
@@ -494,7 +494,7 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
         for _, program := range entry.programs {
-                if entry.closure != nil { defer program.cc.set(program.cc.app(entry.closure)) }
+                if entry.closure != nil { defer program.cc.set(program.cc.app(entry.closure...)) }
                 if v, e := program.Execute(entry, a); e != nil {
                         //fmt.Printf("failed: %v: %v\n", entry.Name(), e)
                         err = e; return
@@ -669,7 +669,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         }
         
         defer prog.setCaller(prog.setCaller(caller))
-        defer prog.cc.set(prog.cc.app(pc.entry.closure, caller.program.project.scope))
+        defer prog.cc.set(prog.cc.app(append(pc.entry.closure, caller.program.project.scope)...))
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {

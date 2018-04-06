@@ -57,7 +57,7 @@ func (s *dialectDock) runContainer(prog *types.Program, dock *types.Project) (er
                 if true {
                         //closure = prog.Closure()
                 }
-                defer run.SetClosure(run.SetClosure(closure))
+                defer run.SetClosure(run.SetClosure(closure)...)
                 _, err = run.Execute(prog.Position()/*, values.String("sh -i")*/)
         } else {
                 err = fmt.Errorf("dock start entry undefined")
