@@ -53,11 +53,8 @@ func (s *dialectDock) runContainer(prog *types.Program, dock *types.Project) (er
                 run, _ = obj.(*types.RuleEntry)
         }
         if run != nil {
-                var closure = dock.Scope(); // TODO: combine closure with prog.Closure();
-                if true {
-                        //closure = prog.Closure()
-                }
-                defer run.SetClosure(run.SetClosure(closure)...)
+                var closure = append(prog.ClosureContext(), dock.Scope())
+                defer run.SetClosure(run.SetClosure(closure...)...)
                 _, err = run.Execute(prog.Position()/*, values.String("sh -i")*/)
         } else {
                 err = fmt.Errorf("dock start entry undefined")

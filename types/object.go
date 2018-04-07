@@ -667,9 +667,10 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                         fmt.Printf("prepare:Execute: %v (%s -> %s)\n", entry.name, prog.project.name, c.program.project.name)
                 }
         }
-        
+
+        var closure = append(caller.program.cc, pc.entry.closure...)
         defer prog.setCaller(prog.setCaller(caller))
-        defer prog.cc.set(prog.cc.app(append(pc.entry.closure, caller.program.project.scope)...))
+        defer prog.cc.set(prog.cc.app(append(closure, caller.program.project.scope)...))
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
