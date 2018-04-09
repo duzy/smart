@@ -134,7 +134,7 @@ func (prog *Program) JointClosureContext(scopes... *Scope) ClosureContext {
         return cc
 }
 
-func (prog *Program) setCaller(pc *Preparer) (old *Preparer) {
+func (prog *Program) setcaller(pc *Preparer) (old *Preparer) {
         old = prog.caller
         prog.caller = pc
         return
@@ -293,7 +293,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         // Calculate and prepare depends and files.
-        pc := NewPreparer(prog, entry)
+        var pc = NewPreparer(entry, prog)
         if err = pc.Prepare(prerequsites); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)

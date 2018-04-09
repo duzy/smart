@@ -481,19 +481,25 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) (prev *Path) {
         return
 }
 
+func (entry *RuleEntry) SetCaller(pc *Preparer) (prev *Preparer) {
+        prev = entry.caller
+        entry.caller = pc
+        return
+}
+
 func (entry *RuleEntry) SetClosure(closure... *Scope) (old []*Scope) {
         old = entry.closure
         entry.closure = closure
         return
 }
 
-// RuleEntry.Execute executes the rule program only if the target
-// is outdated.
+// RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value, err error) {
         if entry.class == GlobRuleEntry || entry.class == StemmedFileEntry {
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
         for _, program := range entry.programs {
+                if entry.caller != nil { defer program.setcaller(program.setcaller(entry.caller)) }
                 if entry.closure != nil { defer program.cc.set(program.cc.app(entry.closure...)) }
                 if v, e := program.Execute(entry, a); e != nil {
                         //fmt.Printf("failed: %v: %v\n", entry.Name(), e)
@@ -511,12 +517,6 @@ func (entry *RuleEntry) Get(name string) (Value, error) {
         case "name": return strval(entry.name), nil
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
-}
-
-func (entry *RuleEntry) setcaller(pc *Preparer) (prev *Preparer) {
-        prev = entry.caller
-        entry.caller = pc
-        return
 }
 
 func (entry *RuleEntry) compare(c *Comparer) (err error) {
@@ -602,7 +602,7 @@ func (entry *RuleEntry) prepare(pc *Preparer) (err error) {
         }
 
         // Set prepare context 
-        defer entry.setcaller(entry.setcaller(pc))
+        defer entry.SetCaller(entry.SetCaller(pc))
 
         if trace_prepare {
                 for i, prog := range entry.programs {
@@ -669,7 +669,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         }
 
         var closure = append(caller.program.cc, pc.entry.closure...)
-        defer prog.setCaller(prog.setCaller(caller))
+        defer prog.setcaller(prog.setcaller(caller))
         defer prog.cc.set(prog.cc.app(append(closure, caller.program.project.scope)...))
 
         // Execute the updating program.

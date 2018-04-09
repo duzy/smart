@@ -109,6 +109,7 @@ func (ctx *Context) Run(targets... string) (err error) {
                                         v = append(v, values.String(a))
                                 }
 
+                                //defer entry.SetCaller(entry.SetCaller(types.NewPreparer(?, ?)))
                                 defer entry.SetClosure(entry.SetClosure(closure...)...)
 
                                 // The the base project scope as execution context. For

@@ -162,8 +162,8 @@ func (c *Comparer) compare(value interface{}) (err error) {
 // Preparer prepares prerequisites of targets.
 type Preparer struct {
         project *Project
-        program *Program
         entry *RuleEntry // caller entry
+        program *Program
         arguments []Value
         targets *List
         stem string // set by PatternStem
@@ -235,12 +235,13 @@ func (pc *Preparer) forEachExternalCaller(f func (*Project) (bool, error)) (err 
         return
 }
 
-func NewPreparer(prog *Program, entry *RuleEntry, args... Value) (pc *Preparer) {
-        var stem string
-        if entry.caller != nil {
-                stem = entry.caller.stem
-        }
-        return &Preparer{ prog.project, prog, entry, args, new(List), stem }
+func NewPreparer(entry *RuleEntry, prog *Program, args... Value) (pc *Preparer) {
+        var (
+                project = prog.project //entry.OwnerProject()
+                stem string
+        )
+        if entry.caller != nil { stem = entry.caller.stem }
+        return &Preparer{ project, entry, prog, args, new(List), stem }
 }
 
 type Argumented struct {
