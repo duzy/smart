@@ -186,7 +186,7 @@ func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m
 
         if name != "@" && g.main == nil {
                 for outer != nil && outer != g.scope {
-                        if p := outer.Project(); p != nil && p.Name() == "@" {
+                        if p := outer.project; p != nil && p.Name() == "@" {
                                 return
                         }
                         outer = outer.outer

@@ -64,12 +64,12 @@ func (s *Scope) NumChildren() int { return len(s.children) }
 func (s *Scope) Child(i int) *Scope { return s.children[i] }
 
 // Project returns the project where this scope is existed.
-func (s *Scope) Project() *Project { return s.project }
+//func (s *Scope) Project() *Project { return s.project }
 
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
-func (s *Scope) Lookup(name string) Object {
-	return s.elems[name]
+func (s *Scope) Lookup(name string) (obj Object) {
+        obj, _ = s.elems[name]; return
 }
 
 // findouter follows the outer chain of scopes starting with s until

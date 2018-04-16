@@ -1,4 +1,4 @@
 project dock
 
-container := -
-image := -
+dock-container := -
+dock-image := -

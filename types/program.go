@@ -123,7 +123,7 @@ func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
 func (prog *Program) ClosureContext() ClosureContext {
         var cc = prog.cc
-        cc.Join(prog.scope)
+        //cc.Join(prog.scope)
         return cc
 }
 func (prog *Program) JointClosureContext(scopes... *Scope) ClosureContext {

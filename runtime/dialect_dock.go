@@ -33,27 +33,29 @@ var (
 
 type dialectDock struct {}
 
-func dockFind(dock *types.Project, name string) (obj types.Object) {
-        if _, obj = dock.Scope().Find(name); obj == nil {
-                for _, p := range dock.Bases() {
-                        if _, obj = p.Scope().Find(name); obj != nil {
-                                break
+func docksFind(docks []*types.Project, name string) (obj types.Object) {
+        for _, dock := range docks {
+                if _, obj = dock.Scope().Find(name); obj == nil {
+                        for _, p := range dock.Bases() {
+                                if _, obj = p.Scope().Find(name); obj != nil {
+                                        break
+                                }
                         }
                 }
         }
         return
 }
 
-func (s *dialectDock) runContainer(prog *types.Program, dock *types.Project) (err error) {
+func (s *dialectDock) runContainer(prog *types.Program, docks []*types.Project, cc types.ClosureContext) (err error) {
         var (
-                obj = dockFind(dock, "run")
+                obj = docksFind(docks, "run")
                 run *types.RuleEntry
         )
         if obj != nil {
                 run, _ = obj.(*types.RuleEntry)
         }
         if run != nil {
-                var closure = append(prog.ClosureContext(), dock.Scope())
+                var closure = cc //append(prog.ClosureContext(), dock.Scope())
                 defer run.SetClosure(run.SetClosure(closure...)...)
                 _, err = run.Execute(prog.Position()/*, values.String("sh -i")*/)
         } else {
@@ -62,7 +64,7 @@ func (s *dialectDock) runContainer(prog *types.Program, dock *types.Project) (er
         return
 }
 
-func (s *dialectDock) ensureContainerRunning(prog *types.Program, dock *types.Project, container string) (err error) {
+func (s *dialectDock) ensureContainerRunning(prog *types.Program, docks []*types.Project, cc types.ClosureContext, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -107,7 +109,7 @@ func (s *dialectDock) ensureContainerRunning(prog *types.Program, dock *types.Pr
 
         if err = cmd.Run(); err == nil {
                 if foundID == "" {
-                        if err = s.runContainer(prog, dock); err == nil {
+                        if err = s.runContainer(prog, docks, cc); err == nil {
                                 time.Sleep(time.Second)
                         }
                 }
@@ -116,27 +118,46 @@ func (s *dialectDock) ensureContainerRunning(prog *types.Program, dock *types.Pr
 }
 
 func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        var dock *types.Project
+        var (
+                cc = prog.ClosureContext()
+                docks []*types.Project
+        )
+
         if prog.Project().Name() == "dock" {
-                dock =  prog.Project()
-        } else if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
+                docks = append(docks, prog.Project())
+        } else /*if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
                 if pn, _ := dockSym.(*types.ProjectName); pn != nil {
                         dock = pn.NamedProject()
                 }
+        } else*/ {
+                for _, scope := range cc {
+                        if _, sym := scope.Find("dock"); sym != nil {
+                                if p, ok := sym.(*types.ProjectName); ok && p != nil {
+                                        docks = append(docks, p.NamedProject())
+                                }
+                        }
+                }
         }
 
-        if dock == nil {
+        if docks == nil {
                 err = fmt.Errorf("docking unavailable (in %s)\n", prog.Project().Name())
                 return
         }
 
+        for _, dock := range docks { cc.Join(dock.Scope()) }
+
         var strval = func(name string) (str string, err error) {
-                if obj := dockFind(dock, name); obj != nil {
+                if obj := docksFind(docks, name); obj != nil {
                         if def, _ := obj.(*types.Def); def != nil {
                                 var v types.Value
-                                var cc = prog.JointClosureContext(dock.Scope())
                                 if v, err = def.DiscloseValue(cc); err == nil && v != nil {
-                                        str, err = v.Strval()
+                                        if str, err = v.Strval(); str == "-" {
+                                                //fmt.Printf("dock: %v %v\n", docks, cc)
+                                                /*if v, err = def.DiscloseValue(docks); err == nil && v != nil {
+                                                        if str, err = v.Strval(); str == "" { str = "-" }
+                                                        fmt.Printf("%v: %v (%v)\n", name, str, def)
+                                                }*/
+                                        }
                                 }
                         }
                 }
@@ -151,7 +172,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         if args, err = types.JoinEval(prog.ClosureContext(), args...); err != nil { return }
 
         if false {
-                if err = s.ensureContainerRunning(prog, dock, container); err != nil {
+                if err = s.ensureContainerRunning(prog, docks, cc, container); err != nil {
                         return
                 }
         }
@@ -328,7 +349,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                                         )
                                         if !skip {
                                                 ensureSkips[name] = true
-                                                if err = s.runContainer(prog, dock); err == nil {
+                                                if err = s.runContainer(prog, docks, cc); err == nil {
                                                         fmt.Printf("smart: started %s (needs %s)\n", container, name) // name
                                                         c := exec.Command(cmd, a...)
                                                         c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
