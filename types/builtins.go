@@ -94,6 +94,8 @@ var builtins = map[string]BuiltinFunc {
         `dirs`:       builtinDirs, // do `dir` n times
         `dirdir`:     builtinDirDir,
 
+        `relative-dir`: builtinRelativeDir,
+
         // TODO: move these into builtin package `os'
         `mkdir`:      builtinMkdir,     // os/file.go
         `mkdir-all`:  builtinMkdirAll,  // os/path.go
@@ -976,6 +978,27 @@ func builtinDirs(pos token.Position, context *Scope, args... Value) (res Value, 
                         s = filepath.Dir(s)
                 }
                 l = append(l, &String{s})
+        }
+        res = MakeListOrScalar(l)
+        return
+}
+
+func builtinRelativeDir(pos token.Position, context *Scope, args... Value) (res Value, err error) {
+        var (
+                l []Value
+                t, s string
+        )
+        for i, a := range args {
+                if s, err = a.Strval(); err != nil {
+                        return
+                }
+                if i == 0 {
+                        t = s
+                } else if s, err = filepath.Rel(t, s); err == nil {
+                        l = append(l, &String{s})
+                } else {
+                        return
+                }
         }
         res = MakeListOrScalar(l)
         return
