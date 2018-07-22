@@ -190,7 +190,7 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                         break
                 }
         }
-        
+
         result = exeres
         return
 }

@@ -27,7 +27,7 @@ const (
 )
 
 var (
-        rxNoSuchContainer = regexp.MustCompile(`Error response from daemon: No such container: (.*)`)
+        rxNoSuchContainer = regexp.MustCompile(`Error.*: No such container: (.*)`) // `Error response from daemon: No such container: (.*)`
         ensureSkips = make(map[string]bool)
 )
 
