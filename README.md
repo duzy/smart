@@ -1,8 +1,8 @@
-# Smart (Simpler Make ART) (Drafting)
+# Smart (Simpler Making ART) (BETA)
 
 **SMArt** is a [Semi-Functional Scripting Language]() designed to perform
 recursive tasks easily. It's written in [Go](http://golang.org). It's now 
-a working beta version useful for building hierarchical projects.
+a working BETA version useful for building complex hierarchical projects.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 [![Join the chat at https://gitter.im/duzy/smart](https://badges.gitter.im/duzy/smart.svg)](https://gitter.im/duzy/smart?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
@@ -66,24 +66,24 @@ GREETING = "hello, there"
 
 # The default rule, using `shell` dialect to interpret the recipes.
 # Note that the `libs` was introduced by the "posix/thread".
-foo:[shell]: foo.o
+foo:[(shell)]: foo.o
 	$(LINK) -o $@ $^ $(libs)
 
 # The second `shell` rule to compile the source.
-foo.o:[shell]: foo.cpp
+foo.o:[(shell)]: foo.cpp
 	$(COMPILE) -o $@ $<
 
 # The `plain` dialect simply expands the recipes into plain text,
 # and the `(as text)` tells that the symbol `text` is being used to
 # store the plain text. The `,` starts post-execution of the recipes.
-foo.cpp:[(plain), (update-file)]:
+foo.cpp:[(plain) (update-file)]:
 	#include <iostream>
 	int main(int argc, char** argv) {
 	    std::cout <<"$(GREETING)" << std::endl;
 	    return 0;
 	}
 
-check:[(python), (stdout-equals "okay")]:
+check:[(python) (stdout-equals "okay")]:
 	print "not okay"
 ```
 
