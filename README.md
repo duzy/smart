@@ -90,12 +90,12 @@ check:[(python) (stdout-equals "okay")]:
 History
 =======
 
-The ideas of the `smart` language originated from the old [smart-make](https://github.com/duzy/smart-make)
-project, which is written in `Makefile` to ease building projects having a complex hierarchy.
-The rationale of `smart-make` is very similar to [the Android build system](https://android.googlesource.com/platform/build/+/master).
+The idea of the `smart` language is originated from the old [smart-make](https://github.com/duzy/smart-make)
+project, which is written in pure `Makefile` to ease building projects having a complex hierarchy.
+The rationale of `smart-make` is very similar to the [Android build system](https://android.googlesource.com/platform/build/+/master).
 
-The goal of `smart` is to supersede `make`, following the rationale of `smart-make`
-and [the Android build system](https://android.googlesource.com/platform/build/+/master).
+The goal of `smart` is to supersede `make` utility (especially in the scenario of modularization and hierarchical building), following the rationale of `smart-make`
+and the [Android build system](https://android.googlesource.com/platform/build/+/master).
 
 Why
 ===
