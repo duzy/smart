@@ -1,6 +1,0 @@
-module test-ndk-build, android-ndk
-
-me.abi := armeabi armeabi-v7a armeabi-v7a-hard
-me.platform := android-9
-
-commit

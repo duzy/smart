@@ -1,3 +1,0 @@
-# -*- makefile -*-
-$(module foo_androidsdk_jar, android-sdk, jar)
-$(commit)

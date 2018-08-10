@@ -1,1 +1,0 @@
-smart -V > temp.txt

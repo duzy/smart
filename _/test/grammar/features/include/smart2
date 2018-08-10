@@ -1,2 +1,0 @@
-# -*- makefile-gmake -*-
-ANOTHER: ; @echo This is another included makefile

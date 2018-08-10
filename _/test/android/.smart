@@ -1,9 +1,0 @@
-# -*- makefile-gmake -*-
-
-## Build jni first.
-$(module foo_native, ndk-build, PLATFORM=android-9, ABI=armeabi armeabi-v7a armeabi-v7a-hard)
-$(commit)
-
-## Then build the APK.
-$(module foo_apk, android-sdk, apk)
-$(commit)

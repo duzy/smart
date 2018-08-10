@@ -1,9 +1,0 @@
-# -*- makefile-gmake -*-
-# ABI=armeabi PLATFORM=android-9
-$(module foo_androidndk_so, android-ndk, shared)
-#$(use android/native_app_glue)
-$(use native_app_glue)
-
-me.sources := na.c
-
-$(build)

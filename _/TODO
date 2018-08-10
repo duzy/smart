@@ -1,1 +1,0 @@
-* Restrict call levels (avoid dead loop, another solution is to detect cycle reference)
