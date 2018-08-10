@@ -27,7 +27,11 @@ const (
 )
 
 var (
-        rxNoSuchContainer = regexp.MustCompile(`Error.*: No such container: (.*)`) // `Error response from daemon: No such container: (.*)`
+        errNotTTYDevice = `the input device is not a TTY`
+        rxKnownErrors = regexp.MustCompile(strings.Join([]string{
+                `Error.*: No such container: (.*)`,
+                errNotTTYDevice,
+        }, "|"))
         ensureSkips = make(map[string]bool)
 )
 
@@ -319,7 +323,10 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                         cmd, a = "docker", append(a, container, shi, "-c", src)
                 }
                 
-                var sh = exec.Command(cmd, a...)
+                var (
+                        sh = exec.Command(cmd, a...)
+                        num = 0
+                )
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
                         if v, err = types.Disclose(prog.ClosureContext(), v); err != nil {
@@ -335,14 +342,22 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
                 if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
                 if stdin   { sh.Stdin = os.Stdin }
-                exeres.Stderr.Line = rxNoSuchContainer
+                exeres.Stderr.Line = rxKnownErrors
                 RunCommand: exeres.Stderr.Subm = nil
-                if err = sh.Run(); err == nil {
+                if err, num = sh.Run(), num+1; err == nil {
                         exeres.Status, source = 0, ""
                 } else {
                         var str = err.Error()
                         if n, e := fmt.Sscanf(str, "exit status %v", &exeres.Status); n == 1 && e == nil {
                                 if exeres.Stderr.Subm != nil {
+                                        if string(exeres.Stderr.Subm[0][0][0]) == errNotTTYDevice {
+                                                if num > 2 { break } // only retry once
+                                                fmt.Printf("smart: good to retry (%s)\n", source)
+                                                c := exec.Command(cmd, a...)
+                                                c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
+                                                sh = c; goto RunCommand // retry the command
+                                        }
+
                                         var (
                                                 name = string(exeres.Stderr.Subm[0][0][1])
                                                 skip, _ = ensureSkips[name]
@@ -353,8 +368,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                                                         fmt.Printf("smart: started %s (name=%s)\n", container, name) // name
                                                         c := exec.Command(cmd, a...)
                                                         c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
-                                                        sh = c
-                                                        goto RunCommand
+                                                        sh = c; goto RunCommand
                                                 }
                                         }
                                 }
