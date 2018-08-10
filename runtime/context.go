@@ -7,9 +7,9 @@
 package runtime
 
 import (
-        "github.com/duzy/smart/values"
-        "github.com/duzy/smart/types"
-        "github.com/duzy/smart/token"
+        "github.com/extbit/smart/values"
+        "github.com/extbit/smart/types"
+        "github.com/extbit/smart/token"
         "strings"
         "fmt"
         "os"

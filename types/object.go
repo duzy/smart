@@ -13,7 +13,7 @@ import (
         "bytes"
         "fmt"
         "os"
-        "github.com/duzy/smart/token"
+        "github.com/extbit/smart/token"
 )
 
 // Object is a value defined in a scope.

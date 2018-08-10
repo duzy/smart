@@ -7,12 +7,12 @@
 package loader
 
 import (
-        "github.com/duzy/smart/ast"
-        "github.com/duzy/smart/parser"
-        "github.com/duzy/smart/token"
-        "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
-        "github.com/duzy/smart/runtime"
+        "github.com/extbit/smart/ast"
+        "github.com/extbit/smart/parser"
+        "github.com/extbit/smart/token"
+        "github.com/extbit/smart/types"
+        "github.com/extbit/smart/values"
+        "github.com/extbit/smart/runtime"
         "path/filepath"
         //"os/exec"
         "strings"

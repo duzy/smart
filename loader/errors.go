@@ -7,7 +7,7 @@
 package loader
 
 import (
-        //"github.com/duzy/smart/runtime"
+        //"github.com/extbit/smart/runtime"
         "errors"
 )
 

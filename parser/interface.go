@@ -14,10 +14,10 @@ import (
 	"strings"
         "unicode/utf8"
         "fmt"
-        "github.com/duzy/smart/ast"
-        "github.com/duzy/smart/token"
-        "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        "github.com/extbit/smart/ast"
+        "github.com/extbit/smart/token"
+        "github.com/extbit/smart/types"
+        "github.com/extbit/smart/values"
 )
 
 const optSortErrors = false

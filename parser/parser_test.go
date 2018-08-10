@@ -6,7 +6,7 @@
 package parser
 
 import (
-        "github.com/duzy/smart/token"
+        "github.com/extbit/smart/token"
         "testing"
 )
 

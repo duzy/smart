@@ -4,7 +4,7 @@
 package main
 
 import (
-        "github.com/duzy/smart/loader"
+        "github.com/extbit/smart/loader"
         "fmt"
         "os"
 )

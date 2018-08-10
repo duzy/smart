@@ -7,7 +7,7 @@
 package types
 
 import (
-        "github.com/duzy/smart/token"
+        "github.com/extbit/smart/token"
         "path/filepath"
         "hash/crc64"
         "strings"

@@ -7,8 +7,8 @@
 package types
 
 import (
-        "github.com/duzy/smart/token"
-        //"github.com/duzy/smart/values"
+        "github.com/extbit/smart/token"
+        //"github.com/extbit/smart/values"
         //"path/filepath"
         "strconv"
         //"strings"

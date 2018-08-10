@@ -7,7 +7,7 @@
 package runtime
 
 import (
-        "github.com/duzy/smart/types"
+        "github.com/extbit/smart/types"
         //"fmt"
 )
 

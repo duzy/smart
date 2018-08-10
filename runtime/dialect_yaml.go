@@ -7,8 +7,8 @@
 package runtime
 
 import (
-        "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        "github.com/extbit/smart/types"
+        "github.com/extbit/smart/values"
         //"encoding/yaml"
         //"strings"
         //"io"

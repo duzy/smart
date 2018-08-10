@@ -6,11 +6,11 @@
 package parser
 
 import (
-        "github.com/duzy/smart/ast"
-        "github.com/duzy/smart/token"
-        "github.com/duzy/smart/scanner"
-        "github.com/duzy/smart/types"
-        "github.com/duzy/smart/values"
+        "github.com/extbit/smart/ast"
+        "github.com/extbit/smart/token"
+        "github.com/extbit/smart/scanner"
+        "github.com/extbit/smart/types"
+        "github.com/extbit/smart/values"
         "path/filepath"
         "strconv"
         "strings"
