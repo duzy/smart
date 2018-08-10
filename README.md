@@ -1,9 +1,8 @@
 # Smart (Simpler Make ART) (Drafting)
 
 **SMArt** is a [Semi-Functional Scripting Language]() designed to perform
-recursive tasks easily. It's written in [Go](http://golang.org). It's still in drafting 
-state, yet a working version for building projects. The language spec
-might be changed, but shouldn't have big affect to old SMArt code.
+recursive tasks easily. It's written in [Go](http://golang.org). It's now 
+a working beta version useful for building hierarchical projects.
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 [![Join the chat at https://gitter.im/duzy/smart](https://badges.gitter.im/duzy/smart.svg)](https://gitter.im/duzy/smart?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
