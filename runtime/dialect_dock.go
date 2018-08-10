@@ -350,7 +350,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                                         if !skip {
                                                 ensureSkips[name] = true
                                                 if err = s.runContainer(prog, docks, cc); err == nil {
-                                                        fmt.Printf("smart: started %s (needs %s)\n", container, name) // name
+                                                        fmt.Printf("smart: started %s (name=%s)\n", container, name) // name
                                                         c := exec.Command(cmd, a...)
                                                         c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
                                                         sh = c
