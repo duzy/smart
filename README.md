@@ -4,6 +4,8 @@
 recursive tasks easily. It's written in [Go](http://golang.org). It's now 
 a working BETA version useful for building complex hierarchical projects.
 
+This fork is specialized for projects of [ExtBit](https://extbit.foundation).
+
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 [![Join the chat at https://gitter.im/duzy/smart](https://badges.gitter.im/duzy/smart.svg)](https://gitter.im/duzy/smart?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
@@ -31,7 +33,7 @@ comparing to macros in a makefile.
 We use `go` to install the `smart` command line utility directly from GitHub like this:
 
 ```shell
-$ go get github.com/duzy/smart/cmd
+$ go get github.com/extbit/smart/cmd
 $ $GOPATH/bin/smart -help
 ```
 
@@ -41,7 +43,7 @@ The `smart` command will look for file `build.smart` in the working directory to
 start building. For example of doing this:
 
 ```shell
-$ cd $GOPATH/src/github.com/duzy/smart/examples/hello
+$ cd $GOPATH/src/github.com/extbit/smart/examples/hello
 $ $GOPATH/bin/smart run
 Hello World!
 ```
