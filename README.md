@@ -4,7 +4,7 @@
 recursive tasks easily. It's written in [Go](http://golang.org). It's now 
 a working BETA version useful for building complex hierarchical projects.
 
-This fork is specialized for projects of [ExtBit](https://extbit.foundation).
+This fork is specialized for projects of [ExtBit Foundation](https://extbit.foundation).
 
 [![GoDoc](https://godoc.org/github.com/duzy/smart/build?status.svg)](http://godoc.org/github.com/duzy/smart/build)
 [![Join the chat at https://gitter.im/duzy/smart](https://badges.gitter.im/duzy/smart.svg)](https://gitter.im/duzy/smart?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
