@@ -50,6 +50,7 @@ var (
                 `env`:          modifierSetEnv,  // interpreter environments
 
                 `cd`:           modifierCD,
+                `sudo`:         modifierSudo,
 
                 `compare`:         modifierCompare,
                 `grep-compare`:    modifierGrepCompare,
@@ -212,6 +213,11 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
         } else {
                 err = fmt.Errorf("cd: wrong number of args (%v)", n)
         }
+        return
+}
+
+func modifierSudo(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+        // todo: sudoing commands
         return
 }
 
