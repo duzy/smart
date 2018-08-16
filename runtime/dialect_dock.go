@@ -129,15 +129,18 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 
         if prog.Project().Name() == "dock" {
                 docks = append(docks, prog.Project())
-        } else /*if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
-                if pn, _ := dockSym.(*types.ProjectName); pn != nil {
-                        dock = pn.NamedProject()
-                }
-        } else*/ {
+        } else {
                 for _, scope := range cc {
                         if _, sym := scope.Find("dock"); sym != nil {
                                 if p, ok := sym.(*types.ProjectName); ok && p != nil {
                                         docks = append(docks, p.NamedProject())
+                                }
+                        }
+                }
+                if docks == nil {
+                        if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
+                                if pn, _ := dockSym.(*types.ProjectName); pn != nil {
+                                        docks = append(docks, pn.NamedProject())
                                 }
                         }
                 }
