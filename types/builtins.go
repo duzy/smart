@@ -107,6 +107,8 @@ var builtins = map[string]BuiltinFunc {
         `link`:       builtinLink,      // os/file_*.go
         `symlink`:    builtinSymlink,   // os/file_*.go
 
+        `exists`:     builtinExists,    // stat
+
         // TODO: move these into builtin package 'io/ioutil'
         `read-dir`:   builtinReadDir,   // io/ioutil/ioutil.go
         `read-file`:  builtinReadFile,  // io/ioutil/ioutil.go
@@ -1336,6 +1338,12 @@ func builtinSymlink(pos token.Position, context *Scope, args... Value) (res Valu
                         break
                 }
         }
+        return
+}
+
+func builtinExists(pos token.Position, context *Scope, args... Value) (res Value, err error) {
+        // TODO: $(exists -f filename)
+        // TODO: $(exists -d dirname)
         return
 }
 
