@@ -71,9 +71,9 @@ func (l *Loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
         var fi os.FileInfo
         if specName == "." {
                 err = fmt.Errorf("Not possible to chain itself.")
-        } else if abs := filepath.IsAbs(specName); abs || 
-                strings.HasPrefix(specName, "../") || specName == ".." ||
-                strings.HasPrefix(specName, "./") {
+        } else if abs := filepath.IsAbs(specName); abs || specName == ".." ||
+                strings.HasPrefix(specName, "./") || strings.HasPrefix(specName, "../") || 
+                strings.HasPrefix(specName, ".\\") || strings.HasPrefix(specName, "..\\") {
                 var (
                         s = specName
                         sx string
@@ -140,8 +140,7 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                                 // -param
                                 // -param(value)
                                 // -param=value
-                                v := ee.Data.(types.Value)
-                                switch t := v.(type) {
+                                switch v := ee.Data.(types.Value); t := v.(type) {
                                 case *types.Flag:
                                         if s, err = t.Name.Strval(); err != nil { return }
                                         switch s {
@@ -195,7 +194,7 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                 return fmt.Errorf("'%s' not found", specName), -1
         }
 
-        //fmt.Printf("import: %s (%s,dir=%v) (%v)\n", specName, absPath, isDir, l.project.Name())
+        fmt.Printf("import: %s (%s,dir=%v) (%v)\n", specName, absPath, isDir, l.project.Name())
 
         if isDir {
                 err = l.loadDir(specName, absPath, nil)
@@ -203,6 +202,7 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                 err = l.load(specName, absPath, nil)
         }
         if err != nil || nouse {
+                fmt.Printf("import: %v\n", err)
                 return
         }
 
