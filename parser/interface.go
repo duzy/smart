@@ -214,8 +214,11 @@ func (c *Context) ParseFile(fset *token.FileSet, filename string, src interface{
 	return
 }
 
+// ParseConfigDir parses a configuration directory, where
+//     * pathname - is the original pathname (symlink or 'configure' smart file)
+//     * linked - is the destination directory pathname to be really iterated
 func (c *Context) ParseConfigDir(pathname, linked string) (err error) {
-        var fd *os.File
+        var fd *os.File // Directory of the destination.
 	if fd, err = os.Open(linked); err != nil { return }
 	defer fd.Close()
 
@@ -238,9 +241,7 @@ func (c *Context) ParseConfigDir(pathname, linked string) (err error) {
         if err != nil {
                 return
         }
-        defer func() {
-                err = c.runtime.CloseScope(scope)
-        }()
+        defer func() { err = c.runtime.CloseScope(scope) } ()
 
         sym, _ = c.runtime.Symbol("/", types.DefType)
         sym.(*types.Def).Assign(values.String(pathname))
@@ -365,7 +366,7 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
                         (!strings.HasSuffix(d.Name(), ".smart") &&
                         !strings.HasSuffix(d.Name(), ".sm")) {
                         continue
-                } else if s := d.Name(); (s == "config.smart" || s == "config.sm") && (len(linked) > 0 || mo.IsDir()) {
+                } else if s := d.Name(); (s == "configure.smart" || s == "configure.sm") && (len(linked) > 0 || mo.IsDir()) {
                         if err := c.ParseConfigDir(filepath.Dir(filename), linked); err != nil {
                                 if first == nil {
                                         first = err
@@ -373,10 +374,18 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
                                 return
                         }
                         continue ListLoop
+                } else if s == "config.smart" || s == "config.sm" {
+                        err = fmt.Errorf("use configure.sm[art] instead of config.sm[art]")
+                        break
                 }
 
 		if mo.IsRegular() && (filter == nil || filter(d)) {
 			if src, err := c.ParseFile(fset, filename, nil, mode|parsingDir); err == nil {
+                                if src.Name == nil {
+                                        first = fmt.Errorf("module '%v' has no name", filename)
+                                        return
+                                }
+
 				name := src.Name.Value
 				mod, found := mods[name]
 				if !found {

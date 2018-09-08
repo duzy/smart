@@ -125,6 +125,7 @@ const (
 	keyword_beg
         PROJECT    // project a
         MODULE     // module a
+        CONFIGURE  // configure [...]
         USE        // use b
         EVAL       // evaluate a builtin immediately
         DOCK       // docking setup: dock (...)
@@ -230,6 +231,7 @@ var tokens = [...]string{
         
         PROJECT:    "project",
         MODULE:     "module",
+        CONFIGURE:  "configure",
         USE:        "use",
         EVAL:       "eval",
         DOCK:       "dock",

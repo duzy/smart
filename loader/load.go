@@ -9,6 +9,7 @@ package loader
 import (
         "github.com/extbit/smart/ast"
         "github.com/extbit/smart/parser"
+        "github.com/extbit/smart/scanner"
         "github.com/extbit/smart/token"
         "github.com/extbit/smart/types"
         "github.com/extbit/smart/values"
@@ -194,7 +195,7 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                 return fmt.Errorf("'%s' not found", specName), -1
         }
 
-        fmt.Printf("import: %s (%s,dir=%v) (%v)\n", specName, absPath, isDir, l.project.Name())
+        //fmt.Printf("import: %s (%s,dir=%v) (%v)\n", specName, absPath, isDir, l.project.Name())
 
         if isDir {
                 err = l.loadDir(specName, absPath, nil)
@@ -202,7 +203,17 @@ func (l *Loader) loadImportSpec(spec *ast.ImportSpec) (err error, errArg int) {
                 err = l.load(specName, absPath, nil)
         }
         if err != nil || nouse {
-                fmt.Printf("import: %v\n", err)
+                cur := &scanner.Error{
+                        l.pc.Position(spec.Pos()),
+                        fmt.Errorf("import '%s' (%v)", specName, absPath),
+                }
+                switch t := err.(type) {
+                case *scanner.Errors: t.Add(cur.Pos, cur)
+                case *scanner.Error:
+                        err = &scanner.Errors{
+                                t, cur,
+                        }
+                }
                 return
         }
 
@@ -1057,7 +1068,7 @@ func (l *Loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         if err == nil && mods != nil {
         }
 
-        //fmt.Printf("LoadDir: %v %v\n", absDir, mods)
+        //fmt.Printf("loadDir: %v %v\n", absDir, mods)
         return
 }
 

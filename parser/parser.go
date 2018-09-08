@@ -2020,46 +2020,50 @@ func (p *parser) parseFile() *ast.File {
         var (
                 keyword token.Token
                 ident *ast.Bareword
+                wd = p.runtime.Getwd()
                 filename = p.file.Name()
+                abs = filepath.Dir(filename)
+                rel , _ = filepath.Rel(wd, abs)
                 doc = p.leadComment
                 pos = p.pos
         )
+        //if strings.HasSuffix(rel, abs) {
+        //        rel = abs
+        //}
 
         scope := p.runtime.OpenScope(fmt.Sprintf("file %s", filename))
         if scope != nil {
                 defer p.closeScope(scope)
-                var (
-                        sym RuntimeObj
-                        wd = p.runtime.Getwd()
-                        abs = filepath.Dir(filename)
-                        rel , _ = filepath.Rel(wd, abs)
-                )
-                //if strings.HasSuffix(rel, abs) {
-                //        rel = abs
-                //}
-
-                //fmt.Printf("filename=%v\n", filename)
-                //fmt.Printf("wd=%v\n", wd)
-                //fmt.Printf("abs=%v\n", abs)
-                //fmt.Printf("rel=%v\n", rel)
+                var sym RuntimeObj
 
                 sym, _ = p.runtime.Symbol("/", types.DefType)
                 sym.(*types.Def).Assign(values.String(abs))
 
                 sym, _ = p.runtime.Symbol(".", types.DefType)
                 sym.(*types.Def).Assign(values.String(rel))
-
-                //relParent = filepath.Dir(rel)
-                //if rel == "." && relParent == "." {
-                //        relParent = ".."
-                //}
-                //fmt.Printf("%p: %v\n", sym, p.runtime.Resolve("/", anywhere))
-                //fmt.Printf("%p: %v\n", sym, p.runtime.Resolve(".", anywhere))
         } else {
                 p.error(p.pos, "open scope")
         }
 
-        if keyword = p.tok; keyword == token.PROJECT || keyword == token.MODULE {
+        if keyword = p.tok; keyword == token.CONFIGURE {
+                switch p.next(); p.tok {
+                case token.PERIOD:
+                        if err := p.ParseConfigDir(abs, abs); err != nil {
+                                p.error(p.pos, "configure %v: %v", abs, err)
+                        } else {
+                                p.next() // drop the '.' token
+                        }
+
+                        basename := filepath.Base(filepath.Dir(filename))
+                        ident = &ast.Bareword{
+                                ValuePos: pos,
+                                Value: basename,
+                        }
+
+                default:
+                        p.error(p.pos, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
+                }
+        } else if keyword == token.PROJECT || keyword == token.MODULE {
                 if p.mode&Flat != 0 {
                         p.error(p.pos, "forbidden %v in flat file", p.tok)
                 }
@@ -2113,7 +2117,7 @@ func (p *parser) parseFile() *ast.File {
                         }
                 }
         } else if p.mode&Flat == 0 {
-                p.errorExpected(pos, "package keyword")
+                p.errorExpected(pos, "configure, project or module keyword")
         } else {
                 // TODO: Enter previously delcared project sope!
         }

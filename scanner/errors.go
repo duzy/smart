@@ -27,7 +27,7 @@ type Error struct {
 }
 
 // Error implements the error interface.
-func (e Error) Error() string {
+func (e *Error) Error() string {
 	if e.Pos.Filename != "" || e.Pos.IsValid() {
 		return e.Pos.String() + ": " + e.Err.Error()
 	}
