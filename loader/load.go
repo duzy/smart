@@ -371,7 +371,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 if x.Data != nil {
                         v = x.Data.(types.Value)
                 } else {
-                        err = fmt.Errorf("Expr evaluated to nil (%v).", x.Expr)
+                        err = fmt.Errorf("Expr: `%v' evaluated to nil (%T).", x.Expr, x.Expr)
                         return
                 }
         case *ast.ArgumentedExpr:
@@ -410,7 +410,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                         }
                 }
                 if v == nil {
-                        err = fmt.Errorf("Invalid barefile '%s'", x.Name)
+                        err = fmt.Errorf("Expr: invalid barefile '%s'", x.Name)
                 }
         case *ast.GlobExpr: // Just "*"
                 v = values.Glob(x.Tok)
@@ -426,7 +426,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 case token.TILDE:  v = values.PathSeg('~')
                 case token.PERIOD: v = values.PathSeg('.')
                 case token.DOTDOT: v = values.PathSeg('^') // 
-                default: err := fmt.Errorf("Unsupported PathSeg `%v'.", x.Tok)
+                default: err := fmt.Errorf("Expr: unsupported PathSeg `%v'.", x.Tok)
                         return nil, err
                 }
         case *ast.FlagExpr:
@@ -477,26 +477,26 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 if name, err = l.expr(x.Name); err != nil {
                         return nil, err
                 } else if name == nil {
-                        err = fmt.Errorf("Expr value is nil `%T'", expr)
+                        err = fmt.Errorf("Expr: value is nil `%T'", expr)
                         return nil, err
                 }
 
                 def, _ := x.Sym.(*types.Def)
                 if def == nil {
-                        err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.DeclScope())
+                        err = fmt.Errorf("Expr: `%s' undefined in %v", def.Name(), def.DeclScope())
                         return nil, err
                 }
 
                 var str string
                 if str, err = name.Strval(); err != nil { return }
                 if def.Name() != str {
-                        err = fmt.Errorf("Symbol `%s' differs from `%s'", str, def.Name())
+                        err = fmt.Errorf("Expr: `%s' differs from `%s'", str, def.Name())
                         return nil, err
                 }
 
                 // Double-check the symbol in the scope.
                 if o := def.DeclScope().Lookup(def.Name()); o != def {
-                        err = fmt.Errorf("Symbol `%s' undefined in %v", def.Name(), def.DeclScope())
+                        err = fmt.Errorf("Expr: `%s' undefined in %v", def.Name(), def.DeclScope())
                         return nil, err
                 }
 
@@ -504,7 +504,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
                 v = def
         }
         if v == nil && err == nil {
-                err = fmt.Errorf("Expr value is nil (%T)", expr)
+                err = fmt.Errorf("Expr: value is nil (%T)", expr)
         }
         return
 }

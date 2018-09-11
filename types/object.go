@@ -93,7 +93,7 @@ func (n *ProjectName) Get(name string) (Value, error) {
                         value, _ := sym.(Value); return value, nil
                 }
         }
-        return nil, fmt.Errorf("Undefined `%s' in project `%s'.", name, n.project.Name())
+        return nil, fmt.Errorf("`%s' undefined in %v.", name, n.project.scope)
 }
 
 func (p *ProjectName) prepare(pc *Preparer) (err error) {

@@ -488,7 +488,9 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
 		defer un(trace(p, "Select"))
 	}
 
+        arrow := p.pos // the arrow position
         p.next() // skip '->'
+
         defer p.setbits(p.setbit(composingSELECT))
 
         var (
@@ -513,7 +515,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                         }
                 }
                 if fieldName == "" {
-                        p.error(t.Pos(), "Evaluated select (right) operand `%T' invalid (%v).", t.Expr, t.Data)
+                        p.error(t.Pos(), "Selection: invalid (right) operand %v (`%T').", t.Data, t.Expr)
                         goto DoneSelect
                 }
         default:
@@ -539,7 +541,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                         }
                 }
                 // Error...
-                p.error(t.Pos(), "Evaluated select (left) operand `%T' invalid (%v).", t.Expr, t.Data)
+                p.error(t.Pos(), "Selection: invalid (left) operand %v (`%T').", t.Data, t.Expr)
                 goto DoneSelect
         default:
                 if v, e := p.runtime.Eval(lhs, StringValue); e == nil && v != nil {
@@ -547,10 +549,10 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                                 p.error(t.Pos(), "%s", err)
                         }
                 } else if v == nil {
-                        p.error(t.Pos(), "Select operand `%T' eval to nil.", t)
+                        p.error(t.Pos(), "Selection: operand `%T' eval to nil.", t)
                 } else {
                         p.error(t.Pos(), e)
-                        p.error(t.Pos(), "Invalid select operand (%T).", t)
+                        p.error(t.Pos(), "Selection: invalid operand (%T).", t)
                 }
         }
         if objectName == "@" {
@@ -571,8 +573,8 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         case types.Object:
                 var err error
                 if fieldValue, err = o.Get(fieldName); err != nil {
-                        p.error(rhs.Pos(), err)
-                        p.error(lhs.Pos(), "Selection `%s->%s' failed.", objectName, fieldName)
+                        p.error(rhs.Pos(), "Selection: %v", err)
+                        p.error(arrow, "Selection `%s->%s' failed.", objectName, fieldName)
                 } else if fieldValue == nil {
                         p.error(rhs.Pos(), "No such property `%s' in `%s'.", fieldName, objectName)
                 } else if pn, _ := o.(*types.ProjectName); pn != nil {
@@ -586,7 +588,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                         }
                 }
         default:
-                p.error(lhs.Pos(), "Not an object `%T'.", lhs)
+                p.error(lhs.Pos(), "Selection: not an object `%T'.", lhs)
         }
 
         DoneSelect: res = &ast.EvaluatedExpr{ rhs, fieldValue }
@@ -931,21 +933,21 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 }
         default:
                 // Only support $(...), disable $name.
-                p.error(p.pos, "Expecting `%v' or `%v'.", token.LPAREN, token.LBRACE)
+                p.error(p.pos, "Reference: expecting `%v' or `%v'.", token.LPAREN, token.LBRACE)
                 return &ast.BadExpr{ From:p.pos, To:p.pos }
         }
 
         var resolved RuntimeObj
         if a, _ := name.(*ast.EvaluatedExpr); a != nil {
                 if a.Data == nil {
-                        p.error(name.Pos(), "Evaluated data is nil (%v).", a.Expr)
+                        p.error(name.Pos(), "Reference: invalid evaluated data (%v).", a.Expr)
                 } else if resolved = a.Data.(RuntimeObj); resolved == nil {
-                        p.error(name.Pos(), "Unresolved reference (%v).", a.Expr)
+                        p.error(name.Pos(), "Reference: unresolved expression (%v).", a.Expr)
                 }
         } else if v, e := p.runtime.Eval(name, StringValue); e != nil {
                 p.error(pos, e)
         } else if v == nil {
-                p.error(pos, "Name `%T' eval to nil", name)
+                p.error(pos, "Reference: name `%T' eval to nil", name)
         } else {
                 a = &ast.EvaluatedExpr{ name, v }
 
@@ -955,17 +957,17 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 }
                 
                 if resolved = p.runtime.Resolve(s, anywhere); resolved == nil {
-                        p.error(name.Pos(), "Undefined reference `%v' (%T).", s, name)
+                        p.error(name.Pos(), "Reference: undefined reference `%v' (%T).", s, name)
                 } else {
                         name = a
                         switch tokLp {
                         case token.LPAREN:
                                 if _, ok := resolved.(types.Caller); !ok {
-                                        p.error(name.Pos(), "Uncallable resolved `%v' (%T).", s, name)
+                                        p.error(name.Pos(), "Reference: uncallable resolved `%v' (%T).", s, name)
                                 }
                         case token.LBRACE:
                                 if _, ok := resolved.(types.Executer); !ok {
-                                        p.error(name.Pos(), "Unexecutible resolved `%v' (%T).", s, name)
+                                        p.error(name.Pos(), "Reference: unexecutible resolved `%v' (%T).", s, name)
                                 }
                         }
                 }
