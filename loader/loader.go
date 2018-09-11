@@ -106,8 +106,6 @@ func AddSearchPaths(paths... string) (err error) {
                 }
                 if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
                         globalPaths = append(globalPaths, s)
-                } else {
-                        return errors.New(fmt.Sprintf("path '%s' is not dir", s))
                 }
         }
         return

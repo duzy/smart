@@ -189,7 +189,7 @@ type (
                 Path interface{} // *types.Path
         }
 
-        PathSegExpr struct { // '/', '.' (only like './'), '..' (only like './')
+        PathSegExpr struct { // '/', '~', '.' (only like './'), '..' (only like './')
                 TokPos token.Pos
                 Tok token.Token
         }

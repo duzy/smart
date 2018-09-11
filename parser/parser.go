@@ -1044,16 +1044,21 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
         case token.LPAREN:
                 return p.parseGroupExpr(lhs)
 
-        case token.PERIOD, token.DOTDOT:
+        case token.TILDE, token.PERIOD, token.DOTDOT: // ~ . ..
                 var dots = p.tok.String()
                 tok, pos, end := p.tok, p.pos, p.pos+token.Pos(len(dots))
-                if p.next(); end != p.pos {
-                        // '.' and '..' used as bareword
+                if p.next(); end != p.pos { // FIXME: ~user
+                        // '~', '.' or '..' used as bareword
                         return &ast.Bareword{ pos, dots }
-                } else if p.tok == token.PCON { // check / after . or ..
+                } else if p.tok == token.PCON { // check /
                         return p.parsePathExpr(lhs, &ast.PathSegExpr{ pos, tok })
-                } else /*if tok == token.PERIOD*/ {
+                } else if tok == token.PERIOD {
                         return p.parseDotExpr(lhs, &ast.Bareword{ pos, dots })
+                } else if tok == token.TILDE { // TODO: ~user
+                        return &ast.PathSegExpr{ pos, tok }
+                } else {
+                        p.error(pos, "unexpected path segment")
+                        return &ast.BadExpr{ From:pos, To:p.pos }
                 }
                 
         case token.PCON:

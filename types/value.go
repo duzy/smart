@@ -980,6 +980,7 @@ func (p *PathSeg) String() string {
 func (p *PathSeg) Strval() (s string, e error) {
         switch p.Value {
         case '/': s = "/"
+        case '~': s = "~"
         case '.': s = "."
         case '^': s = ".."
         default: e = fmt.Errorf("unknown pathseg (%s)", p.Value)

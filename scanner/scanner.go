@@ -1032,6 +1032,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case ',':
                         tok = token.COMMA
                         s.skipPostLineFeeds = true
+                case '~':
+                        tok = token.TILDE
+                        s.skipPostLineFeeds = false
                 case '.':
                         if tok = token.PERIOD; s.ch == '.' {
                                 tok = token.DOTDOT

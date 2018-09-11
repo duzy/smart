@@ -72,9 +72,14 @@ func (l *Loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
         var fi os.FileInfo
         if specName == "." {
                 err = fmt.Errorf("Not possible to chain itself.")
-        } else if abs := filepath.IsAbs(specName); abs || specName == ".." ||
-                strings.HasPrefix(specName, "./") || strings.HasPrefix(specName, "../") || 
-                strings.HasPrefix(specName, ".\\") || strings.HasPrefix(specName, "..\\") {
+        } else if abs := filepath.IsAbs(specName); abs ||
+                specName == "~" || specName == ".." ||
+                strings.HasPrefix(specName, "~/") ||
+                strings.HasPrefix(specName, "./") ||
+                strings.HasPrefix(specName, "../") ||
+                strings.HasPrefix(specName, "~\\") ||
+                strings.HasPrefix(specName, ".\\") ||
+                strings.HasPrefix(specName, "..\\") {
                 var (
                         s = specName
                         sx string
@@ -418,6 +423,7 @@ func (l *Loader) expr(expr ast.Expr) (v types.Value, err error) {
         case *ast.PathSegExpr:
                 switch x.Tok {
                 case token.PCON:   v = values.PathSeg('/')
+                case token.TILDE:  v = values.PathSeg('~')
                 case token.PERIOD: v = values.PathSeg('.')
                 case token.DOTDOT: v = values.PathSeg('^') // 
                 default: err := fmt.Errorf("Unsupported PathSeg `%v'.", x.Tok)
@@ -872,7 +878,7 @@ func (l *Loader) loadProjectBases(linfo *loadinfo, params types.Value) (err erro
                         break ParamsLoop
                 }
 
-                //fmt.Printf("base: %v %v (%T) %v\n", l.project.Name(), elem, elem, absPath)
+                //fmt.Printf("base: %v %v (%T) (%v) (%v)\n", l.project.Name(), elem, elem, absPath, l.paths)
 
                 if isDir {
                         err = l.loadDir(specName, absPath, nil)
@@ -1002,6 +1008,10 @@ func (l *Loader) closeCurrentProject(ident *ast.Bareword) (err error) {
 // Loader.Load loads script from a file or source code (string, []byte).
 func (l *Loader) load(specName, absPath string, source interface{}) error {
         //fmt.Printf("load: %v (%v)\n", specName, absPath)
+
+        if absPath == "" {
+                return fmt.Errorf("No such module `%s' (in paths %v).", specName, l.paths)
+        }
 
         if !filepath.IsAbs(absPath) {
                 //panic(fmt.Sprintf("Invalid abs name `%s' (%s).", absPath, specName))

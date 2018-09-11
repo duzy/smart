@@ -46,6 +46,7 @@ const (
 	COMMA     // ,
 	PERIOD    // .
         DOTDOT    // ..
+	TILDE     // ~
         SELECT    // ->
 
 	RPAREN    // )
@@ -165,6 +166,7 @@ var tokens = [...]string{
 	COMMA:  ",",
 	PERIOD: ".",
         DOTDOT: "..",
+        TILDE:  "~",
         SELECT: "->",
 
 	RPAREN:    ")",
