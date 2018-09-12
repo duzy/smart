@@ -2062,10 +2062,7 @@ func (p *parser) parseFile() *ast.File {
                         }
 
                         basename := filepath.Base(filepath.Dir(filename))
-                        ident = &ast.Bareword{
-                                ValuePos: pos,
-                                Value: basename,
-                        }
+                        ident = &ast.Bareword{ ValuePos: pos, Value: basename }
 
                 default:
                         p.error(p.pos, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
