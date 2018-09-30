@@ -7,8 +7,8 @@
 package values
 
 import (
-        "github.com/extbit/smart/types"
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/types"
+        "extbit.io/smart/token"
         "net/url"
         "strings"
         "strconv"

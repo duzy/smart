@@ -7,7 +7,7 @@
 package runtime
 
 import (
-        "github.com/extbit/smart/types"
+        "extbit.io/smart/types"
         //"fmt"
 )
 

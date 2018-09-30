@@ -7,9 +7,9 @@
 package runtime
 
 import (
-        "github.com/extbit/smart/values"
-        "github.com/extbit/smart/types"
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/values"
+        "extbit.io/smart/types"
+        "extbit.io/smart/token"
         "strings"
         "fmt"
         "os"

@@ -7,8 +7,8 @@
 package runtime
 
 import (
-        "github.com/extbit/smart/types"
-        "github.com/extbit/smart/values"
+        "extbit.io/smart/types"
+        "extbit.io/smart/values"
         "encoding/xml"
         "strings"
         "io"

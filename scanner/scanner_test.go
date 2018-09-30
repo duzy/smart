@@ -8,7 +8,7 @@ package scanner
 import (
 	"path/filepath"
         "testing"
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/token"
 )
 
 var fset = token.NewFileSet()

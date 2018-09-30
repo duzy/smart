@@ -14,10 +14,10 @@ import (
 	"strings"
         "unicode/utf8"
         "fmt"
-        "github.com/extbit/smart/ast"
-        "github.com/extbit/smart/token"
-        "github.com/extbit/smart/types"
-        "github.com/extbit/smart/values"
+        "extbit.io/smart/ast"
+        "extbit.io/smart/token"
+        "extbit.io/smart/types"
+        "extbit.io/smart/values"
 )
 
 const optSortErrors = false

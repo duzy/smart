@@ -7,7 +7,7 @@
 package types
 
 import (
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/token"
         "encoding/base64"
         "path/filepath"
         "io/ioutil"

@@ -9,7 +9,7 @@
 package scanner
 
 import (
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/token"
         "errors"
 	"fmt"
 	"io"

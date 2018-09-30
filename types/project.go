@@ -6,7 +6,7 @@
 package types
 
 import (
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/token"
         "crypto/sha256"
         "path/filepath"
         "strings"

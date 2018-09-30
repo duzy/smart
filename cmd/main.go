@@ -7,7 +7,7 @@
 package main
 
 import (
-        "github.com/extbit/smart/loader"
+        "extbit.io/smart/loader"
 )
 
 func main() {

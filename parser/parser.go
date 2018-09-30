@@ -6,11 +6,11 @@
 package parser
 
 import (
-        "github.com/extbit/smart/ast"
-        "github.com/extbit/smart/token"
-        "github.com/extbit/smart/scanner"
-        "github.com/extbit/smart/types"
-        "github.com/extbit/smart/values"
+        "extbit.io/smart/ast"
+        "extbit.io/smart/token"
+        "extbit.io/smart/scanner"
+        "extbit.io/smart/types"
+        "extbit.io/smart/values"
         "path/filepath"
         "strconv"
         "strings"

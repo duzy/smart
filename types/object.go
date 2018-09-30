@@ -13,7 +13,7 @@ import (
         "bytes"
         "fmt"
         "os"
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/token"
 )
 
 // Object is a value defined in a scope.

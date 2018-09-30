@@ -6,12 +6,12 @@
 package loader
 
 import (
-        "github.com/extbit/smart/token"
-        "github.com/extbit/smart/types"
-        "github.com/extbit/smart/parser"
-        "github.com/extbit/smart/runtime"
-        "github.com/extbit/smart/values"
-        "github.com/extbit/smart/scanner"
+        "extbit.io/smart/token"
+        "extbit.io/smart/types"
+        "extbit.io/smart/parser"
+        "extbit.io/smart/runtime"
+        "extbit.io/smart/values"
+        "extbit.io/smart/scanner"
         "path/filepath"
         "strings"
         "errors"

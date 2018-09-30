@@ -7,7 +7,7 @@
 package loader
 
 import (
-        //"github.com/extbit/smart/runtime"
+        //"extbit.io/smart/runtime"
         "errors"
 )
 

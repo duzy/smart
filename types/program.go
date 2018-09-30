@@ -7,8 +7,8 @@
 package types
 
 import (
-        "github.com/extbit/smart/token"
-        //"github.com/extbit/smart/values"
+        "extbit.io/smart/token"
+        //"extbit.io/smart/values"
         //"path/filepath"
         "strconv"
         //"strings"

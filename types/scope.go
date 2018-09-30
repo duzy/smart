@@ -6,7 +6,7 @@
 package types
 
 import (
-        "github.com/extbit/smart/ast"
+        "extbit.io/smart/ast"
         "strings"
         "bytes"
         "sort"

@@ -7,13 +7,13 @@
 package loader
 
 import (
-        "github.com/extbit/smart/ast"
-        "github.com/extbit/smart/parser"
-        "github.com/extbit/smart/scanner"
-        "github.com/extbit/smart/token"
-        "github.com/extbit/smart/types"
-        "github.com/extbit/smart/values"
-        "github.com/extbit/smart/runtime"
+        "extbit.io/smart/ast"
+        "extbit.io/smart/parser"
+        "extbit.io/smart/scanner"
+        "extbit.io/smart/token"
+        "extbit.io/smart/types"
+        "extbit.io/smart/values"
+        "extbit.io/smart/runtime"
         "path/filepath"
         //"os/exec"
         "strings"

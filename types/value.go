@@ -6,7 +6,7 @@
 package types
 
 import (
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/token"
         "path/filepath"
         "regexp"
         "time"

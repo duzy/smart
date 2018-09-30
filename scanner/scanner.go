@@ -10,7 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
         "fmt"
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/token"
 )
 
 // A Scanner holds the scanner's internal state while processing

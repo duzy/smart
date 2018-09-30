@@ -6,7 +6,7 @@
 package ast
 
 import (
-        "github.com/extbit/smart/token"
+        "extbit.io/smart/token"
 	"strings"
 	//"unicode"
 	//"unicode/utf8"
