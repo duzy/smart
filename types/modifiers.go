@@ -700,12 +700,34 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 perm = os.FileMode(0640) // sys default 0666
                 targetVal Value
                 filename, content, s string
+                optPath = false
                 num int64
                 f *os.File
         )
         if targetVal, err = targetDef.Call(pos); err != nil {
                 return
         }
+
+        // Process flags
+        if nargs > 0 {
+                var v []Value
+                for _, arg := range args {
+                        switch a := arg.(type) {
+                        default: v = append(v, arg)
+                        case *Flag:
+                                var name string
+                                if name, err = a.Name.Strval(); err != nil {
+                                        return
+                                }
+                                switch name {
+                                case "p", "path": optPath = true
+                                }
+                        }
+                }
+                args, nargs = v, len(v) // Reset args
+        }
+
+        // Get target filename
         if nargs == 0 {
                 if filename, err = targetVal.Strval(); err != nil { return }
         } else {
@@ -713,6 +735,16 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 if nargs > 1 {
                         if num, err = args[1].Integer(); err != nil { return }
                         perm = os.FileMode(num & 0777)
+                }
+        }
+
+        // Make path (mkdir -p)
+        if optPath {
+                var p = filepath.Dir(filename)
+                if p != "." && p != "/" {
+                        if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
+                                return
+                        }
                 }
         }
 
