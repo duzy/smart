@@ -28,9 +28,12 @@ const (
 
 var (
         errNotTTYDevice = `the input device is not a TTY`
+        errNoContainer = `Error.*: No such container: (.*)`
+        errNoNetwork = `Error.*: network (.*) not found\.`
         rxKnownErrors = regexp.MustCompile(strings.Join([]string{
-                `Error.*: No such container: (.*)`,
                 errNotTTYDevice,
+                errNoContainer,
+                errNoNetwork,
         }, "|"))
         ensureSkips = make(map[string]bool)
 )
@@ -353,12 +356,14 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                         var str = err.Error()
                         if n, e := fmt.Sscanf(str, "exit status %v", &exeres.Status); n == 1 && e == nil {
                                 if exeres.Stderr.Subm != nil {
-                                        if string(exeres.Stderr.Subm[0][0][0]) == errNotTTYDevice {
+                                        if errstr := string(exeres.Stderr.Subm[0][0][0]); errstr == errNotTTYDevice {
                                                 if num > 2 { break } // only retry once
                                                 fmt.Printf("smart: good to retry (%s)\n", source)
                                                 c := exec.Command(cmd, a...)
                                                 c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
                                                 sh = c; goto RunCommand // retry the command
+                                        } else if errstr == errNoNetwork {
+                                                // TODO: dealing with network not found error
                                         }
 
                                         var (
