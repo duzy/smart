@@ -302,7 +302,7 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
                                 recipes []Value
                                 strings []string
                         )
-                        if recipes, err = prog.disclose(prog.recipes); err != nil {
+                        if recipes, err = prog.disclose(prog.recipes...); err != nil {
                                 return
                         }
                         for _, recipe := range recipes {
@@ -575,6 +575,7 @@ func modifierCheck(pos token.Position, prog *Program, value Value, args... Value
                                 key, str string
                                 num int64
                         )
+
                         if key, err = t.Key.Strval(); err != nil { return }
                         switch key {
                         case "status":

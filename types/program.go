@@ -153,7 +153,7 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
         return
 }
 
-func (prog *Program) disclose(values []Value) (result []Value, err error) {
+func (prog *Program) disclose(values ...Value) (result []Value, err error) {
         var cc = prog.ClosureContext()
         for _, value := range values {
                 var v Value
@@ -172,7 +172,7 @@ func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err err
                 recipes []Value
                 target, value Value
         )
-        if recipes, err = prog.disclose(prog.recipes); err != nil {
+        if recipes, err = prog.disclose(prog.recipes...); err != nil {
                 return
         }
         if value, err = i.Evaluate(prog, params, recipes); err == nil {
@@ -202,7 +202,7 @@ func (prog *Program) modify(m modifier, out *Def) (dialect string, err error) {
                         value = out.Value
                         args []Value
                 )
-                if args, err = prog.disclose(m.args); err != nil {
+                if args, err = prog.disclose(m.args...); err != nil {
                         return
                 }
                 if value, err = f(prog.position, prog, value, args...); err == nil && value !=  nil {
@@ -288,7 +288,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         var prerequsites []Value
-        if prerequsites, err = prog.disclose(prog.depends); err != nil {
+        if prerequsites, err = prog.disclose(prog.depends...); err != nil {
                 return
         }
 

@@ -26,6 +26,8 @@ const (
         trace_workdir = true && trace_prepare
 )
 
+var check_closure = false
+
 // Value represents a value of a type.
 type Value interface {
         // Type returns the underlying type of the value.
@@ -1647,21 +1649,34 @@ func (p *closure) Position() token.Position { return p.p }
 func (p *closure) Type() Type { return ClosureType }
 func (p *closure) String() (s string) {
         var na = len(p.a)
-        s = "&"
-        s += "("
-        // FIXME: needs the original name value to represent the original form
-        s += p.o.Name()
-        if na > 0 {
-                for i, a := range p.a {
-                        if i > 0 { s += "," }
-                        s += a.String()
+        if s = "&"; p.o == nil {
+                s += "(...)"
+        } else {
+                s += "("
+                // FIXME: needs the original name value to represent the original form
+                s += p.o.Name()
+                if na > 0 {
+                        for i, a := range p.a {
+                                if i > 0 { s += "," }
+                                s += a.String()
+                        }
                 }
+                s += ")"
         }
-        s += ")"
         return
 }
-func (p *closure) Integer() (int64, error) { return p.o.Integer() }
-func (p *closure) Float() (float64, error) { return p.o.Float() }
+func (p *closure) Integer() (int64, error) {
+        if p.o == nil {
+                return 0, nil
+        }
+        return p.o.Integer()
+}
+func (p *closure) Float() (float64, error) {
+        if p.o == nil {
+                return 0, nil
+        }
+        return p.o.Float()
+}
 func (p *closure) Strval() (s string, err error) {
         var v Value
         if v, err = p.eval(); err == nil {
@@ -1670,6 +1685,9 @@ func (p *closure) Strval() (s string, err error) {
         return
 }
 func (p *closure) eval() (res Value, err error) {
+        if p.o == nil {
+                return nil, nil
+        }
         switch o := p.o.(type) {
         default: err = fmt.Errorf("unknown closure object %v", p.o)
         case Caller:
@@ -1695,6 +1713,10 @@ func (p *closure) eval() (res Value, err error) {
         return
 }
 func (p *closure) disclose(scope *Scope) (res Value, err error) {
+        if p.o == nil {
+                return nil, nil
+        }
+
         var ( o Object; v Value; changed bool )
         if _, o = scope.Find(p.o.Name()); o != nil {
                 changed = true
@@ -1711,6 +1733,10 @@ func (p *closure) disclose(scope *Scope) (res Value, err error) {
                         err = fmt.Errorf("invalid closure %v", v)
                         return
                 }
+        }
+
+        if check_closure {
+                fmt.Printf("%+v => %+v\n", p.o, v)
         }
 
         /*switch t := o.(type) {
