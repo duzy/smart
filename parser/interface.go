@@ -16,8 +16,7 @@ import (
         "fmt"
         "extbit.io/smart/ast"
         "extbit.io/smart/token"
-        "extbit.io/smart/types"
-        "extbit.io/smart/values"
+        "extbit.io/smart/core"
 )
 
 const optSortErrors = false
@@ -58,10 +57,10 @@ type RuntimeObj ast.Symbol
 type RuntimeContext interface {
         Getwd() string
         
-        File(name string) *types.File
+        File(name string) *core.File
         MapFile(pat string, paths []string)
 
-        DeclareProject(name *ast.Bareword, params types.Value) error
+        DeclareProject(name *ast.Bareword, params core.Value) error
         CloseCurrentProject(name *ast.Bareword) error
 
         OpenNamedScope(name, comment string) (ast.Scope, error)
@@ -77,9 +76,9 @@ type RuntimeContext interface {
         Rule(clause *ast.RuleClause) (RuntimeObj, error)
         
         Resolve(name string, bits ResolveBits) (obj RuntimeObj)
-        Symbol(name string, t types.Type) (obj, alt RuntimeObj)
+        Symbol(name string, t core.Type) (obj, alt RuntimeObj)
 
-        Eval(x ast.Expr, bits EvalBits) (types.Value, error)
+        Eval(x ast.Expr, bits EvalBits) (core.Value, error)
 }
 
 type Context struct {
@@ -243,11 +242,11 @@ func (c *Context) ParseConfigDir(pathname, linked string) (err error) {
         }
         defer func() { err = c.runtime.CloseScope(scope) } ()
 
-        sym, _ = c.runtime.Symbol("/", types.DefType)
-        sym.(*types.Def).Assign(values.String(pathname))
+        sym, _ = c.runtime.Symbol("/", core.DefType)
+        sym.(*core.Def).Assign(core.MakeString(pathname))
 
-        sym, _ = c.runtime.Symbol(".", types.DefType)
-        sym.(*types.Def).Assign(values.String(rel))
+        sym, _ = c.runtime.Symbol(".", core.DefType)
+        sym.(*core.Def).Assign(core.MakeString(rel))
 
 	ListLoop: for _, d := range list {
                 var name = d.Name()
@@ -271,18 +270,18 @@ func (c *Context) ParseConfigDir(pathname, linked string) (err error) {
                         if err = c.ParseConfigDir(filepath.Join(pathname, name), fullname); err != nil {
                                 break ListLoop
                         }
-                } else if s, a := c.runtime.Symbol(name, types.DefType); a != nil {
+                } else if s, a := c.runtime.Symbol(name, core.DefType); a != nil {
                         err = fmt.Errorf("declare project: %v", err)
                         break ListLoop
-                } else if def, _ := s.(*types.Def); def != nil {
+                } else if def, _ := s.(*core.Def); def != nil {
                         var ( v []byte; s string )
                         if v, err = ioutil.ReadFile(fullname); err != nil { break ListLoop }
                         if s = string(v); !utf8.ValidString(s) {
                                 err = fmt.Errorf("%s: invalid UTF8 content", fullname)
                                 break ListLoop
                         }
-                        def.SetOrigin(types.ImmediateDef)
-                        def.Assign(values.String(s))
+                        def.SetOrigin(core.ImmediateDef)
+                        def.Assign(core.MakeString(s))
                         //fmt.Printf("%s: %v = %v\n", ident, name, s)
                 } else if s != nil {
                         err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
@@ -337,7 +336,7 @@ func (c *Context) ParseDir(fset *token.FileSet, path string, filter func(os.File
                                 first = err
                         }
                 }
-                //fmt.Printf("ParseDir: %v\n%v\n", scope, scope.(*types.Scope).Outer())
+                //fmt.Printf("ParseDir: %v\n%v\n", scope, scope.(*core.Scope).Outer())
         }()
 
 	mods = make(map[string]*ast.Project)

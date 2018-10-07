@@ -3,7 +3,7 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
-package types
+package core
 
 import (
         "extbit.io/smart/token"
@@ -309,6 +309,8 @@ type Any struct {
 }
 func (p *Any) Type() Type { return AnyType }
 
+func MakeAny(v interface{}) *Any { return &Any{ Value:v } }
+
 type integer struct {
         Value int64
 }
@@ -318,7 +320,7 @@ func (p *integer) Integer() (int64, error) { return p.Value, nil }
 func (p *integer) Float() (float64, error) { return float64(p.Value), nil }
 
 type Bin struct { integer }
-func (p *Bin) Type() Type          { return BinType }
+func (p *Bin) Type() Type { return BinType }
 func (p *Bin) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -328,8 +330,20 @@ func (p *Bin) String() string {
 }
 func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),2), nil }
 
+func MakeBin(i int64) *Bin { return &Bin{integer{i}} }
+func ParseBin(s string) *Bin {
+        if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
+                s = s[2:]
+        }
+        if i, e := strconv.ParseInt(s, 2, 64); e == nil {
+                return MakeBin(i)
+        } else {
+                panic(e)
+        }
+}
+
 type Oct struct { integer }
-func (p *Oct) Type() Type          { return OctType }
+func (p *Oct) Type() Type { return OctType }
 func (p *Oct) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -339,8 +353,20 @@ func (p *Oct) String() string {
 }
 func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),8), nil }
 
+func MakeOct(i int64) *Oct { return &Oct{integer{i}} }
+func ParseOct(s string) *Oct {
+        if strings.HasPrefix(s, "0") {
+                s = s[1:]
+        }
+        if i, e := strconv.ParseInt(s, 8, 64); e == nil {
+                return MakeOct(i)
+        } else {
+                panic(e)
+        }
+}
+
 type Int struct { integer }
-func (p *Int) Type() Type          { return IntType }
+func (p *Int) Type() Type { return IntType }
 func (p *Int) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -350,8 +376,17 @@ func (p *Int) String() string {
 }
 func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),10), nil }
 
+func MakeInt(i int64) *Int { return &Int{integer{i}} }
+func ParseInt(s string) *Int {
+        if i, e := strconv.ParseInt(s, 10, 64); e == nil {
+                return MakeInt(i)
+        } else {
+                panic(e)
+        }
+}
+
 type Hex struct { integer }
-func (p *Hex) Type() Type          { return HexType }
+func (p *Hex) Type() Type { return HexType }
 func (p *Hex) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -363,12 +398,24 @@ func (p *Hex) Strval() (string, error) {
         return strconv.FormatInt(int64(p.Value),16), nil 
 }
 
+func MakeHex(i int64) *Hex { return &Hex{integer{i}} }
+func ParseHex(s string) *Hex {
+        if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+                s = s[2:]
+        }
+        if i, e := strconv.ParseInt(s, 16, 64); e == nil {
+                return MakeHex(i)
+        } else {
+                panic(e)
+        }
+}
+
 type Float struct {
         Value float64
 }
 func (p *Float) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (p *Float) referencing(_ Object) bool { return false }
-func (p *Float) Type() Type        { return FloatType }
+func (p *Float) Type() Type { return FloatType }
 func (p *Float) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -382,12 +429,22 @@ func (p *Float) Strval() (string, error) {
 func (p *Float) Integer() (int64, error) { return int64(p.Value), nil }
 func (p *Float) Float() (float64, error) { return p.Value, nil }
 
+func MakeFloat(f float64) *Float { return &Float{f} }
+func ParseFloat(s string) *Float {
+        if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
+                return MakeFloat(f)
+        } else {
+                panic(e)
+        }
+}
+
+
 type DateTime struct {
         Value time.Time 
 }
 func (*DateTime) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*DateTime) referencing(_ Object) bool { return false }
-func (p *DateTime) Type() Type     { return DateTimeType }
+func (p *DateTime) Type() Type { return DateTimeType }
 func (p *DateTime) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -399,11 +456,21 @@ func (p *DateTime) Strval() (string, error) { return time.Time(p.Value).Format("
 func (p *DateTime) Integer() (int64, error) { return p.Value.Unix(), nil }
 func (p *DateTime) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
+func MakeDateTime(s time.Time) *DateTime { return &DateTime{s} }
+func ParseDateTime(s string) *DateTime {
+        // time.RFC3339Nano
+        if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
+                return MakeDateTime(t)
+        } else {
+                panic(e)
+        }
+}
+
 type Date struct { DateTime }
 func (*Date) disclose(_ *Scope) (Value, error) { return nil, nil }
 func (*Date) referencing(_ Object) bool { return false }
-func (p *Date) Type() Type         { return DateType }
-func (p *Date) String() string     {
+func (p *Date) Type() Type { return DateType }
+func (p *Date) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
@@ -413,6 +480,15 @@ func (p *Date) String() string     {
 func (p *Date) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02"), nil }
 func (p *Date) Integer() (int64, error) { return p.Value.Unix(), nil }
 func (p *Date) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+
+func MakeDate(s time.Time) *Date { return &Date{DateTime{s}} }
+func ParseDate(s string) *Date {
+        if t, e := time.Parse("2006-01-02", s); e == nil {
+                return MakeDate(t)
+        } else {
+                panic(e)
+        }
+}
 
 type Time struct { DateTime }
 func (*Time) disclose(_ *Scope) (Value, error) { return nil, nil }
@@ -428,6 +504,15 @@ func (p *Time) String() string {
 func (p *Time) Strval() (string, error) { return time.Time(p.Value).Format("15:04:05.999999999Z07:00"), nil }
 func (p *Time) Integer() (int64, error) { return p.Value.Unix(), nil }
 func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+
+func MakeTime(t time.Time) *Time { return &Time{DateTime{t}} }
+func ParseTime(s string) *Time {
+        if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
+                return MakeTime(t)
+        } else {
+                panic(e)
+        }
+}
 
 type Uri struct {
         Value *url.URL
@@ -445,6 +530,15 @@ func (p *Uri) String() string {
 func (p *Uri) Strval() (string, error) { return p.Value.String(), nil }
 func (p *Uri) Integer() (int64, error) { return int64(len(p.Value.String())), nil }
 func (p *Uri) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+
+func MakeUri(s *url.URL) *Uri { return &Uri{s} }
+func ParseUri(s string) *Uri {
+        if u, e := url.Parse(s); e == nil {
+                return MakeUri(u)
+        } else {
+                panic(e)
+        }
+}
 
 type String struct {
         Value string
@@ -471,6 +565,8 @@ func (p *String) prepare(pc *Preparer) error {
         return pc.prepareTarget(p.Value)
 }
 
+func MakeString(s string) *String { return &String{s} }
+
 type Bareword struct {
         Value string
 }
@@ -489,6 +585,8 @@ func (p *Bareword) prepare(pc *Preparer) error {
         //pc.source = p.Value
         return pc.prepareTarget(p.Value)
 }
+
+func MakeBareword(s string) *Bareword { return &Bareword{s} }
 
 func (pc *Preparer) prepareTargetValue(value Value) (err error) {
         var ( v Value; s string )
@@ -669,6 +767,10 @@ func (p *Barecomp) prepare(pc *Preparer) error {
         return pc.prepareTargetValue(p)
 }
 
+func MakeBarecomp(elems... Value) *Barecomp {
+        return &Barecomp{Elements{elems}}
+}
+
 type Barefile struct {
         Name Value
         File *File
@@ -750,6 +852,10 @@ func (p *Barefile) prepare(pc *Preparer) error {
         }
 }
 
+func MakeBarefile(name Value, file *File) *Barefile {
+        return &Barefile{ name, file }
+}
+
 type Glob struct {
         Tok token.Token
 }
@@ -760,6 +866,8 @@ func (p *Glob) Integer() (int64, error) { return 0, nil }
 func (p *Glob) Float() (float64, error) { return 0, nil }
 func (p *Glob) disclose(scope *Scope) (Value, error) { return nil, nil }
 func (p *Glob) referencing(o Object) bool { return false }
+
+func MakeGlob(tok token.Token) *Glob { return &Glob{tok} }
 
 type Path struct {
         Elements
@@ -967,6 +1075,10 @@ func (p *Path) prepare(pc *Preparer) (err error) {
         return
 }
 
+func MakePath(segments... Value) (v *Path) {
+        return &Path{Elements{segments}, nil}
+}
+
 type PathSeg struct {
         Value rune 
         value
@@ -989,6 +1101,8 @@ func (p *PathSeg) Strval() (s string, e error) {
         }
         return
 }
+
+func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ Value:ch } }
 
 type File struct {
         value            // satisify Value interface
@@ -1234,6 +1348,8 @@ func (p *File) search(pc *Preparer) (error, bool) {
         })
 }
 
+func MakeFile(s string) (fv *File) { return &File{ Name:s } }
+
 type Flag struct {
         Name Value
 }
@@ -1261,6 +1377,8 @@ func (p *Flag) disclose(scope *Scope) (res Value, err error) {
 func (p *Flag) referencing(o Object) bool {
         return p.Name.referencing(o)
 }
+
+func MakeFlag(name Value) (v *Flag) { return &Flag{name} }
         
 type Compound struct {
         Elements
@@ -1296,6 +1414,10 @@ func (p *Compound) disclose(scope *Scope) (res Value, err error) {
         if elems, num, err = p.Elements.disclose(scope); err != nil { return }
         if num > 0 { res = &Compound{ Elements{ elems } } }
         return
+}
+
+func MakeCompound(elems... Value) (v *Compound) {
+        return &Compound{Elements{elems}}
 }
 
 type List struct {
@@ -1383,6 +1505,8 @@ func (p *List) comparePathDepend(c *Comparer, d *Path) (err error) {
         return
 }
 
+func MakeList(elems... Value) *List { return &List{Elements{elems}} }
+
 type Group struct {
         List
 }
@@ -1400,6 +1524,10 @@ func (p *Group) disclose(scope *Scope) (res Value, err error) {
         if elems, num, err = p.Elements.disclose(scope); err != nil { return }
         if num > 0 { res = &Group{ List{ Elements{ elems } } } }
         return
+}
+
+func MakeGroup(elems... Value) (v *Group) {
+        return &Group{List{Elements{elems}}}
 }
 
 //type Map struct {
@@ -1456,6 +1584,17 @@ func (p *Pair) disclose(scope *Scope) (res Value, err error) {
 
 func (p *Pair) referencing(o Object) bool {
         return p.Key.referencing(o) || p.Value.referencing(o)
+}
+
+func MakePair(k, v Value) (p *Pair) {
+        if k.Type().Bits()&IsKeyName != 0 {
+                p = &Pair{nil, nil}
+                p.SetKey(k)
+                p.SetValue(v)
+        } else {
+                panic(fmt.Errorf("'%T' is not key type", k))
+        }
+        return
 }
 
 // Delegate wraps '$(foo a,b,c)' into Valuer
@@ -2053,6 +2192,15 @@ func (p *GlobPattern) prepare(pc *Preparer) (err error) {
         return
 }
 
+func MakeGlobPattern(prefix, suffix Value) Pattern {
+        if prefix == nil { prefix = UniversalNone }
+        if suffix == nil { suffix = UniversalNone }
+        return &GlobPattern{
+                Prefix: prefix,
+                Suffix: suffix,
+        }
+}
+
 // TODO: implement regexp pattern
 type RegexpPattern struct {
         pattern
@@ -2254,6 +2402,64 @@ func Scalar(v Value, t Type) (res Value) {
                 res = v
         } else if l, _ := v.(*List); l != nil && l.Len() > 0 {
                 res = Scalar(l.Elems[0], t)
+        }
+        return
+}
+
+func EscapeChar(s string) string {
+        switch s {
+        case "a":  s = "\a"
+        case "b":  s = "\b"
+        case "f":  s = "\f"
+        case "n":  s = "\n"
+        case "r":  s = "\r"
+        case "t":  s = "\t"
+        case "v":  s = "\v"
+        case "\\": s = "\\"
+        case "$":  s = "$"
+        case "&":  s = "&"
+        default:   s = "\\" + s // give back the '\' character
+        }
+        return s
+}
+
+func ParseLiteral(tok token.Token, s string) (v Value) {
+        switch tok {
+        default:             v = UniversalNone
+        case token.BIN:      v = ParseBin(s)
+        case token.OCT:      v = ParseOct(s)
+        case token.INT:      v = ParseInt(s)
+        case token.HEX:      v = ParseHex(s)
+        case token.FLOAT:    v = ParseFloat(s)
+        case token.DATETIME: v = ParseDateTime(s)
+        case token.DATE:     v = ParseDate(s)
+        case token.TIME:     v = ParseTime(s)
+        case token.URI:      v = ParseUri(s)
+        case token.BAREWORD: v = MakeBareword(s)
+        case token.STRING:   v = MakeString(s)
+        case token.ESCAPE:   v = MakeString(EscapeChar(s))
+        }
+        return
+}
+
+func Make(in interface{}) (out Value) {
+        switch v := in.(type) {
+        case int:       out = MakeInt(int64(v))
+        case int32:     out = MakeInt(int64(v))
+        case int64:     out = MakeInt(v)
+        case float32:   out = MakeFloat(float64(v))
+        case float64:   out = MakeFloat(v)
+        case string:    out = MakeString(v)
+        case time.Time: out = MakeDateTime(v) // FIXME: NewDate, NewTime
+        case Value:     out = v
+        default:        out = UniversalNone
+        }
+        return
+}
+
+func MakeAll(in... interface{}) (out []Value) {
+        for _, v := range in {
+                out = append(out, Make(v))
         }
         return
 }

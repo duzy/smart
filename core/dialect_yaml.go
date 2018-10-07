@@ -4,36 +4,34 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package core
 
 import (
-        "extbit.io/smart/types"
-        "extbit.io/smart/values"
         //"encoding/yaml"
         //"strings"
         //"io"
 )
 
-func DecodeYAML(source string, ws bool) (result types.Value, err error) {
-        result = values.None
-        return
+func DecodeYAML(source string, ws bool) (result Value, err error) {
+        result = UniversalNone
+        return 
 }
 
 type dialectYaml struct {
         whitespace bool
 }
 
-func (t *dialectYaml) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectYaml) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(recipes...); err != nil { return }
         if result, err = DecodeYAML(source, t.whitespace); err == nil {
-                result = &types.YAML{ result }
+                result = &YAML{ result }
         } else {
-                result = &types.YAML{ values.None }
+                result = &YAML{ UniversalNone }
         }
         return
 }
 
 func init() {
-        types.RegisterDialect("yaml", &dialectYaml{})
+        RegisterDialect("yaml", &dialectYaml{})
 }

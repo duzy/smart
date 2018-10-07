@@ -4,7 +4,7 @@
 //  found in the LICENSE file.
 //
 
-package types
+package core
 
 type Interpreter interface {
         Evaluate(prog *Program, args []Value, recipes []Value) (Value, error)

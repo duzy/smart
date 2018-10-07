@@ -4,11 +4,9 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package core
 
 import (
-        "extbit.io/smart/values"
-        "extbit.io/smart/types"
         "extbit.io/smart/token"
         "strings"
         "fmt"
@@ -16,15 +14,15 @@ import (
 )
 
 type Context struct {
-        globe    *types.Globe
+        globe    *Globe
         workdir  string
 }
 func (ctx *Context) Getwd() string { return ctx.workdir }
-func (ctx *Context) Globe() *types.Globe { return ctx.globe }
+func (ctx *Context) Globe() *Globe { return ctx.globe }
 
 /*func (ctx *Context) defineBuiltin(name string, f builtin) {
         scope := ctx.globe.Scope()
-        _, alt := scope.InsertBuiltin(name, func(scope *types.Scope, args... types.Value) (types.Value, error) {
+        _, alt := scope.InsertBuiltin(name, func(scope *Scope, args... Value) (Value, error) {
                 return f(ctx, scope, args...)
         })
         if alt != nil {
@@ -38,19 +36,19 @@ func (ctx *Context) defineBuiltins() {
         }
 }*/
 
-func (context *Context) NewProgram(position token.Position, project *types.Project, params []string, scope *types.Scope, depends []types.Value, recipes... types.Value) *types.Program {
-        return types.NewProgram(context.globe, position, project, params, scope, depends, recipes...)
+func (context *Context) NewProgram(position token.Position, project *Project, params []string, scope *Scope, depends []Value, recipes... Value) *Program {
+        return NewProgram(context.globe, position, project, params, scope, depends, recipes...)
 }
 
 func (ctx *Context) Run(targets... string) (err error) {
         var (
-                result []types.Value
+                result []Value
                 updated int
                 mm = ctx.Globe().Main()
         )
 
         if mm == nil {
-                types.Fail("no targets to update")
+                Fail("no targets to update")
         }
 
         if len(targets) == 0 {
@@ -62,14 +60,14 @@ func (ctx *Context) Run(targets... string) (err error) {
         } else {
                 for _, target := range targets {
                         var (
-                                closure = []*types.Scope{ mm.Scope() }
+                                closure = []*Scope{ mm.Scope() }
                                 m = mm
                         )
                         if names := strings.Split(target, "->"); len(names)>1 {
                                 for _, s := range names[0:len(names)-1] {
                                         var _, obj = m.Scope().Find(s)
                                         switch t := obj.(type) {
-                                        case *types.ProjectName:
+                                        case *ProjectName:
                                                 m = t.NamedProject()
                                         case nil:
                                                 fmt.Printf("'%s' is not defined in %v", s, m.Scope())
@@ -88,13 +86,13 @@ func (ctx *Context) Run(targets... string) (err error) {
                         }
 
                         var (
-                                entry *types.RuleEntry
+                                entry *RuleEntry
                                 args = strings.Split(target, ":")
                         )
                         target, args = args[0], args[1:]
                         switch t := m.Scope().Resolve(target).(type) {
-                        case *types.ProjectName: entry = t.OwnerProject().DefaultEntry()
-                        case *types.RuleEntry:   entry = t
+                        case *ProjectName: entry = t.OwnerProject().DefaultEntry()
+                        case *RuleEntry:   entry = t
                         case nil:
                                 fmt.Printf("'%s' is not defined in %v", target, m.Scope())
                                 return
@@ -104,12 +102,12 @@ func (ctx *Context) Run(targets... string) (err error) {
                         }
 
                         if entry != nil {
-                                var v []types.Value
+                                var v []Value
                                 for _, a := range args {
-                                        v = append(v, values.String(a))
+                                        v = append(v, MakeString(a))
                                 }
 
-                                //defer entry.SetCaller(entry.SetCaller(types.NewPreparer(?, ?)))
+                                //defer entry.SetCaller(entry.SetCaller(NewPreparer(?, ?)))
                                 defer entry.SetClosure(entry.SetClosure(closure...)...)
 
                                 // The the base project scope as execution context. For
@@ -140,7 +138,7 @@ func (ctx *Context) Run(targets... string) (err error) {
 func NewContext(name string) *Context {
         var (
                 workdir, _ = os.Getwd()
-                globe = types.NewGlobe(name)
+                globe = NewGlobe(name)
                 context = &Context{
                         globe:    globe,
                         workdir:  workdir,

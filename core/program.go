@@ -4,11 +4,10 @@
 //  found in the LICENSE file.
 //
 
-package types
+package core
 
 import (
         "extbit.io/smart/token"
-        //"extbit.io/smart/values"
         //"path/filepath"
         "strconv"
         //"strings"

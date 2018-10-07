@@ -4,11 +4,9 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package core
 
 import (
-        "extbit.io/smart/types"
-        "extbit.io/smart/values"
         "encoding/xml"
         "strings"
         "io"
@@ -42,10 +40,10 @@ Converted into:
                 (title '  abc  ')
         )
 ) */
-func DecodeXML(source string, ws bool) (result types.Value, err error) {
+func DecodeXML(source string, ws bool) (result Value, err error) {
         var (
-                stack []*types.Group
-                nodes []*types.Group
+                stack []*Group
+                nodes []*Group
         )
         xd := xml.NewDecoder(strings.NewReader(source))
         var tok xml.Token
@@ -54,15 +52,15 @@ func DecodeXML(source string, ws bool) (result types.Value, err error) {
                 case xml.ProcInst:
                         // TODO: ...
                 case xml.StartElement:
-                        nn := values.Group(values.Bareword(elem.Name.Local))
+                        nn := MakeGroup(&Bareword{elem.Name.Local})
                         for _, a := range elem.Attr {
-                                var k, v types.Value
-                                k = values.Bareword(a.Name.Local)
-                                v = values.String(a.Value)
+                                var k, v Value
+                                k = &Bareword{a.Name.Local}
+                                v = &String{a.Value}
                                 if s := a.Name.Space; s != "" {
-                                        k = values.Group(values.String(s), k)
+                                        k = MakeGroup(&String{s}, k)
                                 }
-                                nn.Append(values.Pair(k, v))
+                                nn.Append(MakePair(k, v))
                         }
                         if x := len(stack); x > 0 {
                                 stack[x-1].Append(nn)
@@ -80,10 +78,10 @@ func DecodeXML(source string, ws bool) (result types.Value, err error) {
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
-                                        node.Append(values.String(s))
+                                        node.Append(MakeString(s))
                                 } else {
                                         if s = strings.TrimSpace(s); s != "" {
-                                                node.Append(values.String(s))
+                                                node.Append(MakeString(s))
                                         }
                                 }
                         }
@@ -94,7 +92,7 @@ func DecodeXML(source string, ws bool) (result types.Value, err error) {
                 }
         }
         if x := len(nodes); x > 1 {
-                g := values.Group()
+                g := MakeGroup()
                 for _, node := range nodes {
                         g.Append(node)
                 }
@@ -112,19 +110,19 @@ type dialectXml struct {
         whitespace bool
 }
 
-func (t *dialectXml) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectXml) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(recipes...); err != nil { return }
         if result, err = DecodeXML(source, t.whitespace); err == nil {
-                result = &types.XML{ result }
+                result = &XML{ result }
         } else {
-                result = &types.XML{ values.None }
+                result = &XML{ UniversalNone }
         }
         return
 }
 
 func init() {
-        types.RegisterDialect("xml", &dialectXml{
+        RegisterDialect("xml", &dialectXml{
                 whitespace: false,
         })
 }

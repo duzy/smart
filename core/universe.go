@@ -6,7 +6,7 @@
 
 // This file sets up the global scope and the root project/module.
 
-package types
+package core
 
 import (
         "time"

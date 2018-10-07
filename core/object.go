@@ -4,7 +4,7 @@
 //  found in the LICENSE file.
 //
 
-package types
+package core
 
 import (
         //"path/filepath"

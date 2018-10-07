@@ -4,11 +4,9 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package core
 
 import (
-        "extbit.io/smart/types"
-        //"extbit.io/smart/values"
         "os/exec"
         "strings"
         "unicode"
@@ -40,24 +38,24 @@ func isTrueValue(s string) (res bool) {
         return
 }
 
-func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        //if args, err = types.JoinEval(ClosureContext{prog.Scope()}, args...); err != nil {
-        if args, err = types.JoinEval(prog.ClosureContext(), args...); err != nil {
+func (s *dialectShell) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+        //if args, err = JoinEval(ClosureContext{prog.Scope()}, args...); err != nil {
+        if args, err = JoinEval(prog.ClosureContext(), args...); err != nil {
                 return
         }
 
         var (
                 // TODO: parsing envars and status flags from `args'
-                envarsDef, _ = prog.Scope().Lookup(types.TheShellEnvarsDef).(*types.Def)
-                exeres = new(types.ExecResult)
-                envars []types.Value // disclosed values
+                envarsDef, _ = prog.Scope().Lookup(TheShellEnvarsDef).(*Def)
+                exeres = new(ExecResult)
+                envars []Value // disclosed values
                 source, str string
         )
         if envarsDef != nil {
-                if l, _ := envarsDef.Value.(*types.List); l != nil {
+                if l, _ := envarsDef.Value.(*List); l != nil {
                         for _, v := range l.Elems {
-                                //if v, err = types.Disclose(prog.Scope(), v); err != nil {
-                                if v, err = types.Disclose(prog.ClosureContext(), v); err != nil {
+                                //if v, err = Disclose(prog.Scope(), v); err != nil {
+                                if v, err = Disclose(prog.ClosureContext(), v); err != nil {
                                         return
                                 } else {
                                         envars = append(envars, v)
@@ -95,7 +93,7 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                 /*if s := ""; len(envars) > 0 {
                         for i, env := range envars {
                                 if i > 0 { s += " && " }
-                                p := env.(*types.Pair)
+                                p := env.(*Pair)
                                 s += "export "
                                 s += p.Key.Strval() + "=\""
                                 s += p.Value.Strval() + "\""
@@ -116,8 +114,8 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                         )
                         ForArgs: for _, v := range args {
                                 switch t := v.(type) {
-                                case *types.Pair:
-                                        if f, _ := t.Key.(*types.Flag); f != nil {
+                                case *Pair:
+                                        if f, _ := t.Key.(*Flag); f != nil {
                                                 if key, err = f.Name.Strval(); err != nil { return }
                                                 if value, err = t.Value.Strval(); err != nil { return }
                                                 switch key {
@@ -129,7 +127,7 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                                                         continue ForArgs
                                                 }
                                         }
-                                case *types.Flag:
+                                case *Flag:
                                         if key, err = t.Name.Strval(); err != nil { return }
                                         switch key {
                                         case "s" : silent = true;  continue ForArgs
@@ -159,8 +157,8 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
                 }
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
-                        //if v, err = types.Disclose(prog.Scope(), v); err != nil {
-                        if v, err = types.Disclose(prog.ClosureContext(), v); err != nil {
+                        //if v, err = Disclose(prog.Scope(), v); err != nil {
+                        if v, err = Disclose(prog.ClosureContext(), v); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)
@@ -196,15 +194,15 @@ func (s *dialectShell) Evaluate(prog *types.Program, args []types.Value, recipes
 }
 
 func init() {
-        types.RegisterDialect("shell", &dialectShell{
+        RegisterDialect("shell", &dialectShell{
                 interpreter: defaultShellInterpreter, // "sh"
                 xopt: "-c",
         })
-        types.RegisterDialect("python", &dialectShell{
+        RegisterDialect("python", &dialectShell{
                 interpreter: "python",
                 xopt: "-c",
         })
-        types.RegisterDialect("perl", &dialectShell{
+        RegisterDialect("perl", &dialectShell{
                 interpreter: "perl",
                 xopt: "-e",
         })

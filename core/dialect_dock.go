@@ -4,11 +4,9 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package core
 
 import (
-        "extbit.io/smart/types"
-        //"extbit.io/smart/values"
         "os/exec"
         "strings"
         "regexp"
@@ -40,7 +38,7 @@ var (
 
 type dialectDock struct {}
 
-func docksFind(docks []*types.Project, name string) (obj types.Object) {
+func docksFind(docks []*Project, name string) (obj Object) {
         for _, dock := range docks {
                 if _, obj = dock.Scope().Find(name); obj == nil {
                         for _, p := range dock.Bases() {
@@ -53,25 +51,25 @@ func docksFind(docks []*types.Project, name string) (obj types.Object) {
         return
 }
 
-func (s *dialectDock) runContainer(prog *types.Program, docks []*types.Project, cc types.ClosureContext) (err error) {
+func (s *dialectDock) runContainer(prog *Program, docks []*Project, cc ClosureContext) (err error) {
         var (
                 obj = docksFind(docks, "run")
-                run *types.RuleEntry
+                run *RuleEntry
         )
         if obj != nil {
-                run, _ = obj.(*types.RuleEntry)
+                run, _ = obj.(*RuleEntry)
         }
         if run != nil {
                 var closure = cc //append(prog.ClosureContext(), dock.Scope())
                 defer run.SetClosure(run.SetClosure(closure...)...)
-                _, err = run.Execute(prog.Position()/*, values.String("sh -i")*/)
+                _, err = run.Execute(prog.Position()/*, &String{"sh -i"}*/)
         } else {
                 err = fmt.Errorf("dock start entry undefined")
         }
         return
 }
 
-func (s *dialectDock) ensureContainerRunning(prog *types.Program, docks []*types.Project, cc types.ClosureContext, container string) (err error) {
+func (s *dialectDock) ensureContainerRunning(prog *Program, docks []*Project, cc ClosureContext, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -124,10 +122,10 @@ func (s *dialectDock) ensureContainerRunning(prog *types.Program, docks []*types
         return
 }
 
-func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var (
                 cc = prog.ClosureContext()
-                docks []*types.Project
+                docks []*Project
         )
 
         if prog.Project().Name() == "dock" {
@@ -135,14 +133,14 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         } else {
                 for _, scope := range cc {
                         if _, sym := scope.Find("dock"); sym != nil {
-                                if p, ok := sym.(*types.ProjectName); ok && p != nil {
+                                if p, ok := sym.(*ProjectName); ok && p != nil {
                                         docks = append(docks, p.NamedProject())
                                 }
                         }
                 }
                 if docks == nil {
                         if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
-                                if pn, _ := dockSym.(*types.ProjectName); pn != nil {
+                                if pn, _ := dockSym.(*ProjectName); pn != nil {
                                         docks = append(docks, pn.NamedProject())
                                 }
                         }
@@ -158,8 +156,8 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 
         var strval = func(name string) (str string, err error) {
                 if obj := docksFind(docks, name); obj != nil {
-                        if def, _ := obj.(*types.Def); def != nil {
-                                var v types.Value
+                        if def, _ := obj.(*Def); def != nil {
+                                var v Value
                                 if v, err = def.DiscloseValue(cc); err == nil && v != nil {
                                         if str, err = v.Strval(); str == "-" {
                                                 //fmt.Printf("dock: %v %v\n", docks, cc)
@@ -179,7 +177,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         if container == "" { err = fmt.Errorf("dock-container undefined"); return }
         if image, err = strval("dock-image"); err != nil { return }
         if image == "" { err = fmt.Errorf("dock-image undefined"); return }
-        if args, err = types.JoinEval(prog.ClosureContext(), args...); err != nil { return }
+        if args, err = JoinEval(prog.ClosureContext(), args...); err != nil { return }
 
         if false {
                 if err = s.ensureContainerRunning(prog, docks, cc, container); err != nil {
@@ -188,7 +186,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
         }
 
         var (
-                exeres = new(types.ExecResult)
+                exeres = new(ExecResult)
                 source, str string
                 shi = "sh" // interpreter
         )
@@ -220,12 +218,12 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 
                 var (
                         src = source
-                        envars []types.Value // disclosed values
+                        envars []Value // disclosed values
                 )
-                if envarsDef, _ := prog.Scope().Lookup(types.TheShellEnvarsDef).(*types.Def); envarsDef != nil {
-                        if l, _ := envarsDef.Value.(*types.List); l != nil {
+                if envarsDef, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); envarsDef != nil {
+                        if l, _ := envarsDef.Value.(*List); l != nil {
                                 for _, v := range l.Elems {
-                                        if v, err = types.Disclose(prog.ClosureContext(), v); err != nil {
+                                        if v, err = Disclose(prog.ClosureContext(), v); err != nil {
                                                 return
                                         } else {
                                                 envars = append(envars, v)
@@ -242,8 +240,8 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 )
                 ForArgs: for _, v := range args {
                         switch t := v.(type) {
-                        case *types.Pair:
-                                if f, _ := t.Key.(*types.Flag); f != nil {
+                        case *Pair:
+                                if f, _ := t.Key.(*Flag); f != nil {
                                         var name, value string
                                         if name, err = f.Name.Strval(); err != nil { return }
                                         switch name {
@@ -256,7 +254,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                                                 continue ForArgs
                                         }
                                 }
-                        case *types.Flag:
+                        case *Flag:
                                 var name string
                                 if name, err = t.Name.Strval(); err != nil { return }
                                 switch name {
@@ -287,7 +285,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                         }
                 }
 
-                wd := prog.Scope().Lookup(types.TheCurrWorkDirDef).(*types.Def)
+                wd := prog.Scope().Lookup(TheCurrWorkDirDef).(*Def)
                 if str, err = wd.Value.Strval(); err != nil { return }
                 if str != "" || nocd {
                         if false {
@@ -305,7 +303,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                         if str = ""; len(envars) > 0 {
                                 for i, env := range envars {
                                         var (
-                                                p = env.(*types.Pair)
+                                                p = env.(*Pair)
                                                 k, v string
                                         )
                                         if k, err = p.Key.Strval(); err != nil { return }
@@ -335,7 +333,7 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
                 )
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
-                        if v, err = types.Disclose(prog.ClosureContext(), v); err != nil {
+                        if v, err = Disclose(prog.ClosureContext(), v); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)
@@ -398,5 +396,5 @@ func (s *dialectDock) Evaluate(prog *types.Program, args []types.Value, recipes 
 }
 
 func init() {
-        types.RegisterDialect("dock", new(dialectDock))
+        RegisterDialect("dock", new(dialectDock))
 }

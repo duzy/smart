@@ -4,11 +4,9 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package core
 
 import (
-        "extbit.io/smart/types"
-        "extbit.io/smart/values"
         "encoding/json"
         "strings"
         "bytes"
@@ -16,7 +14,7 @@ import (
         "io"
 )
 
-func joinRecipesString(recipes... types.Value) (res string, err error) {
+func joinRecipesString(recipes... Value) (res string, err error) {
         var (
                 x = len(recipes)-1
                 s = new(bytes.Buffer)
@@ -34,8 +32,8 @@ func joinRecipesString(recipes... types.Value) (res string, err error) {
 
 type jsonDecodeState struct {
         dec *json.Decoder
-        stack []*types.Group
-        nodes []*types.Group
+        stack []*Group
+        nodes []*Group
 }
 
 func (ds *jsonDecodeState) decode() {
@@ -46,13 +44,13 @@ const (
         JsonObject = "object"
 )
 
-func DecodeJSON(source string) (result types.Value, err error) {
+func DecodeJSON(source string) (result Value, err error) {
         //fmt.Printf("json: %v\n", source)
         var (
-                stack []*types.Group
-                nodes []types.Value
-                node *types.Group
-                value types.Value
+                stack []*Group
+                nodes []Value
+                node *Group
+                value Value
                 t, v json.Token
                 s string
         )
@@ -66,7 +64,7 @@ func DecodeJSON(source string) (result types.Value, err error) {
                 case json.Delim:
                         switch d {
                         case '[':
-                                nn := values.Group(values.Bareword(JsonArray))
+                                nn := &Group{List{Elements{[]Value{&Bareword{JsonArray}}}}}
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -75,7 +73,7 @@ func DecodeJSON(source string) (result types.Value, err error) {
                                 stack = append(stack, nn) // APPEND
                                 break SwitchNodeType
                         case '{':
-                                nn := values.Group(values.Bareword(JsonObject))
+                                nn := &Group{List{Elements{[]Value{&Bareword{JsonObject}}}}}
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -85,31 +83,31 @@ func DecodeJSON(source string) (result types.Value, err error) {
                                 break SwitchNodeType
                         case '}':
                                 if x == 0 {
-                                        err = types.ErrorIllJson; break LoopJSON
+                                        err = ErrorIllJson; break LoopJSON
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
                                         if s, err = k.Strval(); err != nil { return } else if s != JsonObject {
-                                                err = types.ErrorIllJson; break LoopJSON
+                                                err = ErrorIllJson; break LoopJSON
                                         }
                                 }
                                 stack = stack[0:x-1] // POP
                                 continue LoopJSON
                         case ']':
                                 if x == 0 {
-                                        err = types.ErrorIllJson; break LoopJSON
+                                        err = ErrorIllJson; break LoopJSON
                                 }
                                 if k := stack[x-1].Get(0); k == nil {
                                         if s, err = k.Strval(); err != nil { return } else if s != JsonArray {
-                                                err = types.ErrorIllJson; break LoopJSON
+                                                err = ErrorIllJson; break LoopJSON
                                         }
                                 }
                                 stack = stack[0:x-1] // POP
                                 continue LoopJSON
                         default:
-                                err = types.ErrorIllJson; break LoopJSON
+                                err = ErrorIllJson; break LoopJSON
                         }
                 case string:
-                        var sv = values.String(d)
+                        var sv = &String{d}
                         if x == 0 {
                                 nodes = append(nodes, sv)
                                 break
@@ -121,56 +119,56 @@ func DecodeJSON(source string) (result types.Value, err error) {
                                 if kind, err = k.Strval(); err != nil { return } else if kind == JsonArray {
                                         node.Append(sv); continue
                                 } else if kind != JsonObject {
-                                        err = types.ErrorIllJson; break LoopJSON
+                                        err = ErrorIllJson; break LoopJSON
                                 }
                         }
 
                         // Get value token 
                         if !jd.More() {
-                                err = types.ErrorIllJson; break LoopJSON
+                                err = ErrorIllJson; break LoopJSON
                         } else if v, err = jd.Token(); err != nil {
                                 break LoopJSON
                         }
                         
                         switch vd := v.(type) {
                         case json.Delim:
-                                var vn *types.Group
+                                var vn *Group
                                 switch vd {
-                                case '[': vn = values.Group(values.Bareword(JsonArray))
-                                case '{': vn = values.Group(values.Bareword(JsonObject))
-                                default: err = types.ErrorIllJson; break LoopJSON
+                                case '[': vn = &Group{List{Elements{[]Value{&Bareword{JsonArray}}}}}
+                                case '{': vn = &Group{List{Elements{[]Value{&Bareword{JsonObject}}}}}
+                                default: err = ErrorIllJson; break LoopJSON
                                 }
                                 stack = append(stack, vn)
-                                node.Append(values.Pair(sv, vn))
+                                node.Append(&Pair{sv, vn})
                         case string:
-                                node.Append(values.Pair(sv, values.String(vd)))
+                                node.Append(&Pair{sv, &String{vd}})
                         case float64:
-                                node.Append(values.Pair(sv, values.Float(vd)))
+                                node.Append(&Pair{sv, &Float{vd}})
                         case nil: // null
-                                node.Append(values.Pair(sv, values.Bareword("null")))
+                                node.Append(&Pair{sv, &Bareword{"null"}})
                         default:
-                                err = types.ErrorIllJson; break LoopJSON
+                                err = ErrorIllJson; break LoopJSON
                         }
                         //fmt.Printf("node: %v\n", node)
                 case float64:
-                        if v := values.Float(d); x == 0 {
+                        if v := Value(&Float{d}); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
                         }
                 case nil: // null
-                        if v := values.Bareword("null"); x == 0 {
+                        if v := Value(&Bareword{"null"}); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
                         }
                 default:
-                        err = types.ErrorIllJson; break LoopJSON
+                        err = ErrorIllJson; break LoopJSON
                 }
                 if node != nil && value != nil {
                         if k := node.Get(0); k != nil {
                                 if s, err = k.Strval(); err != nil { return } else if s != JsonArray {
-                                        err = types.ErrorIllJson; break LoopJSON
+                                        err = ErrorIllJson; break LoopJSON
                                 }
                         }
                         node.Append(value)
@@ -183,7 +181,7 @@ func DecodeJSON(source string) (result types.Value, err error) {
         if x := len(nodes); x == 1 {
                 result = nodes[0]
         } else {
-                g := values.Group()
+                g := &Group{}
                 for _, v := range nodes {
                         g.Append(v)
                 }
@@ -195,17 +193,17 @@ func DecodeJSON(source string) (result types.Value, err error) {
 type dialectJson struct {
 }
 
-func (t *dialectJson) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectJson) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(recipes...); err != nil { return }
         if result, err = DecodeJSON(source); err == nil {
-                result = &types.JSON{ result }
+                result = &JSON{ result }
         } else {
-                result = &types.JSON{ values.None }
+                result = &JSON{ UniversalNone }
         }
         return
 }
 
 func init() {
-        types.RegisterDialect("json", new(dialectJson))
+        RegisterDialect("json", new(dialectJson))
 }

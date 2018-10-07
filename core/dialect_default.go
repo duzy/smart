@@ -4,11 +4,9 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package core
 
 import (
-        "extbit.io/smart/types"
-        "extbit.io/smart/values"
         "errors"
         "fmt"
         "os"
@@ -18,33 +16,33 @@ import (
 type dialectDefault struct {
 }
 
-func (t *dialectDefault) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
-        var list = values.List()
+func (t *dialectDefault) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+        var list = &List{}
 LoopRecipes:
         for _, recipe := range recipes {
                 switch stmt := recipe.(type) {
-                case *types.None:
-                case *types.List:
+                case *None:
+                case *List:
                         if stmt.Len() == 0 { continue }
                         var (
                                 v = stmt.Get(0)
                                 e error
                         )
                         switch t := v.(type) {
-                        case *types.Def:
+                        case *Def:
                                 // Noop, just return v to the caller.
                                 //fmt.Printf("dialectDefault: def: %s: %p %v (%s)\n", prog.project.Name(), t, t, t.Strval())
 
-                        case types.Caller:
+                        case Caller:
                                 v, e = t.Call(prog.Position(), stmt.Slice(1)...)
 
-                        case types.Executer:
-                                var a []types.Value
+                        case Executer:
+                                var a []Value
                                 if a, e = t.Execute(prog.Position(), stmt.Slice(1)...); e == nil {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
-                                                v = values.List(a...)
+                                                v = &List{Elements{a}}
                                         }
                                 }
 
@@ -55,7 +53,7 @@ LoopRecipes:
 
                         if e == nil && v != nil {
                                 list.Append(v)
-                                if g, _ := v.(*types.Group); g != nil {
+                                if g, _ := v.(*Group); g != nil {
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
                                                 var (
                                                         str string
@@ -69,7 +67,7 @@ LoopRecipes:
                                                 }
                                         }
                                 }
-                        } else if p, _ := e.(*types.Returner); p != nil {
+                        } else if p, _ := e.(*Returner); p != nil {
                                 if p.Value != nil {
                                         list.Append(p.Value)
                                 }
@@ -89,5 +87,5 @@ LoopRecipes:
 }
 
 func init() {
-        types.RegisterDialect("", new(dialectDefault))
+        RegisterDialect("", new(dialectDefault))
 }

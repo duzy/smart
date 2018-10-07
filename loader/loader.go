@@ -7,10 +7,8 @@ package loader
 
 import (
         "extbit.io/smart/token"
-        "extbit.io/smart/types"
+        "extbit.io/smart/core"
         "extbit.io/smart/parser"
-        "extbit.io/smart/runtime"
-        "extbit.io/smart/values"
         "extbit.io/smart/scanner"
         "path/filepath"
         "strings"
@@ -38,17 +36,17 @@ func init() {
 }
 
 type declare struct {
-        project *types.Project
-        backproj *types.Project
-        backscope *types.Scope
+        project *core.Project
+        backproj *core.Project
+        backscope *core.Scope
 }
 
 type loadinfo struct {
         absDir string // absPath = filepath.Join(absDir, baseName)
         baseName string
         specName string
-        loader *types.Project
-        scope *types.Scope
+        loader *core.Project
+        scope *core.Scope
         declares map[string]*declare // all project declares in the loaded dir
 }
 
@@ -57,14 +55,14 @@ func (li *loadinfo) absPath() string {
 }
 
 type Loader struct {
-        *runtime.Context
+        *core.Context
         pc       *parser.Context
         fset     *token.FileSet
         paths    searchlist
         loads    []*loadinfo
-        loaded   map[string]*types.Project // loaded projects
-        project  *types.Project // the current project
-        scope    *types.Scope   // the current scope
+        loaded   map[string]*core.Project // loaded projects
+        project  *core.Project // the current project
+        scope    *core.Scope   // the current scope
 }
 
 type parseContext struct {
@@ -74,10 +72,10 @@ type parseContext struct {
 // Create and initialize a new loader.
 func New() (loader *Loader) {
         loader = &Loader{
-                Context:  runtime.NewContext("loader"),
+                Context:  core.NewContext("loader"),
                 fset:     token.NewFileSet(), 
                 paths:    []string(globalPaths),
-                loaded:   make(map[string]*types.Project),
+                loaded:   make(map[string]*core.Project),
         }
         scope := loader.Globe().Scope()
         loader.pc = parser.NewContext(&parseContext{ loader }, scope)
@@ -124,10 +122,10 @@ func LoadWork() (l *Loader, targets []string) {
         )
 
         if _, obj := as.Find("SMART"); obj != nil {
-                def := obj.(*types.Def)
+                def := obj.(*core.Def)
                 for _, s := range globalPaths {
-                        def.Append(values.String("-search"))
-                        def.Append(values.String(s))
+                        def.Append(core.MakeString("-search"))
+                        def.Append(core.MakeString(s))
                 }
         }
 
@@ -150,7 +148,7 @@ func LoadWork() (l *Loader, targets []string) {
                                 fmt.Fprintf(os.Stderr, "ERROR: bad argument '%v'\n", a)
                                 return
                         }
-                        as.InsertDef(at, name, values.String(v))
+                        as.InsertDef(at, name, core.MakeString(v))
                 } else {
                         targets = append(targets, a)
                 }
@@ -160,8 +158,8 @@ func LoadWork() (l *Loader, targets []string) {
 
         var (
                 ab = base
-                defS, _ = as.InsertDef(at, "/", values.String(at.AbsPath()))
-                defD, _ = as.InsertDef(at, ".", values.None)
+                defS, _ = as.InsertDef(at, "/", core.MakeString(at.AbsPath()))
+                defD, _ = as.InsertDef(at, ".", core.UniversalNone)
         )
         AtLookupLoop: for {
                 var (
@@ -170,8 +168,8 @@ func LoadWork() (l *Loader, targets []string) {
                 )
                 if fi, err := os.Stat(s1); err == nil {
                         if m := fi.Mode(); m.IsRegular() {
-                                defS.Assign(values.String(ab))
-                                defD.Assign(values.String(ab))
+                                defS.Assign(core.MakeString(ab))
+                                defD.Assign(core.MakeString(ab))
                                 if err = l.Load(s1, nil); err != nil {
                                         scanner.PrintError(os.Stderr, err)
                                         return
@@ -183,8 +181,8 @@ func LoadWork() (l *Loader, targets []string) {
                         }
                 } else if fi, err = os.Stat(s2); err == nil {
                         if m := fi.Mode(); m.IsDir() {
-                                defS.Assign(values.String(ab))
-                                defD.Assign(values.String(ab))
+                                defS.Assign(core.MakeString(ab))
+                                defD.Assign(core.MakeString(ab))
                                 if err = l.LoadDir(s2, nil); err != nil {
                                         scanner.PrintError(os.Stderr, err)
                                         return
@@ -217,7 +215,7 @@ func CommandLine() {
         defer func() {
 		if e := recover(); e != nil {
 			// resume same panic if it's not a Failure
-			if failure, ok := e.(*types.Failure); !ok {
+			if failure, ok := e.(*core.Failure); !ok {
 				panic(e)
 			} else {
                                 scanner.PrintError(os.Stderr, failure)

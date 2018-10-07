@@ -4,27 +4,26 @@
 //  found in the LICENSE file.
 //
 
-package runtime
+package core
 
 import (
-        "extbit.io/smart/types"
         //"fmt"
 )
 
 type dialectPlain struct {
 }
 
-func (t *dialectPlain) Evaluate(prog *types.Program, args []types.Value, recipes []types.Value) (result types.Value, err error) {
+func (t *dialectPlain) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var str, name string
         if len(args) > 0 {
                 if name, err = args[0].Strval(); err != nil { return }
         }
         if str, err = joinRecipesString(recipes...); err != nil { return }
         //fmt.Printf("plain: %s\n", str)
-        result = &types.Plain{ str, name, }
+        result = &Plain{ str, name, }
         return
 }
 
 func init() {
-        types.RegisterDialect("plain", new(dialectPlain))
+        RegisterDialect("plain", new(dialectPlain))
 }

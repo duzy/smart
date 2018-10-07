@@ -9,8 +9,7 @@ import (
         "extbit.io/smart/ast"
         "extbit.io/smart/token"
         "extbit.io/smart/scanner"
-        "extbit.io/smart/types"
-        "extbit.io/smart/values"
+        "extbit.io/smart/core"
         "path/filepath"
         "strconv"
         "strings"
@@ -494,9 +493,9 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         defer p.setbits(p.setbit(composingSELECT))
 
         var (
-                object types.Value
+                object core.Value
                 objectName string
-                fieldValue types.Value
+                fieldValue core.Value
                 fieldName string
                 where = anywhere
                 rhs = p.checkExpr(p.parseExpr(false))
@@ -508,7 +507,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         case *ast.GlobExpr: fieldName = t.Tok.String() // foo->*
         case *ast.EvaluatedExpr: // foo->bar->xxx
                 if t.Data != nil {
-                        if v, _ := t.Data.(types.Value); v != nil {
+                        if v, _ := t.Data.(core.Value); v != nil {
                                 if fieldName, err = v.Strval(); err != nil {
                                         p.error(t.Pos(), "%s", err)
                                 }
@@ -536,7 +535,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         case *ast.Bareword: objectName = t.Value
         case *ast.EvaluatedExpr:
                 if t.Data != nil {
-                        if object = t.Data.(types.Value); object != nil {
+                        if object = t.Data.(core.Value); object != nil {
                                 goto GetFieldValue
                         }
                 }
@@ -562,7 +561,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
                 where = global
         }
         if sym := p.runtime.Resolve(objectName, where); sym != nil {
-                object = sym.(types.Value)
+                object = sym.(core.Value)
         }
         if object == nil {
                 p.error(lhs.Pos(), "Undefined select operand `%s' (%v).", objectName, lhs)
@@ -570,21 +569,21 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         }
 
         GetFieldValue: switch o := object.(type) {
-        case types.Object:
+        case core.Object:
                 var err error
                 if fieldValue, err = o.Get(fieldName); err != nil {
                         p.error(rhs.Pos(), "Selection: %v", err)
                         p.error(arrow, "Selection `%s->%s' failed.", objectName, fieldName)
                 } else if fieldValue == nil {
                         p.error(rhs.Pos(), "No such property `%s' in `%s'.", fieldName, objectName)
-                } else if pn, _ := o.(*types.ProjectName); pn != nil {
+                } else if pn, _ := o.(*core.ProjectName); pn != nil {
                         // Detect diverged scope ().
                         switch v := fieldValue.(type) {
-                        case *types.RuleEntry:
+                        case *core.RuleEntry:
                                 if false && pn.OwnerProject() != v.OwnerProject() {
                                         p.error(rhs.Pos(), "Name diverged `%v' (%v != %v).", fieldName, pn.OwnerProject().Name(), v.OwnerProject().Name())
                                 }
-                        case *types.Def:
+                        case *core.Def:
                         }
                 }
         default:
@@ -962,11 +961,11 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                         name = a
                         switch tokLp {
                         case token.LPAREN:
-                                if _, ok := resolved.(types.Caller); !ok {
+                                if _, ok := resolved.(core.Caller); !ok {
                                         p.error(name.Pos(), "Reference: uncallable resolved `%v' (%T).", s, name)
                                 }
                         case token.LBRACE:
-                                if _, ok := resolved.(types.Executer); !ok {
+                                if _, ok := resolved.(core.Executer); !ok {
                                         p.error(name.Pos(), "Reference: unexecutible resolved `%v' (%T).", s, name)
                                 }
                         }
@@ -1002,7 +1001,7 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) ast.Expr {
         resolved := p.runtime.Resolve(s, anywhere)
         if resolved == nil {
                 p.error(pos, "Undefined reference `%v' (%v).", s, tok)
-        } else if _, ok := resolved.(types.Caller); !ok {
+        } else if _, ok := resolved.(core.Caller); !ok {
                 p.error(pos, "Uncallable resolved `%T'.", resolved)
         }
         
@@ -1221,14 +1220,14 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         fmt.Printf("files: %T %v\n", ee.Data, ee.Data)
                 }
                 switch v := ee.Data.(type) {
-                case *types.Pair:
+                case *core.Pair:
                         var (
                                 paths []string
                                 s, e = v.Key.Strval()
                         )
                         if e != nil { p.error(prop.Pos(), "%s", e) }
                         switch vv := v.Value.(type) {
-                        case *types.Group:
+                        case *core.Group:
                                 for _, elem := range vv.Elems {
                                         if s, e = elem.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
                                         paths = append(paths, s)
@@ -1238,7 +1237,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                                 paths = append(paths, s)
                         }
                         p.runtime.MapFile(s, paths)
-                case types.Value:
+                case core.Value:
                         if s, e := v.Strval(); e != nil { p.error(prop.Pos(), "%s", e) } else {
                                 p.runtime.MapFile(s, nil)
                         }
@@ -1253,7 +1252,7 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
         spec := &ast.EvalSpec{ p.parseDirectiveSpec(), nil }
         if ee, _ := spec.Props[0].(*ast.EvaluatedExpr); ee == nil {
                 panic("expected evaluated expr (eval)")
-        } else if name, _ := ee.Data.(types.Value); name == nil {
+        } else if name, _ := ee.Data.(core.Value); name == nil {
                 p.error(ee.Pos(), "Invalid eval symbol (%T).", ee.Data)
         } else if s, err := name.Strval(); err != nil {
                 p.error(spec.Props[0].Pos(), err)
@@ -1381,7 +1380,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 comment = p.lineComment
 
                 alt bool
-                def, prev *types.Def
+                def, prev *core.Def
                 value ast.Expr
         )
         // Take it from parser, since the line comment is assigned
@@ -1399,10 +1398,10 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         if v, e := p.runtime.Eval(ident, StringValue); e == nil {
                 var name string
                 switch t := v.(type) {
-                case types.Object: //*types.Def, *types.RuleEntry:
+                case core.Object: //*core.Def, *core.RuleEntry:
                         name = t.Name() // name is previously defined (e.g. in another scope)
                         ident = &ast.Bareword{ ident.Pos(), name }
-                default: //case *types.Bareword:
+                default: //case *core.Bareword:
                         if name, e = v.Strval(); e != nil {
                                 p.error(ident.Pos(), "%s", e)
                         }
@@ -1416,27 +1415,27 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 // symbol from the other scope with new one.
                 if tok == token.ADD_ASSIGN {
                         if sym := p.runtime.Resolve(name, anywhere); sym != nil {
-                                prev, _ = sym.(*types.Def)
+                                prev, _ = sym.(*core.Def)
                         }
                 }
                 
                 // Always work in the current runtime scope, so it won't affect
                 // any base symbols.
-                if s, a := p.runtime.Symbol(name, types.DefType); a != nil {
+                if s, a := p.runtime.Symbol(name, core.DefType); a != nil {
                         switch tok {
                         case token.ASSIGN, token.EXC_ASSIGN:
                                 p.error(ident.Pos(), "Already defined `%v' (%v).", name, v)
                         default:
-                                def, _ = a.(*types.Def) // override the existing
+                                def, _ = a.(*core.Def) // override the existing
                                 if def == nil {
                                         p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", name, a)
                                 }
                         }
                         alt = true // it's the second defining this symbol
-                } else if def, _ = s.(*types.Def); def != nil {
+                } else if def, _ = s.(*core.Def); def != nil {
                         if prev != nil && prev != def /*&& prev.Parent() != def.Parent()*/ {
                                 def.SetOrigin(prev.Origin())
-                                def.Assign(types.Delegate(p.file.Position(pos), prev))
+                                def.Assign(core.Delegate(p.file.Position(pos), prev))
                         }
                 } else if s != nil {
                         p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", name, s)
@@ -1450,15 +1449,15 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 p.error(ident.Pos(), "error declosing name %T", ident)
         }
        
-        var bits = KeepClosures|KeepDelegates // assumes types.DefaultDef
+        var bits = KeepClosures|KeepDelegates // assumes core.DefaultDef
         switch tok {
         case token.ADD_ASSIGN: // +=
                 if def == nil {
                         bits = EvalBits(-1)
-                } else if def.Origin() == types.ImmediateDef {
+                } else if def.Origin() == core.ImmediateDef {
                         bits = KeepClosures
                 } else { // InvalidDef, DefaultDef, etc.
-                        def.SetOrigin(types.DefaultDef)
+                        def.SetOrigin(core.DefaultDef)
                         bits = KeepClosures|KeepDelegates
                 }
         case token.QUE_ASSIGN: // ?=
@@ -1469,12 +1468,12 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 bits = KeepClosures|KeepDelegates
         case token.ASSIGN, token.EXC_ASSIGN: // =, !=
                 if def != nil {
-                        def.SetOrigin(types.DefaultDef)
+                        def.SetOrigin(core.DefaultDef)
                 }
                 bits = KeepClosures|KeepDelegates
         case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
                 if def != nil {
-                        def.SetOrigin(types.ImmediateDef)
+                        def.SetOrigin(core.ImmediateDef)
                 }
                 bits = KeepClosures
         default:
@@ -1496,7 +1495,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                                 p.error(value.Pos(), e)
                         } else if def.Value == nil {
                                 //! Avoid creating a <nil> Def.
-                                def.Value = types.UniversalNone
+                                def.Value = core.UniversalNone
                         }
                         value = &ast.EvaluatedExpr{ value, v }
                 } else {
@@ -1532,7 +1531,7 @@ func (p *parser) parseRecipeBuiltin(elems []ast.Expr) (x ast.Expr) {
         if elem, ok := elems[0].(*ast.EvaluatedExpr); ok {
                 // Resolve builtin names.
                 switch t := elem.Data.(type) {
-                case *types.Bareword:
+                case *core.Bareword:
                         if sym := p.runtime.Resolve(t.Value, anywhere); sym == nil {
                                 p.error(elem.Pos(), "undefined builtin %v", t.Value)
                         } else {
@@ -1660,12 +1659,12 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         if e == nil {
                                                 var name string
                                                 if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
-                                                if sym, alt := p.runtime.Symbol(name, types.DefType); alt != nil {
+                                                if sym, alt := p.runtime.Symbol(name, core.DefType); alt != nil {
                                                         p.error(p.pos, "Name `%s' already taken (%T).", name, alt)
                                                 } else if sym == nil {
                                                         // TODO: errors
                                                 } else if v, e = p.runtime.Eval(kv.Value, KeepClosures|KeepDelegates); e == nil {
-                                                        sym.(*types.Def).Assign(v)
+                                                        sym.(*core.Def).Assign(v)
                                                         //fmt.Printf("var: %v\n", sym)
                                                 }
                                         }
@@ -1682,12 +1681,12 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                                 if v, e := p.runtime.Eval(elem, StringValue); e == nil {
                                                         var name string
                                                         if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
-                                                        if sym, alt := p.runtime.Symbol(name, types.DefType); alt != nil {
+                                                        if sym, alt := p.runtime.Symbol(name, core.DefType); alt != nil {
                                                                 p.error(p.pos, "Name `%s' already taken, not parameter (%T).", name, alt)
                                                         } else if sym == nil {
                                                                 // TODO: errors
                                                         } else {
-                                                                //sym.(*types.Def).Assign(values.String("xxxxxxxxxx"))
+                                                                //sym.(*core.Def).Assign(core.MakeString("xxxxxxxxxx"))
                                                         }
                                                         params = append(params, name)
                                                 } else {
@@ -1719,14 +1718,14 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                 }
                 goto addModifier
 
-                checkName: if types.IsDialect(name) {
+                checkName: if core.IsDialect(name) {
                         if dialect == "" {
                                 dialect = name
                         } else {
                                 p.error(pos, "multi-dialect unsupported, already defined '%s'", dialect)
                                 goto next
                         }
-                } else if types.IsModifier(name) {
+                } else if core.IsModifier(name) {
                         goto addModifier
                 } else {
                         p.error(pos, "No such dialect or modifier `%s'", name)
@@ -1769,7 +1768,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         var (
                 doc = p.leadComment
                 pos = p.expect(tok)
-                entries []*types.RuleEntry
+                entries []*core.RuleEntry
                 modifier *ast.ModifierExpr
                 program *ast.ProgramExpr
                 depends []ast.Expr
@@ -1803,9 +1802,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         }
                 }
 
-                var tarent *types.RuleEntry
-                if sym, alt := p.runtime.Symbol(name, types.RuleEntryType); alt != nil {
-                        if entry, ok := alt.(*types.RuleEntry); entry == nil {
+                var tarent *core.RuleEntry
+                if sym, alt := p.runtime.Symbol(name, core.RuleEntryType); alt != nil {
+                        if entry, ok := alt.(*core.RuleEntry); entry == nil {
                                 p.error(target.Pos(), "Name `%s' already taken, not rule entry (%T).", name, alt)
                         /*} else if entry.Programs() != nil {
                                 p.error(target.Pos(), "Rule `%s' already defined (%v).", name, entry.Class())*/
@@ -1816,7 +1815,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                                 p.error(target.Pos(), "Invalid rule `%s'.", name)
                         }
                 } else if sym != nil {
-                        tarent = sym.(*types.RuleEntry)
+                        tarent = sym.(*core.RuleEntry)
                 }
                 if tarent == nil {
                         p.error(target.Pos(), "invalid name '%s'", name); continue
@@ -1829,20 +1828,20 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 // Guessing target entry class, e.g. general, file, etc.
                 switch t := target.(type) {
                 case *ast.Barefile:
-                        if file, _ := t.File.(*types.File); file != nil {
+                        if file, _ := t.File.(*core.File); file != nil {
                                 tarent.SetExplicitFile(file)
                         } else {
                                 p.error(target.Pos(), "unknown file (%v) (%v)", v, t)
                         }
                 case *ast.PathExpr:
-                        if path, _ := v.(*types.Path); path != nil {
+                        if path, _ := v.(*core.Path); path != nil {
                                 tarent.SetExplicitPath(path)
                         } else {
                                 p.error(target.Pos(), "unknown path (%v) (%v)", v, t)
                         }
                 case *ast.Bareword, *ast.Barecomp:
                         if isUseRule {
-                                tarent.SetClass(types.UseRuleEntry)
+                                tarent.SetClass(core.UseRuleEntry)
                         } else {
                                 if file := p.runtime.File(name); file != nil {
                                         tarent.SetExplicitFile(file)
@@ -1859,14 +1858,14 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
 
         scope := p.runtime.OpenScope(fmt.Sprintf("rule %s", scopeComment))
         for _, s := range automatics {
-                if sym, alt := p.runtime.Symbol(s, types.DefType); alt != nil {
+                if sym, alt := p.runtime.Symbol(s, core.DefType); alt != nil {
                         p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
                 } else if sym == nil {
                         // TODO: errors
                 }
         }
         for i := 1; i < 10; i += 1 {
-                if sym, alt := p.runtime.Symbol(strconv.Itoa(i), types.DefType); alt != nil {
+                if sym, alt := p.runtime.Symbol(strconv.Itoa(i), core.DefType); alt != nil {
                         p.error(p.pos, "Name `%v' already taken, not numberred (%T).", i, alt)
                 } else if sym == nil {
                         // TODO: errors
@@ -2043,11 +2042,11 @@ func (p *parser) parseFile() *ast.File {
                 defer p.closeScope(scope)
                 var sym RuntimeObj
 
-                sym, _ = p.runtime.Symbol("/", types.DefType)
-                sym.(*types.Def).Assign(values.String(abs))
+                sym, _ = p.runtime.Symbol("/", core.DefType)
+                sym.(*core.Def).Assign(core.MakeString(abs))
 
-                sym, _ = p.runtime.Symbol(".", types.DefType)
-                sym.(*types.Def).Assign(values.String(rel))
+                sym, _ = p.runtime.Symbol(".", core.DefType)
+                sym.(*core.Def).Assign(core.MakeString(rel))
         } else {
                 p.error(p.pos, "open scope")
         }
@@ -2095,7 +2094,7 @@ func (p *parser) parseFile() *ast.File {
                         p.error(p.pos, "invalid package name _")
                 }
 
-                var params types.Value
+                var params core.Value
                 if p.tok == token.LPAREN {
                         value, err := p.runtime.Eval(p.parseGroupExpr(false), StringValue)
                         if err == nil {
