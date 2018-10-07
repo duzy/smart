@@ -12,6 +12,17 @@ import (
         //"io"
 )
 
+type YAML struct {
+        Value Value
+}
+func (p *YAML) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *YAML) referencing(_ Object) bool { return false }
+func (p *YAML) Type() Type { return YAMLType }
+func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
+func (p *YAML) Strval() (string, error) { return p.Value.Strval() }
+func (p *YAML) Integer() (int64, error) { return 0, nil }
+func (p *YAML) Float() (float64, error) { return 0, nil }
+
 func DecodeYAML(source string, ws bool) (result Value, err error) {
         result = UniversalNone
         return 

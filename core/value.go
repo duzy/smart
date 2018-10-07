@@ -1924,59 +1924,6 @@ func (p *closure) prepare(pc *Preparer) (err error) {
         return
 }
 
-// Value returned by (plain) modifier.
-type Plain struct {
-        Value string
-        Name string
-}
-func (p *Plain) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (p *Plain) referencing(_ Object) bool { return false }
-func (p *Plain) Type() Type  { return PlainType }
-func (p *Plain) String() string {
-        s := "(plain"
-        if p.Name != "" {
-                s += "(" + p.Name + ")"
-        } 
-        s += " " + p.Value + ")"
-        return s
-}
-func (p *Plain) Strval() (string, error) { return p.Value, nil }
-func (p *Plain) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
-func (p *Plain) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
-
-type JSON struct {
-        Value Value
-}
-func (p *JSON) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (p *JSON) referencing(_ Object) bool { return false }
-func (p *JSON) Type() Type { return JSONType }
-func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
-func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
-func (p *JSON) Integer() (int64, error) { return 0, nil }
-func (p *JSON) Float() (float64, error) { return 0, nil }
-
-type XML struct {
-        Value Value
-}
-func (p *XML) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (p *XML) referencing(_ Object) bool { return false }
-func (p *XML) Type() Type { return XMLType }
-func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
-func (p *XML) Strval() (string, error) { return p.Value.Strval() }
-func (p *XML) Integer() (int64, error) { return 0, nil }
-func (p *XML) Float() (float64, error) { return 0, nil }
-
-type YAML struct {
-        Value Value
-}
-func (p *YAML) disclose(_ *Scope) (Value, error) { return nil, nil }
-func (p *YAML) referencing(_ Object) bool { return false }
-func (p *YAML) Type() Type { return YAMLType }
-func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
-func (p *YAML) Strval() (string, error) { return p.Value.Strval() }
-func (p *YAML) Integer() (int64, error) { return 0, nil }
-func (p *YAML) Float() (float64, error) { return 0, nil }
-
 type ExecBuffer struct {
         Tie io.Writer
         Buf *bytes.Buffer

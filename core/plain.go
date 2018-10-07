@@ -10,6 +10,26 @@ import (
         //"fmt"
 )
 
+// Value returned by (plain) modifier.
+type Plain struct {
+        Value string
+        Name string
+}
+func (p *Plain) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *Plain) referencing(_ Object) bool { return false }
+func (p *Plain) Type() Type  { return PlainType }
+func (p *Plain) String() string {
+        s := "(plain"
+        if p.Name != "" {
+                s += "(" + p.Name + ")"
+        } 
+        s += " " + p.Value + ")"
+        return s
+}
+func (p *Plain) Strval() (string, error) { return p.Value, nil }
+func (p *Plain) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
+func (p *Plain) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
+
 type dialectPlain struct {
 }
 

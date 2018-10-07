@@ -12,6 +12,17 @@ import (
         "io"
 )
 
+type XML struct {
+        Value Value
+}
+func (p *XML) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *XML) referencing(_ Object) bool { return false }
+func (p *XML) Type() Type { return XMLType }
+func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
+func (p *XML) Strval() (string, error) { return p.Value.Strval() }
+func (p *XML) Integer() (int64, error) { return 0, nil }
+func (p *XML) Float() (float64, error) { return 0, nil }
+
 /*
 <books number="3">
   <book id="1">

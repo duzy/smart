@@ -14,6 +14,17 @@ import (
         "io"
 )
 
+type JSON struct {
+        Value Value
+}
+func (p *JSON) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *JSON) referencing(_ Object) bool { return false }
+func (p *JSON) Type() Type { return JSONType }
+func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
+func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
+func (p *JSON) Integer() (int64, error) { return 0, nil }
+func (p *JSON) Float() (float64, error) { return 0, nil }
+
 func joinRecipesString(recipes... Value) (res string, err error) {
         var (
                 x = len(recipes)-1
