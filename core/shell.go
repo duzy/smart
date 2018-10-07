@@ -10,12 +10,84 @@ import (
         "os/exec"
         "strings"
         "unicode"
+        "regexp"
         "bytes"
         "fmt"
         "os"
+        "io"
 )
 
 var defaultShellInterpreter = "bash"
+
+type ExecBuffer struct {
+        Tie io.Writer
+        Buf *bytes.Buffer
+        Line *regexp.Regexp
+        Subm [][][][]byte
+        line []byte
+}
+
+func (p *ExecBuffer) Write(b []byte) (n int, err error) {
+        if p.Line != nil {
+                i := bytes.Index(b, []byte("\n"))
+                if i == -1 {
+                        p.line = append(p.line, b...)
+                } else {
+                        p.line = append(p.line, b[:i]...)
+                }
+                if m := p.Line.FindAllSubmatch(p.line, -1); m != nil {
+                        p.Subm = append(p.Subm, m)
+                }
+                if i != -1 {
+                        p.line = b[i+1:]
+                }
+        }
+        if p.Tie != nil {
+                if n, err = p.Tie.Write(b); err != nil {
+                        return
+                }
+        }
+        if p.Buf != nil {
+                if n, err = p.Buf.Write(b); err != nil {
+                        return
+                }
+        }
+        if err == nil && n == 0 {
+                // Returns the number of bytes to avoid "short write" errors.
+                // The real bytes written is discarded.
+                n = len(b)
+        }
+        return
+}
+
+type ExecResult struct {
+        Stdout ExecBuffer
+        Stderr ExecBuffer
+        Status int
+}
+func (p *ExecResult) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *ExecResult) referencing(_ Object) bool { return false }
+func (p *ExecResult) Type() Type { return ExecResultType }
+func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
+func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
+func (p *ExecResult) Strval() (s string, err error) {
+        if p.Stdout.Buf != nil {
+                s = p.Stdout.Buf.String()
+        }
+        return
+}
+func (p *ExecResult) String() string {
+        var s bytes.Buffer
+        fmt.Fprintf(&s, "(ExecResult status=%d", p.Status)
+        if p.Stdout.Buf != nil {
+                fmt.Fprintf(&s, " stdout=%S", p.Stdout.Buf)
+        }
+        if p.Stderr.Buf != nil {
+                fmt.Fprintf(&s, " stdout=%S", p.Stderr.Buf)
+        }
+        fmt.Fprintf(&s, ")")
+        return s.String()
+}
 
 func trimLeftSpaces(s string) string {
         return strings.TrimLeftFunc(s, unicode.IsSpace)
