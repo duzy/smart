@@ -956,7 +956,11 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 }
                 
                 if resolved = p.runtime.Resolve(s, anywhere); resolved == nil {
-                        p.error(name.Pos(), "Reference: undefined reference `%v' (%T).", s, name)
+                        if tok == token.DOLLAR {
+                                p.error(name.Pos(), "Reference: undefined reference `%v' (%T).", s, name)
+                        } else {
+                                resolved = core.MakeUndef(s)
+                        }
                 } else {
                         name = a
                         switch tokLp {

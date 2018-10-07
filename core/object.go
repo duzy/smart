@@ -160,6 +160,19 @@ func (scope *Scope) InsertScopeName(owner *Project, name string, s *Scope) (sn *
         return
 }
 
+// Represents a undefined value, may be referred by some closures
+type Undef struct {
+        object
+}
+
+func (*Undef) Call(pos token.Position, a... Value) (res Value, err error) {
+        return
+}
+
+func MakeUndef(s string) *Undef {
+        return &Undef{object{name:s, typ:UndefType}}
+}
+
 type DefOrigin int
 const (
         // Never assigned a value

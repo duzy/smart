@@ -23,6 +23,7 @@ var (
 // Predeclared types.
 var (
         CoreTypes = []*Core {
+                UndefKind:       {UndefKind, IsUndef, "Undef"},
                 DefKind:         {DefKind, IsDef, "Def"},
                 DefinerKind:     {DefinerKind, IsDefiner, "Definer"},
                 PlainKind:       {PlainKind, IsPlain, "Plain"},
@@ -71,6 +72,7 @@ var (
         }
 
         // Shortcuts of core types
+        UndefType       = CoreTypes[UndefKind]
         DefType         = CoreTypes[DefKind]
         DefinerType     = CoreTypes[DefinerKind]
         PlainType       = CoreTypes[PlainKind]
