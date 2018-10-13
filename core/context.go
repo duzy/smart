@@ -59,10 +59,9 @@ func (ctx *Context) Run(targets... string) (err error) {
                 }
         } else {
                 for _, target := range targets {
-                        var (
-                                closure = []*Scope{ mm.Scope() }
-                                m = mm
-                        )
+                        closure := closurecontext{ mm.Scope() }
+
+                        m := mm
                         if names := strings.Split(target, "->"); len(names)>1 {
                                 for _, s := range names[0:len(names)-1] {
                                         var _, obj = m.Scope().Find(s)
@@ -108,7 +107,8 @@ func (ctx *Context) Run(targets... string) (err error) {
                                 }
 
                                 //defer entry.SetCaller(entry.SetCaller(NewPreparer(?, ?)))
-                                defer entry.SetClosure(entry.SetClosure(closure...)...)
+                                //defer entry.SetClosure(entry.SetClosure(closure...)...)
+                                defer setclosure(setclosure(append(closure, Closure...)))
 
                                 // The the base project scope as execution context. For
                                 // example of 'base.test', the entry 'test' can resolve

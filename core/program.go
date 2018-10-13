@@ -108,7 +108,6 @@ type Program struct {
         globe   *Globe
         project *Project
         scope   *Scope
-        cc ClosureContext
         caller  *Preparer
         params  []string // named parameters
         depends []Value // *RuleEntry, *Barefile
@@ -120,18 +119,6 @@ type Program struct {
 func (prog *Program) Position() token.Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
-func (prog *Program) ClosureContext() ClosureContext {
-        var cc = prog.cc
-        //cc.Join(prog.scope)
-        return cc
-}
-func (prog *Program) JointClosureContext(scopes... *Scope) ClosureContext {
-        var cc = prog.cc
-        for _, scope := range scopes {
-                cc.Join(scope)
-        }
-        return cc
-}
 
 func (prog *Program) setcaller(pc *Preparer) (old *Preparer) {
         old = prog.caller
@@ -152,11 +139,10 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
         return
 }
 
-func (prog *Program) disclose(values ...Value) (result []Value, err error) {
-        var cc = prog.ClosureContext()
+/*func (prog *Program) disclose(values ...Value) (result []Value, err error) {
         for _, value := range values {
                 var v Value
-                if v, err = cc.disclose(value); err != nil {
+                if v, err = value.disclose(); err != nil {
                         return
                 } else if v != nil {
                         value = v
@@ -164,14 +150,14 @@ func (prog *Program) disclose(values ...Value) (result []Value, err error) {
                 result = append(result, value)
         }
         return
-}
+}*/
 
 func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err error) {
         var (
                 recipes []Value
                 target, value Value
         )
-        if recipes, err = prog.disclose(prog.recipes...); err != nil {
+        if recipes, err = DiscloseAll(prog.recipes...); err != nil {
                 return
         }
         if value, err = i.Evaluate(prog, params, recipes); err == nil {
@@ -201,7 +187,7 @@ func (prog *Program) modify(m modifier, out *Def) (dialect string, err error) {
                         value = out.Value
                         args []Value
                 )
-                if args, err = prog.disclose(m.args...); err != nil {
+                if args, err = DiscloseAll(m.args...); err != nil {
                         return
                 }
                 if value, err = f(prog.position, prog, value, args...); err == nil && value !=  nil {
@@ -251,6 +237,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
+        defer setclosure(setclosure(append(Closure, entry.scope))) //(setclosure(append(closurecontext{ entry.scope }, Closure...)))
         defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
 
         var argn = 0
@@ -287,7 +274,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         var prerequsites []Value
-        if prerequsites, err = prog.disclose(prog.depends...); err != nil {
+        if prerequsites, err = DiscloseAll(prog.depends...); err != nil {
                 return
         }
 

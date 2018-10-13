@@ -169,7 +169,7 @@ func modifierSetArgs(pos token.Position, prog *Program, value Value, args... Val
 }
 
 func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        if args, err = JoinEval(prog.ClosureContext(), args...); err != nil {
+        if args, err = JoinEval(args...); err != nil {
                 return
         }
         var envars = new(List)
@@ -302,7 +302,7 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
                                 recipes []Value
                                 strings []string
                         )
-                        if recipes, err = prog.disclose(prog.recipes...); err != nil {
+                        if recipes, err = DiscloseAll(prog.recipes...); err != nil {
                                 return
                         }
                         for _, recipe := range recipes {
@@ -483,7 +483,7 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
 
         if len(args) == 0 {
                 return nil, errors.New("No arguments provided.")
-        } else if args, err = JoinEval(prog.ClosureContext(), args...); err != nil {
+        } else if args, err = JoinEval(args...); err != nil {
                 return
         }
 

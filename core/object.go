@@ -195,9 +195,9 @@ type Def struct {
         Value Value
 }
 
-func (d *Def) disclose(scope *Scope) (res Value, err error) {
+func (d *Def) disclose() (res Value, err error) {
         var v Value
-        if v, err = d.Value.disclose(scope); err != nil { return }
+        if v, err = d.Value.disclose(); err != nil { return }
         if v != nil { res = &Def{ d.object, d.origin, v }}
         return
 }
@@ -314,9 +314,11 @@ func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
         return
 }
 
-func (d *Def) DiscloseValue(cc ClosureContext) (res Value, err error) {
-        if res, err = cc.disclose(d.Value); err != nil { return }
-        if res == nil { res = d.Value }
+func (d *Def) DiscloseValue() (res Value, err error) {
+        if d.Value != nil {
+                if res, err = d.Value.disclose(); err != nil { return }
+                if res == nil { res = d.Value }
+        }
         return
 }
 
@@ -389,9 +391,7 @@ type Builtin struct {
 
 func (p *Builtin) String() string { return fmt.Sprintf("Builtin{%v}", p.name) }
 func (p *Builtin) Strval() (string, error) { return fmt.Sprintf("builtin %v", p.name), nil }
-func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) {
-        return p.f(pos, p.scope, a...)
-}
+func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) { return p.f(pos, a...) }
 
 func (scope *Scope) InsertBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
         if alt = scope.elems[name]; alt == nil {
@@ -500,11 +500,14 @@ func (entry *RuleEntry) SetCaller(pc *Preparer) (prev *Preparer) {
         return
 }
 
-func (entry *RuleEntry) SetClosure(closure... *Scope) (old []*Scope) {
+/*func (entry *RuleEntry) SetClosure(closure... *Scope) (old []*Scope) {
         old = entry.closure
         entry.closure = closure
         return
-}
+}*/
+
+
+
 
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value, err error) {
@@ -513,7 +516,6 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
         }
         for _, program := range entry.programs {
                 if entry.caller != nil { defer program.setcaller(program.setcaller(entry.caller)) }
-                if entry.closure != nil { defer program.cc.set(program.cc.app(entry.closure...)) }
                 if v, e := program.Execute(entry, a); e != nil {
                         //fmt.Printf("failed: %v: %v\n", entry.Name(), e)
                         err = e; return
@@ -681,9 +683,7 @@ func (pc *Preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                 }
         }
 
-        var closure = append(caller.program.cc, pc.entry.closure...)
         defer prog.setcaller(prog.setcaller(caller))
-        defer prog.cc.set(prog.cc.app(append(closure, caller.program.project.scope)...))
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {

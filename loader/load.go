@@ -326,7 +326,7 @@ func (l *Loader) closuredelegate(x *ast.ClosureDelegate) (obj core.Object, args 
 
 func (l *Loader) closure(x *ast.ClosureExpr) (core.Value, error) {
         if obj, args, err := l.closuredelegate(&x.ClosureDelegate); err == nil {
-                return core.Closure(x.Position, obj, args...), nil
+                return core.MakeClosure(x.Position, obj, args...), nil
         } else {
                 return nil, err
         }
@@ -1212,7 +1212,8 @@ func (pc *parseContext) Eval(x ast.Expr, ec parser.EvalBits) (res core.Value, er
                 return
         }
         if ec&parser.KeepClosures == 0 {
-                if res, err = core.Disclose(core.ClosureContext{pc.scope}, res); err != nil || res == nil {
+                //if res, err = core.Disclose(core.ClosureContext{pc.scope}, res); err != nil || res == nil {
+                if res, err = core.Disclose(res); err != nil || res == nil {
                         return
                 }
         }

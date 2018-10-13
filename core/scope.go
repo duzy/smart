@@ -198,10 +198,10 @@ func (s *Scope) FindEntry(name string) (entry *RuleEntry) {
         return
 }
 
-func (s *Scope) DiscloseDef(cc ClosureContext, name string) (str string, err error) {
+func (s *Scope) DiscloseDef(name string) (str string, err error) {
         if def := s.FindDef(name); def != nil {
                 var v Value
-                if v, err = def.DiscloseValue(cc); err == nil && v != nil {
+                if v, err = def.DiscloseValue(); err == nil && v != nil {
                         str, err = v.Strval()
                 }
         }

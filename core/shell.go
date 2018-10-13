@@ -65,7 +65,7 @@ type ExecResult struct {
         Stderr ExecBuffer
         Status int
 }
-func (p *ExecResult) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *ExecResult) disclose() (Value, error) { return nil, nil }
 func (p *ExecResult) referencing(_ Object) bool { return false }
 func (p *ExecResult) Type() Type { return ExecResultType }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
@@ -111,8 +111,7 @@ func isTrueValue(s string) (res bool) {
 }
 
 func (s *dialectShell) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
-        //if args, err = JoinEval(ClosureContext{prog.Scope()}, args...); err != nil {
-        if args, err = JoinEval(prog.ClosureContext(), args...); err != nil {
+        if args, err = JoinEval(args...); err != nil {
                 return
         }
 
@@ -127,7 +126,7 @@ func (s *dialectShell) Evaluate(prog *Program, args []Value, recipes []Value) (r
                 if l, _ := envarsDef.Value.(*List); l != nil {
                         for _, v := range l.Elems {
                                 //if v, err = Disclose(prog.Scope(), v); err != nil {
-                                if v, err = Disclose(prog.ClosureContext(), v); err != nil {
+                                if v, err = Disclose(v); err != nil {
                                         return
                                 } else {
                                         envars = append(envars, v)
@@ -230,7 +229,7 @@ func (s *dialectShell) Evaluate(prog *Program, args []Value, recipes []Value) (r
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
                         //if v, err = Disclose(prog.Scope(), v); err != nil {
-                        if v, err = Disclose(prog.ClosureContext(), v); err != nil {
+                        if v, err = Disclose(v); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)

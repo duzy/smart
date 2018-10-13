@@ -44,26 +44,22 @@ type Value interface {
 
         // disclose method, also prevents creating new Value type from
         // other packages.
-        disclose(scope *Scope) (Value, error)
+        disclose() (Value, error)
 
         // Recursively detecting whether this value is referencing
         // to the object (to avoid loop-delegation).
         referencing(o Object) bool
 }
 
-type ClosureContext []*Scope
+type closurecontext []*Scope
 
-func (cc ClosureContext) disclose(value Value) (res Value, err error) {
-        for _, scope := range cc {
-                if res, err = value.disclose(scope); res != nil && err == nil {
-                        break
-                }
-                //fmt.Printf("disclose:%v: %v %v %v %v\n", i, value, res, err, scope)
-        }
-        return
+var Closure closurecontext
+
+func setclosure(cc closurecontext) (saved closurecontext) {
+        saved = Closure; Closure = cc; return
 }
 
-func (cc *ClosureContext) Join(scope *Scope) bool {
+func (cc *closurecontext) Join(scope *Scope) bool {
         for _, s := range *cc {
                 if scope == s { return false }
         }
@@ -71,8 +67,8 @@ func (cc *ClosureContext) Join(scope *Scope) bool {
         return true
 }
 
-func (cc *ClosureContext) set(prev ClosureContext) { *cc = prev }
-func (cc *ClosureContext) app(scopes... *Scope) ClosureContext {
+func (cc *closurecontext) set(prev closurecontext) { *cc = prev }
+func (cc *closurecontext) app(scopes... *Scope) closurecontext {
         var prev = *cc
         for _, scope := range scopes {
                 if scope != nil { cc.Join(scope) }
@@ -80,15 +76,8 @@ func (cc *ClosureContext) app(scopes... *Scope) ClosureContext {
         return prev
 }
 
-func NewClosureContext(scopes... *Scope) (cc ClosureContext) {
-        for _, scope := range scopes {
-                cc.Join(scope)
-        }
-        return
-}
-
 type value struct {}
-func (*value) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*value) disclose() (Value, error) { return nil, nil }
 func (*value) referencing(_ Object) bool { return false }
 func (*value) Type() Type { return InvalidType }
 func (*value) String() string { return fmt.Sprintf("value{}") }
@@ -311,7 +300,7 @@ func MakeAny(v interface{}) *Any { return &Any{ Value:v } }
 type integer struct {
         Value int64
 }
-func (p *integer) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *integer) disclose() (Value, error) { return nil, nil }
 func (p *integer) referencing(_ Object) bool { return false }
 func (p *integer) Integer() (int64, error) { return p.Value, nil }
 func (p *integer) Float() (float64, error) { return float64(p.Value), nil }
@@ -410,7 +399,7 @@ func ParseHex(s string) *Hex {
 type Float struct {
         Value float64
 }
-func (p *Float) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (p *Float) disclose() (Value, error) { return nil, nil }
 func (p *Float) referencing(_ Object) bool { return false }
 func (p *Float) Type() Type { return FloatType }
 func (p *Float) String() string {
@@ -439,7 +428,7 @@ func ParseFloat(s string) *Float {
 type DateTime struct {
         Value time.Time 
 }
-func (*DateTime) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*DateTime) disclose() (Value, error) { return nil, nil }
 func (*DateTime) referencing(_ Object) bool { return false }
 func (p *DateTime) Type() Type { return DateTimeType }
 func (p *DateTime) String() string {
@@ -464,7 +453,7 @@ func ParseDateTime(s string) *DateTime {
 }
 
 type Date struct { DateTime }
-func (*Date) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Date) disclose() (Value, error) { return nil, nil }
 func (*Date) referencing(_ Object) bool { return false }
 func (p *Date) Type() Type { return DateType }
 func (p *Date) String() string {
@@ -488,7 +477,7 @@ func ParseDate(s string) *Date {
 }
 
 type Time struct { DateTime }
-func (*Time) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Time) disclose() (Value, error) { return nil, nil }
 func (*Time) referencing(_ Object) bool { return false }
 func (p *Time) Type() Type { return TimeType }
 func (p *Time) String() string {
@@ -514,7 +503,7 @@ func ParseTime(s string) *Time {
 type Uri struct {
         Value *url.URL
 }
-func (*Uri) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*Uri) disclose() (Value, error) { return nil, nil }
 func (*Uri) referencing(_ Object) bool { return false }
 func (p *Uri) Type() Type { return UriType }
 func (p *Uri) String() string {
@@ -540,7 +529,7 @@ func ParseUri(s string) *Uri {
 type String struct {
         Value string
 }
-func (*String) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*String) disclose() (Value, error) { return nil, nil }
 func (*String) referencing(_ Object) bool { return false }
 func (p *String) Type() Type  { return StringType }
 func (p *String) String() string {
@@ -567,7 +556,7 @@ func MakeString(s string) *String { return &String{s} }
 type Bareword struct {
         Value string
 }
-func (_ *Bareword) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (_ *Bareword) disclose() (Value, error) { return nil, nil }
 func (_ *Bareword) referencing(_ Object) bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
 func (p *Bareword) String() string { return fmt.Sprintf("Bareword{%s}", p.Value) }
@@ -587,7 +576,7 @@ func MakeBareword(s string) *Bareword { return &Bareword{s} }
 
 func (pc *Preparer) prepareTargetValue(value Value) (err error) {
         var ( v Value; s string )
-        if v, err = pc.program.cc.disclose(value); err != nil { return }
+        if v, err = value.disclose(); err != nil { return }
         if v == nil { v = value }
         if s, err = v.Strval(); err != nil { return }
         return pc.prepareTarget(s)
@@ -698,11 +687,11 @@ func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *Elements) ToList() *List         { return &List{*p} }
 
-func (p *Elements) disclose(scope *Scope) (elems []Value, num int, err error) {
+func (p *Elements) disclose() (elems []Value, num int, err error) {
         var v Value
         for _, elem := range p.Elems {
                 if elem == nil { continue }
-                if v, err = elem.disclose(scope); err != nil { return }
+                if v, err = elem.disclose(); err != nil { return }
                 if v != nil {
                         elem = v
                         num += 1
@@ -746,9 +735,9 @@ func (p *Barecomp) Strval() (s string, e error) {
         return
 }
 
-func (p *Barecomp) disclose(scope *Scope) (res Value, err error) {
+func (p *Barecomp) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(scope); err == nil && num > 0 {
+        if elems, num, err = p.Elements.disclose(); err == nil && num > 0 {
                 res = &Barecomp{ Elements{ elems } }
         }
         return
@@ -784,9 +773,9 @@ func (p *Barefile) Integer() (res int64, err error) {
         return
 }
 func (p *Barefile) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *Barefile) disclose(scope *Scope) (res Value, err error) {
+func (p *Barefile) disclose() (res Value, err error) {
         var name Value
-        if name, err = p.Name.disclose(scope); err != nil {
+        if name, err = p.Name.disclose(); err != nil {
                 return
         } else if name != nil {
                 res = &Barefile{ name, p.File }
@@ -861,7 +850,7 @@ func (p *Glob) String() (s string) { return fmt.Sprintf("Glob{%s}", p.Tok.String
 func (p *Glob) Strval() (string, error) { return p.Tok.String(), nil }
 func (p *Glob) Integer() (int64, error) { return 0, nil }
 func (p *Glob) Float() (float64, error) { return 0, nil }
-func (p *Glob) disclose(scope *Scope) (Value, error) { return nil, nil }
+func (p *Glob) disclose() (Value, error) { return nil, nil }
 func (p *Glob) referencing(o Object) bool { return false }
 
 func MakeGlob(tok token.Token) *Glob { return &Glob{tok} }
@@ -909,9 +898,9 @@ func (p *Path) Strval() (s string, e error) {
 func (p *Path) Integer() (int64, error) { return 0, nil }
 func (p *Path) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *Path) Type() Type { return PathType }
-func (p *Path) disclose(scope *Scope) (res Value, err error) {
+func (p *Path) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(scope); err != nil { return }
+        if elems, num, err = p.Elements.disclose(); err != nil { return }
         if num > 0 { res = &Path{ Elements{ elems }, p.File } }
         return
 }
@@ -1364,9 +1353,9 @@ func (p *Flag) Strval() (s string, e error) {
 func (p *Flag) Integer() (int64, error) { return 0, nil }
 func (p *Flag) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
-func (p *Flag) disclose(scope *Scope) (res Value, err error) {
+func (p *Flag) disclose() (res Value, err error) {
         var name Value
-        if name, err = p.Name.disclose(scope); err != nil { return }
+        if name, err = p.Name.disclose(); err != nil { return }
         if name != nil { res = &Flag{ name } }
         return
 }
@@ -1406,9 +1395,9 @@ func (p *Compound) Type() Type { return CompoundType }
 func (p *Compound) Integer() (int64, error) { return int64(len(p.Elems)), nil }
 func (p *Compound) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
-func (p *Compound) disclose(scope *Scope) (res Value, err error) {
+func (p *Compound) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(scope); err != nil { return }
+        if elems, num, err = p.Elements.disclose(); err != nil { return }
         if num > 0 { res = &Compound{ Elements{ elems } } }
         return
 }
@@ -1447,9 +1436,9 @@ func (p *List) Strval() (s string, err error) {
         return
 }
 
-func (p *List) disclose(scope *Scope) (res Value, err error) {
+func (p *List) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(scope); err != nil { return }
+        if elems, num, err = p.Elements.disclose(); err != nil { return }
         if num > 0 { res = &List{ Elements{ elems } } }
         return
 }
@@ -1516,9 +1505,9 @@ func (p *Group) Strval() (s string, err error) {
         return
 }
 
-func (p *Group) disclose(scope *Scope) (res Value, err error) {
+func (p *Group) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(scope); err != nil { return }
+        if elems, num, err = p.Elements.disclose(); err != nil { return }
         if num > 0 { res = &Group{ List{ Elements{ elems } } } }
         return
 }
@@ -1567,10 +1556,10 @@ func (p *Pair) SetKey(k Value) {
         }
 }
 
-func (p *Pair) disclose(scope *Scope) (res Value, err error) {
+func (p *Pair) disclose() (res Value, err error) {
         var k, v Value
-        if k, err = p.Key.disclose(scope); err != nil { return }
-        if v, err = p.Value.disclose(scope); err != nil { return }
+        if k, err = p.Key.disclose(); err != nil { return }
+        if v, err = p.Value.disclose(); err != nil { return }
         if k != nil || v != nil {
                 if k == nil { k = p.Key }
                 if v == nil { v = p.Value }
@@ -1599,7 +1588,6 @@ type delegate struct {
         p token.Position
         o Object
         a []Value
-        closure *Scope // disclosed context
 }
 func (p *delegate) Position() token.Position { return p.p }
 func (p *delegate) Type() Type { return DelegateType }
@@ -1629,14 +1617,10 @@ func (p *delegate) Strval() (string, error) { if v, e := p.eval(); e == nil { re
 func (p *delegate) Integer() (int64, error) { if v, e := p.eval(); e == nil { return v.Integer() } else { return 0, e }}
 func (p *delegate) Float() (float64, error) { if v, e := p.eval(); e == nil { return v.Float() } else { return 0, e }}
 func (p *delegate) eval() (res Value, err error) {
-        var (
-                args []Value
-                scope = p.closure
-        )
-        if scope == nil { scope = p.o.DeclScope() }
+        var args []Value
 
         // FIXME: disclosed context not applied?
-        if args, err = p.discloseArgs(ClosureContext{scope}); err != nil {
+        if args, err = p.discloseArgs(); err != nil {
                 return
         }
         
@@ -1661,9 +1645,9 @@ func (p *delegate) eval() (res Value, err error) {
         return
 }
 
-func (p *delegate) disclose(scope *Scope) (res Value, err error) {
+func (p *delegate) disclose() (res Value, err error) {
         var ( o = p.o; v Value; changed bool )
-        if v, err = o.disclose(scope); err != nil { return }
+        if v, err = o.disclose(); err != nil { return }
         if v != nil {
                 if o, _ = v.(Object); o != nil {
                         changed = true
@@ -1673,28 +1657,21 @@ func (p *delegate) disclose(scope *Scope) (res Value, err error) {
                 }
         }
 
-        /*switch t := o.(type) {
-        case *RuleEntry:
-                for _, prog := range t.programs {
-                        prog.closure = scope
-                }
-        }*/
-
         var args []Value
         for _, a := range p.a {
-                if v, err = a.disclose(scope); err != nil { return }
+                if v, err = a.disclose(); err != nil { return }
                 if v != nil { a, changed = v, true }
                 args = append(args, a)
         }
         if changed && err == nil {
-                res = &delegate{ p.p, o, args, scope }
+                res = &delegate{ p.p, o, args }
         }
         return
 }
 
-func (p *delegate) discloseArgs(cc ClosureContext) (args []Value, err error) {
+func (p *delegate) discloseArgs() (args []Value, err error) {
         for _, a := range p.a {
-                if v, e := Disclose(cc, a); e != nil {
+                if v, e := Disclose(a); e != nil {
                         // TODO: errors...
                         return nil, e
                 } else if v != nil {
@@ -1778,7 +1755,6 @@ type closure struct {
         p token.Position
         o Object
         a []Value
-        closure *Scope
 }
 
 func (p *closure) Position() token.Position { return p.p }
@@ -1831,9 +1807,6 @@ func (p *closure) eval() (res Value, err error) {
                         err = fmt.Errorf("&(%s): %v", p.o.Name(), err)
                 }
         case Executer:
-                if t, _ := o.(*RuleEntry); t != nil && p.closure != nil {
-                        defer t.SetClosure(t.SetClosure(p.closure)...)
-                }
                 var a []Value
                 if a, err = o.Execute(p.p, p.a...); err != nil {
                         err = fmt.Errorf("&{%s}: %v", p.o.Name(), err)
@@ -1848,7 +1821,7 @@ func (p *closure) eval() (res Value, err error) {
         }
         return
 }
-func (p *closure) disclose(scope *Scope) (res Value, err error) {
+func (p *closure) within(scope *Scope) (res Value, err error) {
         if p.o == nil {
                 return nil, nil
         }
@@ -1861,7 +1834,7 @@ func (p *closure) disclose(scope *Scope) (res Value, err error) {
         }
 
         // Disclose the object, it's value may have disclosures.
-        if v, err = o.disclose(scope); err != nil { return }
+        if v, err = o.disclose(); err != nil { return }
         if v != nil {
                 if o, _ = v.(Object); o != nil {
                         changed = true
@@ -1875,21 +1848,22 @@ func (p *closure) disclose(scope *Scope) (res Value, err error) {
                 fmt.Printf("%+v => %+v\n", p.o, v)
         }
 
-        /*switch t := o.(type) {
-        case *RuleEntry:
-                for _, prog := range t.programs {
-                        prog.closure = scope
-                }
-        }*/
-
         var args []Value
         for _, a := range p.a {
-                if v, err = a.disclose(scope); err != nil { return }
+                if v, err = a.disclose(); err != nil { return }
                 if v != nil { a, changed = v, true }
                 args = append(args, a)
         }
         if changed && err == nil {
-                res = &closure{ p.p, o, args, scope }
+                res = &closure{ p.p, o, args }
+        }
+        return
+}
+func (p *closure) disclose() (res Value, err error) {
+        for _, scope := range Closure {
+                if res, err = p.within(scope); err == nil && res != nil {
+                        break
+                }
         }
         return
 }
@@ -1911,7 +1885,7 @@ func (p *closure) prepare(pc *Preparer) (err error) {
                 fmt.Printf("prepare:closure: %v (%v)\n", p, pc.entry)
 
         }
-        if v, e := pc.program.cc.disclose(p); e != nil {
+        if v, e := p.disclose(); e != nil {
                 err = e
         } else if v == nil {
                 err = fmt.Errorf("preparing nil closure (%v)", p)
@@ -1953,7 +1927,7 @@ func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEn
         return
 }
 
-func (*pattern) disclose(_ *Scope) (Value, error) { return nil, nil }
+func (*pattern) disclose() (Value, error) { return nil, nil }
 
 // GlobPattern represents glob expressions (e.g. '%.o', '[a-z].o', 'a?a.o')
 // FIXME: PercPattern -> %.o
@@ -2184,12 +2158,20 @@ func Reveal(v Value) (res Value, err error) {
 }
 
 // Disclose expends closures to normal value recursively.
-func Disclose(cc ClosureContext, value Value) (res Value, err error) {
+func Disclose(value Value) (res Value, err error) {
         if false {
                 fmt.Printf("Disclose: %T %v\n", value, value)
         }
-        if res, err = cc.disclose(value); err != nil { return }
+        if res, err = value.disclose(); err != nil { return }
         if res == nil { res = value }
+        return
+}
+
+func DiscloseAll(values ...Value) (res []Value, err error) {
+        for _, v := range values {
+                if v, err = Disclose(v); err != nil { break }
+                if v != nil { res = append(res, v) }
+        }
         return
 }
 
@@ -2223,13 +2205,13 @@ func JoinReveal(args... Value) (elems []Value, err error) {
 }
 
 // JoinEval join evaluated (disclosed and revealed) elements into one list.
-func JoinEval(cc ClosureContext, args... Value) (elems []Value, err error) {
+func JoinEval(args... Value) (elems []Value, err error) {
         for _, elem := range Join(args...) {
-                if elem, err = Disclose(cc, elem); err != nil { break }
+                if elem, err = Disclose(elem); err != nil { break }
                 if elem, err = Reveal(elem); err != nil { break }
                 if l, _ := elem.(*List); l != nil {
                         var a []Value
-                        if a, err = JoinEval(cc, l.Elems...); err != nil { return }
+                        if a, err = JoinEval(l.Elems...); err != nil { return }
                         elems = append(elems, a...)
                 } else {
                         elems = append(elems, elem)
@@ -2238,20 +2220,20 @@ func JoinEval(cc ClosureContext, args... Value) (elems []Value, err error) {
         return
 }
 
-func Eval(cc ClosureContext, value Value) (res Value, err error) {
-        if value, err = Disclose(cc, value); err != nil { return }
+func Eval(value Value) (res Value, err error) {
+        if value, err = Disclose(value); err != nil { return }
         res, err = Reveal(value); return
 }
 
 func Delegate(pos token.Position, obj Object, args... Value) Value {
-        return &delegate{ pos, obj, args, nil }
+        return &delegate{ pos, obj, args }
 }
 
-func Closure(pos token.Position, obj Object, args... Value) Value {
+func MakeClosure(pos token.Position, obj Object, args... Value) Value {
         if obj == nil {
                 panic("closure of nil")
         }
-        return &closure{ pos, obj, args, nil }
+        return &closure{ pos, obj, args }
 }
 
 func Refs(a Value, o Object) bool {
@@ -2261,12 +2243,12 @@ func Refs(a Value, o Object) bool {
 func strval(s string) Value { return &String{s} }
 
 func MakeListOrScalar(elems []Value) (res Value) {
-        if x := len(elems); x == 0 {
-                res = UniversalNone
+        if x := len(elems); x > 1 {
+                res = &List{Elements{elems}}
         } else if x == 1 {
                 res = elems[0]
         } else {
-                res = &List{Elements{elems}}
+                res = UniversalNone
         }
         return
 }
