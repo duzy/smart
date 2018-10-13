@@ -111,7 +111,7 @@ func isTrueValue(s string) (res bool) {
 }
 
 func (s *dialectShell) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
-        if args, err = JoinEval(args...); err != nil {
+        if args, err = ExpendAll(Join(args...)...); err != nil {
                 return
         }
 

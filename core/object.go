@@ -49,8 +49,14 @@ func (obj *object) OwnerProject() *Project { return obj.owner }
 func (obj *object) Name() string { return obj.name }
 
 func (obj *object) Type() Type { return obj.typ }
-func (obj *object) String() string { return fmt.Sprintf("object{%v}", obj.name) }
-func (obj *object) Strval() (string, error) { return obj.String(), nil }
+func (obj *object) String() string {
+        if s, e := obj.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("object{%s}!(%+v)", s, e)
+        }
+}
+func (obj *object) Strval() (string, error) { return fmt.Sprintf("object %p", obj), nil }
 
 func (obj *object) Get(name string) (Value, error) {
         return nil, fmt.Errorf("No such property `%s' (Object).", name)
@@ -69,7 +75,11 @@ type ProjectName struct {
 func (n *ProjectName) Type() Type { return ProjectNameType }
 func (n *ProjectName) NamedProject() *Project { return n.project }
 func (n *ProjectName) String() string {
-        return fmt.Sprintf("ProjectName{%s}", n.name)
+        if s, e := n.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("ProjectName{%s}!(%+v)", s, e)
+        }
 }
 func (n *ProjectName) Strval() (string, error) {
         return fmt.Sprintf("project %s", n.name), nil
@@ -133,7 +143,13 @@ type ScopeName struct {
 // containing the import statement.
 func (n *ScopeName) Type() Type { return ScopeNameType }
 func (n *ScopeName) NamedScope() *Scope { return n.scope }
-func (n *ScopeName) String() string  { return fmt.Sprintf("ScopeName{%s}", n.name) }
+func (n *ScopeName) String() string  {
+        if s, e := n.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("ScopeName{%s}!(%+v)", s, e)
+        }
+}
 func (n *ScopeName) Strval() (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
 
 func (n *ScopeName) Get(name string) (Value, error) {
@@ -208,18 +224,11 @@ func (d *Def) referencing(o Object) bool {
 }
 
 func (d *Def) String() (s string) {
-        s = d.name
-        if d.origin == ImmediateDef {
-                s += " := "
+        if s, e := d.Strval(); e == nil {
+                return s
         } else {
-                s += " = "
+                return fmt.Sprintf("Def{%s}!(%+v)", s, e)
         }
-        if d.Value == nil {
-                s += "<nil>"
-        } else {
-                s += d.Value.String()
-        }
-        return fmt.Sprintf("Def{%s}", s)
 }
 func (d *Def) Strval() (s string, e error) {
         s = d.name + "="
@@ -301,7 +310,7 @@ func (d *Def) AssignExec(a... Value) (res Value, err error) {
                         return
                 }
         }
-        return d.Assign(strval(strings.TrimSpace(stdout.String())))
+        return d.Assign(MakeString(strings.TrimSpace(stdout.String())))
 }
 
 func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
@@ -324,7 +333,7 @@ func (d *Def) DiscloseValue() (res Value, err error) {
 
 func (d *Def) Get(name string) (Value, error) {
         switch name {
-        case "name": return strval(d.name), nil
+        case "name": return MakeString(d.name), nil
         case "value": return d.Value, nil
         }
         //fmt.Printf("%v %v\n", d.name, d.parent)
@@ -389,8 +398,14 @@ type Builtin struct {
         f BuiltinFunc
 }
 
-func (p *Builtin) String() string { return fmt.Sprintf("Builtin{%v}", p.name) }
-func (p *Builtin) Strval() (string, error) { return fmt.Sprintf("builtin %v", p.name), nil }
+func (p *Builtin) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Builtin{%s}!(%+v)", s, e)
+        }
+}
+func (p *Builtin) MakeString() (string, error) { return fmt.Sprintf("builtin %v", p.name), nil }
 func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) { return p.f(pos, a...) }
 
 func (scope *Scope) InsertBuiltin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
@@ -455,8 +470,14 @@ type RuleEntry struct {
         Position token.Position
 }
 
-func (entry *RuleEntry) String() string { return fmt.Sprintf("RuleEntry{%v}", entry.name) }
-func (entry *RuleEntry) Strval() (s string, e error) { return entry.name, nil }
+func (entry *RuleEntry) String() string {
+        if s, e := entry.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("RuleEntry{%s}!(%+v)", s, e)
+        }
+}
+func (entry *RuleEntry) MakeString() (s string, e error) { return entry.name, nil }
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 func (entry *RuleEntry) Programs() []*Program { return entry.programs }
@@ -528,8 +549,8 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
 
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
-        case "class": return strval(entry.class.String()), nil
-        case "name": return strval(entry.name), nil
+        case "class": return MakeString(entry.class.String()), nil
+        case "name": return MakeString(entry.name), nil
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
 }

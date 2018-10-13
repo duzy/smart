@@ -23,8 +23,6 @@ const (
         trace_workdir = true && trace_prepare
 )
 
-var check_closure = false
-
 // Value represents a value of a type.
 type Value interface {
         // Type returns the underlying type of the value.
@@ -79,10 +77,17 @@ type value struct {}
 func (*value) disclose() (Value, error) { return nil, nil }
 func (*value) referencing(_ Object) bool { return false }
 func (*value) Type() Type { return InvalidType }
-func (*value) String() string { return fmt.Sprintf("value{}") }
 func (*value) Strval() (string, error) { return "", nil }
 func (*value) Integer() (int64, error) { return 0, nil }
 func (*value) Float() (float64, error) { return 0, nil }
+
+func (p *value) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("value{%s}!(%+v)", s, e)
+        }
+}
 
 type Comparer struct {
         //program *Program
@@ -237,16 +242,11 @@ type Argumented struct {
 }
 //func (p *Argumented) Type() Type { return ArgumentedType }
 func (p *Argumented) String() (s string) {
-        s = p.Value.String()
-        s += "("
-        for i, a := range p.Args {
-                if i > 0 {
-                        s += ","
-                }
-                s += a.String()
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Argumented{%s}!(%+v)", s, e)
         }
-        s += ")"
-        return
 }
 func (p *Argumented) Strval() (s string, err error) {
         if s, err = p.Value.Strval(); err != nil {
@@ -310,7 +310,7 @@ func (p *Bin) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Bin{%s}!(%s)", p.Value, e)
+                return fmt.Sprintf("Bin{%s}!(%+v)", s, e)
         }
 }
 func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),2), nil }
@@ -333,7 +333,7 @@ func (p *Oct) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Oct{%s}!(%s)", p.Value, e)
+                return fmt.Sprintf("Oct{%s}!(%+v)", s, e)
         }
 }
 func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),8), nil }
@@ -356,7 +356,7 @@ func (p *Int) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Int{%s}!(%s)", p.Value, e)
+                return fmt.Sprintf("Int{%s}!(%+v)", s, e)
         }
 }
 func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),10), nil }
@@ -376,7 +376,7 @@ func (p *Hex) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Hex{%s}!(%s)", p.Value, e)
+                return fmt.Sprintf("Hex{%s}!(%+v)", s, e)
         }
 }
 func (p *Hex) Strval() (string, error) {
@@ -405,7 +405,7 @@ func (p *Float) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Float{%v}!(%s)", p.Value, e)
+                return fmt.Sprintf("Float{%s}!(%+v)", s, e)
         }
 }
 func (p *Float) Strval() (string, error) {
@@ -434,7 +434,7 @@ func (p *DateTime) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("DateTime{%v}!(%s)", p.Value, e)
+                return fmt.Sprintf("DateTime{%s}!(%+v)", s, e)
         }
 }
 func (p *DateTime) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
@@ -459,7 +459,7 @@ func (p *Date) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Date{%v}!(%s)", p.Value, e)
+                return fmt.Sprintf("Date{%s}!(%+v)", s, e)
         }
 }
 func (p *Date) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02"), nil }
@@ -483,7 +483,7 @@ func (p *Time) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Time{%v}!(%s)", p.Value, e)
+                return fmt.Sprintf("Time{%s}!(%+v)", s, e)
         }
 }
 func (p *Time) Strval() (string, error) { return time.Time(p.Value).Format("15:04:05.999999999Z07:00"), nil }
@@ -509,7 +509,7 @@ func (p *Uri) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Uri{%v}!(%s)", p.Value, e)
+                return fmt.Sprintf("Uri{%s}!(%+v)", s, e)
         }
 }
 func (p *Uri) Strval() (string, error) { return p.Value.String(), nil }
@@ -532,10 +532,10 @@ func (*String) disclose() (Value, error) { return nil, nil }
 func (*String) referencing(_ Object) bool { return false }
 func (p *String) Type() Type  { return StringType }
 func (p *String) String() string {
-        if strings.ContainsRune(p.Value, '\n') {
-                return "\"" + strings.Replace(p.Value, "\n", "\\n", -1) + "\"" 
+        if s, e := p.Strval(); e == nil {
+                return strconv.Quote(p.Value)
         } else {
-                return "'" + p.Value + "'" 
+                return fmt.Sprintf("String{%+v}!(%+v)", s, e)
         }
 }
 func (p *String) Strval() (string, error) { return p.Value, nil }
@@ -558,7 +558,7 @@ type Bareword struct {
 func (_ *Bareword) disclose() (Value, error) { return nil, nil }
 func (_ *Bareword) referencing(_ Object) bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
-func (p *Bareword) String() string { return fmt.Sprintf("Bareword{%s}", p.Value) }
+func (p *Bareword) String() string { return p.Value/*fmt.Sprintf("Bareword{%s}", p.Value)*/ }
 func (p *Bareword) Strval() (string, error) { return p.Value, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
@@ -713,15 +713,6 @@ type Barecomp struct {
         Elements
 }
 func (p *Barecomp) Type() Type { return BarecompType }
-func (p *Barecomp) String() (s string) {
-        for _, e := range p.Elems {
-                switch t := e.(type) {
-                case *String: s += t.Value
-                default: s += t.String()
-                }
-        }
-        return fmt.Sprintf("Barecomp{%s}", s)
-}
 func (p *Barecomp) Strval() (s string, e error) {
         for _, elem := range p.Elems {
                 var v string
@@ -732,6 +723,13 @@ func (p *Barecomp) Strval() (s string, e error) {
                 }
         }
         return
+}
+func (p *Barecomp) String() (s string) {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Barecomp{%s}!(%+v)", s, e)
+        }
 }
 
 func (p *Barecomp) disclose() (res Value, err error) {
@@ -761,7 +759,13 @@ type Barefile struct {
         File *File
 }
 func (p *Barefile) Type() Type { return BarefileType }
-func (p *Barefile) String() string { return fmt.Sprintf("Barefile{%s}", p.Name.String()) }
+func (p *Barefile) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Barefile{%s,%+v}!(%+v)", s, p.File, e)
+        }
+}
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
         var ( str string; fi os.FileInfo )
@@ -845,7 +849,13 @@ type Glob struct {
         Tok token.Token
 }
 func (p *Glob) Type() Type { return GlobType }
-func (p *Glob) String() (s string) { return fmt.Sprintf("Glob{%s}", p.Tok.String()) }
+func (p *Glob) String() (s string) {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Glob{%+v}!(%+v)", p.Tok, e)
+        }
+}
 func (p *Glob) Strval() (string, error) { return p.Tok.String(), nil }
 func (p *Glob) Integer() (int64, error) { return 0, nil }
 func (p *Glob) Float() (float64, error) { return 0, nil }
@@ -859,21 +869,11 @@ type Path struct {
         File *File // if this path is pointed to a file, ie. the last element matched a FileMap
 }
 func (p *Path) String() (s string) {
-        // TODO: add '/' for root dir
-        var sep = true
-        for i, seg := range p.Elems {
-                if i > 0 && sep {
-                        s += string(os.PathSeparator) 
-                }
-                s += seg.String()
-                if ps, ok := seg.(*PathSeg); ok && ps != nil && ps.Value == '/' {
-                        sep = false
-                } else {
-                        sep = true
-                }
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Path{%s,%+v}!(%+v)", s, p.File, e)
         }
-        // TODO: add '/' if there's such a suffix
-        return fmt.Sprintf("Path{%s}", s)
 }
 func (p *Path) Strval() (s string, e error) {
         // TODO: add '/' for root dir
@@ -1073,7 +1073,7 @@ func (p *PathSeg) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("PathSeg{%s}!(%s)", p.Value, e)
+                return fmt.Sprintf("PathSeg{s}!(%+v)", s, e)
         }
 }
 func (p *PathSeg) Strval() (s string, e error) {
@@ -1100,7 +1100,11 @@ type File struct {
 func (p *File) Type() Type { return FileType }
 
 func (p *File) String() string {
-        return fmt.Sprintf("File{%s,Exists=%v,Known=%v}", p.Fullname(), p.IsExists(), p.IsKnown())
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("File{%s}!(%+v)", s, e)
+        }
 }
 
 // Strval returns the relative filename (aka. Project.SearchFile).
@@ -1340,8 +1344,11 @@ type Flag struct {
 }
 func (p *Flag) Type() Type { return FlagType }
 func (p *Flag) String() (s string) {
-        s = "-" + p.Name.String()
-        return
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Flag{%s}!(%+v)", s, e)
+        }
 }
 func (p *Flag) Strval() (s string, e error) {
         if s, e = p.Name.Strval(); e == nil { 
@@ -1369,15 +1376,11 @@ type Compound struct {
         Elements
 }
 func (p *Compound) String() (s string) {
-        s = "\""
-        for _, e := range p.Elems {
-                switch t := e.(type) {
-                case *String: s += t.Value
-                default: s += t.String()
-                }
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Compound{%s}!(%+v)", s, e)
         }
-        s += "\""
-        return
 }
 func (p *Compound) Strval() (s string, err error) {
         for _, e := range p.Elems {
@@ -1410,13 +1413,11 @@ type List struct {
 }
 func (p *List) Type() Type { return ListType }
 func (p *List) String() (s string) {
-        for i, e := range p.Elems {
-                if 0 < i {
-                        s += " "
-                }
-                s += e.String()
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Lists{%s}!(%+v)", s, e)
         }
-        return
 }
 func (p *List) Strval() (s string, err error) {
         var x = 0
@@ -1496,7 +1497,13 @@ type Group struct {
         List
 }
 func (p *Group) Type() Type { return GroupType }
-func (p *Group) String() string { return "(" + p.List.String() + ")" }
+func (p *Group) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Group{%s}!(%+v)", s, e)
+        }
+}
 func (p *Group) Strval() (s string, err error) {
         if s, err = p.List.Strval(); err == nil {
                 s = "(" + s + ")"
@@ -1530,7 +1537,13 @@ type Pair struct { // key=value
         Value Value
 }
 func (p *Pair) Type() Type { return PairType }
-func (p *Pair) String() string { return p.Key.String() + "=" + p.Value.String() }
+func (p *Pair) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("Pair{%s}!(%+v)", s, e)
+        }
+}
 func (p *Pair) Strval() (s string, err error) {
         var k, v string
         if k, err = p.Key.Strval(); err != nil {
@@ -1591,11 +1604,11 @@ type delegate struct {
 func (p *delegate) Position() token.Position { return p.p }
 func (p *delegate) Type() Type { return DelegateType }
 func (p *delegate) String() (s string) {
-        var na = len(p.a)
+        /*var na = len(p.a)
         s = "$"
         s += "(" //if na > 0 { s += "(" }
         if false {
-                if sc := p.o.DeclScope(); sc != nil && sc.Comment() == "use"/*use scope*/ {
+                if sc := p.o.DeclScope(); sc != nil && sc.Comment() == "use" {
                         s += sc.Comment() + "->"
                 } else if pp := p.o.OwnerProject(); pp != nil {
                         s += pp.Name() + "->"
@@ -1610,12 +1623,17 @@ func (p *delegate) String() (s string) {
                 }
         }
         s += ")"
-        return
+        return*/
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("delegate{%s}!(%+v)", s, e)
+        }
 }
-func (p *delegate) Strval() (string, error) { if v, e := p.eval(); e == nil { return v.Strval() } else { return "", e }}
-func (p *delegate) Integer() (int64, error) { if v, e := p.eval(); e == nil { return v.Integer() } else { return 0, e }}
-func (p *delegate) Float() (float64, error) { if v, e := p.eval(); e == nil { return v.Float() } else { return 0, e }}
-func (p *delegate) eval() (res Value, err error) {
+func (p *delegate) Strval() (string, error) { if v, e := p.reveal(); e == nil { return v.Strval() } else { return "", e }}
+func (p *delegate) Integer() (int64, error) { if v, e := p.reveal(); e == nil { return v.Integer() } else { return 0, e }}
+func (p *delegate) Float() (float64, error) { if v, e := p.reveal(); e == nil { return v.Float() } else { return 0, e }}
+func (p *delegate) reveal() (res Value, err error) {
         var args []Value
 
         // FIXME: disclosed context not applied?
@@ -1698,7 +1716,7 @@ func (p *delegate) compare(c *Comparer) (err error) {
                 fmt.Printf("compare:delegate: %v (%v %T)\n", p, c.target, c.target)
         }
         var v Value
-        if v, err = p.eval(); err == nil {
+        if v, err = p.reveal(); err == nil {
                 err = c.compare(v)
         }
         return
@@ -1709,7 +1727,7 @@ func (p *delegate) compareFileDepend(c *Comparer, d *File) (err error) {
                 fmt.Printf("compare:delegate:File: %v (%v %T)\n", p, c.target, c.target)
         }
         var value Value
-        if value, err = p.eval(); err != nil { return }
+        if value, err = p.reveal(); err != nil { return }
         if comp, _ := value.(comparable); comp != nil {
                 err = comp.compareFileDepend(c, d)
         } else {
@@ -1726,7 +1744,7 @@ func (p *delegate) comparePathDepend(c *Comparer, d *Path) (err error) {
                 fmt.Printf("compare:delegate:Path: %v (%v %T)\n", p, c.target, c.target)
         }
         var value Value
-        if value, err = p.eval(); err != nil { return }
+        if value, err = p.reveal(); err != nil { return }
         if comp, _ := value.(comparable); comp != nil {
                 err = comp.comparePathDepend(c, d)
         } else {
@@ -1759,7 +1777,7 @@ type closure struct {
 func (p *closure) Position() token.Position { return p.p }
 func (p *closure) Type() Type { return ClosureType }
 func (p *closure) String() (s string) {
-        var na = len(p.a)
+        /*var na = len(p.a)
         if s = "&"; p.o == nil {
                 s += "(...)"
         } else {
@@ -1774,7 +1792,12 @@ func (p *closure) String() (s string) {
                 }
                 s += ")"
         }
-        return
+        return*/
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("closure{%s}!(%+v)", s, e)
+        }
 }
 func (p *closure) Integer() (int64, error) {
         if p.o == nil {
@@ -1790,12 +1813,12 @@ func (p *closure) Float() (float64, error) {
 }
 func (p *closure) Strval() (s string, err error) {
         var v Value
-        if v, err = p.eval(); err == nil {
+        if v, err = p.reveal(); err == nil {
                 s, err = v.Strval()
         }
         return
 }
-func (p *closure) eval() (res Value, err error) {
+func (p *closure) reveal() (res Value, err error) {
         if p.o == nil {
                 return nil, nil
         }
@@ -1803,48 +1826,44 @@ func (p *closure) eval() (res Value, err error) {
         default: err = fmt.Errorf("unknown closure object %v", p.o)
         case Caller:
                 if res, err = o.Call(p.p, p.a...); err != nil {
-                        err = fmt.Errorf("&(%s): %v", p.o.Name(), err)
+                        err = fmt.Errorf("&(%s)!(%+v)", p.o.Name(), err)
                 }
         case Executer:
                 var a []Value
                 if a, err = o.Execute(p.p, p.a...); err != nil {
-                        err = fmt.Errorf("&{%s}: %v", p.o.Name(), err)
+                        err = fmt.Errorf("&{%s}!(%+v)", p.o.Name(), err)
                 } else {
                         res = &List{Elements{a}}
                 }
         }
-        if err != nil {
-                fmt.Printf("%v: %v\n", p.p, err)
-        } else if res == nil {
+        if res == nil && err == nil {
                 res = UniversalNone 
         }
         return
 }
-func (p *closure) within(scope *Scope) (res Value, err error) {
-        if p.o == nil {
-                return nil, nil
-        }
+func (p *closure) disclose() (res Value, err error) {
+        if p.o == nil { return nil, nil }
 
         var ( o Object; v Value; changed bool )
-        if _, o = scope.Find(p.o.Name()); o != nil {
-                changed = true
-        } else {
-                o = p.o
-        }
-
-        // Disclose the object, it's value may have disclosures.
-        if v, err = o.disclose(); err != nil { return }
-        if v != nil {
-                if o, _ = v.(Object); o != nil {
-                        changed = true
-                } else {
-                        err = fmt.Errorf("invalid closure %v", v)
-                        return
+        for _, scope := range Closure {
+                if _, o = scope.Find(p.o.Name()); o != nil {
+                        changed = true; break
                 }
         }
 
-        if check_closure {
-                fmt.Printf("%+v => %+v\n", p.o, v)
+        if o == nil { o = p.o } // assert changed == false
+
+        // Disclose the object, which may contain closures.
+        if v, err = o.disclose(); err != nil {
+                return
+        } else if v != nil {
+                var ok bool
+                if o, ok = v.(Object); ok && o != nil {
+                        changed = true
+                } else {
+                        err = fmt.Errorf("invalid closure %+v", v)
+                        return
+                }
         }
 
         var args []Value
@@ -1853,15 +1872,13 @@ func (p *closure) within(scope *Scope) (res Value, err error) {
                 if v != nil { a, changed = v, true }
                 args = append(args, a)
         }
+
         if changed && err == nil {
-                res = &closure{ p.p, o, args }
-        }
-        return
-}
-func (p *closure) disclose() (res Value, err error) {
-        for _, scope := range Closure {
-                if res, err = p.within(scope); err == nil && res != nil {
-                        break
+                if false {
+                        // This will search closure again.
+                        res = &closure{ p.p, o, args }
+                } else {
+                        res = &delegate{ p.p, o, args }
                 }
         }
         return
@@ -1937,7 +1954,13 @@ type GlobPattern struct {
         Suffix Value
 }
 
-func (p *GlobPattern) String() string { return fmt.Sprintf("%s%%%s", p.Prefix.String(), p.Suffix.String()) }
+func (p *GlobPattern) String() string {
+        if s, e := p.Strval(); e == nil {
+                return s
+        } else {
+                return fmt.Sprintf("GlobPattern{%s}!(%+v)", s, e)
+        }
+}
 func (p *GlobPattern) Strval() (s string, err error) {
         if p.Prefix != nil {
                 var v string
@@ -2059,9 +2082,9 @@ func NewRegexpPattern() Pattern {
 
 func (p *RegexpPattern) String() string {
         if s, e := p.Strval(); e == nil {
-                return fmt.Sprintf("RegexpPattern{%s}", s)
+                return s
         } else {
-                return fmt.Sprintf("RegexpPattern{%s}!(%s)", s, e)
+                return fmt.Sprintf("RegexpPattern{%s}!(%+v)", s, e)
         }
 }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
@@ -2133,26 +2156,39 @@ func NameScope(name string, scope *Scope) NameScoper {
         return &namescoper{ name, scope }
 }
 
-func revealElems(elems []Value) (result []Value, changed int, err error) {
-        for _, elem := range elems {
+type allrevealer interface {
+        revealall() (result []Value, changed int, err error)
+}
+
+func (p *Elements) revealall() (result []Value, changed int, err error) {
+        for _, elem := range p.Elems {
                 var v Value
-                if v, err = Reveal(elem); err != nil { return }
+                if v, err = Reveal(elem); err != nil { break }
                 if v != elem { changed += 1 }
                 result = append(result, v)
         }
         return
 }
 
-// Reveal expends delegates and Valuer recursively.
+// Reveal reveals delegated component and Valuer recursively.
 func Reveal(v Value) (res Value, err error) {
         switch t := v.(type) {
-        case *delegate: res, err = t.eval()
-        case *List:
+        case *delegate: res, err = t.reveal()
+        case allrevealer:
                 var ( elems []Value; changed = 0 )
-                if elems, changed, err = revealElems(t.Elems); err != nil { return }
-                if changed > 0 { res = &List{Elements{elems}} }
+                if elems, changed, err = t.revealall(); err == nil && changed > 0 {
+                        res = &List{Elements{elems}}
+                }
         }
-        if res == nil { res = v }
+        if res == nil && err == nil { res = v }
+        return
+}
+
+func RevealAll(values ...Value) (res []Value, err error) {
+        for _, v := range values {
+                if v, err = Reveal(v); err != nil { break }
+                if v != nil { res = append(res, v) }
+        }
         return
 }
 
@@ -2177,14 +2213,6 @@ func DiscloseAll(values ...Value) (res []Value, err error) {
 // Join combines lists recursively into one list.
 func Join(args... Value) (elems []Value) {
         for _, arg := range args {
-                /* switch t := arg.(type) {
-                case *List:
-                        for _, elem := range t.Elems {
-                                elems = append(elems, Join(elem)...)
-                        }
-                default:
-                        elems = append(elems, t)
-                } */
                 if l, _ := arg.(*List); l != nil {
                         elems = append(elems, Join(l.Elems...)...)
                 } else {
@@ -2194,34 +2222,26 @@ func Join(args... Value) (elems []Value) {
         return
 }
 
-// JoinReveal join revealed elements into one list.
-func JoinReveal(args... Value) (elems []Value, err error) {
-        for _, elem := range Join(args...) {
-                if elem, err = Reveal(elem); err != nil { break }
-                elems = append(elems, Join(elem)...)
-        }
-        return
+func joinresult(res []Value, err error) ([]Value, error) {
+        if err == nil { res = Join(res...) }
+        return res, err
 }
 
-// JoinEval join evaluated (disclosed and revealed) elements into one list.
-func JoinEval(args... Value) (elems []Value, err error) {
-        for _, elem := range Join(args...) {
-                if elem, err = Disclose(elem); err != nil { break }
-                if elem, err = Reveal(elem); err != nil { break }
-                if l, _ := elem.(*List); l != nil {
-                        var a []Value
-                        if a, err = JoinEval(l.Elems...); err != nil { return }
-                        elems = append(elems, a...)
-                } else {
-                        elems = append(elems, elem)
-                }
-        }
-        return
-}
-
-func Eval(value Value) (res Value, err error) {
+func Expend(value Value) (res Value, err error) {
+        // Performs: &(...) -> $(...)
         if value, err = Disclose(value); err != nil { return }
-        res, err = Reveal(value); return
+        // Performs: $(...) -> ...
+        if value, err = Reveal(value); err != nil { return }
+        if err == nil { res = value }
+        return
+}
+
+func ExpendAll(values ...Value) (res []Value, err error) {
+        for _, v := range values {
+                if v, err = Expend(v); err != nil { break }
+                if v != nil { res = append(res, v) }
+        }
+        return
 }
 
 func Delegate(pos token.Position, obj Object, args... Value) Value {
@@ -2238,8 +2258,6 @@ func MakeClosure(pos token.Position, obj Object, args... Value) Value {
 func Refs(a Value, o Object) bool {
         return a.referencing(o)
 }
-
-func strval(s string) Value { return &String{s} }
 
 func MakeListOrScalar(elems []Value) (res Value) {
         if x := len(elems); x > 1 {

@@ -49,8 +49,11 @@ var builtins = map[string]BuiltinFunc {
         `minus`:   builtinMinus,
 
         `quote`: builtinQuote,
-        `split-quote-join`: builtinSplitJoinQuote,
         `quote-join`: builtinQuoteJoin,
+        `split-string`: builtinSplitString,
+        `split-quote`: builtinSplitQuote,
+        `split-quote-join`: builtinSplitQuoteJoin,
+        `split-join-quote`: builtinSplitJoinQuote,
         `join`:    builtinJoin,
         `field`:   builtinField,
         `fields`:  builtinFields,
@@ -359,7 +362,7 @@ func builtinMinus(pos token.Position, args... Value) (result Value, err error) {
 }
 
 func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = JoinEval(args...); err != nil { return }
+        if args, err = joinresult(ExpendAll(args...)); err != nil { return }
         if l := len(args); l >= 2 {
                 var (
                         fields []string
@@ -376,7 +379,7 @@ func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = JoinEval(args...); err != nil { return }
+        if args, err = joinresult(ExpendAll(args...)); err != nil { return }
         if l := len(args); l > 0 {
                 var fields []string
                 var v string
@@ -391,60 +394,112 @@ func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinSplitJoinQuote(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = JoinEval(args...); err != nil { return }
-        if l := len(args); l == 1 {
-                var v string
-                if v, err = args[0].Strval(); err == nil {
-                        res = &String{strconv.Quote(v)}
-                }
-        } else if l > 1 {
-                var sep string
+func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) {
+        var sep string
+        if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(); err != nil {
                         return
-                } else if sep == "" { sep = " " }
-
-                var fields []string
-                for _, a := range args[:l-1] {
-                        fmt.Printf("a: %T %+v\n", a, a)
-
-                        if a, err = Eval(a); err != nil { return }
-
-                        fmt.Printf("a: %T %+v\n", a, a)
-
-                        var s string
-                        if s, err = a.Strval(); err != nil { return }
-                        if s != "" { fields = append(fields, strconv.Quote(s)) }
                 }
-                res = &String{strings.Join(fields, sep)}
+                args = args[:l-1]
+        }
+        if args, err = joinresult(ExpendAll(args...)); err != nil { return }
+        if l := len(args); l > 0 {
+                var fields []string
+                var v string
+                for _, a := range args {
+                        if v, err = a.Strval(); err != nil { return }
+                        if v != "" { fields = append(fields, v) }
+                }
+                res = &String{strconv.Quote(strings.Join(fields, sep))}
         } else {
                 res = UniversalNone
         }
         return
 }
 
-func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = JoinEval(args...); err != nil { return }
-        if l := len(args); l == 1 {
-                var v string
-                if v, err = args[0].Strval(); err == nil {
-                        res = &String{strconv.Quote(v)}
-                }
-        } else if l > 1 {
-                var sep string
-                if sep, err = args[l-1].Strval(); err != nil {
-                        return
-                } else if sep == "" { sep = " " }
-
-                var fields []string
-                for _, a := range args[:l-1] {
+func builtinSplitString(pos token.Position, args... Value) (res Value, err error) {
+        if args, err = joinresult(ExpendAll(args...)); err != nil { return }
+        if l := len(args); l > 0 {
+                var fields []Value
+                for _, a := range args {
                         var s string
                         if s, err = a.Strval(); err != nil { return }
-                        if s != "" { fields = append(fields, strconv.Quote(s)) }
+                        if s != "" { fields = append(fields, &String{s}) }
                 }
-                res = &String{strings.Join(fields, sep)}
+
+                res = &List{Elements{fields}}
         } else {
                 res = UniversalNone
+        }
+        return
+}
+
+func quotestrings(value Value) {
+        switch v := value.(type) {
+        case *String:
+                v.Value = strconv.Quote(v.Value)
+        case *List:
+                for _, elem := range v.Elems {
+                        quotestrings(elem)
+                }
+        }
+        return
+}
+
+func joinstrings(value Value, sep string) (res Value, err error) {
+        if sep == "" { sep = " " }
+        ValueType: switch v := value.(type) {
+        case *String: res = value
+        case *List:
+                var strs []string
+                for _, elem := range v.Elems {
+                        var ( v Value; s string )
+                        if v, err = joinstrings(elem, sep); err != nil { break ValueType }
+                        if s, err = v.Strval(); err != nil { break ValueType }
+                        if s != "" { strs = append(strs, s) }
+                }
+                res = &String{strings.Join(strs, sep)}
+        }
+        return
+}
+
+func builtinSplitQuote(pos token.Position, args... Value) (res Value, err error) {
+        if res, err = builtinSplitString(pos, args...); err == nil {
+                quotestrings(res)
+        }
+        return
+}
+
+func builtinSplitQuoteJoin(pos token.Position, args... Value) (res Value, err error) {
+        var sep string
+        if l := len(args); l > 1 {
+                if sep, err = args[l-1].Strval(); err != nil {
+                        return
+                }
+                args = args[:l-1]
+        }
+        if res, err = builtinSplitQuote(pos, args...); err == nil {
+                res, err = joinstrings(res, sep)
+        }
+        return
+}
+
+func builtinSplitJoinQuote(pos token.Position, args... Value) (res Value, err error) {
+        var sep string
+        if l := len(args); l > 1 {
+                if sep, err = args[l-1].Strval(); err != nil {
+                        return
+                }
+                args = args[:l-1]
+        }
+        var v Value
+        if v, err = builtinSplitString(pos, args...); err == nil {
+                if v, err = joinstrings(v, sep); err == nil {
+                        var s string
+                        if s, err = v.Strval(); err == nil {
+                                res = &String{strconv.Quote(s)}
+                        }
+                }
         }
         return
 }
@@ -530,7 +585,7 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
                 }
                 if len(pats) > 0 {
                         var elems, a []Value
-                        if a, err = JoinReveal(args[1:]...); err != nil { return }
+                        if a, err = RevealAll(Join(args[1:]...)...); err != nil { return }
                         for _, v := range a {
                                 var okay = f(v)
                                 if err != nil { return }
@@ -554,7 +609,7 @@ func builtinSubst(pos token.Position, args... Value) (res Value, err error) {
                 if s1, err = args[0].Strval(); err != nil { return }
                 if s2, err = args[1].Strval(); err != nil { return }
                 var a []Value
-                if a, err = JoinReveal(args[2:]...); err != nil { return }
+                if a, err = RevealAll(Join(args[2:]...)...); err != nil { return }
                 for _, arg := range a {
                         if s, err = arg.Strval(); err != nil { return }
                         list = append(list, &String{ strings.Replace(s, s1, s2, -1) })
@@ -572,7 +627,7 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var a []Value
-                if a, err = JoinReveal(args[2:]...); err != nil { return }
+                if a, err = RevealAll(Join(args[2:]...)...); err != nil { return }
                 for _, arg := range a {
                         var (
                                 a, s string // stemp
@@ -670,7 +725,7 @@ func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
                 } else if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
-                        list = append(list, strval(strings.Title(s)))
+                        list = append(list, MakeString(strings.Title(s)))
                 }
         }
         if err == nil {
@@ -694,9 +749,9 @@ func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, strval(strings.TrimSpace(s)))
+                                list = append(list, MakeString(strings.TrimSpace(s)))
                         } else {
-                                list = append(list, strval(strings.Trim(s, cutset)))
+                                list = append(list, MakeString(strings.Trim(s, cutset)))
                         }
                 }
         }
@@ -721,9 +776,9 @@ func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, strval(strings.TrimLeftFunc(s, unicode.IsSpace)))
+                                list = append(list, MakeString(strings.TrimLeftFunc(s, unicode.IsSpace)))
                         } else {
-                                list = append(list, strval(strings.TrimLeft(s, cutset)))
+                                list = append(list, MakeString(strings.TrimLeft(s, cutset)))
                         }
                 }
         }
@@ -748,9 +803,9 @@ func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) 
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, strval(strings.TrimRightFunc(s, unicode.IsSpace)))
+                                list = append(list, MakeString(strings.TrimRightFunc(s, unicode.IsSpace)))
                         } else {
-                                list = append(list, strval(strings.TrimRight(s, cutset)))
+                                list = append(list, MakeString(strings.TrimRight(s, cutset)))
                         }
                 }
         }
@@ -775,9 +830,9 @@ func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error)
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, strval(strings.TrimLeftFunc(s, unicode.IsSpace)))
+                                list = append(list, MakeString(strings.TrimLeftFunc(s, unicode.IsSpace)))
                         } else {
-                                list = append(list, strval(strings.TrimPrefix(s, cutset)))
+                                list = append(list, MakeString(strings.TrimPrefix(s, cutset)))
                         }
                 }
         }
@@ -802,9 +857,9 @@ func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error)
                         if i == 0 {
                                 cutset = s
                         } else if cutset == "" {
-                                list = append(list, strval(strings.TrimRightFunc(s, unicode.IsSpace)))
+                                list = append(list, MakeString(strings.TrimRightFunc(s, unicode.IsSpace)))
                         } else {
-                                list = append(list, strval(strings.TrimSuffix(s, cutset)))
+                                list = append(list, MakeString(strings.TrimSuffix(s, cutset)))
                         }
                 }
         }
@@ -829,9 +884,9 @@ func builtinTrimExt(pos token.Position, args... Value) (res Value, err error) {
                         if i == 0 && len(args) > 1 {
                                 ext = s
                         } else if ext == "" {
-                                list = append(list, strval(strings.TrimSuffix(s, filepath.Ext(s))))
+                                list = append(list, MakeString(strings.TrimSuffix(s, filepath.Ext(s))))
                         } else if ext == filepath.Ext(s) {
-                                list = append(list, strval(strings.TrimRight(s, ext)))
+                                list = append(list, MakeString(strings.TrimRight(s, ext)))
                         }
                 }
         }
@@ -1213,7 +1268,7 @@ func builtinRename(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = JoinEval(args...); err != nil {
+        if args, err = joinresult(ExpendAll(args...)); err != nil {
                 return
         }
         var (
@@ -1240,7 +1295,7 @@ func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemoveAll(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = JoinEval(args...); err != nil {
+        if args, err = joinresult(ExpendAll(args...)); err != nil {
                 return
         }
         /*for _, a := range args {
