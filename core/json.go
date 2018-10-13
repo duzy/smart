@@ -17,7 +17,8 @@ import (
 type JSON struct {
         Value Value
 }
-func (p *JSON) disclose() (Value, error) { return nil, nil }
+func (p *JSON) disclose() (Value, error) { return p.Value.disclose() }
+func (p *JSON) reveal() (Value, error) { return p.Value.reveal() }
 func (p *JSON) referencing(_ Object) bool { return false }
 func (p *JSON) Type() Type { return JSONType }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }

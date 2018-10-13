@@ -15,7 +15,8 @@ import (
 type YAML struct {
         Value Value
 }
-func (p *YAML) disclose() (Value, error) { return nil, nil }
+func (p *YAML) disclose() (Value, error) { return p.Value.disclose() }
+func (p *YAML) reveal() (Value, error) { return p.Value.reveal() }
 func (p *YAML) referencing(_ Object) bool { return false }
 func (p *YAML) Type() Type { return YAMLType }
 func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }

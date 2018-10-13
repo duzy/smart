@@ -66,6 +66,7 @@ type ExecResult struct {
         Status int
 }
 func (p *ExecResult) disclose() (Value, error) { return nil, nil }
+func (p *ExecResult) reveal() (Value, error) { return nil, nil }
 func (p *ExecResult) referencing(_ Object) bool { return false }
 func (p *ExecResult) Type() Type { return ExecResultType }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }

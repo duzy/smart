@@ -17,6 +17,7 @@ type Plain struct {
         Name string
 }
 func (p *Plain) disclose() (Value, error) { return nil, nil }
+func (p *Plain) reveal() (Value, error) { return nil, nil }
 func (p *Plain) referencing(_ Object) bool { return false }
 func (p *Plain) Type() Type  { return PlainType }
 func (p *Plain) String() string {

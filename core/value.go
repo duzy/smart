@@ -40,9 +40,11 @@ type Value interface {
         // Float returns the float form of the value.
         Float() (float64, error)
 
-        // disclose method, also prevents creating new Value type from
-        // other packages.
+        // &(...) -> $(...)
         disclose() (Value, error)
+
+        // $(...) -> .....
+        reveal() (Value, error)
 
         // Recursively detecting whether this value is referencing
         // to the object (to avoid loop-delegation).
@@ -75,6 +77,7 @@ func scoping(a ...*Project) (saved closurecontext) {
 
 type value struct {}
 func (*value) disclose() (Value, error) { return nil, nil }
+func (*value) reveal() (Value, error) { return nil, nil }
 func (*value) referencing(_ Object) bool { return false }
 func (*value) Type() Type { return InvalidType }
 func (*value) Strval() (string, error) { return "", nil }
@@ -300,6 +303,7 @@ type integer struct {
         Value int64
 }
 func (p *integer) disclose() (Value, error) { return nil, nil }
+func (p *integer) reveal() (Value, error) { return nil, nil }
 func (p *integer) referencing(_ Object) bool { return false }
 func (p *integer) Integer() (int64, error) { return p.Value, nil }
 func (p *integer) Float() (float64, error) { return float64(p.Value), nil }
@@ -399,6 +403,7 @@ type Float struct {
         Value float64
 }
 func (p *Float) disclose() (Value, error) { return nil, nil }
+func (p *Float) reveal() (Value, error) { return nil, nil }
 func (p *Float) referencing(_ Object) bool { return false }
 func (p *Float) Type() Type { return FloatType }
 func (p *Float) String() string {
@@ -428,6 +433,7 @@ type DateTime struct {
         Value time.Time 
 }
 func (*DateTime) disclose() (Value, error) { return nil, nil }
+func (*DateTime) reveal() (Value, error) { return nil, nil }
 func (*DateTime) referencing(_ Object) bool { return false }
 func (p *DateTime) Type() Type { return DateTimeType }
 func (p *DateTime) String() string {
@@ -453,6 +459,7 @@ func ParseDateTime(s string) *DateTime {
 
 type Date struct { DateTime }
 func (*Date) disclose() (Value, error) { return nil, nil }
+func (*Date) reveal() (Value, error) { return nil, nil }
 func (*Date) referencing(_ Object) bool { return false }
 func (p *Date) Type() Type { return DateType }
 func (p *Date) String() string {
@@ -477,6 +484,7 @@ func ParseDate(s string) *Date {
 
 type Time struct { DateTime }
 func (*Time) disclose() (Value, error) { return nil, nil }
+func (*Time) reveal() (Value, error) { return nil, nil }
 func (*Time) referencing(_ Object) bool { return false }
 func (p *Time) Type() Type { return TimeType }
 func (p *Time) String() string {
@@ -503,6 +511,7 @@ type Uri struct {
         Value *url.URL
 }
 func (*Uri) disclose() (Value, error) { return nil, nil }
+func (*Uri) reveal() (Value, error) { return nil, nil }
 func (*Uri) referencing(_ Object) bool { return false }
 func (p *Uri) Type() Type { return UriType }
 func (p *Uri) String() string {
@@ -529,6 +538,7 @@ type String struct {
         Value string
 }
 func (*String) disclose() (Value, error) { return nil, nil }
+func (*String) reveal() (Value, error) { return nil, nil }
 func (*String) referencing(_ Object) bool { return false }
 func (p *String) Type() Type  { return StringType }
 func (p *String) String() string {
@@ -556,6 +566,7 @@ type Bareword struct {
         Value string
 }
 func (_ *Bareword) disclose() (Value, error) { return nil, nil }
+func (_ *Bareword) reveal() (Value, error) { return nil, nil }
 func (_ *Bareword) referencing(_ Object) bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
 func (p *Bareword) String() string { return p.Value/*fmt.Sprintf("Bareword{%s}", p.Value)*/ }
@@ -686,7 +697,7 @@ func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *Elements) ToList() *List         { return &List{*p} }
 
-func (p *Elements) disclose() (elems []Value, num int, err error) {
+func (p *Elements) discloseall() (elems []Value, num int, err error) {
         var v Value
         for _, elem := range p.Elems {
                 if elem == nil { continue }
@@ -696,6 +707,16 @@ func (p *Elements) disclose() (elems []Value, num int, err error) {
                         num += 1
                 }
                 elems = append(elems, elem)
+        }
+        return
+}
+
+func (p *Elements) revealall() (elems []Value, num int, err error) {
+        for _, elem := range p.Elems {
+                var v Value
+                if v, err = Reveal(elem); err != nil { break }
+                if v != elem { num += 1 }
+                elems = append(elems, v)
         }
         return
 }
@@ -734,7 +755,15 @@ func (p *Barecomp) String() (s string) {
 
 func (p *Barecomp) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(); err == nil && num > 0 {
+        if elems, num, err = p.Elements.discloseall(); err == nil && num > 0 {
+                res = &Barecomp{ Elements{ elems } }
+        }
+        return
+}
+
+func (p *Barecomp) reveal() (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.revealall(); err == nil && num > 0 {
                 res = &Barecomp{ Elements{ elems } }
         }
         return
@@ -779,6 +808,15 @@ func (p *Barefile) Float() (float64, error) { i, e := p.Integer(); return float6
 func (p *Barefile) disclose() (res Value, err error) {
         var name Value
         if name, err = p.Name.disclose(); err != nil {
+                return
+        } else if name != nil {
+                res = &Barefile{ name, p.File }
+        }
+        return
+}
+func (p *Barefile) reveal() (res Value, err error) {
+        var name Value
+        if name, err = p.Name.reveal(); err != nil {
                 return
         } else if name != nil {
                 res = &Barefile{ name, p.File }
@@ -860,6 +898,7 @@ func (p *Glob) Strval() (string, error) { return p.Tok.String(), nil }
 func (p *Glob) Integer() (int64, error) { return 0, nil }
 func (p *Glob) Float() (float64, error) { return 0, nil }
 func (p *Glob) disclose() (Value, error) { return nil, nil }
+func (p *Glob) reveal() (Value, error) { return nil, nil }
 func (p *Glob) referencing(o Object) bool { return false }
 
 func MakeGlob(tok token.Token) *Glob { return &Glob{tok} }
@@ -899,8 +938,14 @@ func (p *Path) Float() (float64, error) { i, e := p.Integer(); return float64(i)
 func (p *Path) Type() Type { return PathType }
 func (p *Path) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(); err != nil { return }
-        if num > 0 { res = &Path{ Elements{ elems }, p.File } }
+        if elems, num, err = p.Elements.discloseall(); err != nil { return }
+        if num > 0 { res = &Path{Elements{elems}, p.File}}
+        return
+}
+func (p *Path) reveal() (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.revealall(); err != nil { return }
+        if num > 0 { res = &Path{Elements{elems}, p.File}}
         return
 }
 
@@ -1073,7 +1118,7 @@ func (p *PathSeg) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("PathSeg{s}!(%+v)", s, e)
+                return fmt.Sprintf("PathSeg{%s}!(%+v)", s, e)
         }
 }
 func (p *PathSeg) Strval() (s string, e error) {
@@ -1365,6 +1410,12 @@ func (p *Flag) disclose() (res Value, err error) {
         if name != nil { res = &Flag{ name } }
         return
 }
+func (p *Flag) reveal() (res Value, err error) {
+        var name Value
+        if name, err = p.Name.reveal(); err != nil { return }
+        if name != nil { res = &Flag{ name } }
+        return
+}
 
 func (p *Flag) referencing(o Object) bool {
         return p.Name.referencing(o)
@@ -1399,7 +1450,13 @@ func (p *Compound) Float() (float64, error) { i, e := p.Integer(); return float6
 
 func (p *Compound) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(); err != nil { return }
+        if elems, num, err = p.Elements.discloseall(); err != nil { return }
+        if num > 0 { res = &Compound{ Elements{ elems } } }
+        return
+}
+func (p *Compound) reveal() (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.revealall(); err != nil { return }
         if num > 0 { res = &Compound{ Elements{ elems } } }
         return
 }
@@ -1438,7 +1495,13 @@ func (p *List) Strval() (s string, err error) {
 
 func (p *List) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(); err != nil { return }
+        if elems, num, err = p.Elements.discloseall(); err != nil { return }
+        if num > 0 { res = &List{ Elements{ elems } } }
+        return
+}
+func (p *List) reveal() (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.revealall(); err != nil { return }
         if num > 0 { res = &List{ Elements{ elems } } }
         return
 }
@@ -1513,7 +1576,13 @@ func (p *Group) Strval() (s string, err error) {
 
 func (p *Group) disclose() (res Value, err error) {
         var ( elems []Value; num int )
-        if elems, num, err = p.Elements.disclose(); err != nil { return }
+        if elems, num, err = p.Elements.discloseall(); err != nil { return }
+        if num > 0 { res = &Group{ List{ Elements{ elems } } } }
+        return
+}
+func (p *Group) reveal() (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = p.Elements.revealall(); err != nil { return }
         if num > 0 { res = &Group{ List{ Elements{ elems } } } }
         return
 }
@@ -1579,6 +1648,17 @@ func (p *Pair) disclose() (res Value, err error) {
         }
         return
 }
+func (p *Pair) reveal() (res Value, err error) {
+        var k, v Value
+        if k, err = p.Key.reveal(); err != nil { return }
+        if v, err = p.Value.reveal(); err != nil { return }
+        if k != nil || v != nil {
+                if k == nil { k = p.Key }
+                if v == nil { v = p.Value }
+                res = &Pair{ k, v }
+        }
+        return
+}
 
 func (p *Pair) referencing(o Object) bool {
         return p.Key.referencing(o) || p.Value.referencing(o)
@@ -1604,26 +1684,6 @@ type delegate struct {
 func (p *delegate) Position() token.Position { return p.p }
 func (p *delegate) Type() Type { return DelegateType }
 func (p *delegate) String() (s string) {
-        /*var na = len(p.a)
-        s = "$"
-        s += "(" //if na > 0 { s += "(" }
-        if false {
-                if sc := p.o.DeclScope(); sc != nil && sc.Comment() == "use" {
-                        s += sc.Comment() + "->"
-                } else if pp := p.o.OwnerProject(); pp != nil {
-                        s += pp.Name() + "->"
-                }
-        }
-        s += p.o.Name()
-        if na > 0 {
-                s += " "
-                for i, a := range p.a {
-                        if i > 0 { s += "," }
-                        s += a.String()
-                }
-        }
-        s += ")"
-        return*/
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
@@ -1633,11 +1693,10 @@ func (p *delegate) String() (s string) {
 func (p *delegate) Strval() (string, error) { if v, e := p.reveal(); e == nil { return v.Strval() } else { return "", e }}
 func (p *delegate) Integer() (int64, error) { if v, e := p.reveal(); e == nil { return v.Integer() } else { return 0, e }}
 func (p *delegate) Float() (float64, error) { if v, e := p.reveal(); e == nil { return v.Float() } else { return 0, e }}
+
 func (p *delegate) reveal() (res Value, err error) {
         var args []Value
-
-        // FIXME: disclosed context not applied?
-        if args, err = p.discloseArgs(); err != nil {
+        if args, err = DiscloseAll(p.a...); err != nil {
                 return
         }
         
@@ -1661,7 +1720,6 @@ func (p *delegate) reveal() (res Value, err error) {
         }
         return
 }
-
 func (p *delegate) disclose() (res Value, err error) {
         var ( o = p.o; v Value; changed bool )
         if v, err = o.disclose(); err != nil { return }
@@ -1682,19 +1740,6 @@ func (p *delegate) disclose() (res Value, err error) {
         }
         if changed && err == nil {
                 res = &delegate{ p.p, o, args }
-        }
-        return
-}
-
-func (p *delegate) discloseArgs() (args []Value, err error) {
-        for _, a := range p.a {
-                if v, e := Disclose(a); e != nil {
-                        // TODO: errors...
-                        return nil, e
-                } else if v != nil {
-                        a = v
-                }
-                args = append(args, a)
         }
         return
 }
@@ -1944,6 +1989,7 @@ func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEn
 }
 
 func (*pattern) disclose() (Value, error) { return nil, nil }
+func (*pattern) reveal() (Value, error) { return nil, nil }
 
 // GlobPattern represents glob expressions (e.g. '%.o', '[a-z].o', 'a?a.o')
 // FIXME: PercPattern -> %.o
@@ -2156,31 +2202,14 @@ func NameScope(name string, scope *Scope) NameScoper {
         return &namescoper{ name, scope }
 }
 
-type allrevealer interface {
-        revealall() (result []Value, changed int, err error)
-}
-
-func (p *Elements) revealall() (result []Value, changed int, err error) {
-        for _, elem := range p.Elems {
-                var v Value
-                if v, err = Reveal(elem); err != nil { break }
-                if v != elem { changed += 1 }
-                result = append(result, v)
-        }
-        return
-}
-
 // Reveal reveals delegated component and Valuer recursively.
-func Reveal(v Value) (res Value, err error) {
-        switch t := v.(type) {
-        case *delegate: res, err = t.reveal()
-        case allrevealer:
-                var ( elems []Value; changed = 0 )
-                if elems, changed, err = t.revealall(); err == nil && changed > 0 {
-                        res = &List{Elements{elems}}
-                }
+func Reveal(value Value) (res Value, err error) {
+        if false {
+                fmt.Printf("Reveal: %T %v\n", value, value)
         }
-        if res == nil && err == nil { res = v }
+        if res, err = value.reveal(); res == nil && err == nil {
+                res = value
+        }
         return
 }
 
@@ -2197,8 +2226,9 @@ func Disclose(value Value) (res Value, err error) {
         if false {
                 fmt.Printf("Disclose: %T %v\n", value, value)
         }
-        if res, err = value.disclose(); err != nil { return }
-        if res == nil { res = value }
+        if res, err = value.disclose(); res == nil && err == nil {
+                res = value
+        }
         return
 }
 
@@ -2228,6 +2258,8 @@ func joinresult(res []Value, err error) ([]Value, error) {
 }
 
 func Expend(value Value) (res Value, err error) {
+        // FIXME: Merge Disclose and Reveal (actually the same)
+
         // Performs: &(...) -> $(...)
         if value, err = Disclose(value); err != nil { return }
         // Performs: $(...) -> ...

@@ -15,7 +15,8 @@ import (
 type XML struct {
         Value Value
 }
-func (p *XML) disclose() (Value, error) { return nil, nil }
+func (p *XML) disclose() (Value, error) { return p.Value.disclose() }
+func (p *XML) reveal() (Value, error) { return p.Value.reveal() }
 func (p *XML) referencing(_ Object) bool { return false }
 func (p *XML) Type() Type { return XMLType }
 func (p *XML) String() string { return "(json " + p.Value.String() + ")" }

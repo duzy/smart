@@ -1841,7 +1841,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                         if path, _ := v.(*core.Path); path != nil {
                                 tarent.SetExplicitPath(path)
                         } else {
-                                p.error(target.Pos(), "unknown path (%v) (%v)", v, t)
+                                p.error(target.Pos(), "unknown path (%T: %+v) (%+v)", v, v, t)
                         }
                 case *ast.Bareword, *ast.Barecomp:
                         if isUseRule {

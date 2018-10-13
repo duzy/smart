@@ -217,6 +217,12 @@ func (d *Def) disclose() (res Value, err error) {
         if v != nil { res = &Def{ d.object, d.origin, v }}
         return
 }
+func (d *Def) reveal() (res Value, err error) {
+        var v Value
+        if v, err = d.Value.reveal(); err != nil { return }
+        if v != nil { res = &Def{ d.object, d.origin, v }}
+        return
+}
 
 func (d *Def) referencing(o Object) bool {
         if d == o { return true }
