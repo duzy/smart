@@ -237,7 +237,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        defer setclosure(setclosure(append(Closure, entry.scope))) //(setclosure(append(closurecontext{ entry.scope }, Closure...)))
+        defer setclosure(setclosure(append(Closure, entry.scope))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
         defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
 
         var argn = 0
