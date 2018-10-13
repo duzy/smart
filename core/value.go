@@ -80,10 +80,10 @@ func (*value) disclose() (Value, error) { return nil, nil }
 func (*value) reveal() (Value, error) { return nil, nil }
 func (*value) referencing(_ Object) bool { return false }
 func (*value) Type() Type { return InvalidType }
-func (*value) Strval() (string, error) { return "", nil }
 func (*value) Integer() (int64, error) { return 0, nil }
 func (*value) Float() (float64, error) { return 0, nil }
 
+func (p *value) Strval() (string, error) { return fmt.Sprintf("value(%p){}", p), nil }
 func (p *value) String() string {
         if s, e := p.Strval(); e == nil {
                 return s

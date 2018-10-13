@@ -49,6 +49,8 @@ func (obj *object) OwnerProject() *Project { return obj.owner }
 func (obj *object) Name() string { return obj.name }
 
 func (obj *object) Type() Type { return obj.typ }
+
+func (obj *object) Strval() (string, error) { return fmt.Sprintf("object(%p){%+v}", obj, obj.typ), nil }
 func (obj *object) String() string {
         if s, e := obj.Strval(); e == nil {
                 return s
@@ -56,7 +58,6 @@ func (obj *object) String() string {
                 return fmt.Sprintf("object{%s}!(%+v)", s, e)
         }
 }
-func (obj *object) Strval() (string, error) { return fmt.Sprintf("object %p", obj), nil }
 
 func (obj *object) Get(name string) (Value, error) {
         return nil, fmt.Errorf("No such property `%s' (Object).", name)
