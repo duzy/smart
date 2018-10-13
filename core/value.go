@@ -59,6 +59,22 @@ func setclosure(cc closurecontext) (saved closurecontext) {
         saved = Closure; Closure = cc; return
 }
 
+func appclosure(scopers ...Scoper) (saved closurecontext) {
+        saved = Closure
+        for _, s := range scopers {
+                Closure = append(Closure, s.Scope())
+        }
+        return
+}
+
+func scoping(a ...*Project) (saved closurecontext) {
+        saved = Closure
+        for _, i := range a {
+                Closure = append(Closure, i.Scope())
+        }
+        return
+}
+
 type value struct {}
 func (*value) disclose() (Value, error) { return nil, nil }
 func (*value) referencing(_ Object) bool { return false }

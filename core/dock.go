@@ -149,9 +149,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                 return
         }
 
-        var scopes closurecontext
-        for _, dock := range docks { scopes = append(scopes, dock.Scope()) }
-        defer setclosure(setclosure(append(Closure, scopes...))) //(setclosure(append(closurecontext(scopes), Closure...)))
+        defer setclosure(scoping(docks...))
 
         var strval = func(name string) (str string, err error) {
                 if obj := docksFind(docks, name); obj != nil {
