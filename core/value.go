@@ -59,7 +59,7 @@ func setclosure(cc closurecontext) (saved closurecontext) {
         saved = Closure; Closure = cc; return
 }
 
-func (cc *closurecontext) Join(scope *Scope) bool {
+/*func (cc *closurecontext) Join(scope *Scope) bool {
         for _, s := range *cc {
                 if scope == s { return false }
         }
@@ -74,7 +74,7 @@ func (cc *closurecontext) app(scopes... *Scope) closurecontext {
                 if scope != nil { cc.Join(scope) }
         }
         return prev
-}
+}*/
 
 type value struct {}
 func (*value) disclose() (Value, error) { return nil, nil }
