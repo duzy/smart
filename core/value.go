@@ -595,12 +595,18 @@ func (pc *Preparer) prepareTargetValue(value Value) (err error) {
 // patternPrepareError indicates an error occurred in preparing a pattern.
 type patternPrepareError error
 type unknownTargetError struct {
-        error
         target string
 }
 type unknownFileError struct {
-        error
         file *File
+}
+
+func (e unknownTargetError) Error() string {
+        return fmt.Sprintf("unknown target '%v'", e.target) 
+}
+
+func (e unknownFileError) Error() string {
+        return fmt.Sprintf("unknown file '%v' (%v)", e.file.Name, e.file)
 }
 
 func (pc *Preparer) prepareTarget(target string) error {
@@ -610,10 +616,10 @@ func (pc *Preparer) prepareTarget(target string) error {
         if err, brk := pc.implicitTarget(target); err != nil || brk {
                 return err
         }
-        return unknownTargetError{
-                fmt.Errorf("unknown target '%v'", target), 
-                target,
+        if trace_prepare {
+                fmt.Printf("prepare: unknown target: %v (%+v)\n", target, pc)
         }
+        return unknownTargetError{ target }
 }
 
 func (pc *Preparer) explicitTarget(target string) (error, bool) {
@@ -1376,7 +1382,7 @@ func (p *File) search(pc *Preparer) (error, bool) {
                                 fmt.Printf("prepare:File: %v (search: unknown %v) (%v -> %v)\n",
                                         p.Name, p.Dir, project.name, pc.entry)
                         }
-                        err = unknownFileError{ fmt.Errorf("unknown file '%v' (%v)", p.Name, f), p }
+                        err = unknownFileError{ p }
                 }
                 return
         })
