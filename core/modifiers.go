@@ -206,7 +206,8 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                         fmt.Printf("prepare:CD: %s (%s)\n", dir, prog.project.name)
                 }
                 if dir != "" {
-                        if err = os.Chdir(dir); err == nil {
+                        if err = prog.cd(dir, false); err == nil {
+                                //for _, cd := range prog.cdinfos[1:] { cd.print = false }
                                 prog.auto(TheCurrWorkDirDef, &String{dir})
                         }
                 }

@@ -20,81 +20,9 @@ type dependPatternUnfit struct {
 
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
-type workinfo struct {
-        project *Project
+type cdinfo struct {
+        workdir, chdir string
         print bool
-}
-
-var workstack []*workinfo
-
-func enterWorkdir(prog *Program, print bool) (wi *workinfo) {
-        var (
-                project = prog.project
-                l = len(workstack)
-        )
-        if l == 0 {
-                // Push the initial work record. 
-                var main = prog.globe.Main()
-                workstack, l = append(workstack, &workinfo{ main, false }), 1
-                if trace_workdir {
-                        fmt.Printf("entering: %v (init: %v)\n", project.AbsPath(), main.AbsPath())
-                }
-        }
-        if wd, err := os.Getwd(); err == nil {
-                if s := workstack[l-1].project.AbsPath(); wd != s && false {
-                        fmt.Fprintf(os.Stderr, "%s: workdir changed ('%s' != (project)'%s')\n", prog.position, wd, s)
-                }
-                if print = print && !prog.hasCDDash(); print {
-                        for i := l-1; i > -1; i-- {
-                                if w := workstack[i]; w.project.AbsPath() == project.AbsPath() {
-                                        if w.print || i == 0 {
-                                                print = false
-                                                break
-                                        }
-                                }
-                        }
-                }
-                if trace_workdir {
-                        fmt.Printf("entering: %v (print=%v)\n", project.AbsPath(), print)
-                }
-                if print {
-                        fmt.Printf("smart: Entering directory '%s'\n", project.AbsPath())
-                }
-                if err := os.Chdir(project.AbsPath()); err == nil {
-                        prog.auto(TheCurrWorkDirDef, &String{project.AbsPath()})
-                        wi = &workinfo{ project, print }
-                        workstack = append(workstack, wi)
-                } else {
-                        fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
-                }
-        } else {
-                fmt.Fprintf(os.Stderr, "smart: %s\n", err)
-        }
-        return
-}
-
-func leaveWorkdir(wi *workinfo) {
-        // Note that 0 < n, as the first record should not be removed.
-        if n := len(workstack)-1; 0 < n && workstack[n] == wi {
-                if wi.print {
-                        fmt.Printf("smart:  Leaving directory '%s'\n", wi.project.AbsPath())
-                }
-
-                // Pop out the top record.
-                workstack = workstack[0:n]
-
-                // Go back to previous dir.
-                if n--; 0 <= n && n < len(workstack) {
-                        if trace_workdir {
-                                fmt.Printf("leaving: %v\n", workstack[n].project.AbsPath())
-                        }
-                        if err := os.Chdir(workstack[n].project.AbsPath()); err != nil {
-                                fmt.Fprintf(os.Stderr, "smart: chdir: %s\n", err)
-                        }
-                } else {
-                        fmt.Fprintf(os.Stderr, "smart: wrong workstack (%d, %d)\n", n, len(workstack))
-                }
-        }
 }
 
 type modifier struct {
@@ -103,7 +31,6 @@ type modifier struct {
         args []Value
 }
 
-// Program (TODO: moving program into `types` package)
 type Program struct {
         globe   *Globe
         project *Project
@@ -112,7 +39,8 @@ type Program struct {
         params  []string // named parameters
         depends []Value // *RuleEntry, *Barefile
         recipes []Value
-        pipline []modifier
+        pipline []*modifier
+        cdinfos []*cdinfo
         position token.Position
 }
 
@@ -138,19 +66,6 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
         }
         return
 }
-
-/*func (prog *Program) disclose(values ...Value) (result []Value, err error) {
-        for _, value := range values {
-                var v Value
-                if v, err = value.disclose(); err != nil {
-                        return
-                } else if v != nil {
-                        value = v
-                }
-                result = append(result, value)
-        }
-        return
-}*/
 
 func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err error) {
         var (
@@ -178,7 +93,7 @@ func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err err
         return
 }
 
-func (prog *Program) modify(m modifier, out *Def) (dialect string, err error) {
+func (prog *Program) modify(m *modifier, out *Def) (dialect string, err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -202,20 +117,72 @@ func (prog *Program) modify(m modifier, out *Def) (dialect string, err error) {
         return
 }
 
-func (prog *Program) hasCDDash() (res bool) {
+func (prog *Program) getModifier(name string) (res *modifier) {
         for _, m := range prog.pipline {
-                if m.name == "cd" && len(m.args) > 0 {
-                        var (
-                                s string
-                                e error
-                        )
-                        if s, e = m.args[0].Strval(); e != nil {
-                                // TODO: error...
-                        } else if s == "-" {
-                                res = true
-                        }
+                if m.name == name {
+                        res = m
                 }
         }
+        return
+}
+
+func (prog *Program) hasCDDash() (res bool) {
+        if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
+                var (
+                        s string
+                        e error
+                )
+                if s, e = m.args[0].Strval(); e != nil {
+                        // TODO: error...
+                } else if s == "-" {
+                        res = true
+                }
+        }
+        return
+}
+
+func (prog *Program) cd(chdir string, exec bool) (err error) {
+        var main = prog.globe.Main()
+        if trace_workdir {
+                fmt.Printf("entering: %v (init: %v)\n", chdir, main.AbsPath())
+        }
+
+        var cd = &cdinfo{ "", chdir, false }
+        if cd.workdir, err = os.Getwd(); err == nil {
+                if cd.workdir == cd.chdir {
+                        cd.print = false
+                } else if err = os.Chdir(cd.chdir); err == nil {
+                        if cd.print = true; cd.print && exec {
+                                if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
+                                        var s string
+                                        if s, err = m.args[0].Strval(); err != nil {
+                                                return
+                                        } else if s == "-" {
+                                                cd.print = false
+                                        } else /*if s != ""*/ {
+                                                cd.print = false
+                                        }
+                                }
+                        }
+                }
+                if cd.print {
+                        fmt.Printf("smart: Entering directory '%s'\n", cd.chdir)
+                }
+                prog.cdinfos = append([]*cdinfo{ cd }, prog.cdinfos...)
+        }
+        return
+}
+
+func (prog *Program) uncd() (err error) {
+        for _, cd := range prog.cdinfos {
+                if cd.print {
+                        fmt.Printf("smart:  Leaving directory '%s'\n", cd.chdir)
+                }
+                if err = os.Chdir(cd.workdir); err != nil {
+                        break
+                }
+        }
+        prog.cdinfos = prog.cdinfos[:0]
         return
 }
 
@@ -238,7 +205,14 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         defer setclosure(setclosure(append(Closure, entry.scope))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
-        defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
+
+        //defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
+        if err = prog.cd(prog.project.AbsPath(), true); err != nil { return }
+        defer func() { 
+                if err == nil {
+                        err = prog.uncd()
+                }
+        } ()
 
         var argn = 0
         for _, a := range args {
@@ -351,7 +325,7 @@ func (prog *Program) AddModifier(position token.Position, operation Value) (err 
                 if name, err = g.Get(0).Strval(); err != nil {
                         return
                 }
-                prog.pipline = append(prog.pipline, modifier{
+                prog.pipline = append(prog.pipline, &modifier{
                         position, name, g.Slice(1),
                 })
         default:

@@ -7,13 +7,12 @@
 package core
 
 import (
-        //"path/filepath"
+        "extbit.io/smart/token"
         "os/exec"
         "strings"
         "bytes"
         "fmt"
         "os"
-        "extbit.io/smart/token"
 )
 
 // Object is a value defined in a scope.
@@ -31,8 +30,8 @@ type Object interface {
         // Get object's named property.
         Get(name string) (Value, error)
         
-	// rescope sets the scope of the object.
-	rescope(*Scope)
+	// redecl the object.
+	redecl(*Scope)
 }
 
 // An object implements the common parts of an Object.
@@ -44,13 +43,13 @@ type object struct {
         typ Type
 }
 
-func (obj *object) DeclScope() *Scope { return obj.scope }
-func (obj *object) OwnerProject() *Project { return obj.owner }
+func (obj *object) Type() Type { return obj.typ }
 func (obj *object) Name() string { return obj.name }
 
-func (obj *object) Type() Type { return obj.typ }
+func (obj *object) DeclScope() *Scope { return obj.scope }
+func (obj *object) OwnerProject() *Project { return obj.owner }
 
-func (obj *object) Strval() (string, error) { return fmt.Sprintf("object(%p){%+v}", obj, obj.typ), nil }
+func (obj *object) Strval() (string, error) { return fmt.Sprintf("object{%+v,%+v}", obj.typ, obj.name), nil }
 func (obj *object) String() string {
         if s, e := obj.Strval(); e == nil {
                 return s
@@ -63,7 +62,16 @@ func (obj *object) Get(name string) (Value, error) {
         return nil, fmt.Errorf("No such property `%s' (Object).", name)
 }
 
-func (obj *object) rescope(scope *Scope) { obj.scope = scope }
+func (obj *object) redecl(scope *Scope) {
+        if obj.scope != scope {
+                if obj.scope != nil {
+                        delete(obj.scope.elems, obj.name)
+                }
+                if obj.scope = scope; obj.scope != nil {
+                        obj.scope.elems[obj.name] = obj
+                }
+        }
+}
 
 type ProjectName struct {
         object
@@ -75,15 +83,13 @@ type ProjectName struct {
 // containing the import statement.
 func (n *ProjectName) Type() Type { return ProjectNameType }
 func (n *ProjectName) NamedProject() *Project { return n.project }
+func (n *ProjectName) Strval() (string, error) { return fmt.Sprintf("project %s", n.name), nil }
 func (n *ProjectName) String() string {
         if s, e := n.Strval(); e == nil {
                 return s
         } else {
                 return fmt.Sprintf("ProjectName{%s}!(%+v)", s, e)
         }
-}
-func (n *ProjectName) Strval() (string, error) {
-        return fmt.Sprintf("project %s", n.name), nil
 }
 
 func (n *ProjectName) Get(name string) (Value, error) {
@@ -477,6 +483,7 @@ type RuleEntry struct {
         Position token.Position
 }
 
+func (entry *RuleEntry) Strval() (string, error) { return entry.name, nil }
 func (entry *RuleEntry) String() string {
         if s, e := entry.Strval(); e == nil {
                 return s

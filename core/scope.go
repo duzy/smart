@@ -140,7 +140,7 @@ func (s *Scope) replace(name string, obj Object) {
 	}
 	s.elems[name] = obj
 	if obj.DeclScope() == nil {
-		obj.rescope(s)
+		obj.redecl(s)
 	}
 }
 
