@@ -187,6 +187,8 @@ func (prog *Program) uncd() (err error) {
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
+        defer setclosure(setclosure(append(Closure, entry.scope))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
+
         if trace_prepare {
                 switch entry.class {
                 case GeneralRuleEntry:
@@ -204,15 +206,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        defer setclosure(setclosure(append(Closure, entry.scope))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
-
         //defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
         if err = prog.cd(prog.project.AbsPath(), true); err != nil { return }
-        defer func() { 
-                if err == nil {
-                        err = prog.uncd()
-                }
-        } ()
+        defer func() { if err == nil { err = prog.uncd() } } ()
 
         var argn = 0
         for _, a := range args {

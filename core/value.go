@@ -19,7 +19,7 @@ import (
 
 const (
         trace_compare = false
-        trace_prepare = false
+        trace_prepare = true
         trace_workdir = true && trace_prepare
 )
 
