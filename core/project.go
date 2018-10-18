@@ -6,13 +6,10 @@
 package core
 
 import (
-        "extbit.io/smart/token"
         "crypto/sha256"
         "path/filepath"
         "strings"
-        "errors"
         "bytes"
-        //"sort"
         "fmt"
         "os"
 )
@@ -62,6 +59,7 @@ type Project struct {
         filemap []FileMap
 
         // Rule Registry (orderred)
+        userule *RuleEntry // the 'use' rule
         concrete []*RuleEntry
         patterns []*PatternEntry
 
@@ -187,103 +185,13 @@ func (p *Project) DefaultEntry() (entry *RuleEntry) {
         return
 }
 
-type PatternStem struct {
-        Patent *PatternEntry
-        Stem string
-        source string // source target matched the pattern
-        file *File // source file matched the pattern
-}
-
-func (ps *PatternStem) String() (s string) {
-        var e error
-        if s, e = ps.Patent.Strval(); e == nil {
-                s = s + "(" + ps.Stem + ")"
-        } else {
-                s = fmt.Sprintf("PatternStem{%s}!(%s)", ps, e)
+func (p *Project) FindEntry(s string) (entry *RuleEntry, err error) {
+        if _, obj := p.scope.Find(s); obj != nil {
+                if entry, _ = obj.(*RuleEntry); entry != nil { return }
         }
-        return
-}
-
-func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
-        return ps.Patent.MakeConcreteEntry(ps.Stem)
-}
-
-func (ps *PatternStem) prepare(pc *Preparer) (err error) {
-        if trace_prepare {
-                if ps.file != nil {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (file: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.file, pc.entry.owner.name, pc.entry)
-                } else if ps.source != "" {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (source: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.source, pc.entry.owner.name, pc.entry)
-                } else {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (%v -> %v)\n", ps, ps.Patent.class, pc.entry.owner.name, pc.entry)
-                }
-        }
-        
-        var (
-                stems = []string{ ps.Stem }
-                sources = []string{ ps.source }
-                entry *RuleEntry
-        )
-        if ps.file != nil {
-                sources = append(sources, ps.file.Name)
-        }
-
-        // Find all useful stems.
-        ForSources: for _, source := range sources {
-                var ( 
-                        matched bool
-                        stem string
-                )
-                if source == "" { continue }
-                if matched, stem, err = ps.Patent.Pattern.Match(source); matched && stem != "" {
-                        for _, s := range stems { if s == stem { continue ForSources } }
-                        stems = append(stems, stem)
-                }
-        }
-
-        // Try preparing target with all stems.
-        ForStems: for i, stem := range stems {
-                if entry, err = ps.Patent.MakeConcreteEntry(stem); err != nil {
-                        return
-                }
-
-                var project = pc.program.project
-                if pc.program.caller != nil && pc.program.hasCDDash() {
-                        project = pc.program.caller.program.project
-                }
-
-                // Correct stemmed entry class.
-                if entry.class != StemmedFileEntry && pc.entry.class == StemmedFileEntry && ps.file != nil {
-                        // TODO: if project.isFile(entry.name)
-                        entry.class = StemmedFileEntry     
-                }
-                
-                if entry.class == StemmedFileEntry {
-                        if ps.file == nil {
-                                var file = project.SearchFile(entry.name)
-                                if !file.IsKnown() {
-                                        file.Dir = project.AbsPath()
-                                }
-                                if trace_prepare {
-                                        fmt.Printf("prepare:PatternStem: %v ([%d/%d]: %v) (file: %v) (%v)\n", ps, i, len(stems), stem, file, project.name)
-                                }
-                                ps.file = file
-                        }
-                }
-
-                if trace_prepare {
-                        fmt.Printf("prepare:PatternStem: %v (%v) ([%d/%d]: %v %v) (file: %v) (%v -> %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file, pc.entry.owner.name, pc.entry)
-                }
-
-                // Set stem for the current preparation.
-                pc.stem, entry.stem, entry.file = stem, stem, ps.file
-                if err = entry.prepare(pc); err == nil {
-                        break ForStems // Good!
-                } else if ute, ok := err.(unknownTargetError); ok {
-                        fmt.Printf("prepare:PatternStem: FIXME: unknown target %v (%v)\n", ute.target, pc.entry)
-                } else if ufe, ok := err.(unknownFileError); ok {
-                        fmt.Printf("prepare:PatternStem: FIXME: unknown file %v (%v)\n", ufe.file, pc.entry)
-                }
+        for _, base := range p.bases {
+                entry, err = base.FindEntry(s)
+                if err != nil || entry != nil { break }
         }
         return
 }
@@ -311,90 +219,78 @@ func (p *Project) FindPatterns(s string) (res []*PatternStem, err error) {
         return
 }
 
-// Find rule entry by name or create new one.
-func (p *Project) Entry(name string) (entry *RuleEntry, err error) {
-        _, obj := p.scope.Find(name)
-        if obj != nil {
-                if entry, _ = obj.(*RuleEntry); entry != nil {
-                        return
+func (p *Project) SetProgram(target Value, prog *Program) (entry *RuleEntry, err error) {
+        defer func() {
+                if entry != nil && err == nil {
+                        entry.programs = append(entry.programs, prog)
                 }
-        }
-        
-        // TODO: Improves patter searching on base chain. 
-        //fmt.Printf("Project.Entry: %v: %v %v\n", name, p.patterns, p.scope)
-        var pss []*PatternStem
-        if pss, err = p.FindPatterns(name); err != nil {
+        } ()
+
+        var closured = target.closured()
+        var strval string
+        if strval, err = target.Strval(); err != nil {
                 return
         }
 
-        for _, ps := range pss {
-                if ps.Patent.programs == nil {
-                        continue // FIXME: ???
+        // The 'use' rule entries.
+        if strval == "use" && !closured {
+                if p.userule == nil {
+                        p.userule = &RuleEntry{
+                                class: UseRuleEntry,
+                                target: target,
+                        }
                 }
-                //fmt.Printf("%s: %v has %v programs\n", name, ps.Patent.Name(), len(ps.Patent.programs))
-                if entry, err = ps.MakeConcreteEntry(); entry != nil || err != nil {
-                        return
-                }
-        }
-        return
-}
-
-func (p *Project) SetProgram(name string, class RuleEntryClass, prog *Program) (entry *RuleEntry, err error) {
-        switch class {
-        case GeneralRuleEntry:
-        case ExplicitFileEntry:
-        case UseRuleEntry:
-        default:
-                err = errors.New(fmt.Sprintf("Invalid entry class `%v' (%v).\n", class, name))
+                entry = p.userule
                 return
         }
-        
-        var alt Object
-        if entry, alt = p.scope.InsertEntry(p, class, name); alt != nil {
-                if entry, _ = alt.(*RuleEntry); entry == nil {
-                        err = errors.New(fmt.Sprintf("Name '%v' already taken as `%T', failed mapping entry.", name, alt))
+
+        var name = target.String()
+        if name == "" {
+                err = fmt.Errorf("name '%v' already taken as `%T'", name)
+                return
+        }
+
+        // Looking for pattern rule entries.
+        if glob, ok := target.(*GlobPattern); ok {
+                if glob == nil { /* FIXME: error */ }
+                for _, pat := range p.patterns {
+                        var sv string
+                        if closured && pat.RuleEntry.String() == name {
+                                entry = pat.RuleEntry; break
+                        } else if sv, err = pat.RuleEntry.Strval(); err != nil {
+                                return
+                        } else if sv == strval {
+                                entry = pat.RuleEntry; break
+                        }
+                }
+                if entry == nil {
+                        entry = &RuleEntry{
+                                class: GlobRuleEntry,
+                                target: target,
+                        }
+                        p.patterns = append(p.patterns, &PatternEntry{ entry, glob })
+                }
+                return
+        }
+
+        // Looking for concrete rule entries.
+        for _, rec := range p.concrete {
+                var sv string
+                if closured && rec.String() == name {
+                        entry = rec; break
+                } else if sv, err = rec.Strval(); err != nil {
+                        return
+                } else if sv == strval {
+                        entry = rec; break
                 }
         }
-        if entry != nil && err == nil {
-                entry.programs = append(entry.programs, prog)
+        if entry == nil {
+                entry = &RuleEntry{
+                        class: GeneralRuleEntry,
+                        target: target,
+                }
                 p.concrete = append(p.concrete, entry)
         }
-        return
-}
-
-func (p *Project) SetGlobPatternProgram(pp *GlobPattern, class RuleEntryClass, prog *Program) (patent *PatternEntry, err error) {
-        switch class {
-        case GeneralRuleEntry: class = GlobRuleEntry
-        case ExplicitFileEntry: class = StemmedFileEntry
-        default:
-                err = errors.New(fmt.Sprintf("Invalid pattern class `%v' (%v).\n", class, p))
-                return
-        }
-        
-        // Patterns don't calls p.scope.InsertEntry(...)
-        var name string
-        if name, err = pp.Strval(); err != nil {
-                return
-        }
-        
-        var entry = &RuleEntry{
-                object{
-                        scope: p.scope,
-                        owner: p,
-                        name:  name,
-                        typ:   RuleEntryType,
-                },
-                class, // class
-                nil,   // file
-                nil,   // path
-                "",    // stem
-                nil,   // caller
-                nil,   // closure
-                []*Program{ prog },
-                token.Position{},
-        }
-        patent = &PatternEntry{ entry, pp }
-        p.patterns = append(p.patterns, patent)
         return
 }
 

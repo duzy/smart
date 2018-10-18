@@ -46,9 +46,11 @@ type Value interface {
         // $(...) -> .....
         reveal() (Value, error)
 
-        // Recursively detecting whether this value is referencing
-        // to the object (to avoid loop-delegation).
-        referencing(o Object) bool
+        // Recursively detecting whether this value references
+        // the object (to avoid loop-delegation).
+        refs(o Object) bool
+
+        closured() bool
 }
 
 type closurecontext []*Scope
@@ -76,23 +78,17 @@ func scoping(a ...*Project) (saved closurecontext) {
 }
 
 type value struct {}
-func (*value) disclose() (Value, error) { return nil, nil }
-func (*value) reveal() (Value, error) { return nil, nil }
-func (*value) referencing(_ Object) bool { return false }
-func (*value) Type() Type { return InvalidType }
-func (*value) Integer() (int64, error) { return 0, nil }
-func (*value) Float() (float64, error) { return 0, nil }
+func (_ *value) disclose() (Value, error) { return nil, nil }
+func (_ *value) reveal() (Value, error) { return nil, nil }
+func (_ *value) refs(_ Object) bool { return false }
+func (_ *value) closured() bool { return false }
+func (_ *value) Type() Type { return InvalidType }
+func (_ *value) Integer() (int64, error) { return 0, nil }
+func (_ *value) Float() (float64, error) { return 0, nil }
+func (p *value) Strval() (string, error) { return fmt.Sprintf("{value %p}", p), nil }
+func (p *value) String() string {return "" }
 
-func (p *value) Strval() (string, error) { return fmt.Sprintf("value(%p){}", p), nil }
-func (p *value) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("value{%s}!(%+v)", s, e)
-        }
-}
-
-type Comparer struct {
+type comparer struct {
         //program *Program
         globe *Globe
         target comparable
@@ -104,16 +100,16 @@ type Comparer struct {
 // TODO: use it with (compare) modifier
 type comparable interface {
         // Compare as a prerequisite with the target c.target.
-        compare(c *Comparer) error
+        compare(c *comparer) error
 
         // Compare as a target with the file prerequisite.
-        compareFileDepend(c *Comparer, file *File) error
+        compareFileDepend(c *comparer, file *File) error
 
         // Compare as a target with the path prerequisite.
-        comparePathDepend(c *Comparer, path *Path) error
+        comparePathDepend(c *comparer, path *Path) error
 }
 
-func NewComparer(globe *Globe, target Value) (c *Comparer, err error) {
+func NewComparer(globe *Globe, target Value) (c *comparer, err error) {
         if trace_compare {
                 // fmt.Printf("compare:Target: %v (%T) (revealed: %v)\n", target, target, Reveal(target))
         }
@@ -121,14 +117,14 @@ func NewComparer(globe *Globe, target Value) (c *Comparer, err error) {
         if target == nil || target.Type() == NoneType {
                 err = breakf(false, "comparing no target")
         } else if t, _ := target.(comparable); t != nil {
-                c = &Comparer{ globe, t, target, nil, nil }
+                c = &comparer{ globe, t, target, nil, nil }
         } else {
                 err = fmt.Errorf("incomparable target (%v)", target)
         }
         return
 }
 
-func (c *Comparer) Compare(value interface{}) (err error) {
+func (c *comparer) Compare(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
                         var dep = v.Index(i).Interface()
@@ -145,7 +141,7 @@ func (c *Comparer) Compare(value interface{}) (err error) {
         return
 }
 
-func (c *Comparer) compare(value interface{}) (err error) {
+func (c *comparer) compare(value interface{}) (err error) {
         if p, _ := value.(comparable); p != nil {
                 err = p.compare(c)
         } else {
@@ -154,9 +150,8 @@ func (c *Comparer) compare(value interface{}) (err error) {
         return
 }
 
-// Preparer prepares prerequisites of targets.
-type Preparer struct {
-        project *Project
+// preparer prepares prerequisites of targets.
+type preparer struct {
         entry *RuleEntry // caller entry
         program *Program
         arguments []Value
@@ -167,28 +162,27 @@ type Preparer struct {
 }
 
 type prerequisite interface {
-        prepare(pc *Preparer) error
+        prepare(pc *preparer) error
 }
 
-func (pc *Preparer) setProject(proj *Project) *Project {
-        prev := pc.project
-        pc.project = proj
-        return prev
+func makePreparer(entry *RuleEntry, prog *Program, args... Value) (pc *preparer) {
+        var stem string
+        return &preparer{ entry, prog, args, new(List), stem }
 }
 
-func (pc *Preparer) Prepare(value interface{}) (err error) {
+func (pc *preparer) updateall(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
-                        if err = pc.prepare(v.Index(i).Interface()); err == nil {
+                        if err = pc.update(v.Index(i).Interface()); err == nil {
                                 // Good!
-                        } else if ute, ok := err.(unknownTargetError); ok {
+                        } else if ute, ok := err.(targetNotFoundError); ok {
                                 if trace_prepare {
-                                        fmt.Printf("prepare:unknown target %v (%v)\n", ute.target, pc.entry)
+                                        fmt.Printf("prepare: target `%v' not found (%v)\n", ute.target, pc.entry)
                                 }
                                 break
-                        } else if ufe, ok := err.(unknownFileError); ok {
+                        } else if ufe, ok := err.(fileNotFoundError); ok {
                                 if trace_prepare {
-                                        fmt.Printf("prepare:unknown file %v (%v)\n", ufe.file, pc.entry)
+                                        fmt.Printf("prepare: file `%v' not found (%v)\n", ufe.file, pc.entry)
                                 }
                                 break
                         } else {
@@ -196,12 +190,12 @@ func (pc *Preparer) Prepare(value interface{}) (err error) {
                         }
                 }
         } else {
-                err = pc.prepare(value)
+                err = pc.update(value)
         }
         return
 }
 
-func (pc *Preparer) prepare(value interface{}) (err error) {
+func (pc *preparer) update(value interface{}) (err error) {
         if p, _ := value.(prerequisite); p != nil {
                 err = p.prepare(pc)
         } else {
@@ -210,33 +204,142 @@ func (pc *Preparer) prepare(value interface{}) (err error) {
         return
 }
 
-func (pc *Preparer) forEachExternalCaller(f func (*Project) (bool, error)) (err error, brk bool) {
-        var triedm = map[*Project]bool{ pc.program.project:true }
-        if brk, err = f(pc.program.project); brk {
+func (pc *preparer) updateTarget(target string) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:Target: %v (project %s) (%v)\n", target, pc.program.project.name, pc.entry)
+        }
+
+        var entry *RuleEntry
+        if entry, err = pc.program.project.FindEntry(target); entry != nil {
+                if trace_prepare {
+                        fmt.Printf("prepare:Target: %v (found %v) (%v -> %v)\n", target, entry, pc.program.project.name, pc.entry)
+                }
+                err = pc.update(entry)
                 return
         }
-        for caller := pc.entry.caller; caller != nil; caller = caller.entry.caller {
-                // Find the last caller.
-                //if caller == pc || caller == pc.entry.caller { continue }
-                //if tried, has := triedm[caller.entry.owner]; caller != pc.entry.caller && !(has&&tried) {
-                if tried, has := triedm[caller.entry.owner]; !(has&&tried) {
-                        if brk, err = f(caller.entry.owner); brk {
-                                break
+
+        var pss []*PatternStem
+        if pss, err = pc.program.project.FindPatterns(target); err == nil {
+                fmt.Printf("%v %v\n", pc.program.project.patterns, pss)
+                for _, ps := range pss {
+                        if trace_prepare {
+                                fmt.Printf("prepare:Target: %v (stemmed %v) (%v -> %v)\n", target, ps, pc.program.project.name, pc.entry)
+                        }
+                        ps.source = target // Bounds PatternStem with the source.
+                        if err = ps.prepare(pc); err == nil {
+                                return // Updated successfully!
+                        } else if _, ok := err.(patternPrepareError); ok {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:Target: %v (error: %s)\n", target, err)
+                                }
+                                // Discard pattern unfit errors and caller stack.
                         } else {
-                                triedm[caller.entry.owner] = true
+                                return // Update failed!
                         }
                 }
+        }
+
+        // TODO: try pc.explicitClosureTarget
+        // TODO: try pc.implicitClosureTarget
+
+        if trace_prepare {
+                fmt.Printf("prepare: unknown target %v %+v\n", target, pc.program.depends)
+        }
+
+        err = targetNotFoundError{ target }
+        return
+}
+
+func (pc *preparer) updateTargetValue(value Value) (err error) {
+        var s string
+        if s, err = value.Strval(); err == nil {
+                 err = pc.updateTarget(s)
         }
         return
 }
 
-func NewPreparer(entry *RuleEntry, prog *Program, args... Value) (pc *Preparer) {
-        var (
-                project = prog.project //entry.OwnerProject()
-                stem string
-        )
-        if entry.caller != nil { stem = entry.caller.stem }
-        return &Preparer{ project, entry, prog, args, new(List), stem }
+func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:Execute: %v (%v) (%v) (%v -> %v)\n", entry.target, prog.depends, entry.class, pc.entry.OwnerProject().name, pc.entry)
+                for i, depent := range prog.depends {
+                        fmt.Printf("prepare:Execute: %v (depend[%d]: %v %v)\n", entry.target, i, depent, pc.stem)
+                }
+        }
+
+        var res Value
+
+        // Execute the updating program.
+        if res, err = prog.Execute(entry, pc.arguments); err == nil {
+                dd, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
+                /*switch entry.class {
+                case ExplicitFileEntry, StemmedFileEntry:
+                        if trace_prepare {
+                                fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
+                                        entry.target, entry.class, dd, dd, entry.target, pc.entry)
+                        }
+                        if file, _ := dd.(*File); file != nil {
+                                // TODO: assert(file == entry.target)
+                                pc.targets.Append(file)
+                        } else {
+                                var s string
+                                if s, err = dd.Strval(); err != nil {
+                                        return
+                                }
+                                pc.targets.Append(prog.project.SearchFile(s))
+                        }
+                case ExplicitPathEntry:
+                        if trace_prepare {
+                                fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
+                                        entry.target, entry.class, dd, dd, entry.path, pc.entry)
+                        }
+                        if entry.path == nil {
+                                pc.targets.Append(entry)
+                        } else if entry.path.File == nil {
+                                pc.targets.Append(entry.path)
+                        } else {
+                                pc.targets.Append(entry.path.File)
+                        }
+                default:
+                        if res != nil && res.Type() != NoneType {
+                                pc.targets.Append(res); return
+                        } else {
+                                pc.targets.Append(entry)
+                        }
+                }*/
+                if trace_prepare {
+                        fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
+                                entry.target, entry.class, dd, dd, entry.target, pc.entry)
+                }
+                switch t := dd.(type) {
+                case *File: pc.targets.Append(t)
+                case *Path:
+                        if t.File != nil {
+                                pc.targets.Append(t.File)
+                        } else {
+                                pc.targets.Append(t)
+                        }
+                default:
+                        var s string
+                        if s, err = dd.Strval(); err != nil {
+                                return
+                        }
+                        pc.targets.Append(prog.project.SearchFile(s))
+                }
+
+                if res != nil && res.Type() != NoneType {
+                        for _, elem := range Join(res) {
+                                switch elem.(type) {
+                                case *File: pc.targets.Append(elem)
+                                }
+                        }
+                }
+        } else {
+                fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
+                if trace_prepare {
+                        fmt.Printf("prepare:Execute: %v (%v) (error) (%v)\n", entry.target, prog.depends, pc.entry)
+                }
+        }
+        return
 }
 
 type Argumented struct {
@@ -245,11 +348,17 @@ type Argumented struct {
 }
 //func (p *Argumented) Type() Type { return ArgumentedType }
 func (p *Argumented) String() (s string) {
-        if s, e := p.Strval(); e == nil {
+        /*if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Argumented{%s}!(%+v)", s, e)
+                return fmt.Sprintf("{Argumented '%s' !(%+v)}", s, e)
+        }*/
+        for i, a := range p.Args {
+                if i > 0 { s += "," }
+                s += a.String()
         }
+        s = fmt.Sprintf("%s(%s)", p.Value, s)
+        return
 }
 func (p *Argumented) Strval() (s string, err error) {
         if s, err = p.Value.Strval(); err != nil {
@@ -271,20 +380,20 @@ func (p *Argumented) Strval() (s string, err error) {
         return
 }
 
-func (p *Argumented) prepare(pc *Preparer) error {
+func (p *Argumented) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Argumented: %v (%v)\n", p, pc.entry)
         }
         pc.arguments = p.Args // TODO: merge args with p.Args ??
-        return pc.Prepare(p.Value)
+        return pc.update(p.Value)
 }
 
 type None struct { value }
 func (p *None) Type() Type { return NoneType }
-func (p *None) compare(c *Comparer) (err error) { return }
-func (p *None) compareFileDepend(c *Comparer, file *File) error { return nil }
-func (p *None) comparePathDepend(c *Comparer, path *Path) error { return nil }
-func (p *None) prepare(pc *Preparer) error {
+func (p *None) compare(c *comparer) (err error) { return }
+func (p *None) compareFileDepend(c *comparer, file *File) error { return nil }
+func (p *None) comparePathDepend(c *comparer, path *Path) error { return nil }
+func (p *None) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:None: (%v)\n", pc.entry)
         }
@@ -304,19 +413,14 @@ type integer struct {
 }
 func (p *integer) disclose() (Value, error) { return nil, nil }
 func (p *integer) reveal() (Value, error) { return nil, nil }
-func (p *integer) referencing(_ Object) bool { return false }
+func (p *integer) refs(_ Object) bool { return false }
+func (p *integer) closured() bool { return false }
 func (p *integer) Integer() (int64, error) { return p.Value, nil }
 func (p *integer) Float() (float64, error) { return float64(p.Value), nil }
 
 type Bin struct { integer }
 func (p *Bin) Type() Type { return BinType }
-func (p *Bin) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Bin{%s}!(%+v)", s, e)
-        }
-}
+func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.Value),2)) }
 func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),2), nil }
 
 func MakeBin(i int64) *Bin { return &Bin{integer{i}} }
@@ -334,11 +438,12 @@ func ParseBin(s string) *Bin {
 type Oct struct { integer }
 func (p *Oct) Type() Type { return OctType }
 func (p *Oct) String() string {
-        if s, e := p.Strval(); e == nil {
+        /*if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Oct{%s}!(%+v)", s, e)
-        }
+                return fmt.Sprintf("{Oct '%s' !(%+v)}", s, e)
+        }*/
+        return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.Value),8))
 }
 func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),8), nil }
 
@@ -356,13 +461,7 @@ func ParseOct(s string) *Oct {
 
 type Int struct { integer }
 func (p *Int) Type() Type { return IntType }
-func (p *Int) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Int{%s}!(%+v)", s, e)
-        }
-}
+func (p *Int) String() string { return strconv.FormatInt(int64(p.Value),10) }
 func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),10), nil }
 
 func MakeInt(i int64) *Int { return &Int{integer{i}} }
@@ -376,16 +475,8 @@ func ParseInt(s string) *Int {
 
 type Hex struct { integer }
 func (p *Hex) Type() Type { return HexType }
-func (p *Hex) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Hex{%s}!(%+v)", s, e)
-        }
-}
-func (p *Hex) Strval() (string, error) {
-        return strconv.FormatInt(int64(p.Value),16), nil 
-}
+func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.Value),16)) }
+func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),16), nil }
 
 func MakeHex(i int64) *Hex { return &Hex{integer{i}} }
 func ParseHex(s string) *Hex {
@@ -404,18 +495,11 @@ type Float struct {
 }
 func (p *Float) disclose() (Value, error) { return nil, nil }
 func (p *Float) reveal() (Value, error) { return nil, nil }
-func (p *Float) referencing(_ Object) bool { return false }
+func (p *Float) refs(_ Object) bool { return false }
+func (p *Float) closured() bool { return false }
 func (p *Float) Type() Type { return FloatType }
-func (p *Float) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Float{%s}!(%+v)", s, e)
-        }
-}
-func (p *Float) Strval() (string, error) {
-        return strconv.FormatFloat(float64(p.Value),'g', -1, 64), nil 
-}
+func (p *Float) String() string { return strconv.FormatFloat(float64(p.Value),'g', -1, 64) }
+func (p *Float) Strval() (string, error) { return strconv.FormatFloat(float64(p.Value),'g', -1, 64), nil }
 func (p *Float) Integer() (int64, error) { return int64(p.Value), nil }
 func (p *Float) Float() (float64, error) { return p.Value, nil }
 
@@ -434,13 +518,14 @@ type DateTime struct {
 }
 func (*DateTime) disclose() (Value, error) { return nil, nil }
 func (*DateTime) reveal() (Value, error) { return nil, nil }
-func (*DateTime) referencing(_ Object) bool { return false }
+func (*DateTime) refs(_ Object) bool { return false }
+func (*DateTime) closured() bool { return false }
 func (p *DateTime) Type() Type { return DateTimeType }
 func (p *DateTime) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("DateTime{%s}!(%+v)", s, e)
+                return fmt.Sprintf("{DateTime '%s' !(%+v)}", s, e)
         }
 }
 func (p *DateTime) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
@@ -458,15 +543,12 @@ func ParseDateTime(s string) *DateTime {
 }
 
 type Date struct { DateTime }
-func (*Date) disclose() (Value, error) { return nil, nil }
-func (*Date) reveal() (Value, error) { return nil, nil }
-func (*Date) referencing(_ Object) bool { return false }
 func (p *Date) Type() Type { return DateType }
 func (p *Date) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Date{%s}!(%+v)", s, e)
+                return fmt.Sprintf("{Date '%s' !(%+v)}", s, e)
         }
 }
 func (p *Date) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02"), nil }
@@ -483,15 +565,12 @@ func ParseDate(s string) *Date {
 }
 
 type Time struct { DateTime }
-func (*Time) disclose() (Value, error) { return nil, nil }
-func (*Time) reveal() (Value, error) { return nil, nil }
-func (*Time) referencing(_ Object) bool { return false }
 func (p *Time) Type() Type { return TimeType }
 func (p *Time) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Time{%s}!(%+v)", s, e)
+                return fmt.Sprintf("{Time '%s' !(%+v)}", s, e)
         }
 }
 func (p *Time) Strval() (string, error) { return time.Time(p.Value).Format("15:04:05.999999999Z07:00"), nil }
@@ -512,13 +591,14 @@ type Uri struct {
 }
 func (*Uri) disclose() (Value, error) { return nil, nil }
 func (*Uri) reveal() (Value, error) { return nil, nil }
-func (*Uri) referencing(_ Object) bool { return false }
+func (*Uri) refs(_ Object) bool { return false }
+func (*Uri) closured() bool { return false }
 func (p *Uri) Type() Type { return UriType }
 func (p *Uri) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("Uri{%s}!(%+v)", s, e)
+                return fmt.Sprintf("{Uri '%s' !(%+v)}", s, e)
         }
 }
 func (p *Uri) Strval() (string, error) { return p.Value.String(), nil }
@@ -539,25 +619,20 @@ type String struct {
 }
 func (*String) disclose() (Value, error) { return nil, nil }
 func (*String) reveal() (Value, error) { return nil, nil }
-func (*String) referencing(_ Object) bool { return false }
+func (*String) refs(_ Object) bool { return false }
+func (*String) closured() bool { return false }
 func (p *String) Type() Type  { return StringType }
-func (p *String) String() string {
-        if s, e := p.Strval(); e == nil {
-                return strconv.Quote(p.Value)
-        } else {
-                return fmt.Sprintf("String{%+v}!(%+v)", s, e)
-        }
-}
+func (p *String) String() string { return fmt.Sprintf("'%s'", p.Value) }
 func (p *String) Strval() (string, error) { return p.Value, nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
 
-func (p *String) prepare(pc *Preparer) error {
+func (p *String) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:String: %v (%v)\n", p, pc.entry)
         }
         //pc.source = p.Value
-        return pc.prepareTarget(p.Value)
+        return pc.updateTarget(p.Value)
 }
 
 func MakeString(s string) *String { return &String{s} }
@@ -567,109 +642,23 @@ type Bareword struct {
 }
 func (_ *Bareword) disclose() (Value, error) { return nil, nil }
 func (_ *Bareword) reveal() (Value, error) { return nil, nil }
-func (_ *Bareword) referencing(_ Object) bool { return false }
+func (_ *Bareword) refs(_ Object) bool { return false }
+func (_ *Bareword) closured() bool { return false }
 func (p *Bareword) Type() Type     { return BarewordType }
 func (p *Bareword) String() string { return p.Value/*fmt.Sprintf("Bareword{%s}", p.Value)*/ }
 func (p *Bareword) Strval() (string, error) { return p.Value, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
 
-func (p *Bareword) prepare(pc *Preparer) error {
+func (p *Bareword) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Bareword: %v (%v)\n", p, pc.entry)
         }
         //pc.source = p.Value
-        return pc.prepareTarget(p.Value)
+        return pc.updateTarget(p.Value)
 }
 
 func MakeBareword(s string) *Bareword { return &Bareword{s} }
-
-func (pc *Preparer) prepareTargetValue(value Value) (err error) {
-        var ( v Value; s string )
-        if v, err = value.disclose(); err != nil { return }
-        if v == nil { v = value }
-        if s, err = v.Strval(); err != nil { return }
-        return pc.prepareTarget(s)
-}
-
-// patternPrepareError indicates an error occurred in preparing a pattern.
-type patternPrepareError error
-type unknownTargetError struct {
-        target string
-}
-type unknownFileError struct {
-        file *File
-}
-
-func (e unknownTargetError) Error() string {
-        return fmt.Sprintf("unknown target '%v'", e.target) 
-}
-
-func (e unknownFileError) Error() string {
-        return fmt.Sprintf("unknown file '%v' (%v)", e.file.Name, e.file)
-}
-
-func (pc *Preparer) prepareTarget(target string) error {
-        if err, brk := pc.explicitTarget(target); err != nil || brk {
-                return err
-        }
-        if err, brk := pc.implicitTarget(target); err != nil || brk {
-                return err
-        }
-        if trace_prepare {
-                fmt.Printf("prepare: unknown target: %v (%+v)\n", target, pc)
-        }
-        return unknownTargetError{ target }
-}
-
-func (pc *Preparer) explicitTarget(target string) (error, bool) {
-        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (project %s) (%v)\n", target, project.name, pc.entry)
-                }
-                if _, obj := project.scope.Find(target); obj != nil {
-                        if trace_prepare {
-                                fmt.Printf("prepare:Target: %v (found %v) (%v -> %v)\n", target, obj, project.name, pc.entry)
-                        }
-                        defer pc.setProject(pc.setProject(project))
-                        err, trybrk = pc.Prepare(obj), true
-                }
-                return
-        })
-}
-
-func (pc *Preparer) implicitTarget(target string) (error, bool) {
-        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (project %s) (%v)\n", target, project.name, pc.entry)
-                }
-
-                defer pc.setProject(pc.setProject(project))
-
-                var pss []*PatternStem
-                if pss, err = project.FindPatterns(target); err != nil {
-                        return
-                }
-
-                for _, ps := range pss {
-                        if trace_prepare {
-                                fmt.Printf("prepare:Target: %v (stemmed %v) (%v -> %v)\n", target, ps, project.name, pc.entry)
-                        }
-                        ps.source = target // Bounds PatternStem with the source.
-                        if err = ps.prepare(pc); err == nil {
-                                trybrk = true; break // Updated successfully!
-                        } else if _, ok := err.(patternPrepareError); ok {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:Target: %v (error: %s)\n", target, err)
-                                }
-                                // Discard pattern unfit errors and caller stack.
-                        } else {
-                                trybrk = true; break // Update failed!
-                        }
-                }
-                return
-        })
-}
 
 type Elements struct {
         Elems []Value
@@ -727,11 +716,18 @@ func (p *Elements) revealall() (elems []Value, num int, err error) {
         return
 }
 
-func (p *Elements) referencing(o Object) bool {
+func (p *Elements) refs(o Object) bool {
         for _, elem := range p.Elems {
-                if elem != nil && elem.referencing(o) {
+                if elem != nil && elem.refs(o) {
                         return true
                 }
+        }
+        return false 
+}
+
+func (p *Elements) closured() bool {
+        for _, elem := range p.Elems {
+                if elem.closured() { return true }
         }
         return false 
 }
@@ -752,11 +748,10 @@ func (p *Barecomp) Strval() (s string, e error) {
         return
 }
 func (p *Barecomp) String() (s string) {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Barecomp{%s}!(%+v)", s, e)
+        for _, elem := range p.Elems {
+                s += elem.String()
         }
+        return
 }
 
 func (p *Barecomp) disclose() (res Value, err error) {
@@ -775,14 +770,14 @@ func (p *Barecomp) reveal() (res Value, err error) {
         return
 }
 
-func (p *Barecomp) prepare(pc *Preparer) error {
+func (p *Barecomp) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Barecomp: %v (%v)\n", p, pc.entry)
                 for _, elem := range p.Elems {
                         fmt.Printf("prepare:Barecomp: %v (%v) (%v)\n", p, elem, pc.entry)
                 }
         }
-        return pc.prepareTargetValue(p)
+        return pc.updateTargetValue(p)
 }
 
 func MakeBarecomp(elems... Value) *Barecomp {
@@ -794,13 +789,7 @@ type Barefile struct {
         File *File
 }
 func (p *Barefile) Type() Type { return BarefileType }
-func (p *Barefile) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Barefile{%s,%+v}!(%+v)", s, p.File, e)
-        }
-}
+func (p *Barefile) String() string { return p.Name.String() }
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
         var ( str string; fi os.FileInfo )
@@ -829,11 +818,14 @@ func (p *Barefile) reveal() (res Value, err error) {
         }
         return
 }
-func (p *Barefile) referencing(o Object) bool {
-        return p.Name.referencing(o)
+func (p *Barefile) refs(o Object) bool {
+        return p.Name.refs(o)
+}
+func (p *Barefile) closured() bool {
+        return p.Name.closured()
 }
 
-func (p *Barefile) compare(c *Comparer) (err error) {
+func (p *Barefile) compare(c *comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Barefile: %v (%v %T)\n", p.Name, c.target, c.target)
         }
@@ -845,7 +837,7 @@ func (p *Barefile) compare(c *Comparer) (err error) {
         return
 }
 
-func (p *Barefile) compareFileDepend(c *Comparer, d *File) (err error) {
+func (p *Barefile) compareFileDepend(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Barefile:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
@@ -857,7 +849,7 @@ func (p *Barefile) compareFileDepend(c *Comparer, d *File) (err error) {
         return
 }
 
-func (p *Barefile) comparePathDepend(c *Comparer, d *Path) (err error) {
+func (p *Barefile) comparePathDepend(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Barefile:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
@@ -869,9 +861,9 @@ func (p *Barefile) comparePathDepend(c *Comparer, d *Path) (err error) {
         return
 }
 
-func (p *Barefile) prepare(pc *Preparer) error {
+func (p *Barefile) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Barefile: %v (%v -> %v)\n", p, pc.entry.owner.name, pc.entry)
+                fmt.Printf("prepare:Barefile: %v (%v -> %v)\n", p, pc.entry.OwnerProject().name, pc.entry)
         }
         if p.File != nil {
                 if s, e := p.Name.Strval(); e != nil {
@@ -881,7 +873,7 @@ func (p *Barefile) prepare(pc *Preparer) error {
                 }
                 return p.File.prepare(pc)
         } else {
-                return pc.prepareTargetValue(p)
+                return pc.updateTargetValue(p)
         }
 }
 
@@ -893,19 +885,14 @@ type Glob struct {
         Tok token.Token
 }
 func (p *Glob) Type() Type { return GlobType }
-func (p *Glob) String() (s string) {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Glob{%+v}!(%+v)", p.Tok, e)
-        }
-}
+func (p *Glob) String() (s string) { return p.Tok.String() }
 func (p *Glob) Strval() (string, error) { return p.Tok.String(), nil }
 func (p *Glob) Integer() (int64, error) { return 0, nil }
 func (p *Glob) Float() (float64, error) { return 0, nil }
+func (p *Glob) closured() bool { return false }
 func (p *Glob) disclose() (Value, error) { return nil, nil }
 func (p *Glob) reveal() (Value, error) { return nil, nil }
-func (p *Glob) referencing(o Object) bool { return false }
+func (p *Glob) refs(o Object) bool { return false }
 
 func MakeGlob(tok token.Token) *Glob { return &Glob{tok} }
 
@@ -914,11 +901,11 @@ type Path struct {
         File *File // if this path is pointed to a file, ie. the last element matched a FileMap
 }
 func (p *Path) String() (s string) {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Path{%s,%+v}!(%+v)", s, p.File, e)
+        var segs []string
+        for _, elem := range p.Elems {
+                segs = append(segs, elem.String())
         }
+        return strings.Join(segs, "/") //filepath.Join(segs...)
 }
 func (p *Path) Strval() (s string, e error) {
         // TODO: add '/' for root dir
@@ -969,14 +956,14 @@ func (p *Path) Base() (s string) { // Same as `filepath.Base(p.Strval())`.
         return
 }*/
 
-func (p *Path) compare(c *Comparer) (err error) {
+func (p *Path) compare(c *comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Path: %v (%v %T)\n", p, c.target, c.target)
         }
         return c.target.comparePathDepend(c, p)
 }
 
-func (p *Path) compareFileDepend(c *Comparer, d *File) (err error) {
+func (p *Path) compareFileDepend(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Path:File: %v (%v) (depends: %v %v) (%v %T)\n", p, p.File, d, d.Info, c.target, c.target)
         }
@@ -1017,7 +1004,7 @@ func (p *Path) compareFileDepend(c *Comparer, d *File) (err error) {
         return
 }
 
-func (p *Path) comparePathDepend(c *Comparer, d *Path) (err error) {
+func (p *Path) comparePathDepend(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Path:Path: %v (%v) (depends: %v) (%v %T)\n", p, p.File, d, c.target, c.target)
         }
@@ -1058,7 +1045,7 @@ func (p *Path) comparePathDepend(c *Comparer, d *Path) (err error) {
         return
 }
 
-func (p *Path) prepare(pc *Preparer) (err error) {
+func (p *Path) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 if p.File != nil {
                         fmt.Printf("prepare:Path: %v (file: %v) (%v, %v)\n", p, p.File, pc.program.project.name, pc.entry)
@@ -1066,47 +1053,47 @@ func (p *Path) prepare(pc *Preparer) (err error) {
                         fmt.Printf("prepare:Path: %v (%v, %v)\n", p, pc.program.project.name, pc.entry)
                 }
         }
+
+        var s string // path/file target
+        if s, err = p.Strval(); err != nil {
+                return
+        }
+
         if p.File == nil {
-                var ( s, e = p.Strval(); name = filepath.Base(s) )
-                if e != nil { err = e; return }
-                err, _ = pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                        if project.isFile(name) {
-                                if file := project.SearchFile(s); file != nil {
-                                        p.File, trybrk = file, file.IsExists() //IsKnown()
+                if pc.program.project.isFile(filepath.Base(s)) || pc.program.project.isFile(s) {
+                        if p.File = pc.program.project.SearchFile(s); p.File != nil {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:Path: %v (found file '%v' in %v) (%v)\n", p, p.File, pc.program.project.name, pc.entry)
                                 }
                         }
-                        if trace_prepare && p.File != nil {
-                                fmt.Printf("prepare:Path: %v (found file '%v' in %v) (%v, %v)\n", p, p.File, project.name, pc.program.project.name, pc.entry)
-                        }
-                        return
-                })
+                }
         }
 
         if p.File != nil {
-                return p.File.prepare(pc)
-        } else if e := pc.prepareTargetValue(p); e == nil {
+                err = p.File.prepare(pc)
+        } else if err = pc.updateTarget(s); err == nil {
                 // Good!
-        } else if ute, ok := e.(unknownTargetError); ok {
-                if info, _ := os.Stat(ute.target); info == nil {
+        } else if e, ok := err.(targetNotFoundError); ok {
+                if info, _ := os.Stat(e.target); info == nil {
                         pc.targets.Append(p) // Append unknown path anyway.
                         if trace_prepare {
-                                fmt.Printf("prepare:Path: %v (unknown path: %v) (%v)\n", p, ute.target, pc.entry)
+                                fmt.Printf("prepare:Path: %v (unknown path: %v) (%v)\n", p, e.target, pc.entry)
                         }
                 } else if info.IsDir() {
                         pc.targets.Append(p)
                         if trace_prepare {
-                                fmt.Printf("prepare:Path: %v (found unknown path: %v) (%v)\n", p, ute.target, pc.entry)
+                                fmt.Printf("prepare:Path: %v (found unknown path: %v) (%v)\n", p, e.target, pc.entry)
                         }
                 } else {
                         // Search this path target as a file.
-                        p.File = pc.program.project.SearchFile(ute.target)
+                        p.File = pc.program.project.SearchFile(e.target)
                         pc.targets.Append(p.File)
                         if trace_prepare {
-                                fmt.Printf("prepare:Path: %v (found unknown target: %v) (file: %v) (%v)\n", p, ute.target, p.File.Fullname(), pc.entry)
+                                fmt.Printf("prepare:Path: %v (found unknown target: %v) (file: %v) (%v)\n", p, e.target, p.File.Fullname(), pc.entry)
                         }
                 }
-        } else {
-                err = e
+                // Make it a path-not-found error.
+                err = pathNotFoundError{ p }
         }
         return
 }
@@ -1124,7 +1111,7 @@ func (p *PathSeg) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("PathSeg{%s}!(%+v)", s, e)
+                return "?"
         }
 }
 func (p *PathSeg) Strval() (s string, e error) {
@@ -1149,14 +1136,7 @@ type File struct {
         Info os.FileInfo // file info if exists
 }
 func (p *File) Type() Type { return FileType }
-
-func (p *File) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("File{%s}!(%+v)", s, e)
-        }
-}
+func (p *File) String() string { return filepath.Join(p.Sub, p.Name) }
 
 // Strval returns the relative filename (aka. Project.SearchFile).
 func (p *File) Strval() (string, error) { return filepath.Join(p.Sub, p.Name), nil }
@@ -1173,14 +1153,14 @@ func (p *File) Basename() string {
 func (p *File) IsKnown() bool { return p.Match != nil }
 func (p *File) IsExists() bool { return p.Info != nil }
 
-func (p *File) compare(c *Comparer) (err error) {
+func (p *File) compare(c *comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:File: %v (%v %T)\n", p.Name, c.target, c.target)
         }
         return c.target.compareFileDepend(c, p)
 }
 
-func (p *File) compareFileDepend(c *Comparer, d *File) (err error) {
+func (p *File) compareFileDepend(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:File:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
@@ -1218,7 +1198,7 @@ func (p *File) compareFileDepend(c *Comparer, d *File) (err error) {
         return
 }
 
-func (p *File) comparePathDepend(c *Comparer, d *Path) (err error) {
+func (p *File) comparePathDepend(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:File:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
@@ -1256,7 +1236,7 @@ func (p *File) comparePathDepend(c *Comparer, d *Path) (err error) {
         return
 }
 
-func (p *File) prepare(pc *Preparer) error {
+func (p *File) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v (%v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry)
         }
@@ -1272,83 +1252,76 @@ func (p *File) prepare(pc *Preparer) error {
         return nil
 }
 
-func (p *File) explicitly(pc *Preparer) (error, bool) {
-        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
+func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
+        if trace_prepare {
+                fmt.Printf("prepare:File: %v (explicitly: %v in %v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+        }
+        // Find concrete entry (by file represented name)
+        if _, obj := pc.program.project.scope.Find(p.Name); obj != nil {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (explicitly: %v in %v) (%v -> %v)\n", p.Name, p, project.name, pc.entry.owner.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (found %v) (%s) (%v -> %v)\n", p.Name, obj, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
                 }
-                // Find concrete entry (by file represented name)
-                if _, obj := project.scope.Find(p.Name); obj != nil {
+                if err, trybrk = pc.update(obj), true; err != nil {
+                        // ...
+                }
+        }
+        return
+}
+
+func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
+        if trace_prepare {
+                fmt.Printf("prepare:File: %v (implicitly: %v in %v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+        }
+
+        var pss []*PatternStem
+        if pss, err = pc.program.project.FindPatterns(p.Name); err != nil {
+                return
+        }
+
+        ForPatterns: for i, ps := range pss {
+                for _, prog := range ps.Patent.programs {
                         if trace_prepare {
-                                fmt.Printf("prepare:File: %v (found %v) (%s) (%v -> %v)\n", p.Name, obj, project.name, pc.entry.owner.name, pc.entry)
+                                fmt.Printf("prepare:File: %v (implicitly:%d: %v : %v) (in %v)\n", p.Name, i, ps, prog.depends, pc.program.project.name)
                         }
-                        defer pc.setProject(pc.setProject(project))
-                        if err, trybrk = pc.Prepare(obj), true; err != nil {
-                                // ...
+                        for _, dep := range prog.depends {
+                                var ( g, _ = dep.(*GlobPattern); ok bool )
+                                if g != nil {
+                                        if ok, err = p.checkPatternDepend(pc, pc.program.project, ps, prog, g); err != nil { return }
+                                        if !ok { continue ForPatterns }
+                                }
                         }
                 }
-                return
-        })
+                ps.file = p // Bounds PatternStem with the File.
+                if err = ps.prepare(pc); err == nil {
+                        trybrk = true; break ForPatterns // Updated successfully!
+                } else if _, ok := err.(patternPrepareError); ok {
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: %v (implicitly:%d: %v) (error: %s) (%s) (%v -> %v)\n", p.Name, i, ps, err, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+                        }
+                } else {
+                        trybrk = true; break ForPatterns // Update failed!
+                }
+        }
+        return
 }
 
-func (p *File) implicitly(pc *Preparer) (error, bool) {
-        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (implicitly: %v in %v) (%v -> %v)\n", p.Name, p, project.name, pc.entry.owner.name, pc.entry)
-                }
-
-                defer pc.setProject(pc.setProject(project))
-
-                var pss []*PatternStem
-                if pss, err = project.FindPatterns(p.Name); err != nil {
-                        return
-                }
-
-                ForPatterns: for i, ps := range pss {
-                        for _, prog := range ps.Patent.programs {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:File: %v (implicitly:%d: %v : %v) (in %v)\n", p.Name, i, ps, prog.depends, project.name)
-                                }
-                                for _, dep := range prog.depends {
-                                        var ( g, _ = dep.(*GlobPattern); ok bool )
-                                        if g != nil {
-                                                if ok, err = p.checkPatternDepend(pc, project, ps, prog, g); err != nil { return }
-                                                if !ok { continue ForPatterns }
-                                        }
-                                }
-                        }
-                        ps.file = p // Bounds PatternStem with the File.
-                        if err = ps.prepare(pc); err == nil {
-                                trybrk = true; break ForPatterns // Updated successfully!
-                        } else if _, ok := err.(patternPrepareError); ok {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:File: %v (implicitly:%d: %v) (error: %s) (%s) (%v -> %v)\n", p.Name, i, ps, err, project.name, pc.entry.owner.name, pc.entry)
-                                }
-                        } else {
-                                trybrk = true; break ForPatterns // Update failed!
-                        }
-                }
-                return
-        })
-}
-
-func (p *File) checkPatternDepend(pc *Preparer, project *Project, ps *PatternStem, prog *Program, g *GlobPattern) (res bool, err error) {
+func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *PatternStem, prog *Program, g *GlobPattern) (res bool, err error) {
         var name string
         if name, err = g.MakeString(ps.Stem); err != nil { return }
         if file := project.ToFile(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
                 //fmt.Printf("prepare:File: %v (implicitly:=: %v in %s)\n", p.Name, file, project.name)
                 if file.IsExists() {
                         if trace_prepare {
-                                fmt.Printf("prepare:File: %v (implicitly: %v exists in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.owner.name, pc.entry)
+                                fmt.Printf("prepare:File: %v (implicitly: %v exists in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.OwnerProject().name, pc.entry)
                         }
                         res = true
                 } else if trace_prepare && false {
-                        fmt.Printf("prepare:File: %v (implicitly: %v missing in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.owner.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (implicitly: %v missing in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.OwnerProject().name, pc.entry)
                 }
         }
         if _, sym := project.scope.Find(name); sym != nil {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (implicitly: found %v in %s) (%v -> %v)\n", p.Name, sym, project.name, pc.entry.owner.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (implicitly: found %v in %s) (%v -> %v)\n", p.Name, sym, project.name, pc.entry.OwnerProject().name, pc.entry)
                 }
                 res = true
         }
@@ -1360,7 +1333,7 @@ func (p *File) checkPatternDepend(pc *Preparer, project *Project, ps *PatternSte
         return
 }
 
-func (p *File) search(pc *Preparer) (error, bool) {
+func (p *File) search(pc *preparer) (err error, trybrk bool) {
         if p.IsExists() {
                 if trace_prepare {
                         fmt.Printf("prepare:File: %v (search: exists %v) (%v)\n", p.Name, p, pc.entry)
@@ -1368,24 +1341,22 @@ func (p *File) search(pc *Preparer) (error, bool) {
                 pc.targets.Append(p)
                 return nil, true
         }
-        return pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                str, err := p.Strval()
-                if err != nil { return }
-                if f := project.SearchFile(str); /*!f.IsKnown()*/f.IsKnown() || f.IsExists() {
-                        if trace_prepare {
-                                fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v -> %v)\n",
-                                        p.Name, f, project.name, pc.entry)
-                        }
-                        pc.targets.Append(f); trybrk = true
-                } else {
-                        if trace_prepare {
-                                fmt.Printf("prepare:File: %v (search: unknown %v) (%v -> %v)\n",
-                                        p.Name, p.Dir, project.name, pc.entry)
-                        }
-                        err = unknownFileError{ p }
+        str, err := p.Strval()
+        if err != nil { return }
+        if f := pc.program.project.SearchFile(str); /*!f.IsKnown()*/f.IsKnown() || f.IsExists() {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v -> %v)\n",
+                                p.Name, f, pc.program.project.name, pc.entry)
                 }
-                return
-        })
+                pc.targets.Append(f); trybrk = true
+        } else {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (search: unknown %v) (%v -> %v)\n",
+                                p.Name, p.Dir, pc.program.project.name, pc.entry)
+                }
+                err = fileNotFoundError{ p }
+        }
+        return
 }
 
 func MakeFile(s string) (fv *File) { return &File{ Name:s } }
@@ -1394,13 +1365,7 @@ type Flag struct {
         Name Value
 }
 func (p *Flag) Type() Type { return FlagType }
-func (p *Flag) String() (s string) {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Flag{%s}!(%+v)", s, e)
-        }
-}
+func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", p.Name.String()) }
 func (p *Flag) Strval() (s string, e error) {
         if s, e = p.Name.Strval(); e == nil { 
                  s = "-" + s
@@ -1423,21 +1388,24 @@ func (p *Flag) reveal() (res Value, err error) {
         return
 }
 
-func (p *Flag) referencing(o Object) bool {
-        return p.Name.referencing(o)
+func (p *Flag) refs(o Object) bool {
+        return p.Name.refs(o)
+}
+
+func (p *Flag) closured() bool {
+        return p.Name.closured()
 }
 
 func MakeFlag(name Value) (v *Flag) { return &Flag{name} }
         
-type Compound struct {
+type Compound struct { // "compound string"
         Elements
 }
 func (p *Compound) String() (s string) {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Compound{%s}!(%+v)", s, e)
+        for _, elem := range p.Elems {
+                s += elem.String()
         }
+        return fmt.Sprintf(`"%s"`, s)
 }
 func (p *Compound) Strval() (s string, err error) {
         for _, e := range p.Elems {
@@ -1476,11 +1444,11 @@ type List struct {
 }
 func (p *List) Type() Type { return ListType }
 func (p *List) String() (s string) {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Lists{%s}!(%+v)", s, e)
+        var strs []string
+        for _, elem := range p.Elems {
+                strs = append(strs, elem.String())
         }
+        return strings.Join(strs, " ")
 }
 func (p *List) Strval() (s string, err error) {
         var x = 0
@@ -1512,7 +1480,7 @@ func (p *List) reveal() (res Value, err error) {
         return
 }
 
-func (p *List) compare(c *Comparer) (err error) {
+func (p *List) compare(c *comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:List: %v (%v %T)\n", p, c.target, c.target)
         }
@@ -1524,7 +1492,7 @@ func (p *List) compare(c *Comparer) (err error) {
         return
 }
 
-func (p *List) compareFileDepend(c *Comparer, d *File) (err error) {
+func (p *List) compareFileDepend(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:List:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
@@ -1542,7 +1510,7 @@ func (p *List) compareFileDepend(c *Comparer, d *File) (err error) {
         return
 }
 
-func (p *List) comparePathDepend(c *Comparer, d *Path) (err error) {
+func (p *List) comparePathDepend(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:List:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
@@ -1567,11 +1535,11 @@ type Group struct {
 }
 func (p *Group) Type() Type { return GroupType }
 func (p *Group) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Group{%s}!(%+v)", s, e)
+        var strs []string
+        for _, elem := range p.Elems {
+                strs = append(strs, elem.String())
         }
+        return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
 func (p *Group) Strval() (s string, err error) {
         if s, err = p.List.Strval(); err == nil {
@@ -1613,11 +1581,7 @@ type Pair struct { // key=value
 }
 func (p *Pair) Type() Type { return PairType }
 func (p *Pair) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("Pair{%s}!(%+v)", s, e)
-        }
+        return fmt.Sprintf("%s=%s", p.Key.String(), p.Value.String())
 }
 func (p *Pair) Strval() (s string, err error) {
         var k, v string
@@ -1666,8 +1630,12 @@ func (p *Pair) reveal() (res Value, err error) {
         return
 }
 
-func (p *Pair) referencing(o Object) bool {
-        return p.Key.referencing(o) || p.Value.referencing(o)
+func (p *Pair) refs(o Object) bool {
+        return p.Key.refs(o) || p.Value.refs(o)
+}
+
+func (p *Pair) closured() bool {
+        return p.Key.closured() || p.Value.closured()
 }
 
 func MakePair(k, v Value) (p *Pair) {
@@ -1681,21 +1649,39 @@ func MakePair(k, v Value) (p *Pair) {
         return
 }
 
-// Delegate wraps '$(foo a,b,c)' into Valuer
-type delegate struct {
+type closuredelegate struct {
         p token.Position
+        l token.Token
         o Object
         a []Value
 }
-func (p *delegate) Position() token.Position { return p.p }
-func (p *delegate) Type() Type { return DelegateType }
-func (p *delegate) String() (s string) {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("delegate{%s}!(%+v)", s, e)
+
+func (p *closuredelegate) Position() token.Position { return p.p }
+func (p *closuredelegate) string(t string) (s string) { // source representation
+        for i, a := range p.a {
+                if i == 0 { s = " " } else { s += "," }
+                s += a.String()
         }
+        name := p.o.Name()
+        switch p.l {
+        case token.LPAREN: s = fmt.Sprintf("%s(%s%s)", t, name, s)
+        case token.LBRACE: s = fmt.Sprintf("%s{%s%s}", t, name, s)
+        case token.ILLEGAL:
+                if len(name) == 1 && len(s) == 0 {
+                        s = fmt.Sprintf("%s%s", t, name)
+                } else {
+                        s = fmt.Sprintf("%s[%s%s]", t, name, s)
+                }
+        default:
+                s = fmt.Sprintf("%s[%s%s]!(%v)", t, name, s, p.l)
+        }
+        return
 }
+
+// Delegate wraps '$(foo a,b,c)' into Valuer
+type delegate struct { closuredelegate }
+func (p *delegate) Type() Type { return DelegateType }
+func (p *delegate) String() (s string) { return p.string("$") }
 func (p *delegate) Strval() (string, error) { if v, e := p.reveal(); e == nil { return v.Strval() } else { return "", e }}
 func (p *delegate) Integer() (int64, error) { if v, e := p.reveal(); e == nil { return v.Integer() } else { return 0, e }}
 func (p *delegate) Float() (float64, error) { if v, e := p.reveal(); e == nil { return v.Float() } else { return 0, e }}
@@ -1705,27 +1691,39 @@ func (p *delegate) reveal() (res Value, err error) {
         if args, err = DiscloseAll(p.a...); err != nil {
                 return
         }
-        
+
         switch o := p.o.(type) {
         default: err = fmt.Errorf("unknown delegated object %v", o)
         case Caller:
                 if res, err = o.Call(p.p, args...); err != nil {
-                        err = fmt.Errorf("$(%s): %v", p.o.Name(), err)
+                        var name = p.o.Name()
+                        if name != "error" {
+                                err = fmt.Errorf("$(%s): %v", name, err)
+                        } else {
+                                return
+                        }
                 }
         case Executer:
                 if args, err = o.Execute(p.p, args...); err != nil {
-                        err = fmt.Errorf("${%s}: %v", p.o.Name(), err)
+                        var name = p.o.Name()
+                        if name != "error" {
+                                err = fmt.Errorf("${%s}: %v", name, err)
+                        } else {
+                                return
+                        }
                 } else {
                         res = &List{Elements{args}}
                 }
         }
+
         if err != nil {
-                fmt.Printf("%v: %v\n", p.p, err)
+                //fmt.Printf("%v: %v\n", p.p, err)
         } else if res == nil {
                 res = UniversalNone 
         }
         return
 }
+
 func (p *delegate) disclose() (res Value, err error) {
         var ( o = p.o; v Value; changed bool )
         if v, err = o.disclose(); err != nil { return }
@@ -1745,24 +1743,32 @@ func (p *delegate) disclose() (res Value, err error) {
                 args = append(args, a)
         }
         if changed && err == nil {
-                res = &delegate{ p.p, o, args }
+                res = &delegate{closuredelegate{ p.p, p.l, o, args }}
         }
         return
 }
 
-func (p *delegate) referencing(o Object) bool {
-        if p.o == o || p.o.referencing(o) {
+func (p *delegate) refs(o Object) bool {
+        if p.o == o || p.o.refs(o) {
                 return true
         }
         for _, a := range p.a {
-                if a.referencing(o) {
+                if a.refs(o) {
                         return true
                 }
         }
         return false
 }
 
-func (p *delegate) compare(c *Comparer) (err error) {
+func (p *delegate) closured() bool {
+        if p.o.closured() { return true }
+        for _, a := range p.a {
+                if a.closured() { return true }
+        }
+        return false
+}
+
+func (p *delegate) compare(c *comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:delegate: %v (%v %T)\n", p, c.target, c.target)
         }
@@ -1773,7 +1779,7 @@ func (p *delegate) compare(c *Comparer) (err error) {
         return
 }
 
-func (p *delegate) compareFileDepend(c *Comparer, d *File) (err error) {
+func (p *delegate) compareFileDepend(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:delegate:File: %v (%v %T)\n", p, c.target, c.target)
         }
@@ -1790,7 +1796,7 @@ func (p *delegate) compareFileDepend(c *Comparer, d *File) (err error) {
         return
 }
 
-func (p *delegate) comparePathDepend(c *Comparer, d *Path) (err error) {
+func (p *delegate) comparePathDepend(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:delegate:Path: %v (%v %T)\n", p, c.target, c.target)
         }
@@ -1807,49 +1813,21 @@ func (p *delegate) comparePathDepend(c *Comparer, d *Path) (err error) {
         return
 }
 
-func (p *delegate) prepare(pc *Preparer) (err error) {
+func (p *delegate) prepare(pc *preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:delegate: %v (%v -> %v)\n", p, pc.entry.owner.name, pc.entry)
+                fmt.Printf("prepare:delegate: %v (%v -> %v)\n", p, pc.entry.OwnerProject().name, pc.entry)
         }
         var val Value
         if val, err = Reveal(p); err != nil { return }
         for _, d := range Join(val) {
-                if err = pc.Prepare(d); err != nil { break }
+                if err = pc.update(d); err != nil { break }
         }
         return
 }
 
-type closure struct {
-        p token.Position
-        o Object
-        a []Value
-}
-
-func (p *closure) Position() token.Position { return p.p }
+type closure struct { closuredelegate }
 func (p *closure) Type() Type { return ClosureType }
-func (p *closure) String() (s string) {
-        /*var na = len(p.a)
-        if s = "&"; p.o == nil {
-                s += "(...)"
-        } else {
-                s += "("
-                // FIXME: needs the original name value to represent the original form
-                s += p.o.Name()
-                if na > 0 {
-                        for i, a := range p.a {
-                                if i > 0 { s += "," }
-                                s += a.String()
-                        }
-                }
-                s += ")"
-        }
-        return*/
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("closure{%s}!(%+v)", s, e)
-        }
-}
+func (p *closure) String() (s string) { return p.string("&") }
 func (p *closure) Integer() (int64, error) {
         if p.o == nil {
                 return 0, nil
@@ -1864,12 +1842,26 @@ func (p *closure) Float() (float64, error) {
 }
 func (p *closure) Strval() (s string, err error) {
         var v Value
-        if v, err = p.reveal(); err == nil {
+
+        // &(...) -> $(...)
+        if v, err = p.disclose(); err != nil {
+                return
+        } else if v == nil {
+                //err = fmt.Errorf("{closure %+v &<nil>}", p.o)
+                return
+        }
+
+        // $(...) -> .....
+        if v, err = v.reveal(); err != nil {
+                return
+        } else if v != nil {
                 s, err = v.Strval()
+        } else {
+                //err = fmt.Errorf("{closure %+v $<nil>}", p.o)
         }
         return
 }
-func (p *closure) reveal() (res Value, err error) {
+func (p *closure) _reveal() (res Value, err error) {
         if p.o == nil {
                 return nil, nil
         }
@@ -1889,6 +1881,30 @@ func (p *closure) reveal() (res Value, err error) {
         }
         if res == nil && err == nil {
                 res = UniversalNone 
+        }
+        return
+}
+func (p *closure) reveal() (res Value, err error) {
+        if p.o == nil { return }
+
+        var ( t Value; o Object )
+        if t, err = p.o.reveal(); err != nil { return }
+        if t != nil {
+                if o, _ = t.(Object); o == nil {
+                        err = fmt.Errorf("closure of non-object (%T)", t)
+                        return
+                }
+        }
+        
+        var ( a []Value; num int )
+        for _, v := range p.a {
+                if t, err = v.reveal(); err != nil { return }
+                if t == nil { t = v } else { num = num + 1 }
+                a = append(a, t)
+        }
+
+        if o != nil || num > 1 {
+                res = &closure{closuredelegate{ p.p, p.l, o, a }}
         }
         return
 }
@@ -1925,29 +1941,26 @@ func (p *closure) disclose() (res Value, err error) {
         }
 
         if changed && err == nil {
-                if false {
-                        // This will search closure again.
-                        res = &closure{ p.p, o, args }
-                } else {
-                        res = &delegate{ p.p, o, args }
-                }
+                res = &delegate{closuredelegate{ p.p, p.l, o, args }}
         }
         return
 }
 
-func (p *closure) referencing(o Object) bool {
+func (p *closure) refs(o Object) bool {
         if p.o == o {
                 return true
         }
         for _, a := range p.a {
-                if a.referencing(o) {
+                if a.refs(o) {
                         return true
                 }
         }
         return false
 }
 
-func (p *closure) prepare(pc *Preparer) (err error) {
+func (p *closure) closured() bool { return true }
+
+func (p *closure) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:closure: %v (%v)\n", p, pc.entry)
 
@@ -1955,9 +1968,98 @@ func (p *closure) prepare(pc *Preparer) (err error) {
         if v, e := p.disclose(); e != nil {
                 err = e
         } else if v == nil {
-                err = fmt.Errorf("preparing nil closure (%v)", p)
+                err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
+                fmt.Fprintf(os.Stderr, "%s: %v\n", p.p, err)
         } else {
-                err = pc.Prepare(v)
+                //fmt.Fprintf(os.Stderr, "%s: %T %+v\n", p.p, v, v)
+                err = pc.update(v)
+        }
+        return
+}
+
+type selection struct {
+        t token.Token
+        o Value // Object or selection
+        s Value
+}
+
+func (p *selection) Type() Type  { return SelectionType }
+func (p *selection) String() string {
+        //o, t, s := p.o.String(), p.t.String(), p.s.String()
+        return fmt.Sprintf("%s%s%s", p.o, p.t, p.s)
+}
+
+func (p *selection) object() (o Object, err error) {
+        switch t := p.o.(type) {
+        case Object: o = t
+        case *selection:
+                var v Value
+                if v, err = t.value(); err != nil { return }
+                if o, _ = v.(Object); o == nil {
+                        err = fmt.Errorf("nil object (%s)", t.String())
+                }
+        }
+        return
+}
+
+func (p *selection) value() (v Value, err error) {
+        var o Object
+        if o, err = p.object(); err == nil && o != nil {
+                var s string
+                if s, err = p.s.Strval(); err != nil { return }
+                v, err = o.Get(s)
+        } else if o == nil {
+                err = fmt.Errorf("nil object (%s)", p.String())
+        }
+        return
+}
+
+func (p *selection) Strval() (s string, err error) {
+        var v Value
+        if v, err = p.value(); err == nil {
+                s, err = v.Strval()
+        }
+        return
+}
+
+func (p *selection) Integer() (int64, error) {
+        if s, err := p.Strval(); err == nil {
+                return strconv.ParseInt(s, 10, 64)
+        } else {
+                return 0, err
+        }
+}
+func (p *selection) Float() (float64, error) {
+        if s, err := p.Strval(); err == nil {
+                return strconv.ParseFloat(s, 64)
+        } else {
+                return 0, err
+        }
+}
+
+func (p *selection) refs(o Object) bool { return p.o.refs(o) || p.s.refs(o) }
+func (p *selection) closured() bool { return p.o.closured() || p.s.closured() }
+func (p *selection) disclose() (res Value, err error) {
+        var o, s Value
+        if o, err = p.o.disclose(); err != nil { return }
+        if s, err = p.s.disclose(); err != nil { return }
+        if o != p.o || s != p.s {
+                res = &selection{ p.t, o, s }
+        }
+        return
+}
+func (p *selection) reveal() (res Value, err error) {
+        var o, s Value
+        if o, err = p.o.reveal(); err != nil { return }
+        if s, err = p.s.reveal(); err != nil { return }
+        if o != p.o || s != p.s { res = &selection{ p.t, o, s } }
+        return
+}
+
+func (p *selection) prepare(pc *preparer) (err error) {
+        var v Value
+        if v, err = p.value(); err == nil {
+                err = pc.update(v)
         }
         return
 }
@@ -1978,16 +2080,14 @@ func (p *pattern) Float() (float64, error) { return 0, nil }
 func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
         if patent.class == GlobRuleEntry {
                 entry = new(RuleEntry); *entry = *patent
-                entry.name = name
-                entry.stem = stem
-                if patent.owner.isFile(filepath.Base(name)) {
+                /*if patent.OwnerProject().isFile(filepath.Base(name)) {
                         entry.class = StemmedFileEntry
-                        if false && entry.file == nil {
-                                entry.file = entry.owner.SearchFile(name)
+                        if false && entry.target == nil {
+                                entry.target = entry.OwnerProject().SearchFile(name)
                         }
                 } else {
                         entry.class = StemmedRuleEntry
-                }
+                }*/
         } else {
                 err = fmt.Errorf("make entry `%s' (%s): invalid class `%v'", name, stem, patent.class)
         }
@@ -2007,11 +2107,12 @@ type GlobPattern struct {
 }
 
 func (p *GlobPattern) String() string {
-        if s, e := p.Strval(); e == nil {
+        /*if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("GlobPattern{%s}!(%+v)", s, e)
-        }
+                return fmt.Sprintf("{GlobPattern '%s' !(%+v)}", s, e)
+        }*/
+        return fmt.Sprintf("%s%%%s", p.Prefix.String(), p.Suffix.String())
 }
 func (p *GlobPattern) Strval() (s string, err error) {
         if p.Prefix != nil {
@@ -2061,13 +2162,16 @@ func (p *GlobPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *
         return p.makeEntry(patent, name, stem)
 }
 
-func (p *GlobPattern) referencing(o Object) bool {
-        return p.Prefix.referencing(o) || p.Suffix.referencing(o)
+func (p *GlobPattern) refs(o Object) bool {
+        return p.Prefix.refs(o) || p.Suffix.refs(o)
+}
+func (p *GlobPattern) closured() bool {
+        return p.Prefix.closured() || p.Suffix.closured()
 }
 
-func (p *GlobPattern) prepare(pc *Preparer) (err error) {
+func (p *GlobPattern) prepare(pc *preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:GlobPattern: %v(%v) (from %v) (%v -> %v)\n", p, pc.stem, pc.entry.file, pc.entry.owner.name, pc.entry)
+                fmt.Printf("prepare:GlobPattern: %v(%v) (from %v) (%v -> %v)\n", p, pc.stem, pc.entry.target, pc.entry.OwnerProject().name, pc.entry)
         }
         if pc.stem == "" {
                 err = fmt.Errorf("empty stem (%s, %v)", p, pc.entry)
@@ -2078,32 +2182,27 @@ func (p *GlobPattern) prepare(pc *Preparer) (err error) {
         if target, err = p.MakeString(pc.stem); err != nil { return }
 
         // Check if target is a file (if source entry is file).
-        if brk := false; pc.entry.file != nil { //! See also `File.checkPatternDepend`.
-                err, brk = pc.forEachExternalCaller(func(project *Project) (trybrk bool, err error) {
-                        if file := project.SearchFile(target); file.IsKnown() || file.IsExists() {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s) (%v -> %v)\n", p, pc.stem, file, project.name, pc.entry.owner.name, pc.entry)
-                                }
-                                defer pc.setProject(pc.setProject(project))
-                                err, trybrk = file.prepare(pc), true
-                        } else if _, sym := project.scope.Find(target); sym != nil {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:GlobPattern: %v(%v) (found %v in %v) (%v -> %v)\n", p, pc.stem, sym, project.name, pc.entry.owner.name, pc.entry)
-                                }
-                                defer pc.setProject(pc.setProject(project))
-                                err, trybrk = pc.prepare(sym), true
+        if brk := false; pc.entry.target != nil { //! See also `File.checkPatternDepend`.
+                if file := pc.program.project.SearchFile(target); file.IsKnown() || file.IsExists() {
+                        if trace_prepare {
+                                fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s) (%v -> %v)\n", p, pc.stem, file, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
                         }
-                        return
-                })
+                        err, brk = file.prepare(pc), true
+                } else if _, sym := pc.program.project.scope.Find(target); sym != nil {
+                        if trace_prepare {
+                                fmt.Printf("prepare:GlobPattern: %v(%v) (found %v in %v) (%v -> %v)\n", p, pc.stem, sym, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+                        }
+                        err, brk = pc.update(sym), true
+                }
                 if err != nil || brk {
                         return
                 }
         }
         
         if trace_prepare {
-                fmt.Printf("prepare:GlobPattern: %v(%v) (target %v) (%v -> %v)\n", p, pc.stem, target, pc.entry.owner.name, pc.entry)
+                fmt.Printf("prepare:GlobPattern: %v(%v) (target %v) (%v -> %v)\n", p, pc.stem, target, pc.entry.OwnerProject().name, pc.entry)
         }
-        if err = pc.prepareTarget(target); err == nil {
+        if err = pc.updateTarget(target); err == nil {
                 return // Good!
         } else {
                 if trace_prepare {
@@ -2133,11 +2232,12 @@ func NewRegexpPattern() Pattern {
 }
 
 func (p *RegexpPattern) String() string {
-        if s, e := p.Strval(); e == nil {
+        /*if s, e := p.Strval(); e == nil {
                 return s
         } else {
-                return fmt.Sprintf("RegexpPattern{%s}!(%+v)", s, e)
-        }
+                return fmt.Sprintf("{RegexpPattern '%s' !(%+v)}", s, e)
+        }*/
+        return "{RegexpPattern}"
 }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
 func (p *RegexpPattern) Match(s string) (matched bool, stem string, err error) {
@@ -2149,7 +2249,8 @@ func (p *RegexpPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry
         return
 }
 
-func (p *RegexpPattern) referencing(_ Object) bool { return false }
+func (p *RegexpPattern) closured() bool { return false }
+func (p *RegexpPattern) refs(_ Object) bool { return false }
 
 type Valuer interface {
         Value() Value
@@ -2264,8 +2365,6 @@ func joinresult(res []Value, err error) ([]Value, error) {
 }
 
 func Expend(value Value) (res Value, err error) {
-        // FIXME: Merge Disclose and Reveal (actually the same)
-
         // Performs: &(...) -> $(...)
         if value, err = Disclose(value); err != nil { return }
         // Performs: $(...) -> ...
@@ -2282,20 +2381,16 @@ func ExpendAll(values ...Value) (res []Value, err error) {
         return
 }
 
-func Delegate(pos token.Position, obj Object, args... Value) Value {
-        return &delegate{ pos, obj, args }
+func MakeDelegate(pos token.Position, tok token.Token, obj Object, args... Value) Value {
+        return &delegate{closuredelegate{ pos, tok, obj, args }}
 }
 
-func MakeClosure(pos token.Position, obj Object, args... Value) Value {
-        if obj == nil {
-                panic("closure of nil")
-        }
-        return &closure{ pos, obj, args }
+func MakeClosure(pos token.Position, tok token.Token, obj Object, args... Value) Value {
+        if obj == nil { panic("closure of nil") }
+        return &closure{closuredelegate{ pos, tok, obj, args }}
 }
 
-func Refs(a Value, o Object) bool {
-        return a.referencing(o)
-}
+func Refs(a Value, o Object) bool { return a.refs(o) }
 
 func MakeListOrScalar(elems []Value) (res Value) {
         if x := len(elems); x > 1 {

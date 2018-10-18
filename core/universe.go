@@ -23,7 +23,7 @@ var (
 // Predeclared types.
 var (
         CoreTypes = []*Core {
-                UndefKind:       {UndefKind, IsUndef, "Undef"},
+                UnknownObjectKind: {UnknownObjectKind, IsUnknownObject, "UnknownObject"},
                 DefKind:         {DefKind, IsDef, "Def"},
                 DefinerKind:     {DefinerKind, IsDefiner, "Definer"},
                 PlainKind:       {PlainKind, IsPlain, "Plain"},
@@ -69,10 +69,11 @@ var (
                 PairKind:     {PairKind, IsPair, "pair"},
                 DelegateKind: {DelegateKind, IsDelegate, "delegate"},
                 ClosureKind:  {ClosureKind, IsClosure, "closure"},
+                SelectionKind:{SelectionKind, IsSelection, "selection"},
         }
 
         // Shortcuts of core types
-        UndefType       = CoreTypes[UndefKind]
+        UnknownObjectType = CoreTypes[UnknownObjectKind]
         DefType         = CoreTypes[DefKind]
         DefinerType     = CoreTypes[DefinerKind]
         PlainType       = CoreTypes[PlainKind]
@@ -117,11 +118,12 @@ var (
         PatternType  = CompositeTypes[PatternKind]
         DelegateType = CompositeTypes[DelegateKind]
         ClosureType  = CompositeTypes[ClosureKind]
+        SelectionType= CompositeTypes[SelectionKind]
 )
 
 func defUniverseBuiltins() {
         for name, f := range builtins {
-                if _, alt := universe.InsertBuiltin(name, f); alt != nil {
+                if _, alt := universe.Builtin(name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined", name))
                 }
         }
@@ -134,9 +136,9 @@ func init() {
         for _, a := range os.Args[1:] {
                 args.Elems = append(args.Elems, &String{ a })
         }
-        _, _ = universe.InsertDef(nil, "SMART.BIN", bin)
-        _, _ = universe.InsertDef(nil, "SMART.ARGS", args)
-        _, _ = universe.InsertDef(nil, "SMART", bin)
+        _, _ = universe.Def(nil, "SMART.BIN", bin)
+        _, _ = universe.Def(nil, "SMART.ARGS", args)
+        _, _ = universe.Def(nil, "SMART", bin)
         
         defUniverseBuiltins()
 }
@@ -159,11 +161,6 @@ func (g *Globe) Scope() *Scope { return g.scope }
 
 // Main returns the main project.
 func (g *Globe) Main() *Project { return g.main }
-
-// SetMain changes the main project.
-/* func (g *Globe) SetMain(m *Project) {
-        g.main = m 
-} */
 
 func (g *Globe) SetScopeOuter(scope *Scope) {
         scope.outer = g.scope

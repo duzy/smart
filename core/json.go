@@ -17,9 +17,10 @@ import (
 type JSON struct {
         Value Value
 }
+func (p *JSON) closured() bool { return p.Value.closured() }
 func (p *JSON) disclose() (Value, error) { return p.Value.disclose() }
 func (p *JSON) reveal() (Value, error) { return p.Value.reveal() }
-func (p *JSON) referencing(_ Object) bool { return false }
+func (p *JSON) refs(_ Object) bool { return false }
 func (p *JSON) Type() Type { return JSONType }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
 func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
@@ -202,10 +203,9 @@ func DecodeJSON(source string) (result Value, err error) {
         return
 }
 
-type dialectJson struct {
-}
+type _json struct {}
 
-func (t *dialectJson) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (t *_json) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(recipes...); err != nil { return }
         if result, err = DecodeJSON(source); err == nil {
@@ -217,5 +217,5 @@ func (t *dialectJson) Evaluate(prog *Program, args []Value, recipes []Value) (re
 }
 
 func init() {
-        RegisterDialect("json", new(dialectJson))
+        RegisterDialect("json", new(_json))
 }

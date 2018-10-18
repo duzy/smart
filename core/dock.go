@@ -315,7 +315,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                 }
 
                 if shi == "shell" {
-                        shi = defaultShellInterpreter
+                        shi = "bash" //defaultShellInterpreter
                 }
 
                 if container == "-" && image == "-" {

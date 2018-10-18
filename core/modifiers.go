@@ -194,16 +194,20 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                         return
                 }
                 if dir == "-" {
-                        project := prog.project
-                        if prog.caller != nil {
-                                project = prog.caller.project // prog.caller.program.project
-                        }
-                        dir = project.AbsPath()
-                        if trace_prepare {
-                                fmt.Printf("prepare:CD: %s (%s) (%s)\n", dir, project.name, prog.project.name)
+                        if len(execstack) > 1 {
+                                top := execstack[0]
+                                for _, p := range execstack[1:] {
+                                        if p.project != top.project {
+                                                dir = p.project.AbsPath()
+                                                if trace_prepare {
+                                                        fmt.Printf("prepare:CD: %s (%s) (%s)\n", dir, p.project.name, prog.project.name)
+                                                }
+                                                break
+                                        }
+                                }
                         }
                 } else if trace_prepare {
-                        fmt.Printf("prepare:CD: %s (%s)\n", dir, prog.project.name)
+                        fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
                 }
                 if dir != "" {
                         if err = prog.cd(dir, false); err == nil {
@@ -244,11 +248,11 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
                         }
                 case *RuleEntry:
                         switch d.Class() {
-                        case ExplicitFileEntry:
+                        /*case ExplicitFileEntry:
                                 var name string
                                 if name, err = d.Strval(); err == nil {
                                         depends.Append(&File{ Name:name })
-                                }
+                                }*/
                         case GeneralRuleEntry, GlobRuleEntry:
                                 depends.Append(d)
                         default:
@@ -388,8 +392,8 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                         targetFile = &File{ Name:name }
                 case *RuleEntry:
                         switch class := t.class; class {
-                        case ExplicitFileEntry, StemmedFileEntry:
-                                targetFile = t.file //&File{ Name:name }
+                        //case ExplicitFileEntry, StemmedFileEntry:
+                        //        targetFile = t.file //&File{ Name:name }
                         default:/*if p := t.Project(); p != nil {
                                 if p.IsFile(s) {
                                         targetFile = &File{ Name:name }
@@ -399,8 +403,8 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                                         return
                                 }
                         } else*/ {
-                                err = breakf(false, "unknown entry (%v '%v')", class, name)
-                                return
+                                //err = breakf(false, "unknown entry (%v '%v')", class, name)
+                                //return
                         }}
                 }
                 if targetFile == nil {

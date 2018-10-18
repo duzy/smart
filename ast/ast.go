@@ -216,6 +216,13 @@ type (
                 ClosureDelegate
         }
 
+        SelectionExpr struct {
+                Lhs Expr
+                //TokPos token.Pos
+                Tok token.Token
+                Rhs Expr
+        }
+
         ArgumentedExpr struct {
                 X Expr
                 Arguments []Expr
@@ -272,6 +279,7 @@ func (d *PathExpr) Pos() token.Pos        { return d.Segments[0].Pos() }
 func (d *PathSegExpr) Pos() token.Pos     { return d.TokPos }
 func (d *GlobExpr) Pos() token.Pos        { return d.TokPos }
 func (d *ClosureDelegate) Pos() token.Pos { return d.TokPos }
+func (d *SelectionExpr) Pos() token.Pos   { return d.Lhs.Pos() }
 func (d *ArgumentedExpr) Pos() token.Pos  { return d.X.Pos() }
 func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
@@ -302,6 +310,7 @@ func (d *ClosureDelegate) End() token.Pos {
         }
         return d.Rparen + 1 
 }
+func (d *SelectionExpr) End() token.Pos   { return d.Rhs.End() }
 func (d *ArgumentedExpr) End() token.Pos  { return d.EndPos }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }
@@ -322,6 +331,7 @@ func (x *PathExpr) String() string        { return fmt.Sprintf("PathExpr{%v}", x
 func (x *PathSegExpr) String() string     { return fmt.Sprintf("PathSegExpr{%v}", x.Tok) }
 func (x *GlobExpr) String() string        { return fmt.Sprintf("Glob{%v}", x.Tok) }
 func (x *ClosureDelegate) String() string { return fmt.Sprintf("ClosureDelegate{%v,%v}", x.Name, x.Args) }
+func (x *SelectionExpr) String() string   { return fmt.Sprintf("SelectionExpr{%v %s %v}", x.Lhs, x.Tok, x.Rhs) }
 func (x *ArgumentedExpr) String() string  { return fmt.Sprintf("ArgumentedExpr{%v,%v}", x.X, x.Arguments) }
 func (x *GroupExpr) String() string       { return fmt.Sprintf("GroupExpr{%v}", x.Elems) }
 func (x *PercExpr) String() string        { return fmt.Sprintf("PercExpr{%v,%v}", x.X, x.Y) }
@@ -342,6 +352,7 @@ func (*PathExpr) expr()        {}
 func (*PathSegExpr) expr()     {}
 func (*GlobExpr) expr()        {}
 func (*ClosureDelegate) expr() {}
+func (*SelectionExpr) expr() {}
 func (*ArgumentedExpr) expr()  {}
 func (*GroupExpr) expr()       {}
 func (*PercExpr) expr()        {}

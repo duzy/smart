@@ -16,9 +16,10 @@ type Plain struct {
         Value string
         Name string
 }
+func (p *Plain) closured() bool { return false }
 func (p *Plain) disclose() (Value, error) { return nil, nil }
 func (p *Plain) reveal() (Value, error) { return nil, nil }
-func (p *Plain) referencing(_ Object) bool { return false }
+func (p *Plain) refs(_ Object) bool { return false }
 func (p *Plain) Type() Type  { return PlainType }
 func (p *Plain) String() string {
         s := "(plain"
@@ -32,10 +33,9 @@ func (p *Plain) Strval() (string, error) { return p.Value, nil }
 func (p *Plain) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *Plain) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
 
-type dialectPlain struct {
-}
+type _plain struct {}
 
-func (t *dialectPlain) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (t *_plain) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var str, name string
         if len(args) > 0 {
                 if name, err = args[0].Strval(); err != nil { return }
@@ -47,5 +47,5 @@ func (t *dialectPlain) Evaluate(prog *Program, args []Value, recipes []Value) (r
 }
 
 func init() {
-        RegisterDialect("plain", new(dialectPlain))
+        RegisterDialect("plain", new(_plain))
 }

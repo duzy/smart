@@ -10,14 +10,16 @@ import (
         //"encoding/yaml"
         //"strings"
         //"io"
+        "fmt"
 )
 
 type YAML struct {
         Value Value
 }
+func (p *YAML) closured() bool { return p.Value.closured() }
 func (p *YAML) disclose() (Value, error) { return p.Value.disclose() }
 func (p *YAML) reveal() (Value, error) { return p.Value.reveal() }
-func (p *YAML) referencing(_ Object) bool { return false }
+func (p *YAML) refs(_ Object) bool { return false }
 func (p *YAML) Type() Type { return YAMLType }
 func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *YAML) Strval() (string, error) { return p.Value.Strval() }
@@ -25,15 +27,15 @@ func (p *YAML) Integer() (int64, error) { return 0, nil }
 func (p *YAML) Float() (float64, error) { return 0, nil }
 
 func DecodeYAML(source string, ws bool) (result Value, err error) {
-        result = UniversalNone
+        err = fmt.Errorf("DecodeYAML not implemented yet")
         return 
 }
 
-type dialectYaml struct {
+type _yaml struct {
         whitespace bool
 }
 
-func (t *dialectYaml) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (t *_yaml) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(recipes...); err != nil { return }
         if result, err = DecodeYAML(source, t.whitespace); err == nil {
@@ -45,5 +47,5 @@ func (t *dialectYaml) Evaluate(prog *Program, args []Value, recipes []Value) (re
 }
 
 func init() {
-        RegisterDialect("yaml", &dialectYaml{})
+        RegisterDialect("yaml", &_yaml{})
 }

@@ -17,8 +17,6 @@ import (
         "io"
 )
 
-var defaultShellInterpreter = "bash"
-
 type ExecBuffer struct {
         Tie io.Writer
         Buf *bytes.Buffer
@@ -67,7 +65,8 @@ type ExecResult struct {
 }
 func (p *ExecResult) disclose() (Value, error) { return nil, nil }
 func (p *ExecResult) reveal() (Value, error) { return nil, nil }
-func (p *ExecResult) referencing(_ Object) bool { return false }
+func (p *ExecResult) refs(_ Object) bool { return false }
+func (p *ExecResult) closured() bool { return false }
 func (p *ExecResult) Type() Type { return ExecResultType }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
@@ -98,7 +97,7 @@ func trimRightSpaces(s string) string {
         return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
-type dialectShell struct {
+type _shell struct {
         interpreter string // shell interpreter
         xopt string // execute option: -c (sh, python), -e (perl)
 }
@@ -111,7 +110,7 @@ func isTrueValue(s string) (res bool) {
         return
 }
 
-func (s *dialectShell) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         if args, err = ExpendAll(Join(args...)...); err != nil {
                 return
         }
@@ -266,15 +265,15 @@ func (s *dialectShell) Evaluate(prog *Program, args []Value, recipes []Value) (r
 }
 
 func init() {
-        RegisterDialect("shell", &dialectShell{
-                interpreter: defaultShellInterpreter, // "sh"
+        RegisterDialect("shell", &_shell{
+                interpreter: "bash", // "sh"
                 xopt: "-c",
         })
-        RegisterDialect("python", &dialectShell{
+        RegisterDialect("python", &_shell{
                 interpreter: "python",
                 xopt: "-c",
         })
-        RegisterDialect("perl", &dialectShell{
+        RegisterDialect("perl", &_shell{
                 interpreter: "perl",
                 xopt: "-e",
         })

@@ -189,8 +189,8 @@ func builtinError(pos token.Position, args... Value) (res Value, err error) {
                         return
                 }
         }
-        fmt.Fprintf(os.Stderr, "%s: %v\n", pos, s.String())
         err = fmt.Errorf("%v", s.String())
+        fmt.Fprintf(os.Stderr, "%s: %v\n", pos, s.String())
         return
 }
 

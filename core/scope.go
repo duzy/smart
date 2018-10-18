@@ -28,7 +28,7 @@ type Scope struct {
 }
 
 func NewScope(outer *Scope, project *Project, comment string) *Scope {
-        scope := &Scope{ outer, nil, nil, nil, project, comment }
+        scope := &Scope{ outer, nil, nil, make(map[string]Object), project, comment }
  	// Don't add children to Universe scope!
 	if outer != nil && outer != universe {
 		outer.children = append(outer.children, scope)
@@ -135,11 +135,7 @@ func (s *Scope) Insert(obj Object) Object {
 }
 
 func (s *Scope) replace(name string, obj Object) {
-	if s.elems == nil {
-		s.elems = make(map[string]Object)
-	}
-	s.elems[name] = obj
-	if obj.DeclScope() == nil {
+	if s.elems[name] = obj; obj.DeclScope() == nil {
 		obj.redecl(s)
 	}
 }
@@ -204,6 +200,74 @@ func (s *Scope) DiscloseDef(name string) (str string, err error) {
                 if v, err = def.DiscloseValue(); err == nil && v != nil {
                         str, err = v.Strval()
                 }
+        }
+        return
+}
+
+func (scope *Scope) ProjectName(owner *Project, name string, project *Project) (pn *ProjectName, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                pn = &ProjectName{
+                        object{
+                                scope: scope,
+                                owner: owner,
+                                name:  name,
+                                typ:   ProjectNameType,
+                        },
+                        project,
+                }
+                scope.replace(name, pn)
+        }
+        return
+}
+
+func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeName, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                sn = &ScopeName{
+                        object{
+                                scope: scope,
+                                owner: owner,
+                                name:  name,
+                                typ:   ScopeNameType,
+                        },
+                        s,
+                }
+                scope.replace(name, sn)
+        }
+        return
+}
+
+func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                def = &Def{
+                        object{
+                                scope: scope,
+                                owner: owner,
+                                name:  name,
+                                typ:   DefType,
+                        },
+                        TrivialDef, value,
+                }
+                scope.replace(name, def)
+        } else if name == "use" {
+                if sn, ok := alt.(*ScopeName); ok && sn != nil {
+                        def, alt = sn.DeclScope().Def(owner, "=", value)
+                }
+        }
+        return
+}
+
+func (scope *Scope) Builtin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
+        if alt = scope.elems[name]; alt == nil {
+                bui = &Builtin{
+                        object{
+                                scope: scope,
+                                owner: nil,
+                                name:  name, 
+                                typ:   BuiltinType,
+                        },
+                        f,
+                }
+                scope.replace(name, bui)
         }
         return
 }

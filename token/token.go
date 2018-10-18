@@ -48,6 +48,7 @@ const (
         DOTDOT    // ..
 	TILDE     // ~
         SELECT    // ->
+        ARROW     // =>
 
 	RPAREN    // )
 	RBRACK    // ]
@@ -115,8 +116,6 @@ const (
         DCO_ASSIGN // ::=       simply expanded (POSIX standard)
         assign_end
         
-        ARROW // arrow =>
-
 	PLUS  // unary +
 	MINUS // unary -
 	PCON  // path concatenation '/'
@@ -167,7 +166,8 @@ var tokens = [...]string{
 	PERIOD: ".",
         DOTDOT: "..",
         TILDE:  "~",
-        SELECT: "->",
+        SELECT: "->", // foo->bar
+        ARROW:  "=>", // foo=>bar
 
 	RPAREN:    ")",
 	RBRACK:    "]",
@@ -223,8 +223,6 @@ var tokens = [...]string{
         EXC_ASSIGN: "!=",
         SCO_ASSIGN: ":=",
         DCO_ASSIGN: "::=",
-
-        ARROW:      "=>",
 
         PLUS:  "+",
         MINUS: "-",

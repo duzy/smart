@@ -15,9 +15,10 @@ import (
 type XML struct {
         Value Value
 }
+func (p *XML) closured() bool { return p.Value.closured() }
 func (p *XML) disclose() (Value, error) { return p.Value.disclose() }
 func (p *XML) reveal() (Value, error) { return p.Value.reveal() }
-func (p *XML) referencing(_ Object) bool { return false }
+func (p *XML) refs(_ Object) bool { return false }
 func (p *XML) Type() Type { return XMLType }
 func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *XML) Strval() (string, error) { return p.Value.Strval() }
@@ -118,11 +119,11 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
         return
 }
 
-type dialectXml struct {
+type _xml struct {
         whitespace bool
 }
 
-func (t *dialectXml) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (t *_xml) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(recipes...); err != nil { return }
         if result, err = DecodeXML(source, t.whitespace); err == nil {
@@ -134,7 +135,7 @@ func (t *dialectXml) Evaluate(prog *Program, args []Value, recipes []Value) (res
 }
 
 func init() {
-        RegisterDialect("xml", &dialectXml{
+        RegisterDialect("xml", &_xml{
                 whitespace: false,
         })
 }

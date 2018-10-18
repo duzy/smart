@@ -60,13 +60,14 @@ const (
         PatternKind
         DelegateKind
         ClosureKind
+        SelectionKind
 
         // named types
         NamedKind
 
         // object types
         BuiltinKind
-        UndefKind
+        UnknownObjectKind
         DefKind
         RuleEntryKind
         ProjectNameKind
@@ -110,8 +111,9 @@ var (
                 PatternKind:    "Pattern",
                 DelegateKind:   "Delegate",
                 ClosureKind:    "Closure",
+                SelectionKind:  "Selection",
                 NamedKind:      "Named",
-                UndefKind:      "Undef",
+                UnknownObjectKind: "UnknownObject",
                 DefKind:        "Def",
                 BuiltinKind:    "Builtin",
                 RuleEntryKind:  "RuleEntry",
@@ -174,10 +176,11 @@ const (
         IsPattern // percent pattern, regexp pattern, etc.
         IsDelegate // $(foo ...)
         IsClosure  // &(foo ...)
+        IsSelection  // foo->bar  foo=>bar
 
         // Object types
         IsBuiltin
-        IsUndef
+        IsUnknownObject
         IsDef
         IsRuleEntry
         IsScopeName
@@ -198,8 +201,8 @@ const (
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair | IsPattern
         IsConstType = IsBasic
 
-        IsCore      = IsBuiltin | IsUndef | IsDef | IsRuleEntry | IsProjectName | IsScopeName | IsDefiner
-        IsObject    = IsBuiltin | IsUndef | IsDef | IsRuleEntry | IsProjectName | IsScopeName
+        IsCore      = IsBuiltin | IsUnknownObject | IsDef | IsRuleEntry | IsProjectName | IsScopeName | IsDefiner
+        IsObject    = IsBuiltin | IsUnknownObject | IsDef | IsRuleEntry | IsProjectName | IsScopeName
 
         // Custom type
         IsNamed     = IsObject | IsPair | IsProjectName | IsScopeName

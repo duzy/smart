@@ -20,6 +20,14 @@ type dependPatternUnfit struct {
 
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
+type executestack []*Program
+
+var execstack executestack // latest on top
+
+func setexecstack(v []*Program) (saved []*Program) {
+        saved = execstack; execstack = v; return
+}
+
 type cdinfo struct {
         workdir, chdir string
         print bool
@@ -35,9 +43,8 @@ type Program struct {
         globe   *Globe
         project *Project
         scope   *Scope
-        caller  *Preparer
-        params  []string // named parameters
-        depends []Value // *RuleEntry, *Barefile
+        params  []string
+        depends []Value
         recipes []Value
         pipline []*modifier
         cdinfos []*cdinfo
@@ -48,15 +55,9 @@ func (prog *Program) Position() token.Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
 
-func (prog *Program) setcaller(pc *Preparer) (old *Preparer) {
-        old = prog.caller
-        prog.caller = pc
-        return
-}
-
 func (prog *Program) auto(name string, value Value) (auto *Def) {
         var alt Object
-        if auto, alt = prog.scope.InsertDef(prog.project, name, value); alt != nil {
+        if auto, alt = prog.scope.Def(prog.project, name, value); alt != nil {
                 var found = false
                 if auto, found = alt.(*Def); found {
                         auto.Assign(value)
@@ -187,26 +188,13 @@ func (prog *Program) uncd() (err error) {
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
-        defer setclosure(setclosure(append(Closure, entry.scope))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
+        defer setexecstack(setexecstack(append(executestack{prog}, execstack...))) // build the call stack
+        defer setclosure(setclosure(append(Closure, entry.DeclScope()))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
 
         if trace_prepare {
-                switch entry.class {
-                case GeneralRuleEntry:
-                        fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.name, prog.depends, entry.class, prog.project.AbsPath())
-                case ExplicitFileEntry:
-                        fmt.Printf("program.Execute: %v (%v) (file: %v) (%v) (%v)\n", entry.name, prog.depends, entry.file, entry.class, prog.project.AbsPath())
-                case ExplicitPathEntry:
-                        fmt.Printf("program.Execute: %v (%v) (path: %v) (%v) (%v)\n", entry.name, prog.depends, entry.path, entry.class, prog.project.AbsPath())
-                case StemmedFileEntry:
-                        fmt.Printf("program.Execute: %v (%v) (file: %v) (%v, stem=%v) (%v)\n", entry.name, prog.depends, entry.file, entry.class, entry.stem, prog.project.AbsPath())
-                case StemmedRuleEntry:
-                        fmt.Printf("program.Execute: %v (%v) (%v, stem=%v) (%v)\n", entry.name, prog.depends, entry.class, entry.stem, prog.project.AbsPath())
-                default:
-                        fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.name, prog.depends, entry.class, prog.project.AbsPath())
-                }
+                fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.target, prog.depends, entry.class, prog.project.AbsPath())
         }
 
-        //defer leaveWorkdir(enterWorkdir(prog, entry.Class() != UseRuleEntry))
         if err = prog.cd(prog.project.AbsPath(), true); err != nil { return }
         defer func() { if err == nil { err = prog.uncd() } } ()
 
@@ -226,31 +214,26 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        switch entry.class {
-        case ExplicitFileEntry, StemmedFileEntry:
-                if entry.file != nil {
-                        prog.auto("@", entry.file)
-                } else {
-                        // prog.auto("@", prog.project.SearchFile(entry.name))
-                        if trace_prepare {
-                                fmt.Printf("program.Execute: %v (unknown) (%v)\n", entry.name, entry.class)
-                        }
-                        err = fmt.Errorf("unknown file '%v'", entry.name)
-                        fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
-                        return
-                }
-        default:
-                prog.auto("@", entry)
+        prog.auto("@", entry.target)
+
+        for _, pre := range prog.depends {
+                fmt.Printf("depend: %T %+v %v\n", pre, pre, pre.closured())
         }
 
-        var prerequsites []Value
-        if prerequsites, err = DiscloseAll(prog.depends...); err != nil {
-                return
+        if a, _ := RevealAll(prog.depends...); a != nil {
+                for _, pre := range a {
+                        fmt.Printf("revealed: %T %+v %v\n", pre, pre, pre.closured())
+                }
+        }
+        if a, _ := DiscloseAll(prog.depends...); a != nil {
+                for _, pre := range a {
+                        fmt.Printf("disclosed: %T %+v %v\n", pre, pre, pre.closured())
+                }
         }
 
         // Calculate and prepare depends and files.
-        var pc = NewPreparer(entry, prog)
-        if err = pc.Prepare(prerequsites); err != nil {
+        var pc = makePreparer(entry, prog)
+        if err = pc.updateall(prog.depends); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 }
