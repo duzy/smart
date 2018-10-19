@@ -135,8 +135,8 @@ func loadwork(ctx *Context) (targets []string) {
                 fset:     token.NewFileSet(), 
                 paths:    []string(globalPaths),
                 loaded:   make(map[string]*Project),
+                scope:    ctx.globe.scope,
         }
-        l.scope = l.globe.scope
 
         var (
                 base, _ = os.Getwd()
