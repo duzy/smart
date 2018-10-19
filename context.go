@@ -7,44 +7,36 @@
 package smart
 
 import (
+        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
+	"path/filepath"
         "strings"
+        "flag"
         "fmt"
         "os"
 )
 
 type Context struct {
-        globe    *Globe
-        workdir  string
-}
-func (ctx *Context) Getwd() string { return ctx.workdir }
-func (ctx *Context) Globe() *Globe { return ctx.globe }
-
-/*func (ctx *Context) defineBuiltin(name string, f builtin) {
-        scope := ctx.globe.Scope()
-        _, alt := scope.InsertBuiltin(name, func(scope *Scope, args... Value) (Value, error) {
-                return f(ctx, scope, args...)
-        })
-        if alt != nil {
-                panic(fmt.Sprintf("builtin '%s' already defined", name))
-        }
+        globe   *Globe
+        workdir string
 }
 
-func (ctx *Context) defineBuiltins() {
-        for name, f := range builtins {
-                ctx.defineBuiltin(name, f)
-        }
-}*/
-
-func (context *Context) NewProgram(position token.Position, project *Project, params []string, scope *Scope, depends []Value, recipes... Value) *Program {
-        return NewProgram(context.globe, position, project, params, scope, depends, recipes...)
+func NewContext(name string) *Context {
+        var (
+                workdir, _ = os.Getwd()
+                context = &Context{
+                        globe:    NewGlobe(name),
+                        workdir:  workdir,
+                }
+        )
+        return context
 }
 
 func (ctx *Context) Run(targets... string) (err error) {
         var (
                 result []Value
                 updated int
-                mm = ctx.Globe().Main()
+                mm = ctx.globe.Main()
         )
 
         if mm == nil {
@@ -135,18 +127,137 @@ func (ctx *Context) Run(targets... string) (err error) {
         return
 }
 
-func NewContext(name string) *Context {
-        var (
-                workdir, _ = os.Getwd()
-                globe = NewGlobe(name)
-                context = &Context{
-                        globe:    globe,
-                        workdir:  workdir,
-                }
-        )
-        if false {
-                fmt.Printf("context: %p\n", context)
+// loadwork loads smart files, making it as individual func to avoid being
+// abused by loaders.
+func loadwork(ctx *Context) (targets []string) {
+        l := &loader{
+                Context:  ctx,
+                fset:     token.NewFileSet(), 
+                paths:    []string(globalPaths),
+                loaded:   make(map[string]*Project),
         }
-        //context.defineBuiltins()
-        return context
+        l.scope = l.globe.scope
+
+        var (
+                base, _ = os.Getwd()
+                rel, _ = filepath.Rel(base, base)
+                sp = filepath.Join(base, ".smart", "modules")
+
+                at = l.globe.NewProject(nil, base, rel, ".", "@")
+                as = at.Scope()
+        )
+
+        if _, obj := as.Find("SMART"); obj != nil {
+                def := obj.(*Def)
+                for _, s := range globalPaths {
+                        def.Append(MakeString("-search"))
+                        def.Append(MakeString(s))
+                }
+        }
+
+        if _, e := os.Stat(sp); e == nil {
+                l.AddSearchPaths(sp)
+        }
+
+        //absDir, baseName := filepath.Split(at.AbsPath())
+        saveLoadingInfo(l, at.Spec(), at.AbsPath(), "")
+        linfo := l.loads[len(l.loads)-1]
+        linfo.declares[at.Name()] = &declare{ project: at }
+
+        for _, a := range flag.Args() {
+                if i := strings.Index(a, "="); 0 <= i {
+                        var (
+                                name = strings.TrimSpace(a[0:i])
+                                v = strings.TrimSpace(a[i+1:])
+                        )
+                        if name == "" {
+                                fmt.Fprintf(os.Stderr, "ERROR: bad argument '%v'\n", a)
+                                return
+                        }
+                        as.Def(at, name, MakeString(v))
+                } else {
+                        targets = append(targets, a)
+                }
+        }
+
+        l.globe.scope.ProjectName(nil, at.Name(), at)
+
+        var (
+                ab = base
+                defS, _ = as.Def(at, "/", MakeString(at.AbsPath()))
+                defD, _ = as.Def(at, ".", UniversalNone)
+        )
+        AtLookupLoop: for {
+                var (
+                        s1 = filepath.Join(ab, "@.smart")
+                        s2 = filepath.Join(ab, "@")
+                )
+                if fi, err := os.Stat(s1); err == nil {
+                        if m := fi.Mode(); m.IsRegular() {
+                                defS.Assign(MakeString(ab))
+                                defD.Assign(MakeString(ab))
+                                if err = l.Load(s1, nil); err != nil {
+                                        scanner.PrintError(os.Stderr, err)
+                                        return
+                                } else {
+                                        break AtLookupLoop
+                                }
+                        } else {
+                                fmt.Fprintf(os.Stderr, "@.smart is not a regular")
+                        }
+                } else if fi, err = os.Stat(s2); err == nil {
+                        if m := fi.Mode(); m.IsDir() {
+                                defS.Assign(MakeString(ab))
+                                defD.Assign(MakeString(ab))
+                                if err = l.LoadDir(s2, nil); err != nil {
+                                        scanner.PrintError(os.Stderr, err)
+                                        return
+                                } else {
+                                        break AtLookupLoop
+                                }
+                        } else {
+                                fmt.Fprintf(os.Stderr, "@ is not a directory")
+                        }
+                }
+                if ab == "/" {
+                        break
+                }
+                if ab = filepath.Dir(ab); ab == "." {
+                        break
+                }
+        }
+
+        restoreLoadingInfo(l)
+
+        if err := l.LoadDir(base, nil); err != nil {
+                scanner.PrintError(os.Stderr, err)
+                return
+        }
+
+        return
+}
+
+func CommandLine() {
+        defer func() {
+		if e := recover(); e != nil {
+			// resume same panic if it's not a Failure
+			if failure, ok := e.(*Failure); !ok {
+				panic(e)
+			} else {
+                                scanner.PrintError(os.Stderr, failure)
+                        }
+		}
+        }()
+
+        if !flag.Parsed() {
+                flag.Parse()
+        }
+
+        ctx := NewContext("smart")
+        targets := loadwork(ctx)
+
+        if err := ctx.Run(targets...); err != nil {
+                scanner.PrintError(os.Stderr, err)
+                return
+        }
 }

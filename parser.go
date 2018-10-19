@@ -1765,10 +1765,9 @@ func (p *parser) parseFile() *ast.File {
         var (
                 keyword token.Token
                 ident *ast.Bareword
-                wd = p.Getwd()
                 filename = p.file.Name()
                 abs = filepath.Dir(filename)
-                rel , _ = filepath.Rel(wd, abs)
+                rel , _ = filepath.Rel(p.workdir, abs)
                 doc = p.leadComment
                 pos = p.pos
         )

@@ -7,7 +7,6 @@ package smart
 
 import (
         "extbit.io/smart/ast"
-        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
 	"bytes"
 	"io/ioutil"
@@ -225,7 +224,7 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
                         if filepath.IsAbs(base) {
                                 s = filepath.Join(base, specName)
                         } else {
-                                s = filepath.Join(l.Getwd(), base, specName)
+                                s = filepath.Join(l.workdir, base, specName)
                         }
                         if fi, err = os.Stat(s); err == nil && fi != nil {
                                 isDir, absPath = fi.IsDir(), s
@@ -840,7 +839,7 @@ func (l *loader) rule(clause *ast.RuleClause) {
                 modifiers = l.exprs(clause.Modifier.Elems)
         }
         
-        var prog = l.NewProgram(clause.Position, l.project, params, progScope, depends, recipes...)
+        var prog = NewProgram(l.globe, clause.Position, l.project, params, progScope, depends, recipes...)
         for i, m := range modifiers {
                 position := l.p.file.Position(clause.Modifier.Elems[i].Pos())
                 if err := prog.AddModifier(position, m); err != nil {
@@ -910,7 +909,7 @@ func (l *loader) closeScope(as ast.Scope) {
                 // Must change the outer of dir scope to globe to avoid Finding symbols
                 // recursively.
                 if s := scope.Comment(); strings.HasPrefix(s, "dir ") /*|| strings.HasPrefix(s, "file ")*/ {
-                        l.Globe().SetScopeOuter(scope)
+                        l.globe.SetScopeOuter(scope)
                 }
         }
         return
@@ -980,10 +979,10 @@ func (l *loader) declareProject(ident *ast.Bareword, params Value) (err error) {
                         relPath string
                 )
                 if !filepath.IsAbs(absDir) {
-                        //absDir = filepath.Join(l.Getwd(), absDir)
+                        //absDir = filepath.Join(l.workdir, absDir)
                         absDir, _ = filepath.Abs(absDir)
                 }
-                relPath, _ = filepath.Rel(l.Getwd(), absDir)
+                relPath, _ = filepath.Rel(l.workdir, absDir)
 
                 // Avoid nesting project scopes!
                 for strings.HasPrefix(outer.Comment(), "project \"") {
@@ -991,7 +990,7 @@ func (l *loader) declareProject(ident *ast.Bareword, params Value) (err error) {
                 }
 
                 dec = &declare{
-                        project: l.Globe().NewProject(outer, absDir, relPath, linfo.specName, name),
+                        project: l.globe.NewProject(outer, absDir, relPath, linfo.specName, name),
                 }
                 
                 l.loaded[linfo.absPath()] = dec.project
@@ -1083,7 +1082,7 @@ func (l *loader) DeclareProject(ident *ast.Bareword, params Value) error {
                 var (
                         linfo = l.loads[0]
                         dec, ok = linfo.declares[ident.Value]
-                        at, _ = l.Globe().Scope().Lookup(ident.Value).(*ProjectName)
+                        at, _ = l.globe.scope.Lookup(ident.Value).(*ProjectName)
                 )
                 if !ok {
                         dec = &declare{ project: at.NamedProject() }
@@ -1194,7 +1193,7 @@ func (l *loader) resolve(value Value) (obj Object, err error) {
                 // If resolving @ in a rule (program) scope selection context,
                 // e.g. '$(@.FOO)', Resolve have to ensure @ is pointing to the global
                 // @ package.
-                if _, obj = l.Globe().Scope().Find(name); obj != nil {
+                if _, obj = l.globe.scope.Find(name); obj != nil {
                         return
                 }
         }
@@ -1348,7 +1347,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 
         var (
                 sym Object
-                wd = l.Getwd()
+                wd = l.workdir
                 rel , _ = filepath.Rel(wd, pathname)
                 ident = filepath.Base(pathname)
         )
@@ -1591,12 +1590,12 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
 
 func (l *loader) Load(filename string, source interface{}) error {
         s, _ := filepath.Split(filename)
-        s, _  = filepath.Rel(l.Getwd(), s)
+        s, _  = filepath.Rel(l.workdir, s)
         return l.load(s, filename, source)
 }
 
 func (l *loader) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
-        s, _ := filepath.Rel(l.Getwd(), path)
+        s, _ := filepath.Rel(l.workdir, path)
         return l.loadDir(s, path, filter)
 }
 
@@ -1610,137 +1609,4 @@ func AddSearchPaths(paths... string) (err error) {
                 }
         }
         return
-}
-
-func LoadWork() (l *loader, targets []string) {
-        l = &loader{
-                Context:  NewContext("loader"),
-                fset:     token.NewFileSet(), 
-                paths:    []string(globalPaths),
-                loaded:   make(map[string]*Project),
-        }
-        l.scope = l.Globe().Scope()
-
-        var (
-                base, _ = os.Getwd()
-                rel, _ = filepath.Rel(base, base)
-                sp = filepath.Join(base, ".smart", "modules")
-
-                at = l.Globe().NewProject(nil, base, rel, ".", "@")
-                as = at.Scope()
-        )
-
-        if _, obj := as.Find("SMART"); obj != nil {
-                def := obj.(*Def)
-                for _, s := range globalPaths {
-                        def.Append(MakeString("-search"))
-                        def.Append(MakeString(s))
-                }
-        }
-
-        if _, e := os.Stat(sp); e == nil {
-                l.AddSearchPaths(sp)
-        }
-
-        //absDir, baseName := filepath.Split(at.AbsPath())
-        saveLoadingInfo(l, at.Spec(), at.AbsPath(), "")
-        linfo := l.loads[len(l.loads)-1]
-        linfo.declares[at.Name()] = &declare{ project: at }
-
-        for _, a := range flag.Args() {
-                if i := strings.Index(a, "="); 0 <= i {
-                        var (
-                                name = strings.TrimSpace(a[0:i])
-                                v = strings.TrimSpace(a[i+1:])
-                        )
-                        if name == "" {
-                                fmt.Fprintf(os.Stderr, "ERROR: bad argument '%v'\n", a)
-                                return
-                        }
-                        as.Def(at, name, MakeString(v))
-                } else {
-                        targets = append(targets, a)
-                }
-        }
-
-        l.Globe().Scope().ProjectName(nil, at.Name(), at)
-
-        var (
-                ab = base
-                defS, _ = as.Def(at, "/", MakeString(at.AbsPath()))
-                defD, _ = as.Def(at, ".", UniversalNone)
-        )
-        AtLookupLoop: for {
-                var (
-                        s1 = filepath.Join(ab, "@.smart")
-                        s2 = filepath.Join(ab, "@")
-                )
-                if fi, err := os.Stat(s1); err == nil {
-                        if m := fi.Mode(); m.IsRegular() {
-                                defS.Assign(MakeString(ab))
-                                defD.Assign(MakeString(ab))
-                                if err = l.Load(s1, nil); err != nil {
-                                        scanner.PrintError(os.Stderr, err)
-                                        return
-                                } else {
-                                        break AtLookupLoop
-                                }
-                        } else {
-                                fmt.Fprintf(os.Stderr, "@.smart is not a regular")
-                        }
-                } else if fi, err = os.Stat(s2); err == nil {
-                        if m := fi.Mode(); m.IsDir() {
-                                defS.Assign(MakeString(ab))
-                                defD.Assign(MakeString(ab))
-                                if err = l.LoadDir(s2, nil); err != nil {
-                                        scanner.PrintError(os.Stderr, err)
-                                        return
-                                } else {
-                                        break AtLookupLoop
-                                }
-                        } else {
-                                fmt.Fprintf(os.Stderr, "@ is not a directory")
-                        }
-                }
-                if ab == "/" {
-                        break
-                }
-                if ab = filepath.Dir(ab); ab == "." {
-                        break
-                }
-        }
-
-        restoreLoadingInfo(l)
-
-        if err := l.LoadDir(base, nil); err != nil {
-                scanner.PrintError(os.Stderr, err)
-                return
-        }
-
-        return
-}
-
-func CommandLine() {
-        defer func() {
-		if e := recover(); e != nil {
-			// resume same panic if it's not a Failure
-			if failure, ok := e.(*Failure); !ok {
-				panic(e)
-			} else {
-                                scanner.PrintError(os.Stderr, failure)
-                                //os.Exit(-1) // exit abnormally
-                        }
-		}
-        }()
-
-        if !flag.Parsed() {
-                flag.Parse()
-        }
-
-        l, targets := LoadWork()
-
-        if err := l.Run(targets...); err != nil {
-                scanner.PrintError(os.Stderr, err)
-                return
-        }
 }
