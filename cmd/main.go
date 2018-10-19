@@ -7,9 +7,9 @@
 package main
 
 import (
-        "extbit.io/smart/loader"
+        "extbit.io/smart"
 )
 
 func main() {
-        loader.CommandLine()
+        smart.CommandLine()
 }
