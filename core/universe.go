@@ -1,12 +1,12 @@
 //
-//  Copyright (C) 2012-2017, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Copyright (C) 2012-2018, Duzy Chan <code@duzy.info>, all rights reserverd.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
 
 // This file sets up the global scope and the root project/module.
 
-package core
+package smart
 
 import (
         "time"
