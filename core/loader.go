@@ -252,13 +252,13 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                                 return
                         }
                 } else {
-                        l.p.error(spec.Props[0].Pos(), "invalid evaluated data (%T)")
+                        l.p.error(spec.Props[0].Pos(), "invalid evaluated data `%T`")
                         return
                 }
                 for _, prop := range spec.Props[1:] {
                         ee, _ := prop.(*ast.EvaluatedExpr)
                         if ee == nil || ee.Data == nil {
-                                l.p.error(prop.Pos(), "invalid evaluated data (%T)")
+                                l.p.error(prop.Pos(), "invalid evaluated data `%T`")
                                 return
                         }
                         // -param
@@ -286,7 +286,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                                         default: params = append(params, v)
                                         }
                                 default:
-                                        l.p.error(prop.Pos(), "parameter `%v' unsupported (%T)", v, v)
+                                        l.p.error(prop.Pos(), "parameter `%v' unsupported `%T`", v, v)
                                         return
                                 }
                         case *Argumented: // -param(value)
@@ -301,11 +301,11 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                                         default: params = append(params, v)
                                         }
                                 default:
-                                        l.p.error(prop.Pos(), "parameter `%v' unsupported (%T)", v, v)
+                                        l.p.error(prop.Pos(), "parameter `%v' unsupported `%T`", v, v)
                                         return
                                 }
                         default:
-                                l.p.error(prop.Pos(), "parameter `%v` unsupported (%T)", v, v)
+                                l.p.error(prop.Pos(), "parameter `%v` unsupported `%T`", v, v)
                                 return
                         }
                 }
@@ -378,6 +378,16 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
         return
 }
 
+func (l *loader) evaluated(x *ast.EvaluatedExpr) (v Value) {
+        var ok bool
+        if x.Data == nil {
+                l.p.error(x.Pos(), "evaluated data is nil `%T`", x.Expr)
+        } else if v, ok = x.Data.(Value); !ok {
+                l.p.error(x.Pos(), "evaluated data is not value `%T`", x.Data)
+        }
+        return v
+}
+
 func (l *loader) argumented(x *ast.ArgumentedExpr) Value {
         av := new(Argumented)
         av.Value = l.expr(x.X)
@@ -388,7 +398,7 @@ func (l *loader) argumented(x *ast.ArgumentedExpr) Value {
 func (l *loader) closuredelegate(x *ast.ClosureDelegate) (obj Object, args []Value) {
         var name = l.expr(x.Name)
         if name == nil {
-                l.p.error(x.Name.Pos(), "nil name (%T).", x.Name)
+                l.p.error(x.Name.Pos(), "nil name `%T`", x.Name)
                 return
         }
 
@@ -401,44 +411,54 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (obj Object, args []Val
                         tok = token.LPAREN
                 } else {
                         l.p.error(x.TokPos, "unregonized closure/delegate (%v).", x.Tok)
+                        return
                 }
         default:
                 l.p.error(x.TokPos, "unregonized closure/delegate (%v, %v).", x.TokLp, x.Tok)
+                return
         }
 
         if x.Resolved == nil {
                 switch tok {
                 case token.LPAREN:
                         var err error
-                        if x.Resolved, err = l.resolve(name, anywhere); err != nil {
+                        if x.Resolved, err = l.resolve(name); err != nil {
                                 l.p.error(x.Name.Pos(), "%s", err)
+                                return
                         } else if x.Resolved == nil {
-                                l.p.error(x.Name.Pos(), "nil object `%s`", name)
+                                l.p.error(x.Name.Pos(), "object `%s` is nil", name)
+                                return
                         }
                 case token.LBRACE:
                         if x.Resolved = l.find(name); x.Resolved == nil {
-                                l.p.error(x.Name.Pos(), "nil object `%s`", name)
+                                l.p.error(x.Name.Pos(), "entry `%s` is nil", name)
+                                return
                         }
                 }
                 if x.Resolved == nil {
                         l.p.error(x.Name.Pos(), "unresolved `%s`", name)
+                        return
                 }
         }
 
         switch tok {
         case token.LPAREN:
                 if def, _ := x.Resolved.(Caller); def == nil {
-                        l.p.error(x.Name.Pos(), "uncallable `%s` resolved (%T)", name, x.Resolved)
+                        l.p.error(x.Name.Pos(), "uncallable `%s` resolved `%T`", name, x.Resolved)
+                        return
                 } else if obj = def.(Object); obj == nil {
-                        l.p.error(x.Name.Pos(), "non-object callable `%s` resolved (%T).", name, def)
+                        l.p.error(x.Name.Pos(), "non-object callable `%s` resolved `%T`", name, def)
+                        return
                 }
         case token.LBRACE:
                 if resolved, _ := x.Resolved.(Executer); resolved != nil {
                         if obj = resolved.(Object); obj == nil {
-                                l.p.error(x.Name.Pos(), "non-object executer `%s` resolved (%T).", name, resolved)
+                                l.p.error(x.Name.Pos(), "non-object executer `%s` resolved `%T`", name, resolved)
+                                return
                         }
                 } else {
-                        l.p.error(x.Name.Pos(), "unexecutable `%s` resolved (%T).", name, x.Resolved)
+                        l.p.error(x.Name.Pos(), "unexecutable `%s` resolved `%T`", name, x.Resolved)
+                        return
                 }
         }
         
@@ -446,7 +466,8 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (obj Object, args []Val
                 if a := l.expr(x); a != nil {
                         args = append(args, a)
                 } else {
-                        l.p.error(x.Pos(), "nil arg #%d (%T)", i, x)
+                        l.p.error(x.Pos(), "nil arg #%d `%T`", i, x)
+                        return
                 }
         }
         return
@@ -456,7 +477,7 @@ func (l *loader) closure(x *ast.ClosureExpr) (v Value) {
         if obj, args := l.closuredelegate(&x.ClosureDelegate); obj != nil {
                 v = MakeClosure(x.Position, x.TokLp, obj, args...)
         } else {
-                l.p.error(x.Pos(), "nil closure object (%T)", x.Name)
+                l.p.error(x.Pos(), "closure nil object `%T`", x.Name)
         }
         return
 }
@@ -465,20 +486,55 @@ func (l *loader) delegate(x *ast.DelegateExpr) (v Value) {
         if obj, args := l.closuredelegate(&x.ClosureDelegate); obj != nil {
                 v = MakeDelegate(x.Position, x.TokLp, obj, args...)
         } else {
-                l.p.error(x.Pos(), "nil delegate object (%T)", x.Name)
+                l.p.error(x.Pos(), "delegate nil object `%T`", x.Name)
         }
         return
 }
 
 func (l *loader) selection(x *ast.SelectionExpr) (v Value) {
         if lhs := l.expr(x.Lhs); lhs != nil {
+                if lhs.Type() != SelectionType {
+                        // Resolve the first left-hand-side.
+                        if o, err := l.resolve(lhs); err != nil {
+                                l.p.error(x.Lhs.Pos(), "`%v`: %v", lhs, err)
+                        } else if o == nil {
+                                l.p.error(x.Lhs.Pos(), "`%v` is undefined", lhs)
+                        } else {
+                                lhs = o
+                        }
+                }
                 if rhs := l.expr(x.Rhs); rhs != nil {
                         v = &selection{ x.Tok, lhs, rhs }
                 } else {
-                        l.p.error(x.Rhs.Pos(), "invalid `%T`", x.Rhs)
+                        l.p.error(x.Rhs.Pos(), "invalid %v `%T`", lhs, x.Rhs)
                 }
         } else {
                 l.p.error(x.Lhs.Pos(), "invalid `%T`", x.Lhs)
+        }
+        return
+}
+
+func (l *loader) barefile(x *ast.Barefile) (v Value) {
+        if file, _ := x.File.(*File); file != nil {
+                if x.Val != nil {
+                        v = MakeBarefile(x.Val.(Value), file)
+                } else {
+                        v = MakeBarefile(l.expr(x.Name), file)
+                }
+        }
+        if v == nil {
+                l.p.error(x.Pos(), "invalid barefile `%s` (%T)", x.Name, x.File)
+        }
+        return
+}
+
+func (l *loader) pathseg(x *ast.PathSegExpr) (v Value) {
+        switch x.Tok {
+        case token.PCON:   v = MakePathSeg('/')
+        case token.TILDE:  v = MakePathSeg('~')
+        case token.PERIOD: v = MakePathSeg('.')
+        case token.DOTDOT: v = MakePathSeg('^') // 
+        default: l.p.error(x.Pos(), "unsupported path segment `%v`", x.Tok)
         }
         return
 }
@@ -494,6 +550,22 @@ func (l *loader) recipe(x *ast.RecipeExpr) (v Value) {
         return
 }
 
+func (l *loader) recipedefine(x *ast.RecipeDefineClause) (v Value) {
+        var name = l.expr(x.Name)
+        if def, _ := x.Sym.(*Def); def == nil {
+                l.p.error(x.Pos(), "`%s` undefined in %v", def.Name(), def.DeclScope().comment)
+        } else if str, err := name.Strval(); err != nil {
+                l.p.error(x.Name.Pos(), "%s", err)
+        } else if def.Name() != str {
+                l.p.error(x.Name.Pos(), "`%s` differs from `%s`", str, def.Name())
+        } else if o := def.DeclScope().Lookup(def.Name()); o != def {
+                l.p.error(x.Pos(), "`%s` undefined in %v", def.Name(), def.DeclScope().comment)
+        } else {
+                v = def
+        }
+        return
+}
+
 func (l *loader) expr(expr ast.Expr) (v Value) {
         if expr == nil {
                 //l.p.error(l.p.pos, "encountered nil expr")
@@ -501,14 +573,9 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
                 return
         }
 
-        var ok = false
         switch x := expr.(type) {
         case *ast.EvaluatedExpr:
-                if x.Data == nil {
-                        l.p.error(x.Pos(), "evaluated data is nil (%T)", x.Expr)
-                } else if v, ok = x.Data.(Value); !ok {
-                        l.p.error(x.Pos(), "invalid evaluated data (%T)", x.Data)
-                }
+                v = l.evaluated(x)
         case *ast.ArgumentedExpr:
                 v = l.argumented(x)
         case *ast.ClosureExpr:
@@ -517,8 +584,6 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
                 v = l.delegate(x)
         case *ast.SelectionExpr:
                 v = l.selection(x)
-        case *ast.RecipeExpr:
-                v = l.recipe(x)
         case *ast.BasicLit:
                 v = ParseLiteral(x.Kind, x.Value)
         case *ast.Bareword:
@@ -526,28 +591,13 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
         case *ast.Barecomp:
                 v = MakeBarecomp(l.exprs(x.Elems)...)
         case *ast.Barefile:
-                if file, _ := x.File.(*File); file != nil {
-                        if x.Val != nil {
-                                v = MakeBarefile(x.Val.(Value), file)
-                        } else {
-                                v = MakeBarefile(l.expr(x.Name), file)
-                        }
-                }
-                if v == nil {
-                        l.p.error(x.Pos(), "invalid barefile `%s` (%T)", x.Name, x.File)
-                }
+                v = l.barefile(x)
         case *ast.GlobExpr: // Just "*"
                 v = MakeGlob(x.Tok)
         case *ast.PathExpr:
                 v = MakePath(l.exprs(x.Segments)...)
         case *ast.PathSegExpr:
-                switch x.Tok {
-                case token.PCON:   v = MakePathSeg('/')
-                case token.TILDE:  v = MakePathSeg('~')
-                case token.PERIOD: v = MakePathSeg('.')
-                case token.DOTDOT: v = MakePathSeg('^') // 
-                default: l.p.error(x.Pos(), "unsupported path segment `%v`", x.Tok)
-                }
+                v = l.pathseg(x)
         case *ast.FlagExpr:
                 v = MakeFlag(l.expr(x.Name))
         case *ast.CompoundLit:
@@ -560,22 +610,17 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
                 v = MakePair(l.expr(x.Key), l.expr(x.Value))
         case *ast.PercExpr:
                 v = MakeGlobPattern(l.expr(x.X), l.expr(x.Y))
+        case *ast.RecipeExpr:
+                v = l.recipe(x)
         case *ast.RecipeDefineClause:
-                var name = l.expr(x.Name)
-                if def, _ := x.Sym.(*Def); def == nil {
-                        l.p.error(x.Pos(), "`%s` undefined in %v", def.Name(), def.DeclScope().comment)
-                } else if str, err := name.Strval(); err != nil {
-                        l.p.error(x.Name.Pos(), "%s", err)
-                } else if def.Name() != str {
-                        l.p.error(x.Name.Pos(), "`%s` differs from `%s`", str, def.Name())
-                } else if o := def.DeclScope().Lookup(def.Name()); o != def {
-                        l.p.error(x.Pos(), "`%s` undefined in %v", def.Name(), def.DeclScope().comment)
-                } else {
-                        v = def
-                }
+                v = l.recipedefine(x)
+        case *ast.BadExpr:
+                l.p.error(x.Pos(), "bad expr")
+                return
         }
+
         if v == nil {
-                l.p.error(expr.Pos(), "expr value is nil (%T)", expr)
+                l.p.error(expr.Pos(), "expr value is nil `%T`", expr)
         }
         return
 }
@@ -1092,7 +1137,7 @@ func (l *loader) OpenNamedScope(name, comment string) (ast.Scope, error) {
 }
 
 func (l *loader) eval(x ast.Expr, ec EvalBits) (res Value, err error) {
-	defer func() {
+	/*defer func() {
 		if e := recover(); e != nil {
                         if fault := GoFault(e); fault != nil {
                                 err = fault
@@ -1100,40 +1145,51 @@ func (l *loader) eval(x ast.Expr, ec EvalBits) (res Value, err error) {
                                 err = fmt.Errorf("%v", e)
                         }
 		}
-        }()
+        }()*/
 
         if res = l.expr(x); res == nil {
                 l.p.error(x.Pos(), "eval invalid expr `%T`", x)
                 return
         }
-
         if ec&KeepClosures == 0 {
-                if res, err = Disclose(res); err != nil || res == nil {
+                if res, err = Disclose(res); err != nil {
+                        l.p.error(x.Pos(), "%v", err)
+                        return
+                } else if res == nil {
                         return
                 }
         }
         if ec&KeepDelegates == 0 {
-                if res, err = Reveal(res); err != nil { return }
-                if res == nil { return }
+                if res, err = Reveal(res); err != nil {
+                        l.p.error(x.Pos(), "%v", err)
+                        return
+                } else if res == nil {
+                        return
+                }
         }
         if ec&DependValue == 0 {
                 return
         }
-
-        // Cast depends so that it's could be easily used.
-
         if def, ok := res.(*Def); ok && def != nil {
                 res = def.Value
         }
         return
 }
 
-func (l *loader) resolve(value Value, bits ResolveBits) (obj Object, err error) {
+func (l *loader) resolve(value Value) (obj Object, err error) {
+        if sel, ok := value.(*selection); ok {
+                if value, err = sel.value(); err == nil {
+                        obj, ok = value.(Object)
+                }
+                return
+        }
+
         var name string
         if name, err = value.Strval(); err != nil {
                 return
         }
 
+        const bits = anywhere
         if bits&FromGlobe != 0 {
                 // If resolving @ in a rule (program) scope selection context,
                 // e.g. '$(@.FOO)', Resolve have to ensure @ is pointing to the global
@@ -1259,7 +1315,7 @@ func (l *loader) ParseFile(fset *token.FileSet, filename string, src interface{}
 		err = l.errors.Err()
 
                 // decouple
-                l.p.runtime = nil
+                l.p.loader = nil
                 l.p = saved
 	} ()
 
@@ -1672,7 +1728,7 @@ func CommandLine() {
 				panic(e)
 			} else {
                                 scanner.PrintError(os.Stderr, failure)
-                                os.Exit(-1) // exit abnormally
+                                //os.Exit(-1) // exit abnormally
                         }
 		}
         }()

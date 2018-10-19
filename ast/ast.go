@@ -319,26 +319,53 @@ func (d *ModifierExpr) End() token.Pos    { return d.Rbrack + 1 }
 func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
 func (d *ProgramExpr) End() token.Pos     { return d.Recipes[len(d.Recipes)-1].End() }
 
+func joins(exprs... Expr) (s string) {
+        for _, x := range exprs { s += fmt.Sprintf("%v", x) }
+        return
+}
+
+func joinx(sep string, exprs... Expr) (s string) {
+        for i, x := range exprs {
+                if i > 0 { s += sep }
+                s += fmt.Sprintf("%v", x)
+        }
+        return
+}
+
 func (x *BadExpr) String() string         { return fmt.Sprintf("BadExpr{%v,%v}", x.From, x.To) }
-func (x *Bareword) String() string        { return fmt.Sprintf("Bareword{%v}", x.Value) }
-func (x *BasicLit) String() string        { return fmt.Sprintf("BasicLit{%v,%v}", x.Kind, x.Value) }
-func (x *FlagExpr) String() string        { return fmt.Sprintf("FlagExpr{%v}", x.Name) }
-func (x *CompoundLit) String() string     { return fmt.Sprintf("CompoundLit{%v}", x.Elems) }
-func (x *Barecomp) String() string        { return fmt.Sprintf("Barecomp{%v}", x.Elems) }
-func (x *Barefile) String() string        { return fmt.Sprintf("Barefile{%v}", x.Name) }
-func (x *ListExpr) String() string        { return fmt.Sprintf("ListExpr{%v}", x.Elems) }
-func (x *PathExpr) String() string        { return fmt.Sprintf("PathExpr{%v}", x.Segments) }
-func (x *PathSegExpr) String() string     { return fmt.Sprintf("PathSegExpr{%v}", x.Tok) }
-func (x *GlobExpr) String() string        { return fmt.Sprintf("Glob{%v}", x.Tok) }
-func (x *ClosureDelegate) String() string { return fmt.Sprintf("ClosureDelegate{%v,%v}", x.Name, x.Args) }
-func (x *SelectionExpr) String() string   { return fmt.Sprintf("SelectionExpr{%v %s %v}", x.Lhs, x.Tok, x.Rhs) }
-func (x *ArgumentedExpr) String() string  { return fmt.Sprintf("ArgumentedExpr{%v,%v}", x.X, x.Arguments) }
-func (x *GroupExpr) String() string       { return fmt.Sprintf("GroupExpr{%v}", x.Elems) }
-func (x *PercExpr) String() string        { return fmt.Sprintf("PercExpr{%v,%v}", x.X, x.Y) }
-func (x *KeyValueExpr) String() string    { return fmt.Sprintf("KeyValueExpr{%v,%v}", x.Key, x.Value) }
-func (x *ModifierExpr) String() string    { return fmt.Sprintf("ModifierExpr{%v}", x.Elems) }
-func (x *RecipeExpr) String() string      { return fmt.Sprintf("RecipeExpr{%v,%v}", x.Dialect, x.Elems) }
-func (x *ProgramExpr) String() string     { return fmt.Sprintf("ProgramExpr{%v,%v}", x.Params, x.Recipes) }
+func (x *Bareword) String() string        { return fmt.Sprintf("%s", x.Value) }
+func (x *BasicLit) String() string        { return fmt.Sprintf("%s", x.Value) }
+func (x *FlagExpr) String() string        { return fmt.Sprintf("-%v", x.Name) }
+func (x *CompoundLit) String() string     { return fmt.Sprintf(`"%v"`, joins(x.Elems...)) }
+func (x *Barecomp) String() string        { return fmt.Sprintf("%v", joins(x.Elems...)) }
+func (x *Barefile) String() string        { return fmt.Sprintf("%v", x.Name) }
+func (x *ListExpr) String() string        { return fmt.Sprintf("%v", joinx(" ", x.Elems...)) }
+func (x *PathExpr) String() string        { return fmt.Sprintf("%v", joinx("/", x.Segments...)) }
+func (x *PathSegExpr) String() string     { return fmt.Sprintf("%v", x.Tok) }
+func (x *GlobExpr) String() string        { return fmt.Sprintf("%v", x.Tok) }
+func (x *ClosureDelegate) String() (s string) {
+        var a string
+        if len(x.Args) > 0 {
+                a = " " + joinx(" ", x.Args...)
+        }
+        switch x.TokLp {
+        case token.ILLEGAL:
+                s = fmt.Sprintf("%v%v", x.Tok, x.Name)
+        case token.LPAREN:
+                s = fmt.Sprintf("%v(%v%s)", x.Tok, x.Name, a)
+        case token.LBRACE:
+                s = fmt.Sprintf("%v{%v%s}", x.Tok, x.Name, a)
+        }
+        return
+}
+func (x *SelectionExpr) String() string   { return fmt.Sprintf("%v%s%v", x.Lhs, x.Tok, x.Rhs) }
+func (x *ArgumentedExpr) String() string  { return fmt.Sprintf("%v(%v)", x.X, joinx(",", x.Arguments...)) }
+func (x *GroupExpr) String() string       { return fmt.Sprintf("(%v)", joinx(" ", x.Elems...)) }
+func (x *PercExpr) String() string        { return fmt.Sprintf("%v%%%v", x.X, x.Y) }
+func (x *KeyValueExpr) String() string    { return fmt.Sprintf("%v%s%v", x.Key, x.Tok, x.Value) }
+func (x *ModifierExpr) String() string    { return fmt.Sprintf("(%v)", joinx(" ", x.Elems...)) }
+func (x *RecipeExpr) String() string      { return fmt.Sprintf("Recipe(%s){%v}", x.Dialect, x.Elems) }
+func (x *ProgramExpr) String() string     { return fmt.Sprintf("Program(%v){%v}", x.Params, x.Recipes) }
 
 func (*BadExpr) expr()         {}
 func (*Bareword) expr()        {}

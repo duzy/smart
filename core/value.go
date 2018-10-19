@@ -1985,31 +1985,35 @@ type selection struct {
 
 func (p *selection) Type() Type  { return SelectionType }
 func (p *selection) String() string {
-        //o, t, s := p.o.String(), p.t.String(), p.s.String()
-        return fmt.Sprintf("%s%s%s", p.o, p.t, p.s)
+        return fmt.Sprintf("%v%s%v", p.o, p.t, p.s)
 }
 
 func (p *selection) object() (o Object, err error) {
-        switch t := p.o.(type) {
-        case Object: o = t
-        case *selection:
+        if s, ok := p.o.(*selection); ok {
                 var v Value
-                if v, err = t.value(); err != nil { return }
-                if o, _ = v.(Object); o == nil {
-                        err = fmt.Errorf("nil object (%s)", t.String())
+                if v, err = s.value(); err != nil {
+                        // sth's wrong!
+                } else if o, _ = v.(Object); o == nil {
+                        err = fmt.Errorf("selection.object: `%s` is nil", s.String())
                 }
+        } else if o, ok = p.o.(Object); !ok {
+                err = fmt.Errorf("selection.object: `%v` is not object but `%T`", p.o, p.o)
         }
         return
 }
 
 func (p *selection) value() (v Value, err error) {
         var o Object
-        if o, err = p.object(); err == nil && o != nil {
-                var s string
-                if s, err = p.s.Strval(); err != nil { return }
-                v, err = o.Get(s)
+        if p.s == nil {
+                err = fmt.Errorf("selection.value: nil prop `%s`", p.String())
+        } else if o, err = p.object(); err != nil {
+                // sth's wrong!
+        } else if s := ""; o != nil {
+                if s, err = p.s.Strval(); err == nil {
+                        v, err = o.Get(s)
+                }
         } else if o == nil {
-                err = fmt.Errorf("nil object (%s)", p.String())
+                err = fmt.Errorf("selection.value: nil object `%s`", p.String())
         }
         return
 }
@@ -2041,8 +2045,16 @@ func (p *selection) refs(o Object) bool { return p.o.refs(o) || p.s.refs(o) }
 func (p *selection) closured() bool { return p.o.closured() || p.s.closured() }
 func (p *selection) disclose() (res Value, err error) {
         var o, s Value
-        if o, err = p.o.disclose(); err != nil { return }
-        if s, err = p.s.disclose(); err != nil { return }
+        if p.o != nil {
+                if o, err = p.o.disclose(); err != nil {
+                        return
+                } else if o == nil { o = p.o }
+        }
+        if p.s != nil {
+                if s, err = p.s.disclose(); err != nil {
+                        return
+                } else if s == nil { s = p.s }
+        }
         if o != p.o || s != p.s {
                 res = &selection{ p.t, o, s }
         }
@@ -2050,9 +2062,19 @@ func (p *selection) disclose() (res Value, err error) {
 }
 func (p *selection) reveal() (res Value, err error) {
         var o, s Value
-        if o, err = p.o.reveal(); err != nil { return }
-        if s, err = p.s.reveal(); err != nil { return }
-        if o != p.o || s != p.s { res = &selection{ p.t, o, s } }
+        if p.o != nil {
+                if o, err = p.o.reveal(); err != nil {
+                        return
+                } else if o == nil { o = p.o }
+        }
+        if p.s != nil {
+                if s, err = p.s.reveal(); err != nil {
+                        return
+                } else if s == nil { s = p.s }
+        }
+        if o != p.o || s != p.s {
+                res = &selection{ p.t, o, s }
+        }
         return
 }
 
@@ -2311,9 +2333,7 @@ func NameScope(name string, scope *Scope) NameScoper {
 
 // Reveal reveals delegated component and Valuer recursively.
 func Reveal(value Value) (res Value, err error) {
-        if false {
-                fmt.Printf("Reveal: %T %v\n", value, value)
-        }
+        //fmt.Printf("Reveal: %T %v\n", value, value)
         if res, err = value.reveal(); res == nil && err == nil {
                 res = value
         }
