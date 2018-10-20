@@ -211,7 +211,7 @@ func (pc *preparer) updateTarget(target string) (err error) {
         }
 
         var entry *RuleEntry
-        if entry, err = pc.program.project.FindEntry(target); entry != nil {
+        if entry, err = pc.program.project.resolveEntry(target); entry != nil {
                 if trace_prepare {
                         fmt.Printf("prepare:Target: %v (found %v) (%v -> %v)\n", target, entry, pc.program.project.name, pc.entry)
                 }
@@ -220,7 +220,7 @@ func (pc *preparer) updateTarget(target string) (err error) {
         }
 
         var pss []*PatternStem
-        if pss, err = pc.program.project.FindPatterns(target); err == nil {
+        if pss, err = pc.program.project.resolvePatterns(target); err == nil {
                 fmt.Printf("%v %v\n", pc.program.project.patterns, pss)
                 for _, ps := range pss {
                         if trace_prepare {
@@ -1275,7 +1275,7 @@ func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
         }
 
         var pss []*PatternStem
-        if pss, err = pc.program.project.FindPatterns(p.Name); err != nil {
+        if pss, err = pc.program.project.resolvePatterns(p.Name); err != nil {
                 return
         }
 

@@ -67,9 +67,9 @@ type parser struct {
 	imports    []*ast.ImportSpec // list of imports
 }
 
-func (p *parser) init(l *loader, fset *token.FileSet, filename string, src []byte) {
+func (p *parser) init(l *loader, filename string, src []byte) {
         p.loader = l
-        p.file = fset.AddFile(filename, -1, len(src))
+        p.file = l.fset.AddFile(filename, -1, len(src))
         
 	var m scanner.Mode
 	if p.mode&ParseComments != 0 {
@@ -982,8 +982,8 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
 }
 
 func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
-	if p.tracing.enabled {
-		// defer un(trace(p, "Expression"))
+	if false && p.tracing.enabled {
+                defer un(trace(p, "Expression"))
 	}
         if x = p.parseComposedExpr(lhs); !lhs {
                 switch p.tok {
@@ -1004,7 +1004,8 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                 case token.SELECT, token.ARROW, token.LINEND:
                         // Compose nothing at this point!
 
-                default:if x.End() == p.pos { // further composing
+                default:if p.tok != token.EOF && x.End() == p.pos {
+                        // further composing
                         var y = p.parseComposedExpr(lhs)
                         if comp, _ := x.(*ast.Barecomp); comp == nil {
                                 x = &ast.Barecomp{Elems:[]ast.Expr{ x, y }}
@@ -1896,4 +1897,11 @@ func (p *parser) parseFile() *ast.File {
 		Imports:    p.imports,
 		Comments:   p.comments,
 	}
+}
+
+func (p *parser) parseText() (res []ast.Expr) {
+        for p.tok != token.EOF {
+                res = append(res, p.parseExpr(false))
+        }
+        return
 }

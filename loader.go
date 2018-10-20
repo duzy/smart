@@ -153,12 +153,11 @@ func restoreLoadingInfo(l *loader) {
         l.project = linfo.loader
         l.scope = linfo.scope //l.SetScope(linfo.scope)
 
-        var names []string
+        /*var names []string
         for _, declare := range linfo.declares {
                 names = append(names, declare.project.Name())
         }
 
-        /*
         if loader := linfo.loader; loader != nil {
                 fmt.Printf("exit: %v from '%s' -> %v\n", names, loader.Name(), linfo.scope)
         } else {
@@ -337,7 +336,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
         }
 
         if loaded, _ := l.loaded[absPath]; loaded != nil {
-                scope := l.project.Scope()
+                scope := l.project.scope
                 pn, _ := scope.Lookup(loaded.Name()).(*ProjectName)
                 if pn == nil {
                         l.p.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, scope.comment)
@@ -670,7 +669,7 @@ func (l *loader) useProject(pos token.Pos, usee *Project) {
         }
 
         for _, def := range defs {
-                newDef, alt := l.project.Scope().Def(l.project, def.Name(), UniversalNone)
+                newDef, alt := l.project.scope.Def(l.project, def.Name(), UniversalNone)
                 if alt != nil {
                         if d, _ := alt.(*Def); d == nil {
                                 l.p.error(pos, "name `%s` already taken in project `%s' (%T).", def.Name(), alt, l.project.Name())
@@ -694,7 +693,7 @@ func (l *loader) useProject(pos token.Pos, usee *Project) {
 
 func (l *loader) useProjectName(pos token.Pos, pn *ProjectName) {
         var (
-                scope = l.project.Scope()
+                scope = l.project.scope
                 project = pn.OwnerProject()
                 //useList []Value
         )
@@ -741,7 +740,7 @@ func (l *loader) use(spec *ast.UseSpec) {
                         params = append(params, l.expr(prop))
                 }
 
-                var scope = l.project.Scope()
+                var scope = l.project.scope
                 switch t := name.(type) {
                 case *ProjectName:
                         l.useProjectName(spec.Props[0].Pos(), t)
@@ -887,7 +886,7 @@ func (l *loader) include(spec *ast.IncludeSpec) {
 
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
         
-        if _, err = l.ParseFile(l.fset, jointPath, nil, parseMode|Flat); err != nil {
+        if _, err = l.ParseFile(jointPath, nil, parseMode|Flat); err != nil {
                 l.p.error(spec.Pos(), "%v", err)
                 return
         }
@@ -1034,7 +1033,7 @@ func (l *loader) declareProject(ident *ast.Bareword, params Value) (err error) {
         dec.backproj = l.project
         dec.backscope = l.scope
         l.project = dec.project
-        l.scope = l.project.Scope()
+        l.scope = l.project.scope
 
         err = l.loadProjectBases(linfo, params)
         return
@@ -1091,7 +1090,7 @@ func (l *loader) DeclareProject(ident *ast.Bareword, params Value) error {
                 dec.backproj = l.project
                 dec.backscope = l.scope
                 l.project = at.NamedProject()
-                l.scope = l.project.Scope()
+                l.scope = l.project.scope
                 return nil
         }
         return l.declareProject(ident, params)
@@ -1205,7 +1204,7 @@ func (l *loader) resolve(value Value) (obj Object, err error) {
                 }
         }
         if bits&FromProject != 0 && l.project != nil {
-                if _, obj = l.project.Scope().Find(name); obj != nil {
+                if _, obj = l.project.scope.Find(name); obj != nil {
                         return
                 }
         }
@@ -1213,10 +1212,10 @@ func (l *loader) resolve(value Value) (obj Object, err error) {
                 if _, obj = l.scope.Find(name); obj != nil {
                         return
                 }
-                if obj == nil && name != "use" {
+                if obj == nil && l.project != nil && name != "use" {
                         // TODO: add this search path into Scope.Find
                         for _, base := range l.project.Bases() {
-                                if _, obj = base.Scope().Find(name); obj != nil {
+                                if _, obj = base.scope.Find(name); obj != nil {
                                         return
                                 }
                         }
@@ -1282,24 +1281,16 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 // ParseFile parses the source code of a single source file and returns
 // the corresponding ast.File node. The source code may be provided via
 // the filename of the source file, or via the src parameter.
-func (l *loader) ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode) (f *ast.File, err error) {
+func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.File, err error) {
 	// get source
         var text []byte
 	if text, err = readSource(filename, src); err != nil {
 		return
 	}
 
-        // Save the current parser to restore later.
-        saved := l.p
-
 	l.mode = mode //| Trace
 	l.tracing.enabled = l.mode&Trace != 0 // for convenience (l.trace is used frequently)
-
-        // set the current parser
-        l.p = new(parser)
-	l.p.init(l, fset, filename, text)
-
-	defer func() {
+	defer func(saved *parser) {
 		if e := recover(); e != nil {
 			// resume same panic if it's not a bailout
 			if _, ok := e.(bailout); !ok {
@@ -1307,16 +1298,17 @@ func (l *loader) ParseFile(fset *token.FileSet, filename string, src interface{}
 			}
 		}
 
-                if optSortErrors {
-                        l.errors.Sort()
-                }
-
-		err = l.errors.Err()
-
                 // decouple
                 l.p.loader = nil
                 l.p = saved
-	} ()
+
+                if optSortErrors { l.errors.Sort() }
+		err = l.errors.Err()
+	} (l.p)
+
+        // set the current parser
+        l.p = new(parser)
+	l.p.init(l, filename, text)
 
         // set result values
         if f = l.p.parseFile(); f == nil {
@@ -1423,7 +1415,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 // returned. If a parse error occurred, a non-nil but incomplete map and the
 // first error encountered are returned.
 //
-func (l *loader) ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Project, first error) {
+func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Project, first error) {
 	fd, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -1486,7 +1478,7 @@ func (l *loader) ParseDir(fset *token.FileSet, path string, filter func(os.FileI
                 }
 
 		if mo.IsRegular() && (filter == nil || filter(d)) {
-			if src, err := l.ParseFile(fset, filename, nil, mode|parsingDir); err == nil {
+			if src, err := l.ParseFile(filename, nil, mode|parsingDir); err == nil {
                                 if src.Name == nil {
                                         first = fmt.Errorf("module '%v' has no name", filename)
                                         return
@@ -1527,7 +1519,7 @@ func (l *loader) load(specName, absPath string, source interface{}) error {
         // Check already project.
         if loaded, ok := l.loaded[absPath]; ok {
                 var (
-                        s = l.project.Scope()
+                        s = l.project.scope
                         name = loaded.Name()
                 )
                 //fmt.Printf("loaded: %v (%v)\n", loaded.Name(), absPath)
@@ -1542,7 +1534,7 @@ func (l *loader) load(specName, absPath string, source interface{}) error {
         var absDir, baseName = filepath.Split(absPath)
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
 
-        doc, err := l.ParseFile(l.fset, absPath, source, parseMode)
+        doc, err := l.ParseFile(absPath, source, parseMode)
         if err != nil {
                 return err
         }
@@ -1566,7 +1558,7 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         // Check already project.
         if loaded, ok := l.loaded[absDir]; ok {
                 var (
-                        s = l.project.Scope()
+                        s = l.project.scope
                         name = loaded.Name()
                 )
                 //fmt.Printf("loaded: %v: %v (%v)\n", l.project.Name(), name, absDir)
@@ -1580,7 +1572,7 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
 
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, ""))
 
-        mods, err := l.ParseDir(l.fset, absDir, filter, parseMode)
+        mods, err := l.ParseDir(absDir, filter, parseMode)
         if err == nil && mods != nil {
         }
 
@@ -1588,15 +1580,42 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         return
 }
 
-func (l *loader) Load(filename string, source interface{}) error {
+func (l *loader) loadFile(filename string, source interface{}) error {
         s, _ := filepath.Split(filename)
         s, _  = filepath.Rel(l.workdir, s)
         return l.load(s, filename, source)
 }
 
-func (l *loader) LoadDir(path string, filter func(os.FileInfo) bool) (err error) {
+func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) (err error) {
         s, _ := filepath.Rel(l.workdir, path)
         return l.loadDir(s, path, filter)
+}
+
+func (l *loader) loadText(filename string, text string) []Value {
+	defer func(saved *parser) {
+		if e := recover(); e != nil {
+			// resume same panic if it's not a bailout
+			if _, ok := e.(bailout); !ok {
+				panic(e)
+			}
+		}
+
+                // decouple
+                l.p.loader = nil
+                l.p = saved
+
+                /*if optSortErrors {
+                        l.errors.Sort()
+                }
+		err = l.errors.Err()*/
+	} (l.p)
+
+        l.project = l.globe.main
+        l.scope = l.project.scope
+
+        l.p = new(parser)
+        l.p.init(l, filename, []byte(text))
+        return l.exprs(l.p.parseText())
 }
 
 func AddSearchPaths(paths... string) (err error) {

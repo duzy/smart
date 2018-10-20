@@ -32,11 +32,11 @@ func NewContext(name string) *Context {
         return context
 }
 
-func (ctx *Context) Run(targets... string) (err error) {
+func (ctx *Context) run(targets... Value) (err error) {
         var (
                 result []Value
                 updated int
-                mm = ctx.globe.Main()
+                mm = ctx.globe.main
         )
 
         if mm == nil {
@@ -51,10 +51,15 @@ func (ctx *Context) Run(targets... string) (err error) {
                 }
         } else {
                 for _, target := range targets {
-                        closure := closurecontext{ mm.Scope() }
+                        var ( entry *RuleEntry; ok bool )
+                        if entry, ok = target.(*RuleEntry); !ok || entry == nil {
+                                fmt.Fprintf(os.Stderr, "`%v` is not an entry", target)
+                                break
+                        }
 
-                        m := mm
-                        if names := strings.Split(target, "->"); len(names)>1 {
+                        closure := closurecontext{ mm.scope }
+
+                        /*if names := strings.Split(target, "->"); len(names) > 1 {
                                 for _, s := range names[0:len(names)-1] {
                                         var _, obj = m.Scope().Find(s)
                                         switch t := obj.(type) {
@@ -74,42 +79,22 @@ func (ctx *Context) Run(targets... string) (err error) {
                                         closure = append(closure, m.Scope())
                                 }
                                 target = names[len(names)-1]
-                        }
+                        }*/
 
-                        var (
-                                entry *RuleEntry
-                                args = strings.Split(target, ":")
-                        )
-                        target, args = args[0], args[1:]
-                        switch t := m.Scope().Resolve(target).(type) {
-                        case *ProjectName: entry = t.OwnerProject().DefaultEntry()
-                        case *RuleEntry:   entry = t
-                        case nil:
-                                fmt.Printf("'%s' is not defined in %v", target, m.Scope())
-                                return
-                        default:
-                                fmt.Printf("object '%s' is not callable (%T)", target, t)
-                                return
-                        }
+                        defer setclosure(setclosure(append(closure, Closure...)))
 
-                        if entry != nil {
-                                var v []Value
-                                for _, a := range args {
-                                        v = append(v, MakeString(a))
-                                }
+                        var v []Value
+                        /*for _, a := range args {
+                                v = append(v, MakeString(a))
+                        }*/
 
-                                //defer entry.SetCaller(entry.SetCaller(NewPreparer(?, ?)))
-                                //defer entry.SetClosure(entry.SetClosure(closure...)...)
-                                defer setclosure(setclosure(append(closure, Closure...)))
-
-                                // The the base project scope as execution context. For
-                                // example of 'base.test', the entry 'test' can resolve
-                                // '&(FOO)', '&(BAR)', etc.
-                                if result, err = entry.Execute(entry.Position, v...); err == nil {
-                                        updated += 1
-                                } else {
-                                        break
-                                }
+                        // The the base project scope as execution context. For
+                        // example of 'base.test', the entry 'test' can resolve
+                        // '&(FOO)', '&(BAR)', etc.
+                        if result, err = entry.Execute(entry.Position, v...); err == nil {
+                                updated += 1
+                        } else {
+                                break
                         }
                 }
         }
@@ -129,7 +114,7 @@ func (ctx *Context) Run(targets... string) (err error) {
 
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
-func loadwork(ctx *Context) (targets []string) {
+func loadwork(ctx *Context) (targets []Value) {
         l := &loader{
                 Context:  ctx,
                 fset:     token.NewFileSet(), 
@@ -164,22 +149,6 @@ func loadwork(ctx *Context) (targets []string) {
         linfo := l.loads[len(l.loads)-1]
         linfo.declares[at.Name()] = &declare{ project: at }
 
-        for _, a := range flag.Args() {
-                if i := strings.Index(a, "="); 0 <= i {
-                        var (
-                                name = strings.TrimSpace(a[0:i])
-                                v = strings.TrimSpace(a[i+1:])
-                        )
-                        if name == "" {
-                                fmt.Fprintf(os.Stderr, "ERROR: bad argument '%v'\n", a)
-                                return
-                        }
-                        as.Def(at, name, MakeString(v))
-                } else {
-                        targets = append(targets, a)
-                }
-        }
-
         l.globe.scope.ProjectName(nil, at.Name(), at)
 
         var (
@@ -196,7 +165,7 @@ func loadwork(ctx *Context) (targets []string) {
                         if m := fi.Mode(); m.IsRegular() {
                                 defS.Assign(MakeString(ab))
                                 defD.Assign(MakeString(ab))
-                                if err = l.Load(s1, nil); err != nil {
+                                if err = l.loadFile(s1, nil); err != nil {
                                         scanner.PrintError(os.Stderr, err)
                                         return
                                 } else {
@@ -209,7 +178,7 @@ func loadwork(ctx *Context) (targets []string) {
                         if m := fi.Mode(); m.IsDir() {
                                 defS.Assign(MakeString(ab))
                                 defD.Assign(MakeString(ab))
-                                if err = l.LoadDir(s2, nil); err != nil {
+                                if err = l.loadPath(s2, nil); err != nil {
                                         scanner.PrintError(os.Stderr, err)
                                         return
                                 } else {
@@ -229,11 +198,36 @@ func loadwork(ctx *Context) (targets []string) {
 
         restoreLoadingInfo(l)
 
-        if err := l.LoadDir(base, nil); err != nil {
+        if err := l.loadPath(base, nil); err != nil {
                 scanner.PrintError(os.Stderr, err)
                 return
         }
 
+        text := strings.Join(flag.Args(), " ")
+        for _, target := range l.loadText("@", text) {
+                switch t := target.(type) {
+                case *Bareword:
+                        if entry, err := l.project.resolveEntry(t.Value); err != nil {
+                                fmt.Fprintf(os.Stderr, "%s", err)
+                        } else if entry == nil {
+                                fmt.Fprintf(os.Stderr, "no such entry `%s`", t)
+                        } else {
+                                targets = append(targets, entry)
+                        }
+                case *delegate:
+                        if s, err := t.Strval(); err != nil {
+                                fmt.Fprintf(os.Stderr, "%s", err)
+                        } else if entry, err := l.project.resolveEntry(s); err != nil {
+                                fmt.Fprintf(os.Stderr, "%s", err)
+                        } else if entry == nil {
+                                fmt.Fprintf(os.Stderr, "no such entry `%s` (via `%v`)", s, t)
+                        } else {
+                                targets = append(targets, entry)
+                        }
+                default:
+                        fmt.Fprintf(os.Stderr, "unknown target `%s` (of %T)", target, target)
+                }
+        }
         return
 }
 
@@ -254,9 +248,7 @@ func CommandLine() {
         }
 
         ctx := NewContext("smart")
-        targets := loadwork(ctx)
-
-        if err := ctx.Run(targets...); err != nil {
+        if err := ctx.run(loadwork(ctx)...); err != nil {
                 scanner.PrintError(os.Stderr, err)
                 return
         }

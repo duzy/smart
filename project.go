@@ -186,18 +186,36 @@ func (p *Project) DefaultEntry() (entry *RuleEntry) {
         return
 }
 
-func (p *Project) FindEntry(s string) (entry *RuleEntry, err error) {
-        if _, obj := p.scope.Find(s); obj != nil {
-                if entry, _ = obj.(*RuleEntry); entry != nil { return }
+func (p *Project) resolveObject(s string) (obj Object, err error) {
+        if _, obj = p.scope.Find(s); obj == nil {
+                for _, base := range p.bases {
+                        obj, err = base.resolveObject(s)
+                        if err != nil || obj != nil {
+                                break
+                        }
+                }
+        }
+        return
+}
+
+func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
+        for _, rec := range p.concrete {
+                var sv string
+                if sv, err = rec.Strval(); err != nil {
+                        return
+                } else if sv == s {
+                        entry = rec
+                        return
+                }
         }
         for _, base := range p.bases {
-                entry, err = base.FindEntry(s)
+                entry, err = base.resolveEntry(s)
                 if err != nil || entry != nil { break }
         }
         return
 }
 
-func (p *Project) FindPatterns(s string) (res []*PatternStem, err error) {
+func (p *Project) resolvePatterns(s string) (res []*PatternStem, err error) {
         for _, p := range p.patterns {
                 var (
                         found bool
@@ -211,7 +229,7 @@ func (p *Project) FindPatterns(s string) (res []*PatternStem, err error) {
         }
         for _, base := range p.bases {
                 var a []*PatternStem
-                if a, err = base.FindPatterns(s); err == nil {
+                if a, err = base.resolvePatterns(s); err == nil {
                         res = append(res, a...)
                 } else {
                         return
@@ -245,8 +263,10 @@ func (p *Project) SetProgram(target Value, prog *Program) (entry *RuleEntry, err
                 return
         }
 
-        var name = target.String()
-        if name == "" {
+        var name string
+        if name, err = target.Strval(); err != nil {
+                return
+        } else if name == "" {
                 err = fmt.Errorf("name '%v' already taken as `%T'", name)
                 return
         }
