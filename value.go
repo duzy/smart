@@ -20,7 +20,7 @@ import (
 
 const (
         trace_compare = false
-        trace_prepare = true
+        trace_prepare = false
         trace_workdir = true && trace_prepare
 )
 
@@ -87,7 +87,7 @@ func (_ *value) Type() Type { return InvalidType }
 func (_ *value) Integer() (int64, error) { return 0, nil }
 func (_ *value) Float() (float64, error) { return 0, nil }
 func (p *value) Strval() (string, error) { return fmt.Sprintf("{value %p}", p), nil }
-func (p *value) String() string {return "" }
+func (p *value) String() string {return "{value}" }
 
 type comparer struct {
         //program *Program
@@ -157,9 +157,7 @@ type preparer struct {
         program *Program
         arguments []Value
         targets *List
-        stem string // set by PatternStem
-        //source string // source target creating the stemmed entry
-        //file *File
+        stem string // set by StemmedEntry
 }
 
 type prerequisite interface {
@@ -219,14 +217,13 @@ func (pc *preparer) updateTarget(target string) (err error) {
                 return
         }
 
-        var pss []*PatternStem
+        var pss []*StemmedEntry
         if pss, err = pc.program.project.resolvePatterns(target); err == nil {
-                fmt.Printf("%v %v\n", pc.program.project.patterns, pss)
                 for _, ps := range pss {
                         if trace_prepare {
                                 fmt.Printf("prepare:Target: %v (stemmed %v) (%v -> %v)\n", target, ps, pc.program.project.name, pc.entry)
                         }
-                        ps.source = target // Bounds PatternStem with the source.
+                        ps.target = target // Bounds StemmedEntry with the source.
                         if err = ps.prepare(pc); err == nil {
                                 return // Updated successfully!
                         } else if _, ok := err.(patternPrepareError); ok {
@@ -272,41 +269,6 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
                 dd, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
-                /*switch entry.class {
-                case ExplicitFileEntry, StemmedFileEntry:
-                        if trace_prepare {
-                                fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
-                                        entry.target, entry.class, dd, dd, entry.target, pc.entry)
-                        }
-                        if file, _ := dd.(*File); file != nil {
-                                // TODO: assert(file == entry.target)
-                                pc.targets.Append(file)
-                        } else {
-                                var s string
-                                if s, err = dd.Strval(); err != nil {
-                                        return
-                                }
-                                pc.targets.Append(prog.project.SearchFile(s))
-                        }
-                case ExplicitPathEntry:
-                        if trace_prepare {
-                                fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
-                                        entry.target, entry.class, dd, dd, entry.path, pc.entry)
-                        }
-                        if entry.path == nil {
-                                pc.targets.Append(entry)
-                        } else if entry.path.File == nil {
-                                pc.targets.Append(entry.path)
-                        } else {
-                                pc.targets.Append(entry.path.File)
-                        }
-                default:
-                        if res != nil && res.Type() != NoneType {
-                                pc.targets.Append(res); return
-                        } else {
-                                pc.targets.Append(entry)
-                        }
-                }*/
                 if trace_prepare {
                         fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
                                 entry.target, entry.class, dd, dd, entry.target, pc.entry)
@@ -391,6 +353,8 @@ func (p *Argumented) prepare(pc *preparer) error {
 
 type None struct { value }
 func (p *None) Type() Type { return NoneType }
+func (p *None) String() string {return "" }
+func (p *None) Strval() (string, error) { return "", nil }
 func (p *None) compare(c *comparer) (err error) { return }
 func (p *None) compareFileDepend(c *comparer, file *File) error { return nil }
 func (p *None) comparePathDepend(c *comparer, path *Path) error { return nil }
@@ -1274,7 +1238,7 @@ func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
                 fmt.Printf("prepare:File: %v (implicitly: %v in %v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
         }
 
-        var pss []*PatternStem
+        var pss []*StemmedEntry
         if pss, err = pc.program.project.resolvePatterns(p.Name); err != nil {
                 return
         }
@@ -1292,7 +1256,7 @@ func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
                                 }
                         }
                 }
-                ps.file = p // Bounds PatternStem with the File.
+                ps.file = p // Bounds StemmedEntry with the File.
                 if err = ps.prepare(pc); err == nil {
                         trybrk = true; break ForPatterns // Updated successfully!
                 } else if _, ok := err.(patternPrepareError); ok {
@@ -1306,7 +1270,7 @@ func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
         return
 }
 
-func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *PatternStem, prog *Program, g *GlobPattern) (res bool, err error) {
+func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEntry, prog *Program, g *GlobPattern) (res bool, err error) {
         var name string
         if name, err = g.MakeString(ps.Stem); err != nil { return }
         if file := project.ToFile(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
@@ -2011,9 +1975,20 @@ func (p *selection) value() (v Value, err error) {
                 // sth's wrong!
         } else if s := ""; o != nil {
                 if s, err = p.s.Strval(); err == nil {
-                        v, err = o.Get(s)
+                        if pn, ok := o.(*ProjectName); ok && p.t == token.ARROW {
+                                var entry *RuleEntry
+                                if entry, err = pn.project.resolveEntry(s); err != nil {
+                                        return
+                                } else if entry == nil {
+                                        err = fmt.Errorf("selection.value: no entry `%s` (%+v)", s, p.String())
+                                } else {
+                                        v = entry
+                                }
+                        } else if v, err = o.Get(s); err != nil {
+                                //fmt.Printf("selection: %v: %v\n", p, err)
+                        }
                 }
-        } else if o == nil {
+        } else /*if o == nil*/ {
                 err = fmt.Errorf("selection.value: nil object `%s`", p.String())
         }
         return
@@ -2021,8 +1996,12 @@ func (p *selection) value() (v Value, err error) {
 
 func (p *selection) Strval() (s string, err error) {
         var v Value
-        if v, err = p.value(); err == nil {
+        if v, err = p.value(); err != nil {
+                // sth's wrong
+        } else if v != nil {
                 s, err = v.Strval()
+        } else {
+                err = fmt.Errorf("`%s` is nil", p.String())
         }
         return
 }
@@ -2100,19 +2079,14 @@ type pattern struct {
 func (p *pattern) Type() Type        { return PatternType }
 func (p *pattern) Integer() (int64, error) { return 0, nil }
 func (p *pattern) Float() (float64, error) { return 0, nil }
-func (p *pattern) makeEntry(patent *RuleEntry, name, stem string) (entry *RuleEntry, err error) {
-        if patent.class == GlobRuleEntry {
-                entry = new(RuleEntry); *entry = *patent
-                /*if patent.OwnerProject().isFile(filepath.Base(name)) {
-                        entry.class = StemmedFileEntry
-                        if false && entry.target == nil {
-                                entry.target = entry.OwnerProject().SearchFile(name)
-                        }
-                } else {
-                        entry.class = StemmedRuleEntry
-                }*/
+func (p *pattern) makeEntry(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
+        entry = new(RuleEntry); *entry = *patent
+        if proj := patent.OwnerProject(); proj.isFile(filepath.Base(target)) {
+                if file := proj.SearchFile(target); file != nil {
+                        entry.target = file
+                }
         } else {
-                err = fmt.Errorf("make entry `%s' (%s): invalid class `%v'", name, stem, patent.class)
+                entry.target = &String{ target }
         }
         return
 }
@@ -2180,9 +2154,15 @@ func (p *GlobPattern) MakeString(stem string) (s string, err error) {
 }
 
 func (p *GlobPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
-        var name string
-        if name, err = p.MakeString(stem); err != nil { return }
-        return p.makeEntry(patent, name, stem)
+        var target string
+        if target, err = p.MakeString(stem); err == nil {
+                entry = &RuleEntry{
+                        patent.class, &String{ target },
+                        patent.programs, patent.Position,
+                }
+                return
+        }
+        return
 }
 
 func (p *GlobPattern) refs(o Object) bool {
@@ -2254,21 +2234,14 @@ func NewRegexpPattern() Pattern {
         return &RegexpPattern{}
 }
 
-func (p *RegexpPattern) String() string {
-        /*if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{RegexpPattern '%s' !(%+v)}", s, e)
-        }*/
-        return "{RegexpPattern}"
-}
+func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
 func (p *RegexpPattern) Match(s string) (matched bool, stem string, err error) {
-        // TODO: regexp matching...
+        panic("TODO: regexp matching...")
         return
 }
 func (p *RegexpPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
-        // TODO: creating new match entry
+        panic("TODO: creating new match entry")
         return
 }
 

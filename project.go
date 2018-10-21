@@ -53,8 +53,8 @@ type Project struct {
 	relPath string
 	spec    string
 	name    string
-        bases   []*Project
         scope   *Scope
+        bases   []*Project
         uses    []*Use
 
         filemap []FileMap
@@ -215,20 +215,17 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
         return
 }
 
-func (p *Project) resolvePatterns(s string) (res []*PatternStem, err error) {
+func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
         for _, p := range p.patterns {
-                var (
-                        found bool
-                        stem string
-                )
+                var ( stem string; found bool )
                 if found, stem, err = p.Pattern.Match(s); err != nil {
                         return
                 } else if found && stem != "" {
-                        res = append(res, &PatternStem{ p, stem, "", nil })
+                        res = append(res, &StemmedEntry{ p, stem, "", nil })
                 }
         }
         for _, base := range p.bases {
-                var a []*PatternStem
+                var a []*StemmedEntry
                 if a, err = base.resolvePatterns(s); err == nil {
                         res = append(res, a...)
                 } else {

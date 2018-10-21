@@ -193,23 +193,31 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                 if dir, err = args[0].Strval(); err != nil {
                         return
                 }
-                if dir == "-" {
-                        if len(execstack) > 1 {
-                                top := execstack[0]
-                                for _, p := range execstack[1:] {
-                                        if p.project != top.project {
-                                                dir = p.project.AbsPath()
-                                                if trace_prepare {
-                                                        fmt.Printf("prepare:CD: %s (%s) (%s)\n", dir, p.project.name, prog.project.name)
-                                                }
-                                                break
+                if dir == "-" && len(execstack) > 1 {
+                        // Find a backtrack.
+                        top := execstack[0]
+                        for _, p := range execstack[1:] {
+                                if p.project != top.project {
+                                        dir = p.project.AbsPath()
+                                        if trace_prepare {
+                                                fmt.Printf("prepare:CD: %s (%s) (%s)\n", dir, p.project.name, prog.project.name)
                                         }
+                                        break
                                 }
                         }
-                } else if trace_prepare {
-                        fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
+                        // Back to main project if no backtrack.
+                        if dir == "-" && prog.globe.main != nil {
+                                dir = prog.globe.main.AbsPath()
+                        }
+                }
+                if dir == "-" {
+                        err = fmt.Errorf("cd: no trackback (tracks=%v)", len(execstack))
+                        return
                 }
                 if dir != "" {
+                        if trace_prepare {
+                                fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
+                        }
                         if err = prog.cd(dir, false); err == nil {
                                 //for _, cd := range prog.cdinfos[1:] { cd.print = false }
                                 prog.auto(TheCurrWorkDirDef, &String{dir})

@@ -8,9 +8,7 @@ package smart
 
 import (
         "extbit.io/smart/token"
-        //"path/filepath"
         "strconv"
-        //"strings"
         "fmt"
         "os"
 )
@@ -216,18 +214,19 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         prog.auto("@", entry.target)
 
-        for _, pre := range prog.depends {
-                fmt.Printf("depend: %T %+v %v\n", pre, pre, pre.closured())
-        }
-
-        if a, _ := RevealAll(prog.depends...); a != nil {
-                for _, pre := range a {
-                        fmt.Printf("revealed: %T %+v %v\n", pre, pre, pre.closured())
+        if false {
+                for _, pre := range prog.depends {
+                        fmt.Printf("depend: %T %+v %v\n", pre, pre, pre.closured())
                 }
-        }
-        if a, _ := DiscloseAll(prog.depends...); a != nil {
-                for _, pre := range a {
-                        fmt.Printf("disclosed: %T %+v %v\n", pre, pre, pre.closured())
+                if a, _ := RevealAll(prog.depends...); a != nil {
+                        for _, pre := range a {
+                                fmt.Printf("revealed: %T %+v %v\n", pre, pre, pre.closured())
+                        }
+                }
+                if a, _ := DiscloseAll(prog.depends...); a != nil {
+                        for _, pre := range a {
+                                fmt.Printf("disclosed: %T %+v %v\n", pre, pre, pre.closured())
+                        }
                 }
         }
 

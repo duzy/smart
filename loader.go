@@ -417,9 +417,9 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (obj Object, args []Val
         }
 
         if x.Resolved == nil {
+                var err error
                 switch tok {
                 case token.LPAREN:
-                        var err error
                         if x.Resolved, err = l.resolve(name); err != nil {
                                 l.p.error(x.Name.Pos(), "%s", err)
                                 return
@@ -428,7 +428,10 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (obj Object, args []Val
                                 return
                         }
                 case token.LBRACE:
-                        if x.Resolved = l.find(name); x.Resolved == nil {
+                        if x.Resolved, err = l.find(name); err != nil {
+                                l.p.error(x.Name.Pos(), "%s", err)
+                                return
+                        } else if x.Resolved == nil {
                                 l.p.error(x.Name.Pos(), "entry `%s` is nil", name)
                                 return
                         }
@@ -1240,8 +1243,18 @@ func (l *loader) resolve(value Value) (obj Object, err error) {
         return
 }
 
-func (l *loader) find(target Value) (entry *RuleEntry) {
-        // ...
+func (l *loader) find(target Value) (obj Object, err error) {
+        var name string
+        if name, err = target.Strval(); err != nil {
+                return
+        }
+        
+        var entry *RuleEntry
+        if entry, err = l.project.resolveEntry(name); err != nil {
+                return
+        } else if entry != nil {
+                obj = entry
+        }
         return
 }
 

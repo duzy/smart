@@ -821,7 +821,9 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                                 p.error(name.Pos(), "uncallable resolved `%T` (%T %v)", resolved, name, name)
                         }
                 case token.LBRACE:
-                        if resolved = p.find(v); resolved == nil {
+                        if resolved, err = p.find(v); err != nil {
+                                p.error(name.Pos(), "%s", err)
+                        } else if resolved == nil {
                                 p.error(name.Pos(), "`%v` undefined (%T)", v, name)
                         } else if _, ok := resolved.(Executer); ok {
                                 name = &ast.EvaluatedExpr{ name, v }

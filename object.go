@@ -92,11 +92,13 @@ func (p *ProjectName) String() string {
         }
 }
 
-func (p *ProjectName) Get(name string) (Value, error) {
-        if scope, sym := p.project.scope.Find(name); scope != nil && sym != nil {
-                value, _ := sym.(Value); return value, nil
+func (p *ProjectName) Get(name string) (value Value, err error) {
+        /*if scope, sym := p.project.scope.Find(name); scope != nil && sym != nil {
+                value, _ = sym.(Value); return
         }
-        return nil, fmt.Errorf("`%s' undefined (%v)", name, p.project.scope.comment)
+        err = fmt.Errorf("`%s` is undefined (in %v)", name, p.project.scope.comment)*/
+        value, err = p.project.resolveObject(name)
+        return
 }
 
 func (p *ProjectName) prepare(pc *preparer) (err error) {
@@ -385,7 +387,6 @@ func (c RuleEntryClass) String() string {
 
 // RuleEntry represents a declared rule entry.
 type RuleEntry struct {
-        value
         class RuleEntryClass
         target Value
         programs []*Program
@@ -393,9 +394,17 @@ type RuleEntry struct {
 }
 
 func (entry *RuleEntry) Type() Type { return RuleEntryType }
+func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
+func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }
 func (entry *RuleEntry) OwnerProject() *Project { return entry.programs[0].project }
 func (entry *RuleEntry) DeclScope() *Scope { return entry.OwnerProject().scope }
 func (entry *RuleEntry) Name() string {
+        if entry == nil {
+                panic("entry is nil")
+        } else if entry.target == nil {
+                fmt.Fprintf(os.Stderr, "%v: nil target", entry.Position)
+                panic("entry target is nil")
+        }
         s, err := entry.target.Strval()
         if err != nil { panic(err) } // FIXME: error
         return s
@@ -408,7 +417,6 @@ func (entry *RuleEntry) String() string {
                 return fmt.Sprintf("{RuleEntry '%s' !(%+v)}", s, e)
         }
 }
-//func (entry *RuleEntry) MakeString() (s string, e error) { return entry.name, nil }
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 func (entry *RuleEntry) Programs() []*Program { return entry.programs }
@@ -477,9 +485,32 @@ func (entry *RuleEntry) redecl(scope *Scope) {
         panic("RuleEntry.redecl not supported")
 }
 
+func (entry *RuleEntry) refs(o Object) bool {
+        if entry.target.refs(o) { return true }
+        
+        // TODO: do more tests for this to see if we need to fallthrough
+        return false // only check closured agaist target
+
+        for _, prog := range entry.programs {
+                for _, m := range prog.pipline {
+                        for _, a := range m.args {
+                                if a.refs(o) { return true }
+                        }
+                }
+                for _, depend := range prog.depends {
+                        if depend.refs(o) { return true }
+                }
+                for _, recipe := range prog.recipes {
+                        if recipe.refs(o) { return true }
+                }
+        }
+        return false
+}
+
 func (entry *RuleEntry) closured() bool {
         if entry.target.closured() { return true }
         
+        // TODO: do more tests for this to see if we need to fallthrough
         return false // only check closured agaist target
 
         for _, prog := range entry.programs {
@@ -497,19 +528,33 @@ func (entry *RuleEntry) closured() bool {
         }
         return false
 }
+func (entry *RuleEntry) disclose() (res Value, err error) {
+        var target Value
+        if target, err = entry.target.disclose(); err != nil { return }
+        if target != nil {
+                // TODO: test if programs are needed to be disclosed??
+                res = &RuleEntry{
+                        entry.class, target, entry.programs, entry.Position,
+                }
+        }
+        return
+}
+func (entry *RuleEntry) reveal() (res Value, err error) {
+        var target Value
+        if target, err = entry.target.reveal(); err != nil { return }
+        if target != nil {
+                // TODO: test if programs are needed to be revealed??
+                res = &RuleEntry{
+                        entry.class, target, entry.programs, entry.Position,
+                }
+        }
+        return
+}
 
 func (entry *RuleEntry) compare(c *comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:RuleEntry: %v (%v) (%v %T)\n", entry.target, entry.class, c.target, c.target)
         }
-        /*switch entry.class {
-        case ExplicitFileEntry, StemmedFileEntry:
-                err = c.target.compareFileDepend(c, entry.file)
-        case ExplicitPathEntry:
-                err = c.target.comparePathDepend(c, entry.path)
-        default:
-                err = breakf(false, "incomparable entry (%v)", entry.target)
-        }*/
         switch target := entry.target.(type) {
         case *File: err = c.target.compareFileDepend(c, target)
         case *Path: err = c.target.comparePathDepend(c, target)
@@ -567,8 +612,6 @@ func (entry *RuleEntry) prepare(pc *preparer) (err error) {
                         break ForPrograms
                 } else if _, ok := err.(targetNotFoundError); ok {
                         break ForPrograms // Don't try other programs if it's unknown.
-                //} else if entry.class == StemmedFileEntry {
-                //        break ForPrograms // Don't try other programs if it's pattern.
                 }
         }
         return
@@ -586,41 +629,36 @@ func (p *PatternEntry) MakeConcreteEntry(stem string) (entry *RuleEntry, err err
         return
 }
 
-type PatternStem struct {
+type StemmedEntry struct {
         Patent *PatternEntry
         Stem string
-        source string // source target matched the pattern
+        target string // source target matched the pattern
         file *File // source file matched the pattern
 }
 
-func (ps *PatternStem) String() (s string) {
-        var e error
-        if s, e = ps.Patent.Strval(); e == nil {
-                s = s + "(" + ps.Stem + ")"
-        } else {
-                s = fmt.Sprintf("PatternStem{%s}!(%s)", ps, e)
-        }
-        return
+//func (ps *StemmedEntry) Strval() (string, error) {return ps.target, nil }
+func (ps *StemmedEntry) String() (s string) {
+        return fmt.Sprintf("{StemmedEntry %s,%s,%s,%s}", ps.Patent, ps.Stem, ps.target, ps.file)
 }
 
-func (ps *PatternStem) MakeConcreteEntry() (*RuleEntry, error) {
+func (ps *StemmedEntry) MakeConcreteEntry() (*RuleEntry, error) {
         return ps.Patent.MakeConcreteEntry(ps.Stem)
 }
 
-func (ps *PatternStem) prepare(pc *preparer) (err error) {
+func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 if ps.file != nil {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (file: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.file, pc.entry.OwnerProject().name, pc.entry)
-                } else if ps.source != "" {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (source: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.source, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: %v (%v) (file: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.file, pc.entry.OwnerProject().name, pc.entry)
+                } else if ps.target != "" {
+                        fmt.Printf("prepare:StemmedEntry: %v (%v) (target: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.target, pc.entry.OwnerProject().name, pc.entry)
                 } else {
-                        fmt.Printf("prepare:PatternStem: %v (%v) (%v -> %v)\n", ps, ps.Patent.class, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: %v (%v) (%v -> %v)\n", ps, ps.Patent.class, pc.entry.OwnerProject().name, pc.entry)
                 }
         }
         
         var (
                 stems = []string{ ps.Stem }
-                sources = []string{ ps.source }
+                sources = []string{ ps.target }
                 entry *RuleEntry
         )
         if ps.file != nil {
@@ -629,12 +667,9 @@ func (ps *PatternStem) prepare(pc *preparer) (err error) {
 
         // Find all useful stems.
         ForSources: for _, source := range sources {
-                var ( 
-                        matched bool
-                        stem string
-                )
+                var ( stem string; ok bool )
                 if source == "" { continue }
-                if matched, stem, err = ps.Patent.Pattern.Match(source); matched && stem != "" {
+                if ok, stem, err = ps.Patent.Pattern.Match(source); ok && stem != "" {
                         for _, s := range stems { if s == stem { continue ForSources } }
                         stems = append(stems, stem)
                 }
@@ -646,37 +681,19 @@ func (ps *PatternStem) prepare(pc *preparer) (err error) {
                         return
                 }
 
-                //var project = pc.program.project
-                /*if pc.program.caller != nil && pc.program.hasCDDash() {
-                        project = pc.program.caller.program.project
-                }*/
-
-                /*if entry.class == StemmedFileEntry {
-                        if ps.file == nil {
-                                var file = project.SearchFile(entry.Name())
-                                if !file.IsKnown() {
-                                        file.Dir = project.AbsPath()
-                                }
-                                if trace_prepare {
-                                        fmt.Printf("prepare:PatternStem: %v ([%d/%d]: %v) (file: %v) (%v)\n", ps, i, len(stems), stem, file, project.name)
-                                }
-                                ps.file = file
-                        }
-                }*/
+                fmt.Printf("prepare: stemmed %v\n", entry)
 
                 if trace_prepare {
-                        fmt.Printf("prepare:PatternStem: %v (%v) ([%d/%d]: %v %v) (file: %v) (%v -> %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: %v (%v) ([%d/%d]: %v %v) (file: %v) (%v -> %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file, pc.entry.OwnerProject().name, pc.entry)
                 }
 
-                // Set stem for the current preparation.
-                //pc.stem, entry.stem, entry.file = stem, stem, ps.file
-                pc.stem = stem
+                pc.stem = stem // set for the current stem.
                 if err = entry.prepare(pc); err == nil {
                         break ForStems // Good!
                 } else if ute, ok := err.(targetNotFoundError); ok {
-                        fmt.Printf("prepare:PatternStem: FIXME: unknown target %v (%v)\n", ute.target, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: FIXME: unknown target %v (%v)\n", ute.target, pc.entry)
                 } else if ufe, ok := err.(fileNotFoundError); ok {
-                        fmt.Printf("prepare:PatternStem: FIXME: unknown file %v (%v)\n", ufe.file, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: FIXME: unknown file %v (%v)\n", ufe.file, pc.entry)
                 }
         }
         return
