@@ -681,8 +681,6 @@ func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
                         return
                 }
 
-                fmt.Printf("prepare: stemmed %v\n", entry)
-
                 if trace_prepare {
                         fmt.Printf("prepare:StemmedEntry: %v (%v) ([%d/%d]: %v %v) (file: %v) (%v -> %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file, pc.entry.OwnerProject().name, pc.entry)
                 }
