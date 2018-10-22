@@ -80,9 +80,6 @@ func writeType(buf *bytes.Buffer, typ Type, qf Qualifier, visited []Type) {
         case *Composite:
 		buf.WriteString(t.name)
 
-	case *Named:
-		buf.WriteString(t.name)
-
 	default:
 		// For externally defined implementations of Type.
 		buf.WriteString(t.String())

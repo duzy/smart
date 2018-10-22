@@ -767,6 +767,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 name   ast.Expr
                 rest   []ast.Expr
                 tokLp  token.Token
+                resolved Object
         )
         switch p.next(); p.tok {
         case token.LPAREN, token.LBRACE:
@@ -774,8 +775,22 @@ func (p *parser) parseClosureDelegate() ast.Expr {
 
                 // skips LPAREN, LBRACE
                 if name = p.checkExpr(p.parseNextExpr(false)); name == nil {
-                        p.error(p.pos, "`%T` is nil", name)
+                        p.error(pos, "bad name expr")
                         return &ast.BadExpr{ From:p.pos, To:p.pos }
+                } else if v := p.expr(name); v == nil {
+                        p.error(name.Pos(), "name is nil (`%T`)", name)
+                } else {
+                        if !v.closured() {
+                                var err error
+                                switch tokLp {
+                                case token.LPAREN: resolved, err = p.resolve(v)
+                                case token.LBRACE: resolved, err = p.find(v)
+                                }
+                                if err != nil {
+                                        p.error(name.Pos(), "name is nil: %v", err)
+                                }
+                        }
+                        name = &ast.EvaluatedExpr{ name, v }
                 }
 
                 if (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
@@ -791,52 +806,38 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 case token.LBRACE: rpos = p.expect(token.RBRACE)
                 }
         default:
-                // Only support $(...), disable $name.
-                p.error(p.pos, "expecting `%v` or `%v`", token.LPAREN, token.LBRACE)
-                return &ast.BadExpr{ From:p.pos, To:p.pos }
-        }
+                if tok != token.AND { // $(...), disabled $name.
+                        p.error(p.pos, "expects `%v` or `%v`", token.LPAREN, token.LBRACE)
+                        return &ast.BadExpr{ From:p.pos, To:p.pos }
+                } else if p.tok == token.STRING || p.tok == token.COMPOUND {
+                        lpos, tokLp = p.pos, p.tok
 
-        var resolved Object
-        if _, ok := name.(*ast.ClosureExpr); ok {
-                // closure names are resolved when used
-        } else if v, err := p.eval(name, StringValue); err != nil {
-                p.error(name.Pos(), err)
-        } else if v == nil {
-                p.error(name.Pos(), "`%v` evaluated to nil (of %T)", name, name)
-        } else {
-                switch tokLp {
-                case token.LPAREN:
-                        if resolved, err = p.resolve(v); err != nil {
-                                p.error(name.Pos(), "%s", err)
-                        } else if resolved == nil {
-                                if tok == token.DOLLAR {
-                                        p.error(name.Pos(), "`%v` is nil (%T)", v, v)
-                                } else {
-                                        s, _ := v.Strval()
-                                        resolved = MakeUnknownObject(s)
+                        // &'xxxx' or &"xxxx"
+                        if name = p.checkExpr(p.parseExpr(false)); name == nil {
+                                p.error(pos, "bad name expr, expecting quotes")
+                                return &ast.BadExpr{ From:p.pos, To:p.pos }
+                        } else if v := p.expr(name); v == nil {
+                                p.error(name.Pos(), "name is nil (`%T`)", name)
+                        } else {
+                                if !v.closured() {
+                                        var err error
+                                        switch tokLp {
+                                        case token.LPAREN: resolved, err = p.resolve(v)
+                                        case token.LBRACE: resolved, err = p.find(v)
+                                        }
+                                        if err != nil {
+                                                p.error(name.Pos(), "name is nil: %v", err)
+                                        }
                                 }
-                        } else if _, ok := resolved.(Caller); ok {
                                 name = &ast.EvaluatedExpr{ name, v }
-                        } else {
-                                p.error(name.Pos(), "uncallable resolved `%T` (%T %v)", resolved, name, name)
                         }
-                case token.LBRACE:
-                        if resolved, err = p.find(v); err != nil {
-                                p.error(name.Pos(), "%s", err)
-                        } else if resolved == nil {
-                                p.error(name.Pos(), "`%v` undefined (%T)", v, name)
-                        } else if _, ok := resolved.(Executer); ok {
-                                name = &ast.EvaluatedExpr{ name, v }
-                        } else {
-                                p.error(name.Pos(), "unexecutable resolved `%T` (%T %v)", resolved, name, v)
-                        }
+                } else {
+                        // &(...), &{...}, &'...', &"..."
+                        p.error(p.pos, "expects `%v`, `%v` or quotes", token.LPAREN, token.LBRACE)
+                        return &ast.BadExpr{ From:p.pos, To:p.pos }
                 }
         }
 
-        /*if _, ok := name.(*ast.SelectionExpr); ok {
-                p.warn(pos, "%T %v -> %T %v\n", name, name, resolved, resolved)
-        }*/
-        
         cd := ast.ClosureDelegate{
                 Position: p.file.Position(pos),
                 TokPos: pos,
@@ -862,7 +863,8 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) ast.Expr {
 
         pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
         p.next()
-
+        
+        name := &ast.Bareword{ p.pos, s }
         resolved, err := p.resolve(&Bareword{s})
         if err != nil {
                 p.error(pos, "%v", err)
@@ -871,11 +873,11 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) ast.Expr {
         } else if _, ok := resolved.(Caller); !ok {
                 p.error(pos, "`%v` is not callable (%T)", s, resolved)
         }
-        
+
         cd := ast.ClosureDelegate{
                 TokPos: pos,
                 Lparen: token.NoPos,
-                Name: &ast.Bareword{ p.pos, s },
+                Name: name,
                 Resolved: resolved,
                 Rparen: token.NoPos,
                 Tok: tok,

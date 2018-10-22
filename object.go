@@ -34,47 +34,73 @@ type Object interface {
 	redecl(*Scope)
 }
 
-// An object implements the common parts of an Object.
-type object struct {
+type unknownobject struct { // generally unnamed objects
         value
         scope *Scope
         owner *Project
+}
+func (p *unknownobject) Type() Type { return UnknownObjectType }
+func (p *unknownobject) Name() string { panic("inquiring name of an unknown object") }
+func (p *unknownobject) DeclScope() *Scope { return p.scope }
+func (p *unknownobject) OwnerProject() *Project { return p.owner }
+func (p *unknownobject) Strval() (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
+func (p *unknownobject) String() string { return fmt.Sprintf("{unknown %p}", p) }
+func (p *unknownobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
+func (p *unknownobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
+
+type knownobject struct { // generally named objects
+        unknownobject
         name string
-        typ Type
+}
+func (p *knownobject) Type() Type { return KnownObjectType }
+func (p *knownobject) Name() string { return p.name }
+func (p *knownobject) Strval() (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
+func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
+func (p *knownobject) redecl(scope *Scope) {
+        if p.scope != scope {
+                if p.scope != nil {
+                        delete(p.scope.elems, p.name)
+                }
+                if p.scope = scope; p.scope != nil {
+                        p.scope.elems[p.name] = p
+                }
+        }
 }
 
-func (obj *object) Type() Type { return obj.typ }
-func (obj *object) Name() string { return obj.name }
-
-func (obj *object) DeclScope() *Scope { return obj.scope }
-func (obj *object) OwnerProject() *Project { return obj.owner }
-
-func (obj *object) Strval() (string, error) { return fmt.Sprintf("{object %+v,%+v}", obj.typ, obj.name), nil }
-func (obj *object) String() string {
-        if s, e := obj.Strval(); e == nil {
-                return s
+type unresolvedobject struct { // named callable/executable objects
+        unknownobject
+        name Value // name could be closured
+}
+func (p *unresolvedobject) Type() Type { return UnresolvedObjectType }
+func (p *unresolvedobject) Name() string {
+        if p.name == nil {
+                panic("unresolved object name is nil")
+        } else if s, err := p.name.Strval(); err != nil {
+                panic(fmt.Sprintf("unresolved object name: %v", err))
         } else {
-                return fmt.Sprintf("{object '%s' !(%+v)}", s, e)
+                return s
         }
 }
-
-func (obj *object) Get(name string) (Value, error) {
-        return nil, fmt.Errorf("no such property `%s' (Object)", name)
-}
-
-func (obj *object) redecl(scope *Scope) {
-        if obj.scope != scope {
-                if obj.scope != nil {
-                        delete(obj.scope.elems, obj.name)
-                }
-                if obj.scope = scope; obj.scope != nil {
-                        obj.scope.elems[obj.name] = obj
+func (p *unresolvedobject) String() string { return p.name.String() }
+func (p *unresolvedobject) Strval() (string, error) { return p.name.Strval() }
+func (p *unresolvedobject) Call(pos token.Position, a... Value) (result Value, err error) { result = p; return }
+func (p *unresolvedobject) Execute(pos token.Position, a... Value) (result []Value, err error) { result = []Value{p}; return }
+func (p *unresolvedobject) redecl(scope *Scope) {
+        if p.scope != scope {
+                name, err := p.name.Strval()
+                if err != nil { panic(fmt.Sprintf("unresolved name error: %v", p.name, err)) }
+                if p.scope != nil { delete(p.scope.elems, name) }
+                if p.scope = scope; p.scope != nil {
+                        p.scope.elems[name] = p
                 }
         }
+}
+func unresolved(p *Project, v Value) *unresolvedobject {
+        return &unresolvedobject{unknownobject{ scope: p.scope, owner: p }, v}
 }
 
 type ProjectName struct {
-        object
+        knownobject
         project *Project
 }
 
@@ -83,7 +109,7 @@ type ProjectName struct {
 // containing the import statement.
 func (p *ProjectName) Type() Type { return ProjectNameType }
 func (p *ProjectName) NamedProject() *Project { return p.project }
-func (p *ProjectName) Strval() (string, error) { return fmt.Sprintf("project %s", p.name), nil }
+func (p *ProjectName) Strval() (string, error) { return p.name/*fmt.Sprintf("project %s", p.name)*/, nil }
 func (p *ProjectName) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -113,7 +139,7 @@ func (p *ProjectName) prepare(pc *preparer) (err error) {
 }
 
 type ScopeName struct {
-        object
+        knownobject
         scope *Scope
 }
 
@@ -122,13 +148,7 @@ type ScopeName struct {
 // containing the import statement.
 func (n *ScopeName) Type() Type { return ScopeNameType }
 func (n *ScopeName) NamedScope() *Scope { return n.scope }
-func (n *ScopeName) String() string  {
-        if s, e := n.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{ScopeName '%s' !(%+v)}", s, e)
-        }
-}
+func (n *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", n.name) }
 func (n *ScopeName) Strval() (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
 
 func (n *ScopeName) Get(name string) (Value, error) {
@@ -137,21 +157,6 @@ func (n *ScopeName) Get(name string) (Value, error) {
                 return value, nil
         }
         return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name())
-}
-
-// Represents a unknown object, may be referred by some closures
-type UnknownObject struct { object }
-func (p *UnknownObject) String() string { return p.name } // the source representation
-func (p *UnknownObject) Strval() (string, error) { return fmt.Sprintf("{UnknownObject %s}", p.name), nil }
-func (p *UnknownObject) Call(pos token.Position, a... Value) (result Value, err error) {
-        result = p; return
-}
-func (p *UnknownObject) Execute(pos token.Position, a... Value) (result []Value, err error) {
-        result = []Value{p}; return
-}
-
-func MakeUnknownObject(s string) *UnknownObject {
-        return &UnknownObject{object{name:s, typ:UnknownObjectType}}
 }
 
 type DefOrigin int
@@ -171,7 +176,7 @@ const (
 
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
 type Def struct {
-        object
+        knownobject
         origin DefOrigin
         Value Value
 }
@@ -179,13 +184,13 @@ type Def struct {
 func (d *Def) disclose() (res Value, err error) {
         var v Value
         if v, err = d.Value.disclose(); err != nil { return }
-        if v != nil { res = &Def{ d.object, d.origin, v }}
+        if v != nil { res = &Def{ d.knownobject, d.origin, v }}
         return
 }
 func (d *Def) reveal() (res Value, err error) {
         var v Value
         if v, err = d.Value.reveal(); err != nil { return }
-        if v != nil { res = &Def{ d.object, d.origin, v }}
+        if v != nil { res = &Def{ d.knownobject, d.origin, v }}
         return
 }
 
@@ -347,7 +352,7 @@ func (d *Def) comparePathDepend(c *comparer, path *Path) (err error) {
 // A Builtin represents a built-in function.
 // Builtins don't have a valid type.
 type Builtin struct {
-        object
+        knownobject
         f BuiltinFunc
 }
 
@@ -611,7 +616,7 @@ func (entry *RuleEntry) prepare(pc *preparer) (err error) {
                 if err = pc.execute(entry, prog); err == nil {
                         break ForPrograms
                 } else if _, ok := err.(targetNotFoundError); ok {
-                        break ForPrograms // Don't try other programs if it's unknown.
+                        break ForPrograms // Don't try other programs if it's undefined.
                 }
         }
         return

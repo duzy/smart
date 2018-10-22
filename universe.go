@@ -23,7 +23,9 @@ var (
 // Predeclared types.
 var (
         CoreTypes = []*Core {
-                UnknownObjectKind: {UnknownObjectKind, IsUnknownObject, "UnknownObject"},
+                UnknownObjectKind:    {UnknownObjectKind, IsUnknownObject, "UnknownObject"},
+                KnownObjectKind:      {KnownObjectKind, IsKnownObject, "KnownObject"},
+                UnresolvedObjectKind: {UnresolvedObjectKind, IsUnresolvedObject, "UnresolvedObject"},
                 DefKind:         {DefKind, IsDef, "Def"},
                 DefinerKind:     {DefinerKind, IsDefiner, "Definer"},
                 PlainKind:       {PlainKind, IsPlain, "Plain"},
@@ -73,7 +75,9 @@ var (
         }
 
         // Shortcuts of core types
-        UnknownObjectType = CoreTypes[UnknownObjectKind]
+        UnknownObjectType    = CoreTypes[UnknownObjectKind]
+        KnownObjectType      = CoreTypes[KnownObjectKind]
+        UnresolvedObjectType = CoreTypes[UnresolvedObjectKind]
         DefType         = CoreTypes[DefKind]
         DefinerType     = CoreTypes[DefinerKind]
         PlainType       = CoreTypes[PlainKind]

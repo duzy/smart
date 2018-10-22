@@ -393,10 +393,9 @@ func (l *loader) argumented(x *ast.ArgumentedExpr) Value {
         return av
 }
 
-func (l *loader) closuredelegate(x *ast.ClosureDelegate) (obj Object, args []Value) {
-        var name = l.expr(x.Name)
-        if name == nil {
-                l.p.error(x.Name.Pos(), "nil name `%T`", x.Name)
+func (l *loader) closuredelegate(x *ast.ClosureDelegate) (name Value, obj Object, args []Value) {
+        if name = l.expr(x.Name); name == nil {
+                l.p.error(x.Name.Pos(), "invalid name `%T`", x.Name)
                 return
         }
 
@@ -411,58 +410,75 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (obj Object, args []Val
                         l.p.error(x.TokPos, "unregonized closure/delegate (%v).", x.Tok)
                         return
                 }
+        case token.STRING, token.COMPOUND:
+                if x.Tok == token.DOLLAR {
+                        l.p.error(x.TokPos, "unsupported delegate (%v).", x.TokLp)
+                        return
+                } else {
+                        tok = x.TokLp
+                }
         default:
-                l.p.error(x.TokPos, "unregonized closure/delegate (%v, %v).", x.TokLp, x.Tok)
+                if x.Tok == token.DOLLAR {
+                        l.p.error(x.TokPos, "unregonized delegate (%v).", x.TokLp)
+                } else {
+                        l.p.error(x.TokPos, "unregonized closure (%v).", x.TokLp)
+                }
                 return
         }
 
-        if x.Resolved == nil {
-                var err error
-                switch tok {
-                case token.LPAREN:
-                        if x.Resolved, err = l.resolve(name); err != nil {
-                                l.p.error(x.Name.Pos(), "%s", err)
-                                return
-                        } else if x.Resolved == nil {
-                                l.p.error(x.Name.Pos(), "object `%s` is nil", name)
-                                return
-                        }
-                case token.LBRACE:
-                        if x.Resolved, err = l.find(name); err != nil {
-                                l.p.error(x.Name.Pos(), "%s", err)
-                                return
-                        } else if x.Resolved == nil {
-                                l.p.error(x.Name.Pos(), "entry `%s` is nil", name)
-                                return
-                        }
-                }
-                if x.Resolved == nil {
-                        l.p.error(x.Name.Pos(), "unresolved `%s`", name)
-                        return
-                }
+        var ( resolved Object; err error )
+        if x.Resolved != nil {
+                resolved = x.Resolved.(Object)
         }
 
         switch tok {
         case token.LPAREN:
-                if def, _ := x.Resolved.(Caller); def == nil {
-                        l.p.error(x.Name.Pos(), "uncallable `%s` resolved `%T`", name, x.Resolved)
+                if resolved == nil { // if not resolved at parse time
+                        if resolved, err = l.resolve(name); err != nil {
+                                l.p.error(x.Name.Pos(), "%s", err)
+                                return
+                        } else if resolved == nil {
+                                //l.p.error(x.Name.Pos(), "object `%s` is nil", name)
+                                return
+                        }
+                }
+                if def, _ := resolved.(Caller); def == nil {
+                        l.p.error(x.Name.Pos(), "uncallable `%s` resolved `%T`", name, resolved)
                         return
                 } else if obj = def.(Object); obj == nil {
                         l.p.error(x.Name.Pos(), "non-object callable `%s` resolved `%T`", name, def)
                         return
                 }
         case token.LBRACE:
-                if resolved, _ := x.Resolved.(Executer); resolved != nil {
-                        if obj = resolved.(Object); obj == nil {
+                if resolved == nil { // if not resolved at parse time
+                        if resolved, err = l.find(name); err != nil {
+                                l.p.error(x.Name.Pos(), "%s", err)
+                                return
+                        } else if resolved == nil {
+                                //l.p.error(x.Name.Pos(), "entry `%s` is nil", name)
+                                return
+                        } 
+                }
+                if exe, _ := resolved.(Executer); exe != nil {
+                        if obj = exe.(Object); obj == nil {
                                 l.p.error(x.Name.Pos(), "non-object executer `%s` resolved `%T`", name, resolved)
                                 return
                         }
                 } else {
-                        l.p.error(x.Name.Pos(), "unexecutable `%s` resolved `%T`", name, x.Resolved)
+                        l.p.error(x.Name.Pos(), "unexecutable `%s` resolved `%T`", name, resolved)
                         return
                 }
+        case token.STRING, token.COMPOUND:
+                if resolved == nil { // if not resolved at parse time
+                        if resolved, err = l.find(name); err != nil {
+                                l.p.error(x.Name.Pos(), "%s", err)
+                                return
+                        } else if resolved == nil {
+                                //resolved = unresolved(l.project, name)
+                        }
+                }
+                obj = resolved
         }
-        
         for i, x := range x.Args {
                 if a := l.expr(x); a != nil {
                         args = append(args, a)
@@ -475,19 +491,26 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (obj Object, args []Val
 }
 
 func (l *loader) closure(x *ast.ClosureExpr) (v Value) {
-        if obj, args := l.closuredelegate(&x.ClosureDelegate); obj != nil {
+        if name, obj, args := l.closuredelegate(&x.ClosureDelegate); name == nil {
+                l.p.error(x.Name.Pos(), "invalid closure name `%T`", x.Name)
+        } else if obj != nil {
+                v = MakeClosure(x.Position, x.TokLp, obj, args...)
+        } else if true {
+                obj = unresolved(l.project, name)
                 v = MakeClosure(x.Position, x.TokLp, obj, args...)
         } else {
-                l.p.error(x.Pos(), "closure nil object `%T`", x.Name)
+                l.p.error(x.Pos(), "closure nil object (name `%v`, `%v`)", name, l.scope.comment)
         }
         return
 }
 
 func (l *loader) delegate(x *ast.DelegateExpr) (v Value) {
-        if obj, args := l.closuredelegate(&x.ClosureDelegate); obj != nil {
+        if name, obj, args := l.closuredelegate(&x.ClosureDelegate); name == nil {
+                l.p.error(x.Name.Pos(), "invalid delegate name `%T`", x.Name)
+        } else if obj != nil {
                 v = MakeDelegate(x.Position, x.TokLp, obj, args...)
         } else {
-                l.p.error(x.Pos(), "delegate nil object `%T`", x.Name)
+                l.p.error(x.Pos(), "delegate nil object (name `%v`, `%v`)", name, l.scope.comment)
         }
         return
 }

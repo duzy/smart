@@ -197,8 +197,10 @@ func (pc *preparer) updateall(value interface{}) (err error) {
 func (pc *preparer) update(value interface{}) (err error) {
         if p, _ := value.(prerequisite); p != nil {
                 err = p.prepare(pc)
+        } else if value == nil {
+                err = fmt.Errorf("updating nil prerequisite")
         } else {
-                err = fmt.Errorf("Type '%T' is not prerequisite.", value)
+                err = fmt.Errorf("`%T` is not prerequisite", value)
         }
         return
 }
@@ -1631,6 +1633,8 @@ func (p *closuredelegate) string(t string) (s string) { // source representation
         switch p.l {
         case token.LPAREN: s = fmt.Sprintf("%s(%s%s)", t, name, s)
         case token.LBRACE: s = fmt.Sprintf("%s{%s%s}", t, name, s)
+        case token.STRING, token.COMPOUND:
+                s = fmt.Sprintf("%s%s%s", t, name, s)
         case token.ILLEGAL:
                 if len(name) == 1 && len(s) == 0 {
                         s = fmt.Sprintf("%s%s", t, name)
@@ -1826,29 +1830,6 @@ func (p *closure) Strval() (s string, err error) {
         }
         return
 }
-func (p *closure) _reveal() (res Value, err error) {
-        if p.o == nil {
-                return nil, nil
-        }
-        switch o := p.o.(type) {
-        default: err = fmt.Errorf("unknown closure object %v", p.o)
-        case Caller:
-                if res, err = o.Call(p.p, p.a...); err != nil {
-                        err = fmt.Errorf("&(%s)!(%+v)", p.o.Name(), err)
-                }
-        case Executer:
-                var a []Value
-                if a, err = o.Execute(p.p, p.a...); err != nil {
-                        err = fmt.Errorf("&{%s}!(%+v)", p.o.Name(), err)
-                } else {
-                        res = &List{Elements{a}}
-                }
-        }
-        if res == nil && err == nil {
-                res = UniversalNone 
-        }
-        return
-}
 func (p *closure) reveal() (res Value, err error) {
         if p.o == nil { return }
 
@@ -1877,10 +1858,39 @@ func (p *closure) disclose() (res Value, err error) {
         if p.o == nil { return nil, nil }
 
         var ( o Object; v Value; changed bool )
-        for _, scope := range Closure {
-                if _, o = scope.Find(p.o.Name()); o != nil {
-                        changed = true; break
+        SeeL: switch name := p.o.Name(); p.l {
+        case token.LPAREN, token.ILLEGAL:
+                for _, scope := range Closure {
+                        if scope != scope.project.scope {
+                                // inquire non-project scope first
+                                if _, o = scope.Find(name); o != nil {
+                                        changed = true; break SeeL
+                                }
+                        }
+                        if o, err = scope.project.resolveObject(name); err != nil {
+                                return
+                        } else if o != nil {
+                                changed = true; break SeeL
+                        }
                 }
+        case token.LBRACE, token.STRING, token.COMPOUND:
+                for _, scope := range Closure {
+                        if o, err = scope.project.resolveEntry(name); err != nil {
+                                return
+                        } else if o != nil {
+                                if p.l == token.LBRACE {
+                                        changed = true; break SeeL
+                                } else {
+                                        // &'xxx' and &"xxx" are not disclosed into
+                                        // the resolved objects instead of converting
+                                        // into delegates.
+                                        res = o; return
+                                }
+                        }
+                }
+        default:
+                err = fmt.Errorf("unknown closure `&%+v%+v`", p.l, name)
+                return
         }
 
         if o == nil { o = p.o } // assert changed == false
@@ -2001,7 +2011,7 @@ func (p *selection) Strval() (s string, err error) {
         } else if v != nil {
                 s, err = v.Strval()
         } else {
-                err = fmt.Errorf("`%s` is nil", p.String())
+                err = fmt.Errorf("selection.strval: `%s` is nil", p.String())
         }
         return
 }
@@ -2060,7 +2070,11 @@ func (p *selection) reveal() (res Value, err error) {
 
 func (p *selection) prepare(pc *preparer) (err error) {
         var v Value
-        if v, err = p.value(); err == nil {
+        if v, err = p.value(); err != nil {
+                // sth's wrong
+        } else if v == nil {
+                err = fmt.Errorf("`%v` is nil", p)
+        } else {
                 err = pc.update(v)
         }
         return

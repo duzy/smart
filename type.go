@@ -63,12 +63,12 @@ const (
         ClosureKind
         SelectionKind
 
-        // named types
-        NamedKind
-
         // object types
-        BuiltinKind
         UnknownObjectKind
+        KnownObjectKind
+        UnresolvedObjectKind
+
+        BuiltinKind
         DefKind
         RuleEntryKind
         ProjectNameKind
@@ -113,8 +113,9 @@ var (
                 DelegateKind:   "Delegate",
                 ClosureKind:    "Closure",
                 SelectionKind:  "Selection",
-                NamedKind:      "Named",
-                UnknownObjectKind: "UnknownObject",
+                UnknownObjectKind:    "UnknownObject",
+                KnownObjectKind:      "KnownObject",
+                UnresolvedObjectKind: "UnresolvedObject",
                 DefKind:        "Def",
                 BuiltinKind:    "Builtin",
                 RuleEntryKind:  "RuleEntry",
@@ -180,8 +181,10 @@ const (
         IsSelection  // foo->bar  foo=>bar
 
         // Object types
-        IsBuiltin
         IsUnknownObject
+        IsKnownObject
+        IsUnresolvedObject
+        IsBuiltin
         IsDef
         IsRuleEntry
         IsScopeName
@@ -202,8 +205,9 @@ const (
         IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair | IsPattern
         IsConstType = IsBasic
 
-        IsCore      = IsBuiltin | IsUnknownObject | IsDef | IsRuleEntry | IsProjectName | IsScopeName | IsDefiner
-        IsObject    = IsBuiltin | IsUnknownObject | IsDef | IsRuleEntry | IsProjectName | IsScopeName
+        IsInternal  = IsUnknownObject | IsKnownObject | IsUnresolvedObject | IsClosure | IsDelegate
+        IsCore      = IsInternal | IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName | IsDefiner
+        IsObject    = IsInternal | IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName
 
         // Custom type
         IsNamed     = IsObject | IsPair | IsProjectName | IsScopeName
@@ -268,15 +272,3 @@ func (t *Composite) IsList() bool     { return t.info&IsList != 0 }
 func (t *Composite) IsGroup() bool    { return t.info&IsGroup != 0 }
 func (t *Composite) IsMap() bool      { return t.info&IsMap != 0 }
 func (t *Composite) IsPair() bool     { return t.info&IsPair != 0 }
-
-type Named struct {
-        underlying Type
-	name string
-        //value
-}
-
-func (t *Named) String() string   { return TypeString(t, nil) }
-func (t *Named) Name() string     { return t.name }
-func (t *Named) Underlying() Type { return t.underlying }
-func (t *Named) Kind() Kind       { return NamedKind }
-func (t *Named) Bits() TypeBits   { return IsNamed }

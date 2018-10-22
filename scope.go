@@ -208,11 +208,11 @@ func (s *Scope) DiscloseDef(name string) (str string, err error) {
 func (scope *Scope) ProjectName(owner *Project, name string, project *Project) (pn *ProjectName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 pn = &ProjectName{
-                        object{
-                                scope: scope,
-                                owner: owner,
-                                name:  name,
-                                typ:   ProjectNameType,
+                        knownobject{
+                                unknownobject{
+                                        scope: scope,
+                                        owner: owner,
+                                }, name,
                         },
                         project,
                 }
@@ -224,11 +224,11 @@ func (scope *Scope) ProjectName(owner *Project, name string, project *Project) (
 func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeName, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 sn = &ScopeName{
-                        object{
-                                scope: scope,
-                                owner: owner,
-                                name:  name,
-                                typ:   ScopeNameType,
+                        knownobject{
+                                unknownobject{
+                                        scope: scope,
+                                        owner: owner,
+                                }, name,
                         },
                         s,
                 }
@@ -240,11 +240,11 @@ func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeN
 func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 def = &Def{
-                        object{
-                                scope: scope,
-                                owner: owner,
-                                name:  name,
-                                typ:   DefType,
+                        knownobject{
+                                unknownobject{
+                                        scope: scope,
+                                        owner: owner,
+                                }, name,
                         },
                         TrivialDef, value,
                 }
@@ -260,11 +260,11 @@ func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt
 func (scope *Scope) Builtin(name string, f BuiltinFunc) (bui *Builtin, alt Object) {
         if alt = scope.elems[name]; alt == nil {
                 bui = &Builtin{
-                        object{
-                                scope: scope,
-                                owner: nil,
-                                name:  name, 
-                                typ:   BuiltinType,
+                        knownobject{
+                                unknownobject{
+                                        scope: scope,
+                                        owner: nil,
+                                }, name,
                         },
                         f,
                 }
