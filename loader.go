@@ -1161,16 +1161,6 @@ func (l *loader) OpenNamedScope(name, comment string) (ast.Scope, error) {
 }
 
 func (l *loader) eval(x ast.Expr, ec EvalBits) (res Value, err error) {
-	/*defer func() {
-		if e := recover(); e != nil {
-                        if fault := GoFault(e); fault != nil {
-                                err = fault
-                        } else if err, _ = e.(error); err == nil {
-                                err = fmt.Errorf("%v", e)
-                        }
-		}
-        }()*/
-
         if res = l.expr(x); res == nil {
                 l.p.error(x.Pos(), "eval invalid expr `%T`", x)
                 return
