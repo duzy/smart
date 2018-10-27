@@ -2321,8 +2321,9 @@ func NameScope(name string, scope *Scope) NameScoper {
 
 // Reveal reveals delegated component and Valuer recursively.
 func Reveal(value Value) (res Value, err error) {
-        //fmt.Printf("Reveal: %T %v\n", value, value)
-        if res, err = value.reveal(); res == nil && err == nil {
+        if value == nil {
+                err = fmt.Errorf("reveal nil value")
+        } else if res, err = value.reveal(); res == nil && err == nil {
                 res = value
         }
         return
@@ -2341,7 +2342,9 @@ func Disclose(value Value) (res Value, err error) {
         if false {
                 fmt.Printf("Disclose: %T %v\n", value, value)
         }
-        if res, err = value.disclose(); res == nil && err == nil {
+        if value == nil {
+                err = fmt.Errorf("disclose nil value")
+        } else if res, err = value.disclose(); res == nil && err == nil {
                 res = value
         }
         return
