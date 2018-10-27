@@ -38,33 +38,29 @@ var (
 
 type dialectDock struct {}
 
-func docksFind(docks []*Project, name string) (obj Object) {
+func docksFindObj(docks []*Project, name string) (obj Object) {
         for _, dock := range docks {
-                if _, obj = dock.Scope().Find(name); obj == nil {
-                        for _, p := range dock.Bases() {
-                                if _, obj = p.Scope().Find(name); obj != nil {
-                                        break
-                                }
-                        }
+                if obj, _ = dock.resolveObject(name); obj != nil {
+                        break
+                }
+        }
+        return
+}
+
+func docksFindEnt(docks []*Project, name string) (entry *RuleEntry) {
+        for _, dock := range docks {
+                if entry, _ = dock.resolveEntry(name); entry != nil {
+                        break
                 }
         }
         return
 }
 
 func (s *dialectDock) runContainer(prog *Program, docks []*Project) (err error) {
-        var (
-                obj = docksFind(docks, "run")
-                run *RuleEntry
-        )
-        if obj != nil {
-                run, _ = obj.(*RuleEntry)
-        }
-        if run != nil {
-                //var closure = cc //append(prog.ClosureContext(), dock.Scope())
-                //defer run.SetClosure(run.SetClosure(closure...)...)
-                _, err = run.Execute(prog.Position()/*, &String{"sh -i"}*/)
+        if run := docksFindEnt(docks, "run"); run != nil {
+                _, err = run.Execute(prog.Position()/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
         } else {
-                err = fmt.Errorf("dock start entry undefined")
+                err = fmt.Errorf("dock=>run undefined")
         }
         return
 }
@@ -152,7 +148,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
         defer setclosure(scoping(docks...))
 
         var strval = func(name string) (str string, err error) {
-                if obj := docksFind(docks, name); obj != nil {
+                if obj := docksFindObj(docks, name); obj != nil {
                         if def, _ := obj.(*Def); def != nil {
                                 var v Value
                                 if v, err = def.DiscloseValue(); err == nil && v != nil {
