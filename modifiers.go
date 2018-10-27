@@ -205,13 +205,13 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                                         break
                                 }
                         }
-                        // Back to main project if no backtrack.
-                        if dir == "-" && prog.globe.main != nil {
-                                dir = prog.globe.main.AbsPath()
-                        }
+                }
+                // Back to main project if no backtracks.
+                if dir == "-" && prog.globe.main != nil {
+                        dir = prog.globe.main.AbsPath()
                 }
                 if dir == "-" {
-                        err = fmt.Errorf("cd: no trackback (tracks=%v)", len(execstack))
+                        err = fmt.Errorf("no trackback (tracks=%v)", len(execstack))
                         return
                 }
                 if dir != "" {
