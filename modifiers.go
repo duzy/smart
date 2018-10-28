@@ -188,7 +188,25 @@ func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Valu
 }
 
 func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        if n := len(args); n == 1 {
+        var ( n = len(args); optPath = false )
+        if n > 0 {
+                var (v []Value; name string)
+                for _, arg := range args {
+                        switch a := arg.(type) {
+                        default: v = append(v, arg)
+                        case *Flag:
+                                if name, err = a.Name.Strval(); err != nil {
+                                        return
+                                }
+                                switch name {
+                                case "p", "path": optPath = true
+                                }
+                        }
+                }
+                args, n = v, len(v) // Reset args
+        }
+
+        if n = len(args); n == 1 {
                 var dir string
                 if dir, err = args[0].Strval(); err != nil {
                         return
@@ -217,6 +235,11 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                 if dir != "" {
                         if trace_prepare {
                                 fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
+                        }
+                        if optPath && dir != "." && dir != "/" {// mkdir -p
+                                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                                        return
+                                }
                         }
                         if err = prog.cd(dir, false); err == nil {
                                 //for _, cd := range prog.cdinfos[1:] { cd.print = false }
@@ -754,8 +777,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
 
         // Make path (mkdir -p)
         if optPath {
-                var p = filepath.Dir(filename)
-                if p != "." && p != "/" {
+                if p := filepath.Dir(filename); p != "." && p != "/" {
                         if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
                                 return
                         }
