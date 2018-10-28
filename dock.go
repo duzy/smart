@@ -9,6 +9,7 @@ package smart
 import (
         "os/exec"
         "strings"
+        "strconv"
         "regexp"
         "bytes"
         "bufio"
@@ -295,16 +296,12 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                         }
                         if str = ""; len(envars) > 0 {
                                 for i, env := range envars {
-                                        var (
-                                                p = env.(*Pair)
-                                                k, v string
-                                        )
+                                        var k, v string
+                                        var p = env.(*Pair)
                                         if k, err = p.Key.Strval(); err != nil { return }
                                         if v, err = p.Value.Strval(); err != nil { return }
                                         if i > 0 { str += " && " }
-                                        str += "export "
-                                        str += k + "=\""
-                                        str += v + "\""
+                                        str += fmt.Sprintf(`%s="%s"`, k, strconv.Quote(v))
                                 }
                                 src = fmt.Sprintf("%s && %s", str, src)
                         }
