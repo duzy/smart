@@ -188,7 +188,7 @@ func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Valu
 }
 
 func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        var ( n = len(args); optPath = false )
+        var ( n = len(args); optPath bool )
         if n > 0 {
                 var (v []Value; name string)
                 for _, arg := range args {
@@ -200,6 +200,26 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                                 }
                                 switch name {
                                 case "p", "path": optPath = true
+                                case "":
+                                        var dir string
+                                        if len(execstack) > 1 {
+                                                // Find a backtrack.
+                                                top := execstack[0]
+                                                for _, p := range execstack[1:] {
+                                                        if p.project != top.project {
+                                                                dir = p.project.AbsPath()
+                                                                if trace_prepare {
+                                                                        fmt.Printf("prepare:CD: %s (%s) (%s)\n", dir, p.project.name, prog.project.name)
+                                                                }
+                                                                break
+                                                        }
+                                                }
+                                        }
+                                        // Back to main project if no backtracks.
+                                        if dir == "" && prog.globe.main != nil {
+                                                dir = prog.globe.main.AbsPath()
+                                        }
+                                        v = append(v, &String{dir})
                                 }
                         }
                 }
@@ -210,44 +230,24 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                 var dir string
                 if dir, err = args[0].Strval(); err != nil {
                         return
-                }
-                if dir == "-" && len(execstack) > 1 {
-                        // Find a backtrack.
-                        top := execstack[0]
-                        for _, p := range execstack[1:] {
-                                if p.project != top.project {
-                                        dir = p.project.AbsPath()
-                                        if trace_prepare {
-                                                fmt.Printf("prepare:CD: %s (%s) (%s)\n", dir, p.project.name, prog.project.name)
-                                        }
-                                        break
-                                }
-                        }
-                }
-                // Back to main project if no backtracks.
-                if dir == "-" && prog.globe.main != nil {
-                        dir = prog.globe.main.AbsPath()
-                }
-                if dir == "-" {
+                } else if dir == "" {
                         err = fmt.Errorf("no trackback (tracks=%v)", len(execstack))
                         return
                 }
-                if dir != "" {
-                        if trace_prepare {
-                                fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
-                        }
-                        if optPath && dir != "." && dir != "/" {// mkdir -p
-                                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                                        return
-                                }
-                        }
-                        if err = prog.cd(dir, false); err == nil {
-                                //for _, cd := range prog.cdinfos[1:] { cd.print = false }
-                                prog.auto(TheCurrWorkDirDef, &String{dir})
+                if trace_prepare {
+                        fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
+                }
+                if optPath && dir != "." && dir != "/" {// mkdir -p
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                                return
                         }
                 }
+                if err = prog.cd(dir, false); err == nil {
+                        //for _, cd := range prog.cdinfos[1:] { cd.print = false }
+                        prog.auto(TheCurrWorkDirDef, &String{dir})
+                }
         } else {
-                err = fmt.Errorf("cd: wrong number of args (%v)", n)
+                err = fmt.Errorf("wrong number of args (%v)", n)
         }
         return
 }
