@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "strings"
         "strconv"
         //"fmt"
 )
@@ -41,7 +42,7 @@ func (t *_plain) Evaluate(prog *Program, args []Value, recipes []Value) (result 
                 if name, err = args[0].Strval(); err != nil { return }
         }
         if str, err = joinRecipesString(recipes...); err != nil { return }
-        //fmt.Printf("plain: %s\n", str)
+        str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{ str, name, }
         return
 }
