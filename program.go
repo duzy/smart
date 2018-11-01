@@ -214,8 +214,6 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         prog.auto("@", entry.target)
 
-        fmt.Printf("execute: %v %v\n", entry.target, prog.depends)
-
         // Calculate and prepare depends and files.
         var pc = &preparer{ entry, prog, nil, new(List), "" }
         if err = pc.updateall(prog.depends); err != nil {
