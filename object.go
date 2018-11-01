@@ -315,7 +315,7 @@ func (d *Def) Get(name string) (Value, error) {
         case "value": return d.Value, nil
         }
         //fmt.Printf("%v %v\n", d.name, d.parent)
-        return nil, fmt.Errorf("No such property `%s' (Def)", name)
+        return nil, fmt.Errorf("no such property `%s' (Def)", name)
 }
 
 func (d *Def) compare(c *comparer) error {
@@ -325,26 +325,26 @@ func (d *Def) compare(c *comparer) error {
         return c.compare(d.Value)
 }
 
-func (d *Def) compareFileDepend(c *comparer, file *File) (err error) {
+func (d *Def) filedependcompare(c *comparer, file *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Def:File: %v (depends: %v) (%v %T)\n", d.Value, file, c.target, c.target)
         }
-        if comp, _ := d.Value.(comparable); comp != nil {
-                err = comp.compareFileDepend(c, file)
+        if comp, _ := d.Value.(filedepend); comp != nil {
+                err = comp.filedependcompare(c, file)
         } else {
-                err = breakf(false, "incomparable target (%v)", d.Value)
+                err = break_bad("def: incomparable target (%T %v)", d.Value, d.Value)
         }
         return
 }
 
-func (d *Def) comparePathDepend(c *comparer, path *Path) (err error) {
+func (d *Def) pathdependcompare(c *comparer, path *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Def:Path: %v (depends: %v) (%v %T)\n", d.Value, path, c.target, c.target)
         }
-        if comp, _ := d.Value.(comparable); comp != nil {
-                err = comp.comparePathDepend(c, path)
+        if comp, _ := d.Value.(pathdepend); comp != nil {
+                err = comp.pathdependcompare(c, path)
         } else {
-                err = breakf(false, "incomparable target (%v)", d.Value)
+                err = break_bad("def: incomparable target (%T %v)", d.Value, d.Value)
         }
         return
 }
@@ -561,33 +561,44 @@ func (entry *RuleEntry) compare(c *comparer) (err error) {
                 fmt.Printf("compare:RuleEntry: %v (%v) (%v %T)\n", entry.target, entry.class, c.target, c.target)
         }
         switch target := entry.target.(type) {
-        case *File: err = c.target.compareFileDepend(c, target)
-        case *Path: err = c.target.comparePathDepend(c, target)
-        default: err = breakf(false, "incomparable entry (%v)", target)
+        case *File:
+                if dep, ok := c.target.(filedepend); ok {
+                        err = dep.filedependcompare(c, target)
+                } else {
+                        err = fmt.Errorf("entry: not file depend (%T %v)", c.target, c.target)
+                }
+        case *Path:
+                if dep, ok := c.target.(pathdepend); ok {
+                        err = dep.pathdependcompare(c, target)
+                } else {
+                        err = fmt.Errorf("entry: not path depend (%T %v)", c.target, c.target)
+                }
+        default:
+                err = break_bad("incomparable entry target (%T %v)", target, target)
         }
         return
 }
 
-func (entry *RuleEntry) compareFileDepend(c *comparer, file *File) (err error) {
+func (entry *RuleEntry) filedependcompare(c *comparer, file *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:RuleEntry:File: %v (%v) (depends: %v) (%v %T)\n", entry.target, entry.class, file, c.target, c.target)
         }
         switch target := entry.target.(type) {
-        case *File: err = target.compareFileDepend(c, file)
-        case *Path: err = target.compareFileDepend(c, file)
-        default: err = breakf(false, "incomparable entry (%v)", target)
+        case *File: err = target.filedependcompare(c, file)
+        case *Path: err = target.filedependcompare(c, file)
+        default: err = break_bad("incomparable entry (%v)", target)
         }
         return
 }
 
-func (entry *RuleEntry) comparePathDepend(c *comparer, path *Path) (err error) {
+func (entry *RuleEntry) pathdependcompare(c *comparer, path *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:RuleEntry:Path: %v (%v) (depends: %v) (%v %T)\n", entry.target, entry.class, path, c.target, c.target)
         }
         switch target := entry.target.(type) {
-        case *File: err = target.comparePathDepend(c, path)
-        case *Path: err = target.comparePathDepend(c, path)
-        default: err = breakf(false, "incomparable entry (%v)", target)
+        case *File: err = target.pathdependcompare(c, path)
+        case *Path: err = target.pathdependcompare(c, path)
+        default: err = break_bad("incomparable entry (%v)", target)
         }
         return
 }

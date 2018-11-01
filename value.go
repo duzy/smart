@@ -90,24 +90,25 @@ func (p *value) Strval() (string, error) { return fmt.Sprintf("{value %p}", p), 
 func (p *value) String() string {return "{value}" }
 
 type comparer struct {
-        //program *Program
         globe *Globe
-        target comparable
-        tarval Value
+        target Value
         objects []Value
         result []Value
 }
 
-// TODO: use it with (compare) modifier
+type filedepend interface {
+        // Compare as a target with the file prerequisite.
+        filedependcompare(c *comparer, file *File) error
+}
+
+type pathdepend interface {
+        // Compare as a target with the path prerequisite.
+        pathdependcompare(c *comparer, path *Path) error
+}
+
 type comparable interface {
         // Compare as a prerequisite with the target c.target.
         compare(c *comparer) error
-
-        // Compare as a target with the file prerequisite.
-        compareFileDepend(c *comparer, file *File) error
-
-        // Compare as a target with the path prerequisite.
-        comparePathDepend(c *comparer, path *Path) error
 }
 
 func NewComparer(globe *Globe, target Value) (c *comparer, err error) {
@@ -116,11 +117,11 @@ func NewComparer(globe *Globe, target Value) (c *comparer, err error) {
         }
         if target, err = Reveal(target); err != nil { return }
         if target == nil || target.Type() == NoneType {
-                err = breakf(false, "comparing no target")
-        } else if t, _ := target.(comparable); t != nil {
-                c = &comparer{ globe, t, target, nil, nil }
+                err = break_bad("comparing no target")
+        } else if /*t, _ := target.(comparable); t != nil*/true {
+                c = &comparer{ globe, target, nil, nil }
         } else {
-                err = fmt.Errorf("incomparable target (%v)", target)
+                err = fmt.Errorf("incomparable target (%T %v)", target, target)
         }
         return
 }
@@ -162,11 +163,6 @@ type preparer struct {
 
 type prerequisite interface {
         prepare(pc *preparer) error
-}
-
-func makePreparer(entry *RuleEntry, prog *Program, args... Value) (pc *preparer) {
-        var stem string
-        return &preparer{ entry, prog, args, new(List), stem }
 }
 
 func (pc *preparer) updateall(value interface{}) (err error) {
@@ -358,8 +354,8 @@ func (p *None) Type() Type { return NoneType }
 func (p *None) String() string {return "" }
 func (p *None) Strval() (string, error) { return "", nil }
 func (p *None) compare(c *comparer) (err error) { return }
-func (p *None) compareFileDepend(c *comparer, file *File) error { return nil }
-func (p *None) comparePathDepend(c *comparer, path *Path) error { return nil }
+func (p *None) filedependcompare(c *comparer, file *File) error { return nil }
+func (p *None) pathdependcompare(c *comparer, path *Path) error { return nil }
 func (p *None) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:None: (%v)\n", pc.entry)
@@ -584,15 +580,77 @@ func ParseUri(s string) *Uri {
 type String struct {
         Value string
 }
-func (*String) disclose() (Value, error) { return nil, nil }
-func (*String) reveal() (Value, error) { return nil, nil }
-func (*String) refs(_ Object) bool { return false }
-func (*String) closured() bool { return false }
+func (_ *String) disclose() (Value, error) { return nil, nil }
+func (_ *String) reveal() (Value, error) { return nil, nil }
+func (_ *String) refs(_ Object) bool { return false }
+func (_ *String) closured() bool { return false }
 func (p *String) Type() Type  { return StringType }
 func (p *String) String() string { return fmt.Sprintf("'%s'", p.Value) }
 func (p *String) Strval() (string, error) { return p.Value, nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
+
+func (p *String) filedependcompare(c *comparer, d *File) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:String:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+        }
+
+        var tt, dt time.Time
+        if info, _ := os.Stat(p.Value); info != nil {
+                tt = info.ModTime()
+        }
+
+        ds, err := d.Strval()
+        if err != nil { return }
+        if t, ok := c.globe.Timestamps[ds]; ok {
+                dt = t
+        } else if d.Info != nil {
+                dt = d.Info.ModTime()
+        } else if info, _ := os.Stat(ds); info != nil {
+                dt = info.ModTime()
+        } else {
+                return break_bad("no such file '%v'", ds)
+        }
+
+        if dt.After(tt) {
+                c.globe.Timestamps[p.Value] = dt // Or tt?
+                err = nil // Returns nil to request update.
+        } else {
+                err = break_good("updated file '%s'", p)
+        }
+        return
+}
+
+func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:String:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+        }
+
+        var tt, dt time.Time
+        if info, _ := os.Stat(p.Value); info != nil {
+                tt = info.ModTime()
+        }
+
+        s, err := d.Strval()
+        if err != nil { return }
+        if t, ok := c.globe.Timestamps[s]; ok {
+                dt = t
+        } else if d.File != nil && d.File.Info != nil {
+                dt = d.File.Info.ModTime()
+        } else if info, _ := os.Stat(s); info != nil {
+                dt = info.ModTime()
+        } else {
+                return break_bad("no such directory '%v'", s)
+        }
+
+        if dt.After(tt) {
+                c.globe.Timestamps[p.Value] = dt // Or tt?
+                err = nil // Returns nil to request update.
+        } else {
+                err = break_good("updated directory '%s'", p)
+        }
+        return
+}
 
 func (p *String) prepare(pc *preparer) error {
         if trace_prepare {
@@ -616,6 +674,68 @@ func (p *Bareword) String() string { return p.Value/*fmt.Sprintf("Bareword{%s}",
 func (p *Bareword) Strval() (string, error) { return p.Value, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
+
+func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Bareword:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+        }
+
+        var tt, dt time.Time
+        if info, _ := os.Stat(p.Value); info != nil {
+                tt = info.ModTime()
+        }
+
+        ds, err := d.Strval()
+        if err != nil { return }
+        if t, ok := c.globe.Timestamps[ds]; ok {
+                dt = t
+        } else if d.Info != nil {
+                dt = d.Info.ModTime()
+        } else if info, _ := os.Stat(ds); info != nil {
+                dt = info.ModTime()
+        } else {
+                return break_bad("no such file '%v'", ds)
+        }
+
+        if dt.After(tt) {
+                c.globe.Timestamps[p.Value] = dt // Or tt?
+                err = nil // Returns nil to request update.
+        } else {
+                err = break_good("updated file '%s'", p)
+        }
+        return
+}
+
+func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Bareword:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+        }
+
+        var tt, dt time.Time
+        if info, _ := os.Stat(p.Value); info != nil {
+                tt = info.ModTime()
+        }
+
+        s, err := d.Strval()
+        if err != nil { return }
+        if t, ok := c.globe.Timestamps[s]; ok {
+                dt = t
+        } else if d.File != nil && d.File.Info != nil {
+                dt = d.File.Info.ModTime()
+        } else if info, _ := os.Stat(s); info != nil {
+                dt = info.ModTime()
+        } else {
+                return break_bad("no such directory '%v'", s)
+        }
+
+        if dt.After(tt) {
+                c.globe.Timestamps[p.Value] = dt // Or tt?
+                err = nil // Returns nil to request update.
+        } else {
+                err = break_good("updated directory '%s'", p)
+        }
+        return
+}
 
 func (p *Bareword) prepare(pc *preparer) error {
         if trace_prepare {
@@ -737,6 +857,78 @@ func (p *Barecomp) reveal() (res Value, err error) {
         return
 }
 
+func (p *Barecomp) filedependcompare(c *comparer, d *File) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Barecomp:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+        }
+
+        var tt time.Time
+        ts, err := p.Strval() // target name
+        if err != nil { return }
+        if info, _ := os.Stat(ts); info != nil {
+                tt = info.ModTime()
+        } else {
+                return // Returns nil to request update.
+        }
+
+        var dt time.Time
+        ds, err := d.Strval() // depend name
+        if err != nil { return }
+        if t, ok := c.globe.Timestamps[ds]; ok {
+                dt = t
+        } else if d.Info != nil {
+                dt = d.Info.ModTime()
+        } else if info, _ := os.Stat(ds); info != nil {
+                dt = info.ModTime()
+        } else {
+                return break_bad("no such file '%v'", ds)
+        }
+
+        if dt.After(tt) {
+                c.globe.Timestamps[ts] = dt // Or tt?
+                err = nil // Returns nil to request update.
+        } else {
+                err = break_good("updated file '%s'", p)
+        }
+        return
+}
+
+func (p *Barecomp) pathdependcompare(c *comparer, d *Path) (err error) {
+        if trace_compare {
+                fmt.Printf("compare:Barecomp:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
+        }
+
+        var tt time.Time
+        ts, err := p.Strval()
+        if err != nil { return }
+        if info, _ := os.Stat(ts); info != nil {
+                tt = info.ModTime()
+        } else {
+                return // Returns nil to request update.
+        }
+
+        var dt time.Time
+        ds, err := d.Strval()
+        if err != nil { return }
+        if t, ok := c.globe.Timestamps[ds]; ok {
+                dt = t
+        } else if d.File != nil && d.File.Info != nil {
+                dt = d.File.Info.ModTime()
+        } else if info, _ := os.Stat(ds); info != nil {
+                dt = info.ModTime()
+        } else {
+                return break_bad("no such file '%v'", ds)
+        }
+
+        if dt.After(tt) {
+                c.globe.Timestamps[ts] = dt // Or tt?
+                err = nil // Returns nil to request update.
+        } else {
+                err = break_good("updated file '%s'", p)
+        }
+        return
+}
+
 func (p *Barecomp) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Barecomp: %v (%v)\n", p, pc.entry)
@@ -799,31 +991,31 @@ func (p *Barefile) compare(c *comparer) (err error) {
         if p.File != nil {
                 err = p.File.compare(c)
         } else {
-                err = breakf(false, "no such file '%v'", p)
+                err = break_bad("no such file '%v'", p)
         }
         return
 }
 
-func (p *Barefile) compareFileDepend(c *comparer, d *File) (err error) {
+func (p *Barefile) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Barefile:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         if p.File != nil {
-                err = p.File.compareFileDepend(c, d)
+                err = p.File.filedependcompare(c, d)
         } else {
-                err = breakf(false, "no such file '%v'", p)
+                err = break_bad("no such file '%v'", p)
         }
         return
 }
 
-func (p *Barefile) comparePathDepend(c *comparer, d *Path) (err error) {
+func (p *Barefile) pathdependcompare(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Barefile:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         if p.File != nil {
-                err = p.File.comparePathDepend(c, d)
+                err = p.File.pathdependcompare(c, d)
         } else {
-                err = breakf(false, "no such path '%v'", p)
+                err = break_bad("no such path '%v'", p)
         }
         return
 }
@@ -909,33 +1101,26 @@ func (p *Path) reveal() (res Value, err error) {
         return
 }
 
-/*func (p *Path) Dir() (s string) { // Same as `filepath.Dir(p.Strval())`.
-        if n := len(p.Elems); n > 0 {
-                s = filepath.Base(p.Elems[n-1].Strval())
-        }
-        return filepath.Dir(p.Strval())
-}
-
-func (p *Path) Base() (s string) { // Same as `filepath.Base(p.Strval())`.
-        if n := len(p.Elems); n > 0 {
-                s = filepath.Base(p.Elems[n-1].Strval())
-        }
-        return
-}*/
-
 func (p *Path) compare(c *comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Path: %v (%v %T)\n", p, c.target, c.target)
         }
-        return c.target.comparePathDepend(c, p)
+        if dep, ok := c.target.(pathdepend); ok {
+                if err = dep.pathdependcompare(c, p); err != nil {
+                        err = fmt.Errorf("path: %v", err)
+                }
+        } else {
+                err = fmt.Errorf("path: target is not path depend (%T %v)", c.target, c.target)
+        }
+        return
 }
 
-func (p *Path) compareFileDepend(c *comparer, d *File) (err error) {
+func (p *Path) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Path:File: %v (%v) (depends: %v %v) (%v %T)\n", p, p.File, d, d.Info, c.target, c.target)
         }
         if p.File != nil {
-                return p.File.compareFileDepend(c, d)
+                return p.File.filedependcompare(c, d)
         }
                 
         var tt time.Time
@@ -959,24 +1144,24 @@ func (p *Path) compareFileDepend(c *comparer, d *File) (err error) {
         } else if info, _ := os.Stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
-                return breakf(false, "no such directory '%v'", ds)
+                return break_bad("no such directory '%v'", ds)
         }
 
         if dt.After(tt) {
                 c.globe.Timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
-                err = breakf(true, "updated path '%s'", p)
+                err = break_good("updated path '%s'", p)
         }
         return
 }
 
-func (p *Path) comparePathDepend(c *comparer, d *Path) (err error) {
+func (p *Path) pathdependcompare(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Path:Path: %v (%v) (depends: %v) (%v %T)\n", p, p.File, d, c.target, c.target)
         }
         if p.File != nil {
-                return p.File.comparePathDepend(c, d)
+                return p.File.pathdependcompare(c, d)
         }
 
         var tt time.Time
@@ -1000,14 +1185,14 @@ func (p *Path) comparePathDepend(c *comparer, d *Path) (err error) {
         } else if info, _ := os.Stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
-                return breakf(false, "no such directory '%v'", ds)
+                return break_bad("no such directory '%v'", ds)
         }
 
         if dt.After(tt) {
                 c.globe.Timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
-                err = breakf(true, "updated path '%s'", p)
+                err = break_good("updated path '%s'", p)
         }
         return
 }
@@ -1124,16 +1309,23 @@ func (p *File) compare(c *comparer) (err error) {
         if trace_compare {
                 fmt.Printf("compare:File: %v (%v %T)\n", p.Name, c.target, c.target)
         }
-        return c.target.compareFileDepend(c, p)
+        if dep, ok := c.target.(filedepend); ok {
+                if err = dep.filedependcompare(c, p); err != nil {
+                        err = fmt.Errorf("file: %v", err)
+                }
+        } else {
+                err = fmt.Errorf("entry: not path depend (%T %v)", c.target, c.target)
+        }
+        return
 }
 
-func (p *File) compareFileDepend(c *comparer, d *File) (err error) {
+func (p *File) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:File:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         
         var tt time.Time
-        ts, err := p.Strval()
+        ts, err := p.Strval() // target name
         if err != nil { return }
         if p.Info != nil {
                 tt = p.Info.ModTime()
@@ -1144,7 +1336,7 @@ func (p *File) compareFileDepend(c *comparer, d *File) (err error) {
         }
 
         var dt time.Time
-        ds, err := d.Strval()
+        ds, err := d.Strval() // depend name
         if err != nil { return }
         if t, ok := c.globe.Timestamps[ds]; ok {
                 dt = t
@@ -1153,19 +1345,19 @@ func (p *File) compareFileDepend(c *comparer, d *File) (err error) {
         } else if info, _ := os.Stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
-                return breakf(false, "no such directory '%v'", ds)
+                return break_bad("no such file '%v'", ds)
         }
 
         if dt.After(tt) {
                 c.globe.Timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
-                err = breakf(true, "updated file '%s'", p)
+                err = break_good("updated file '%s'", p)
         }
         return
 }
 
-func (p *File) comparePathDepend(c *comparer, d *Path) (err error) {
+func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:File:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
@@ -1191,14 +1383,14 @@ func (p *File) comparePathDepend(c *comparer, d *Path) (err error) {
         } else if info, _ := os.Stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
-                return breakf(false, "no such file '%v'", ds)
+                return break_bad("no such file '%v'", ds)
         }
 
         if dt.After(tt) {
                 c.globe.Timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
-                err = breakf(true, "updated file '%s'", p)
+                err = break_good("updated file '%s'", p)
         }
         return
 }
@@ -1223,14 +1415,14 @@ func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v (explicitly: %v in %v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
         }
+        var entry *RuleEntry
         // Find concrete entry (by file represented name)
-        if _, obj := pc.program.project.scope.Find(p.Name); obj != nil {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (found %v) (%s) (%v -> %v)\n", p.Name, obj, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
-                }
-                if err, trybrk = pc.update(obj), true; err != nil {
-                        // ...
-                }
+        if entry, err = pc.program.project.resolveEntry(p.Name); err != nil {
+                // ... error
+        } else if entry == nil {
+                // ... error
+        } else {
+                err = entry.prepare(pc)
         }
         return
 }
@@ -1459,38 +1651,38 @@ func (p *List) compare(c *comparer) (err error) {
         return
 }
 
-func (p *List) compareFileDepend(c *comparer, d *File) (err error) {
+func (p *List) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:List:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         if n := len(p.Elems); n == 1 {
-                if elem, _ := p.Elems[0].(comparable); elem != nil {
-                        err = elem.compareFileDepend(c, d)
+                if elem, _ := p.Elems[0].(filedepend); elem != nil {
+                        err = elem.filedependcompare(c, d)
                 } else {
-                        err = breakf(false, "incomparable target (%v)", p.Elems[0])
+                        err = break_bad("list: incomparable target (%T %v)", p.Elems[0], p.Elems[0])
                 }
         } else if n == 0 {
-                err = breakf(false, "comparing empty list")
+                err = break_bad("comparing empty list")
         } else {
-                err = breakf(false, "comparing multiple targets (%v)", p)
+                err = break_bad("comparing multiple targets (%v)", p)
         }
         return
 }
 
-func (p *List) comparePathDepend(c *comparer, d *Path) (err error) {
+func (p *List) pathdependcompare(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:List:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
         }
         if n := len(p.Elems); n == 1 {
-                if elem, _ := p.Elems[0].(comparable); elem != nil {
-                        err = elem.comparePathDepend(c, d)
+                if elem, _ := p.Elems[0].(pathdepend); elem != nil {
+                        err = elem.pathdependcompare(c, d)
                 } else {
-                        err = breakf(false, "incomparable target (%v)", p.Elems[0])
+                        err = break_bad("list: incomparable target (%T %v)", p.Elems[0], p.Elems[0])
                 }
         } else if n == 0 {
-                err = breakf(false, "comparing empty list")
+                err = break_bad("comparing empty list")
         } else {
-                err = breakf(false, "comparing multiple targets (%v)", p)
+                err = break_bad("comparing multiple targets (%v)", p)
         }
         return
 }
@@ -1748,16 +1940,16 @@ func (p *delegate) compare(c *comparer) (err error) {
         return
 }
 
-func (p *delegate) compareFileDepend(c *comparer, d *File) (err error) {
+func (p *delegate) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:delegate:File: %v (%v %T)\n", p, c.target, c.target)
         }
         var value Value
         if value, err = p.reveal(); err != nil { return }
-        if comp, _ := value.(comparable); comp != nil {
-                err = comp.compareFileDepend(c, d)
+        if comp, _ := value.(filedepend); comp != nil {
+                err = comp.filedependcompare(c, d)
         } else {
-                err = fmt.Errorf("incomparable target (%v)", value)
+                err = fmt.Errorf("delegate: incomparable target (%T %v)", value, value)
                 if trace_compare {
                         fmt.Printf("compare:delegate:File: %v (incomparable: %v %T)\n", p, value, value)
                 }
@@ -1765,16 +1957,16 @@ func (p *delegate) compareFileDepend(c *comparer, d *File) (err error) {
         return
 }
 
-func (p *delegate) comparePathDepend(c *comparer, d *Path) (err error) {
+func (p *delegate) pathdependcompare(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:delegate:Path: %v (%v %T)\n", p, c.target, c.target)
         }
         var value Value
         if value, err = p.reveal(); err != nil { return }
-        if comp, _ := value.(comparable); comp != nil {
-                err = comp.comparePathDepend(c, d)
+        if comp, _ := value.(pathdepend); comp != nil {
+                err = comp.pathdependcompare(c, d)
         } else {
-                err = fmt.Errorf("incomparable target (%v)", value)
+                err = fmt.Errorf("delegate: incomparable target (%T %v)", value, value)
                 if trace_compare {
                         fmt.Printf("compare:delegate:Path: %v (incomparable: %v %T)\n", p, value, value)
                 }

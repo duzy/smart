@@ -30,8 +30,12 @@ func (p *breaker) Error() string {
         return p.message
 }
 
-func breakf(good bool, s string, a... interface{}) *breaker {
-        return &breaker{ fmt.Sprintf(s, a...), good }
+func break_bad(s string, a... interface{}) *breaker {
+        return &breaker{ fmt.Sprintf(s, a...), false }
+}
+
+func break_good(s string, a... interface{}) *breaker {
+        return &breaker{ fmt.Sprintf(s, a...), true }
 }
 
 type modifierFunc func(pos token.Position, prog *Program, value Value, args... Value) (Value, error)
@@ -115,7 +119,7 @@ func modifierStatusEquals(pos token.Position, prog *Program, value Value, args..
                         result = v; return
                 }
         }
-        err = breakf(false, "bad status (%v)", v)
+        err = break_bad("bad status (%v)", v)
         return
 }
 
@@ -131,7 +135,7 @@ func modifierStdoutEquals(pos token.Position, prog *Program, value Value, args..
                         result = v; return
                 }
         }
-        err = breakf(false, "bad stdout (%v)", v)
+        err = break_bad("bad stdout (%v)", v)
         return
 }
 
@@ -147,7 +151,7 @@ func modifierStderrEquals(pos token.Position, prog *Program, value Value, args..
                         result = v; return
                 }
         }
-        err = breakf(false, "bad stderr (%v)", v)
+        err = break_bad("bad stderr (%v)", v)
         return
 }
 
@@ -272,7 +276,7 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
                         }
                 case *ExecResult:
                         if d.Status != 0 {
-                                err = breakf(false, "got shell failure")
+                                err = break_bad("got shell failure")
                                 return // target shall be updated
                         } else {
                                 depends.Append(d)
@@ -326,7 +330,7 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
                         dependFile.Info, _ = os.Stat(str)
                 }
                 if dependFile.Info == nil {
-                        err = breakf(false, "no file or directory '%v'", dependFile)
+                        err = break_bad("no file or directory '%v'", dependFile)
                         return
                 }
                 if t := dependFile.Info.ModTime(); t.After(tt) {
@@ -374,7 +378,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                 def.Assign(targetVal)
         } else if nargs > 1 {
                 s := fmt.Sprintf("accepts only one optional argument (%v)", args)
-                return nil, breakf(false, s)
+                return nil, break_bad(s)
         }
 
         if trace_compare {
@@ -384,7 +388,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
 
         if targetVal, err = Reveal(targetVal); err != nil { return }
         if targetVal == nil || targetVal.Type() == NoneType {
-                err = breakf(false, "no target"); return
+                err = break_bad("no target"); return
         }
 
         // deal with list.
@@ -394,7 +398,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                         targetVal = t.Elems[0]
                 } else {
                         s := fmt.Sprintf("compare: multiple targets (%v)", targetVal)
-                        err = breakf(false, s); return
+                        err = break_bad(s); return
                 }
         }
 
@@ -430,16 +434,16 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                                         targetFile = &File{ Name:name }
                                 } else {
                                         fmt.Fprintf(os.Stdout, "%v: %v->%v is not file\n", t.Position, p.Name(), s)
-                                        err = breakf(false, "unknown %v->%v (%v)", p.Name(), s, class)
+                                        err = break_bad("unknown %v->%v (%v)", p.Name(), s, class)
                                         return
                                 }
                         } else*/ {
-                                //err = breakf(false, "unknown entry (%v '%v')", class, name)
+                                //err = break_bad("unknown entry (%v '%v')", class, name)
                                 //return
                         }}
                 }
                 if targetFile == nil {
-                        err = breakf(false, "unknown target (%T '%v')", targetVal, targetVal)
+                        err = break_bad("unknown target (%T '%v')", targetVal, targetVal)
                         return
                 } else if nargs == 1 {
                         // Replace the value of "$@"
@@ -471,7 +475,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                         }
                 }
         }
-        err = breakf(true, "%s already up to date", targetVal)
+        err = break_good("%s already up to date", targetVal)
         return
 }
 
@@ -481,7 +485,7 @@ func modifierCompare(pos token.Position, prog *Program, value Value, args... Val
                 target.Assign(args[0])
         } else if nargs > 1 {
                 s := fmt.Sprintf("accepts only one optional argument (%v)", args)
-                return nil, breakf(false, s)
+                return nil, break_bad(s)
         }
 
         if c, e := NewComparer(prog.globe, target); e != nil {
@@ -601,7 +605,7 @@ func modifierCheck(pos token.Position, prog *Program, value Value, args... Value
         var exeres, _ = value.(*ExecResult)
         if exeres == nil {
                 s := fmt.Sprintf("bad value (%T)", value)
-                err = breakf(false, s)
+                err = break_bad(s)
                 return
         }
         ForArgs: for _, arg := range args {
@@ -618,7 +622,7 @@ func modifierCheck(pos token.Position, prog *Program, value Value, args... Value
                                 if num, err = t.Value.Integer(); err != nil { return }
                                 if exeres.Status != int(num) {
                                         s := fmt.Sprintf("bad status (%v) (expects %v)", exeres.Status, t.Value)
-                                        err = breakf(false, s)
+                                        err = break_bad(s)
                                         break ForArgs
                                 }
                         case "stdout":
@@ -627,12 +631,12 @@ func modifierCheck(pos token.Position, prog *Program, value Value, args... Value
                                                 return
                                         } else if v.String() != str {
                                                 s := fmt.Sprintf("bad stdout (%v) (expects %v)", v, t.Value)
-                                                err = breakf(false, s)
+                                                err = break_bad(s)
                                                 break ForArgs
                                         }
                                 } else {
                                         s := fmt.Sprintf("bad stdout (expects %v)", t.Value)
-                                        err = breakf(false, s)
+                                        err = break_bad(s)
                                         break ForArgs
                                 }
                         case "stderr":
@@ -641,12 +645,12 @@ func modifierCheck(pos token.Position, prog *Program, value Value, args... Value
                                                 return
                                         } else if v.String() != str {
                                                 s := fmt.Sprintf("bad stderr (%v) (expects %v)", v, t.Value)
-                                                err = breakf(false, s)
+                                                err = break_bad(s)
                                                 break ForArgs
                                         }
                                 } else {
                                         s := fmt.Sprintf("bad stderr (expects %v)", t.Value)
-                                        err = breakf(false, s)
+                                        err = break_bad(s)
                                         break ForArgs
                                 }
                         default:
@@ -679,7 +683,7 @@ func modifierCheckDir(pos token.Position, prog *Program, value Value, args... Va
                 }
                 result = &Path{Elements{segments}, nil}
         } else {
-                err = breakf(false, "file %s not exists", targetVal)
+                err = break_bad("file %s not exists", targetVal)
         }
         return
 }
@@ -698,7 +702,7 @@ func modifierCheckFile(pos token.Position, prog *Program, value Value, args... V
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
                 result = &File{ Name: filename }
         } else {
-                err = breakf(false, "file %s not exists", targetVal)
+                err = break_bad("file %s not exists", targetVal)
         }
         return
 }
@@ -725,7 +729,7 @@ func modifierWriteFile(pos token.Position, prog *Program, value Value, args... V
                         os.Remove(filename)
                 }
         } else {
-                err = breakf(false, "file %s not generated", targetDef.Value)
+                err = break_bad("file %s not generated", targetDef.Value)
         }
         return
 }
@@ -839,7 +843,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 if !slient {
                         fmt.Printf(". (%s)\n", err)
                 }
-                err = breakf(false, "file %s not updated", targetDef.Value)
+                err = break_bad("file %s not updated", targetDef.Value)
         }
         return
 }

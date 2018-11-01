@@ -214,24 +214,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         prog.auto("@", entry.target)
 
-        if false {
-                for _, pre := range prog.depends {
-                        fmt.Printf("depend: %T %+v %v\n", pre, pre, pre.closured())
-                }
-                if a, _ := RevealAll(prog.depends...); a != nil {
-                        for _, pre := range a {
-                                fmt.Printf("revealed: %T %+v %v\n", pre, pre, pre.closured())
-                        }
-                }
-                if a, _ := DiscloseAll(prog.depends...); a != nil {
-                        for _, pre := range a {
-                                fmt.Printf("disclosed: %T %+v %v\n", pre, pre, pre.closured())
-                        }
-                }
-        }
+        fmt.Printf("execute: %v %v\n", entry.target, prog.depends)
 
         // Calculate and prepare depends and files.
-        var pc = makePreparer(entry, prog)
+        var pc = &preparer{ entry, prog, nil, new(List), "" }
         if err = pc.updateall(prog.depends); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
@@ -287,7 +273,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
         if err == nil && dialect == "" {
                 // Using the default statements interpreter.
-                if i, _ := dialects[dialect]; i == nil {
+                if i, _ := dialects[""]; i == nil {
                         err = fmt.Errorf("no default dialect")
                 } else {
                         err = prog.interpret(i, out, nil)
