@@ -47,8 +47,8 @@ const (
 	PERIOD    // .
         DOTDOT    // ..
 	TILDE     // ~
-        SELECT    // ->
-        ARROW     // =>
+        SELECT_PROP // ->
+        SELECT_PROG // =>
 
 	RPAREN    // )
 	RBRACK    // ]
@@ -58,7 +58,7 @@ const (
         ruledelim_beg
 	COLON     // :
 	COLON2    // ::
-	EXC       // !          exclamation
+	EXC       // !    exclamation
 	QUE       // ?
         ruledelim_end
 
@@ -166,8 +166,8 @@ var tokens = [...]string{
 	PERIOD: ".",
         DOTDOT: "..",
         TILDE:  "~",
-        SELECT: "->", // foo->bar
-        ARROW:  "=>", // foo=>bar
+        SELECT_PROP: "->", // foo->bar
+        SELECT_PROG: "=>", // foo=>bar
 
 	RPAREN:    ")",
 	RBRACK:    "]",

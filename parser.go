@@ -21,17 +21,17 @@ import (
 type parsingBits uint
 const (
         composing parsingBits = 1<<iota
-        composingSELECT
-        composingPERIOD
+        composingSELECT_PROP
+        composingDOT
         composingDOTDOT
         composingPCON
         composingPERC
         
         // Bits to disable parsing ArgumentedExpr 
-        composingNoArg = composingSELECT | composingPERIOD | composingDOTDOT | composingPCON | composingPERC
-        composingNoPair = composingSELECT | composingPERIOD | composingPCON | composingPERC
+        composingNoArg = composingSELECT_PROP | composingDOT | composingDOTDOT | composingPCON | composingPERC
+        composingNoPair = composingSELECT_PROP | composingDOT | composingPCON | composingPERC
         composingNoPerc = 0
-        composingNoSelect = composingSELECT
+        composingNoSelect = composingSELECT_PROP
 )
 
 type parser struct {
@@ -441,11 +441,11 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
         tok := p.tok // the arrow '->' or '=>'
         p.next() // skip '->' or '=>'
 
-        defer p.setbits(p.setbit(composingSELECT))
+        defer p.setbits(p.setbit(composingSELECT_PROP))
 
         rhs := p.checkExpr(p.parseExpr(false))
         res = &ast.SelectionExpr{ lhs, tok, rhs }
-        if (p.tok == token.SELECT || p.tok == token.ARROW) && rhs.End() == p.pos {
+        if (p.tok == token.SELECT_PROP || p.tok == token.SELECT_PROG) && rhs.End() == p.pos {
                 // Continue the selection recursivly.
                 res = p.parseSelect(res)
         }
@@ -670,7 +670,7 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) ast.Expr {
 		defer un(trace(p, "Dot"))
 	}
         
-        defer p.setbits(p.setbit(composingPERIOD))
+        defer p.setbits(p.setbit(composingDOT))
 
         var comp *ast.Barecomp
         if comp, _ = x.(*ast.Barecomp); comp == nil {
@@ -915,15 +915,15 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
                 return p.parseGroupExpr(lhs)
 
         case token.TILDE, token.PERIOD, token.DOTDOT: // ~ . ..
-                var dots = p.tok.String()
-                tok, pos, end := p.tok, p.pos, p.pos+token.Pos(len(dots))
+                var str = p.tok.String()
+                tok, pos, end := p.tok, p.pos, p.pos+token.Pos(len(str))
                 if p.next(); end != p.pos { // FIXME: ~user
                         // '~', '.' or '..' used as bareword
-                        return &ast.Bareword{ pos, dots }
+                        return &ast.Bareword{ pos, str }
                 } else if p.tok == token.PCON { // check /
                         return p.parsePathExpr(lhs, &ast.PathSegExpr{ pos, tok })
                 } else if tok == token.PERIOD {
-                        return p.parseDotExpr(lhs, &ast.Bareword{ pos, dots })
+                        return p.parseDotExpr(lhs, &ast.Bareword{ pos, str })
                 } else if tok == token.TILDE { // TODO: ~user
                         return &ast.PathSegExpr{ pos, tok }
                 } else {
@@ -955,16 +955,23 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
 		defer un(trace(p, "Composed"))
 	}
         switch x = p.parseUnaryExpr(lhs); p.tok { // check composible expressions
-        case token.SELECT, token.ARROW: // foo->bar  foo=>bar
+        case token.SELECT_PROP, token.SELECT_PROG: // foo->bar  foo=>bar
                 if p.bits&composingNoSelect == 0 {
-                        x = p.parseSelect(x)
+                        if x.End() == p.pos { // accepts 'foo=>bar', but 'foo => bar' is different
+                                x = p.parseSelect(x); break
+                        }
+                }
+                if p.tok == token.SELECT_PROG /*&& p.bits&composingNoPair == 0*/ {
+                        if x.End() < p.pos {
+                                x = p.parseKeyValueExpr(x); break
+                        }
                 }
         case token.PERC: // foo%bar
                 if p.bits&composingNoPerc == 0 && x.End() == p.pos {
                         x = p.parsePercExpr(lhs, x)
                 }
         case token.PERIOD: // foo.bar.baz.o
-                if p.bits&composingPERIOD == 0 && x.End() == p.pos {
+                if p.bits&composingDOT == 0 && x.End() == p.pos {
                         x = p.parseDotExpr(lhs, x)
                 }
         case token.PCON: // ie. subdir/in/somewhere
@@ -1005,7 +1012,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 
                 case token.COMPOSED, token.COMMA, token.COLON:
                 case token.RPAREN, token.RBRACK, token.RBRACE:
-                case token.SELECT, token.ARROW, token.LINEND:
+                case token.SELECT_PROP, token.SELECT_PROG, token.LINEND:
                         // Compose nothing at this point!
 
                 default:if p.tok != token.EOF && x.End() == p.pos {

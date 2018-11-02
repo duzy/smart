@@ -904,7 +904,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                         tok = token.MINUS
                                 }
                         } else if s.ch == '>' {
-                                tok = token.SELECT
+                                tok = token.SELECT_PROP
                                 s.next()
                                 //s.skipPostLineFeeds = true
                         } else {
@@ -1009,7 +1009,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                 case '=':
                         if s.ch == '>' {
-                                tok = token.ARROW
+                                tok = token.SELECT_PROG
                                 s.next() // concume the '>'
                         } else {
                                 tok = token.ASSIGN

@@ -2181,7 +2181,7 @@ func (p *selection) value() (v Value, err error) {
                 // sth's wrong!
         } else if s := ""; o != nil {
                 if s, err = p.s.Strval(); err == nil {
-                        if pn, ok := o.(*ProjectName); ok && p.t == token.ARROW {
+                        if pn, ok := o.(*ProjectName); ok && p.t == token.SELECT_PROG {
                                 var entry *RuleEntry
                                 if entry, err = pn.project.resolveEntry(s); err != nil {
                                         return
