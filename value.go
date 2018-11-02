@@ -1107,7 +1107,9 @@ func (p *Path) compare(c *comparer) (err error) {
         }
         if dep, ok := c.target.(pathdepend); ok {
                 if err = dep.pathdependcompare(c, p); err != nil {
-                        err = fmt.Errorf("path: %v", err)
+                        if p, ok := err.(*breaker); !ok || !(p != nil && p.good) {
+                                err = fmt.Errorf("path: %v", err)
+                        }
                 }
         } else {
                 err = fmt.Errorf("path: target is not path depend (%T %v)", c.target, c.target)
@@ -1311,7 +1313,9 @@ func (p *File) compare(c *comparer) (err error) {
         }
         if dep, ok := c.target.(filedepend); ok {
                 if err = dep.filedependcompare(c, p); err != nil {
-                        err = fmt.Errorf("file: %v", err)
+                        if p, ok := err.(*breaker); !ok || !(p != nil && p.good) {
+                                err = fmt.Errorf("file: %v", err)
+                        }
                 }
         } else {
                 err = fmt.Errorf("entry: not path depend (%T %v)", c.target, c.target)

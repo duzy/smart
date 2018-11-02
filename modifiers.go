@@ -22,20 +22,18 @@ import (
 )
 
 type breaker struct {
-        message string
         good bool // it's good to continue
+        message string
 }
 
-func (p *breaker) Error() string {
-        return p.message
-}
+func (p *breaker) Error() string { return p.message }
 
 func break_bad(s string, a... interface{}) *breaker {
-        return &breaker{ fmt.Sprintf(s, a...), false }
+        return &breaker{ false, fmt.Sprintf(s, a...) }
 }
 
 func break_good(s string, a... interface{}) *breaker {
-        return &breaker{ fmt.Sprintf(s, a...), true }
+        return &breaker{ true, fmt.Sprintf(s, a...) }
 }
 
 type modifierFunc func(pos token.Position, prog *Program, value Value, args... Value) (Value, error)

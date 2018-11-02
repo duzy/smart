@@ -255,15 +255,15 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         var dialect, lang string
         ForPipeline: for _, m := range prog.pipline {
                 if lang, err = prog.modify(m, out); err != nil {
-                        if p, ok := err.(*breaker); ok {
-                                if p.good {
-                                        // Discard err and change dialect to
-                                        // avoid default interpreter being
-                                        // called.
-                                        err, dialect = nil, "--"
-                                }
+                        if p, ok := err.(*breaker); ok && p != nil && p.good {
+                                // Discard err and change dialect to
+                                // avoid default interpreter being
+                                // called.
+                                err, dialect = nil, "--"
                         }
-                        if err != nil { fmt.Fprintf(os.Stdout, "%s: %s: %v\n", m.position, m.name, err) }
+                        if err != nil {
+                                fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
+                        }
                         break ForPipeline
                 } else if lang != "" && dialect == "" {
                         dialect = lang
