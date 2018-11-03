@@ -150,23 +150,24 @@ func (prog *Program) cd(chdir string, exec bool) (err error) {
         if cd.workdir, err = os.Getwd(); err == nil {
                 if cd.workdir == cd.chdir {
                         cd.print = false
-                } else if err = os.Chdir(cd.chdir); err == nil {
-                        if cd.print = true; cd.print && exec {
-                                if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
-                                        var s string
-                                        if s, err = m.args[0].Strval(); err != nil {
-                                                return
-                                        } else if s == "-" {
-                                                cd.print = false
-                                        } else /*if s != ""*/ {
-                                                cd.print = false
-                                        }
+                } else if err = os.Chdir(cd.chdir); err != nil {
+                        return
+                } else if cd.print = true; cd.print && exec {
+                        if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
+                                var s string
+                                if s, err = m.args[0].Strval(); err != nil {
+                                        return
+                                } else if s == "-" {
+                                        cd.print = false
+                                } else /*if s != ""*/ {
+                                        cd.print = false
                                 }
                         }
                 }
                 if cd.print {
                         fmt.Printf("smart: Entering directory '%s'\n", cd.chdir)
                 }
+                prog.auto("CWD", &String{cd.chdir})
                 prog.cdinfos = append([]*cdinfo{ cd }, prog.cdinfos...)
         }
         return
@@ -248,14 +249,6 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         
         var out = prog.auto("-", UniversalNone)
         defer func() { result = out.Value }()
-
-        // Chdir again to ensure workdir was not changed by preparation.
-        if false {
-                if err = os.Chdir(prog.project.AbsPath()); err != nil {
-                        fmt.Printf("smart: Chdir '%s'\n", prog.project.AbsPath())
-                        return
-                }
-        }
 
         // TODO: define modifiers in a project, e.g.
         // 

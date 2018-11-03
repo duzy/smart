@@ -41,7 +41,6 @@ type modifierFunc func(pos token.Position, prog *Program, value Value, args... V
 const (
         TheShellEnvarsDef = "shell->envars"
         TheShellStatusDef = "shell->status" // status code of execution
-        TheCurrWorkDirDef = "CWD"
 )
 
 var (
@@ -246,7 +245,6 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                 }
                 if err = prog.cd(dir, false); err == nil {
                         //for _, cd := range prog.cdinfos[1:] { cd.print = false }
-                        prog.auto(TheCurrWorkDirDef, &String{dir})
                 }
         } else {
                 err = fmt.Errorf("wrong number of args (%v)", n)

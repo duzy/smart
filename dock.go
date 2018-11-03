@@ -279,7 +279,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                         }
                 }
 
-                wd := prog.Scope().Lookup(TheCurrWorkDirDef).(*Def)
+                wd := prog.Scope().Lookup("CWD").(*Def)
                 if str, err = wd.Value.Strval(); err != nil { return }
                 if str != "" || nocd {
                         if false {
