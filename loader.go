@@ -1089,19 +1089,6 @@ func (l *loader) closeCurrentProject(ident *ast.Bareword) (err error) {
         return
 }
 
-func (l *loader) MapFile(pat string, paths []string) {
-        l.project.MapFile(pat, paths)
-}
-
-func (l *loader) File(s string) (f *File) {
-        if l.project != nil {
-                if f = l.project.ToFile(s); f != nil {
-                        // fmt.Printf("file: %v %v\n", f, l.scope)
-                }
-        }
-        return
-}
-
 func (l *loader) DeclareProject(ident *ast.Bareword, params Value) error {
         if ident.Value == "@" {
                 var (

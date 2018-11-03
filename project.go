@@ -57,6 +57,7 @@ type Project struct {
         bases   []*Project
         uses    []*Use
 
+        // List order is significant, duplication is acceptable.
         filemap []FileMap
 
         // Rule Registry (orderred)
@@ -82,33 +83,29 @@ func (p *Project) Chain(bases... *Project) {
         }
 }
 
-func (p *Project) MapFile(pat string, paths []string) {
+func (p *Project) mapfile(pat string, paths []string) {
         // List order is significant, duplication is acceptable.
         p.filemap = append(p.filemap, FileMap{ pat, paths })
 }
 
-func (p *Project) FileMaps() (filemaps []FileMap) {
+func (p *Project) filemaps() (filemaps []FileMap) {
         filemaps = append(filemaps, p.filemap...)
         for _, base := range p.bases {
-                filemaps = append(filemaps, base.FileMaps()...)
+                filemaps = append(filemaps, base.filemaps()...)
         }
         return
 }
 
-func (p *Project) SearchFile(filename string) *File {
-        var (
-                file = &File{ Name: filename }
-                projDir = p.AbsPath()
-        )
+func (p *Project) search(file *File) bool {
+        var projDir = p.AbsPath()
 
-        ForFiles: for _, filemap := range p.FileMaps() {
-                // Match the filename (no base), '*.c' won't match 'src/x.c'.
-                if filemap.Match(filename) {
+        ForFiles: for _, filemap := range p.filemaps() {
+                // Match the represented file name.
+                if filemap.Match(file.Name) {
                         file.Match = &filemap
                 } else {
                         continue ForFiles
                 }
-
                 for _, path := range filemap.Paths {
                         var (
                                 dir = path 
@@ -118,9 +115,9 @@ func (p *Project) SearchFile(filename string) *File {
                                 dir = filepath.Join(projDir, dir)
                         }
 
-                        // fmt.Printf("match: %v %v %v %v %v\n", dir, path, filename, filemap.Paths, p.FileMaps())
+                        // fmt.Printf("match: %v %v %v %v %v\n", dir, path, file.Name, filemap.Paths, p.FileMaps())
 
-                        if fi, _ := os.Stat(filepath.Join(dir, filename)); fi != nil {
+                        if fi, _ := os.Stat(filepath.Join(dir, file.Name)); fi != nil {
                                 if file.Info, file.Dir = fi, dir; !abs {
                                         file.Sub = path 
                                 }
@@ -130,26 +127,33 @@ func (p *Project) SearchFile(filename string) *File {
                                         file.Sub = path
                                 }
                         }
-                        if false {
-                                fmt.Printf("SearchFile: %v: %v (%v)\n", p.Name(), filename, dir)
-                        }
                 }
         }
 
         if file.Info == nil && file.Dir == "" {
-                if file.Info, _ = os.Stat(filepath.Join(projDir, filename)); file.Info != nil {
+                if file.Info, _ = os.Stat(filepath.Join(projDir, file.Name)); file.Info != nil {
                         file.Dir = projDir
                 }
         }
 
-        /*SearchBases:*/ if file.Info == nil && file.Dir == "" {
+        if file.Info == nil && file.Dir == "" {
                 for _, base := range p.bases {
-                        if v := base.SearchFile(filename); v != nil {
-                                return v
+                        if base.search(file) {
+                                return true
                         }
                 }
         }
-        return file
+
+        return file.Info != nil
+}
+
+func (p *Project) SearchFile(name string) (file *File) {
+        file = &File{ Name: name }
+        if !p.search(file) {
+            // It's okay if file not found.
+            // It may only matched a filemap!
+        }
+        return
 }
 
 func (p *Project) isFile(s string) (v bool) {
@@ -174,7 +178,7 @@ func (p *Project) isFile(s string) (v bool) {
         return
 }
 
-func (p *Project) ToFile(s string) (file *File) {
+func (p *Project) file(s string) (file *File) {
         if p.isFile(s) { file = p.SearchFile(s) }
         return
 }

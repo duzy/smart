@@ -238,11 +238,11 @@ func (pc *preparer) updateTarget(target string) (err error) {
         // TODO: try pc.explicitClosureTarget
         // TODO: try pc.implicitClosureTarget
 
-        if trace_prepare {
-                fmt.Printf("prepare: unknown target %v %+v\n", target, pc.program.depends)
-        }
-
         err = targetNotFoundError{ target }
+
+        if trace_prepare {
+                fmt.Printf("prepare: %v %+v\n", err, pc.program.depends)
+        }
         return
 }
 
@@ -286,7 +286,6 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                         }
                         pc.targets.Append(prog.project.SearchFile(s))
                 }
-
                 if res != nil && res.Type() != NoneType {
                         for _, elem := range Join(res) {
                                 switch elem.(type) {
@@ -309,11 +308,6 @@ type Argumented struct {
 }
 //func (p *Argumented) Type() Type { return ArgumentedType }
 func (p *Argumented) String() (s string) {
-        /*if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{Argumented '%s' !(%+v)}", s, e)
-        }*/
         for i, a := range p.Args {
                 if i > 0 { s += "," }
                 s += a.String()
@@ -1064,7 +1058,7 @@ func (p *Path) String() (s string) {
         for _, elem := range p.Elems {
                 segs = append(segs, elem.String())
         }
-        return strings.Join(segs, "/") //filepath.Join(segs...)
+        return strings.Join(segs, "/")
 }
 func (p *Path) Strval() (s string, e error) {
         // TODO: add '/' for root dir
@@ -1230,11 +1224,13 @@ func (p *Path) prepare(pc *preparer) (err error) {
         } else if e, ok := err.(targetNotFoundError); ok {
                 if info, _ := os.Stat(e.target); info == nil {
                         pc.targets.Append(p) // Append unknown path anyway.
+                        fmt.Printf("path.prepare: 1: %v\n", pc.targets)
                         if trace_prepare {
                                 fmt.Printf("prepare:Path: %v (unknown path: %v) (%v)\n", p, e.target, pc.entry)
                         }
                 } else if info.IsDir() {
                         pc.targets.Append(p)
+                        fmt.Printf("path.prepare: 2: %v\n", pc.targets)
                         if trace_prepare {
                                 fmt.Printf("prepare:Path: %v (found unknown path: %v) (%v)\n", p, e.target, pc.entry)
                         }
@@ -1242,6 +1238,7 @@ func (p *Path) prepare(pc *preparer) (err error) {
                         // Search this path target as a file.
                         p.File = pc.program.project.SearchFile(e.target)
                         pc.targets.Append(p.File)
+                        fmt.Printf("path.prepare: 3: %v\n", pc.targets)
                         if trace_prepare {
                                 fmt.Printf("prepare:Path: %v (found unknown target: %v) (file: %v) (%v)\n", p, e.target, p.File.Fullname(), pc.entry)
                         }
@@ -1283,16 +1280,15 @@ func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ Value:ch } }
 
 type File struct {
         value            // satisify Value interface
-        Name string      // represented name (e.g. relative filename)
+        Name string      // constant represented name (e.g. relative filename)
         Match *FileMap   // matched pattern (see 'files' directive)
-        Dir string       // full directory in which the file should be or was found
-        Sub string       // sub directory containing the file (aka. Project.SearchFile)
+        Sub string       // matched sub path (see Project.SearchFile)
+        Dir string       // full directory in which the file was or should be found
         Info os.FileInfo // file info if exists
 }
 func (p *File) Type() Type { return FileType }
-func (p *File) String() string { return filepath.Join(p.Sub, p.Name) }
+func (p *File) String() string { return p.Name }
 
-// Strval returns the relative filename (aka. Project.SearchFile).
 func (p *File) Strval() (string, error) { return filepath.Join(p.Sub, p.Name), nil }
 
 func (p *File) Fullname() string { return filepath.Join(p.Dir, p.Name) }
@@ -1304,8 +1300,7 @@ func (p *File) Basename() string {
         }
 }
 
-func (p *File) IsKnown() bool { return p.Match != nil }
-func (p *File) IsExists() bool { return p.Info != nil }
+func (p *File) exists() bool { return p.Info != nil }
 
 func (p *File) compare(c *comparer) (err error) {
         if trace_compare {
@@ -1403,14 +1398,37 @@ func (p *File) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v (%v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry)
         }
+
+        if info, err := os.Stat(p.Dir); err != nil || info == nil {
+                if err = os.MkdirAll(p.Dir, 0755); err != nil {
+                        return err
+                }
+        }
+
         if err, brk := p.explicitly(pc); err != nil || brk {
                 return err
         }
         if err, brk := p.implicitly(pc); err != nil || brk {
                 return err
         }
-        if err, brk := p.search(pc); err != nil || brk {
-                return err
+
+        if p.exists() {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (search: exists %v) (%v)\n", p.Name, p, pc.entry)
+                }
+                pc.targets.Append(p)
+        } else if pc.program.project.search(p) {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v -> %v)\n",
+                                p.Name, p, pc.program.project.name, pc.entry)
+                }
+                pc.targets.Append(p)
+        } else {
+                if trace_prepare {
+                        fmt.Printf("prepare:File: %v (search: unknown %v) (%v -> %v)\n",
+                                p.Name, p.Dir, pc.program.project.name, pc.entry)
+                }
+                return fileNotFoundError{ p }
         }
         return nil
 }
@@ -1471,9 +1489,9 @@ func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
 func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEntry, prog *Program, g *GlobPattern) (res bool, err error) {
         var name string
         if name, err = g.MakeString(ps.Stem); err != nil { return }
-        if file := project.ToFile(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
+        if file := project.file(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
                 //fmt.Printf("prepare:File: %v (implicitly:=: %v in %s)\n", p.Name, file, project.name)
-                if file.IsExists() {
+                if file.exists() {
                         if trace_prepare {
                                 fmt.Printf("prepare:File: %v (implicitly: %v exists in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.OwnerProject().name, pc.entry)
                         }
@@ -1493,32 +1511,6 @@ func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEnt
         /*if project.FindPatterns(name) != nil {
                 res = true
         }*/
-        return
-}
-
-func (p *File) search(pc *preparer) (err error, trybrk bool) {
-        if p.IsExists() {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: exists %v) (%v)\n", p.Name, p, pc.entry)
-                }
-                pc.targets.Append(p)
-                return nil, true
-        }
-        str, err := p.Strval()
-        if err != nil { return }
-        if f := pc.program.project.SearchFile(str); /*!f.IsKnown()*/f.IsKnown() || f.IsExists() {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v -> %v)\n",
-                                p.Name, f, pc.program.project.name, pc.entry)
-                }
-                pc.targets.Append(f); trybrk = true
-        } else {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: unknown %v) (%v -> %v)\n",
-                                p.Name, p.Dir, pc.program.project.name, pc.entry)
-                }
-                err = fileNotFoundError{ p }
-        }
         return
 }
 
@@ -2396,7 +2388,7 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
 
         // Check if target is a file (if source entry is file).
         if brk := false; pc.entry.target != nil { //! See also `File.checkPatternDepend`.
-                if file := pc.program.project.SearchFile(target); file.IsKnown() || file.IsExists() {
+                if file := pc.program.project.SearchFile(target); file.exists() {
                         if trace_prepare {
                                 fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s) (%v -> %v)\n", p, pc.stem, file, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
                         }

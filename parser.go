@@ -592,7 +592,7 @@ func (p *parser) parseKeyValueExpr(x ast.Expr) ast.Expr {
 	if p.tracing.enabled {
 		defer un(trace(p, "Pair"))
 	}
-        
+
         pos, tok := p.pos, p.tok; p.next()
         return &ast.KeyValueExpr{
                 Key:   x,
@@ -682,7 +682,7 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) ast.Expr {
                 comp.Elems = append(comp.Elems, dot)
                 p.next()
         }
-        
+
         for comp.End() == p.pos {
                 ext := p.checkExpr(p.parseExpr(false))
                 comp.Elems = append(comp.Elems, ext)
@@ -696,20 +696,6 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) ast.Expr {
         //   FIX: KeyValueExpr{Barecomp, Bareword}
 
         x = comp
-
-        // Processing barefile (must discluse in case of '$@.o', etc.).
-        if v, e := p.eval(x, StringValue); e == nil && v != nil {
-                var s string
-                if s, e = v.Strval(); e != nil {
-                        p.error(x.Pos(), "%s", e)
-                }
-                if file := p.File(s); file != nil {
-                        x = &ast.Barefile{ x, file, v }
-                }
-        } else if e != nil {
-                p.error(x.Pos(), e)
-        }
-
         return x
 }
 
@@ -962,9 +948,9 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
                         }
                 }
                 if p.tok == token.SELECT_PROG /*&& p.bits&composingNoPair == 0*/ {
-                        if x.End() < p.pos {
+                        /*if x.End() < p.pos {
                                 x = p.parseKeyValueExpr(x); break
-                        }
+                        }*/
                 }
         case token.PERC: // foo%bar
                 if p.bits&composingNoPerc == 0 && x.End() == p.pos {
@@ -1002,6 +988,11 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                         if !lhs && p.bits&composingNoPair == 0 {
                                 x = p.parseKeyValueExpr(x)
                         }
+                case token.SELECT_PROG:
+                        if p.bits&composingNoPair == 0 {
+                                x = p.parseKeyValueExpr(x)
+                        }
+
                 case token.LPAREN:
                         if p.bits&composingNoArg == 0 && x.End() == p.pos {
                                 if _, ok := x.(*ast.ArgumentedExpr); ok {
@@ -1012,7 +1003,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 
                 case token.COMPOSED, token.COMMA, token.COLON:
                 case token.RPAREN, token.RBRACK, token.RBRACE:
-                case token.SELECT_PROP, token.SELECT_PROG, token.LINEND:
+                case token.SELECT_PROP, /*token.SELECT_PROG,*/ token.LINEND:
                         // Compose nothing at this point!
 
                 default:if p.tok != token.EOF && x.End() == p.pos {
@@ -1081,15 +1072,10 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
                         continue
                 }
-                if false {
-                        fmt.Printf("files: %T %v\n", ee.Data, ee.Data)
-                }
                 switch v := ee.Data.(type) {
                 case *Pair:
-                        var (
-                                paths []string
-                                s, e = v.Key.Strval()
-                        )
+                        var (paths []string; s string)
+                        var k, e = v.Key.Strval()
                         if e != nil { p.error(prop.Pos(), "%s", e) }
                         switch vv := v.Value.(type) {
                         case *Group:
@@ -1101,10 +1087,10 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                                 if s, e = vv.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
                                 paths = append(paths, s)
                         }
-                        p.MapFile(s, paths)
+                        p.project.mapfile(k, paths)
                 case Value:
                         if s, e := v.Strval(); e != nil { p.error(prop.Pos(), "%s", e) } else {
-                                p.MapFile(s, nil)
+                                p.project.mapfile(s, nil)
                         }
                 default:
                         p.error(prop.Pos(), "bad file spec (%T)", prop)

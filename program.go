@@ -186,12 +186,12 @@ func (prog *Program) uncd() (err error) {
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
-        defer setexecstack(setexecstack(append(executestack{prog}, execstack...))) // build the call stack
-        defer setclosure(setclosure(append(Closure, entry.DeclScope()))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
-
         if trace_prepare {
                 fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.target, prog.depends, entry.class, prog.project.AbsPath())
         }
+
+        defer setexecstack(setexecstack(append(executestack{prog}, execstack...))) // build the call stack
+        defer setclosure(setclosure(append(Closure, entry.DeclScope()))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
 
         if err = prog.cd(prog.project.AbsPath(), true); err != nil { return }
         defer func() { if err == nil { err = prog.uncd() } } ()
@@ -212,11 +212,21 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        prog.auto("@", entry.target)
+        var targets = append([]Value{ entry.target }, prog.depends...)
+        for i, target := range targets {
+                var s string
+                if s, err = target.Strval(); err != nil {
+                        return
+                } else if file := prog.project.file(s); file != nil {
+                        targets[i] = file
+                }
+        }
+
+        prog.auto("@", targets[0])
 
         // Calculate and prepare depends and files.
         var pc = &preparer{ entry, prog, nil, new(List), "" }
-        if err = pc.updateall(prog.depends); err != nil {
+        if err = pc.updateall(targets[1:]); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 }
@@ -235,7 +245,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.auto("<", pc.targets.Elems[0])
                 prog.auto("^", pc.targets)
         }
-
+        
         var out = prog.auto("-", UniversalNone)
         defer func() { result = out.Value }()
 
