@@ -1259,9 +1259,8 @@ func (l *loader) find(target Value) (obj Object, err error) {
         return
 }
 
-func (l *loader) def(name string) (obj, alt Object) {
-        obj, alt = l.scope.Def(l.project, name, UniversalNone)
-        return
+func (l *loader) def(name string) (def *Def, alt Object) {
+        return l.scope.Def(l.project, name, UniversalNone)
 }
 
 // If src != nil, readSource converts src to a []byte if possible;
@@ -1352,9 +1351,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
         }
 
         var (
-                sym Object
-                wd = l.workdir
-                rel , _ = filepath.Rel(wd, pathname)
+                def *Def
                 ident = filepath.Base(pathname)
         )
         if ident == "_" {
@@ -1368,11 +1365,22 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 
         defer l.closeScope(scope)
 
-        sym, _ = l.def("/")
-        sym.(*Def).Assign(MakeString(pathname))
+        /*var (
+                wd = l.workdir
+                rel, _ = filepath.Rel(wd, pathname)
+                tmp = joinTmpPath(wd, rel)
+        )
+        def, _ = l.def("/")
+        def.Assign(MakeString(pathname))
 
-        sym, _ = l.def(".")
-        sym.(*Def).Assign(MakeString(rel))
+        def, _ = l.def(".")
+        def.Assign(MakeString(rel))
+
+        def, _ = l.def("CTD") // Current Work Directory
+        def.Assign(MakeString(tmp))
+
+        def, _ = l.def("CWD") // Current Temp Directory
+        def.Assign(MakeString(pathname))*/
 
 	ListLoop: for _, d := range list {
                 var name = d.Name()
@@ -1399,7 +1407,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
                 } else if s, a := l.def(name); a != nil {
                         err = fmt.Errorf("declare project: %v", err)
                         break ListLoop
-                } else if def, _ := s.(*Def); def != nil {
+                } else if def = s; def != nil {
                         var ( v []byte; s string )
                         if v, err = ioutil.ReadFile(fullname); err != nil { break ListLoop }
                         if s = string(v); !utf8.ValidString(s) {

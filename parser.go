@@ -1282,7 +1282,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                                 }
                         }
                         alt = true // it's the second defining this symbol
-                } else if def, _ = s.(*Def); def != nil {
+                } else if def = s; def != nil {
                         if prev != nil && prev != def {
                                 def.SetOrigin(prev.Origin())
                                 def.Assign(MakeDelegate(p.file.Position(pos), token.LPAREN, prev))
@@ -1516,7 +1516,7 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                                 } else if sym == nil {
                                                         // TODO: errors
                                                 } else if v, e = p.eval(kv.Value, KeepClosures|KeepDelegates); e == nil {
-                                                        sym.(*Def).Assign(v)
+                                                        sym.Assign(v)
                                                         //fmt.Printf("var: %v\n", sym)
                                                 }
                                         }
@@ -1603,7 +1603,9 @@ var automatics = []string{
         "@D", "%D", "<D", "?D", "^D", "+D", "|D", "*D", //
         "@F", "%F", "<F", "?F", "^F", "+F", "|F", "*F", //
         "@'", "%'", "<'", "?'", "^'", "+'", "|'", "*'", //
-        "-", "CWD"/* Current Work Directory */,
+        "-",
+        //"CTD"/* Current Temp Directory */,
+        //"CWD"/* Current Work Directory */,
 }
 
 func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause {
@@ -1766,6 +1768,7 @@ func (p *parser) parseFile() *ast.File {
                 filename = p.file.Name()
                 abs = filepath.Dir(filename)
                 rel , _ = filepath.Rel(p.workdir, abs)
+                tmp = joinTmpPath(p.workdir, rel)
                 doc = p.leadComment
                 pos = p.pos
         )
@@ -1776,13 +1779,19 @@ func (p *parser) parseFile() *ast.File {
         scope := p.openScope(fmt.Sprintf("file %s", filename))
         if scope != nil {
                 defer p.closeScope(scope)
-                var sym Object
+                var def *Def
 
-                sym, _ = p.def("/")
-                sym.(*Def).Assign(MakeString(abs))
+                def, _ = p.def("/")
+                def.Assign(MakeString(abs))
 
-                sym, _ = p.def(".")
-                sym.(*Def).Assign(MakeString(rel))
+                def, _ = p.def(".")
+                def.Assign(MakeString(rel))
+
+                def, _ = p.def("CTD") // Current Work Directory
+                def.Assign(MakeString(tmp))
+
+                def, _ = p.def("CWD") // Current Temp Directory
+                def.Assign(MakeString(abs))
         } else {
                 p.error(p.pos, "open scope")
         }

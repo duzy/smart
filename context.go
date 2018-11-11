@@ -176,8 +176,8 @@ func loadwork(ctx *Context) (targets []Value) {
                 l.AddSearchPaths(sp)
         }
 
-        //absDir, baseName := filepath.Split(at.AbsPath())
-        saveLoadingInfo(l, at.Spec(), at.AbsPath(), "")
+        //absDir, baseName := filepath.Split(at.absPath)
+        saveLoadingInfo(l, at.Spec(), at.absPath, "")
         linfo := l.loads[len(l.loads)-1]
         linfo.declares[at.Name()] = &declare{ project: at }
 
@@ -185,9 +185,13 @@ func loadwork(ctx *Context) (targets []Value) {
 
         var (
                 ab = base
-                defS, _ = as.Def(at, "/", MakeString(at.AbsPath()))
+                defCTD, _ = as.Def(at, "CTD", MakeString(tmp))
+                defCWD, _ = as.Def(at, "CWD", MakeString(at.absPath))
+                defS, _ = as.Def(at, "/", MakeString(at.absPath))
                 defD, _ = as.Def(at, ".", UniversalNone)
         )
+        if defCTD == nil { /* ... */ }
+        if defCWD == nil { /* ... */ }
         AtLookupLoop: for {
                 var (
                         s1 = filepath.Join(ab, "@.smart")
