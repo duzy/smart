@@ -1001,13 +1001,14 @@ func (l *loader) declareProject(ident *ast.Bareword, params Value) (err error) {
                 var (
                         outer = l.scope
                         absDir = linfo.absDir
-                        relPath string
+                        relPath, tmpPath string
                 )
                 if !filepath.IsAbs(absDir) {
                         //absDir = filepath.Join(l.workdir, absDir)
                         absDir, _ = filepath.Abs(absDir)
                 }
                 relPath, _ = filepath.Rel(l.workdir, absDir)
+                tmpPath = joinTmpPath(l.workdir, relPath)
 
                 // Avoid nesting project scopes!
                 for strings.HasPrefix(outer.Comment(), "project \"") {
@@ -1015,7 +1016,7 @@ func (l *loader) declareProject(ident *ast.Bareword, params Value) (err error) {
                 }
 
                 dec = &declare{
-                        project: l.globe.NewProject(outer, absDir, relPath, linfo.specName, name),
+                        project: l.globe.project(outer, absDir, relPath, tmpPath, linfo.specName, name),
                 }
                 
                 l.loaded[linfo.absPath()] = dec.project

@@ -51,6 +51,7 @@ func (filemap *FileMap) Match(filename string) (matched bool) {
 type Project struct {
 	absPath string
 	relPath string
+        tmpPath string
 	spec    string
 	name    string
         scope   *Scope
@@ -345,9 +346,8 @@ func (p *Project) CmdHash(target Value, recipes []string) (k, v HashBytes, err e
 }
 
 func (p *Project) hashDir(k []byte) string {
-        s := fmt.Sprintf("%x", k[:2])
-        return filepath.Join(p.AbsPath(), ".smart", "hash", 
-                s[0:1], s[1:2], s[2:3], s[3:])
+        h := fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
+        return filepath.Join(p.tmpPath, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
 }
 
 func (p *Project) CheckCmdHash(target Value, recipes []string) (same bool, err error) {

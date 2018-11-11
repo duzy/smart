@@ -170,10 +170,10 @@ func (g *Globe) SetScopeOuter(scope *Scope) {
         scope.outer = g.scope
 }
 
-// NewProject returns a new Project for the given project path and name;
+// project returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m *Project) {
+func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *Project) {
         if outer == nil {
                 outer = g.scope
         }
@@ -181,6 +181,7 @@ func (g *Globe) NewProject(outer *Scope, absPath, relPath, spec, name string) (m
 	m = &Project{
                 absPath: absPath,
                 relPath: relPath, 
+                tmpPath: tmpPath,
                 spec: spec,
                 name: name,
         }

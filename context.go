@@ -112,6 +112,37 @@ func (ctx *Context) run(targets... Value) (err error) {
         return
 }
 
+// baseTmpPath is the base tmp path initialized only once.
+var baseTmpPath string
+
+func joinTmpPath(base, rel string) string {
+        if baseTmpPath == "" {
+                var s = base
+                for s != "" {
+                        if _, err := os.Stat(filepath.Join(s, ".smart")); err == nil {
+                                break
+                        }
+                        if up := filepath.Dir(s); up == s {
+                                break
+                        } else {
+                                s = up
+                        }
+                }
+                if s == "" {
+                        if s = base; s == "" {
+                                // FIXME: Windows system temporary path.
+                                s = filepath.Join("/", "tmp")
+                        }
+                }
+                baseTmpPath = s
+        }
+        if s, err := filepath.Rel(baseTmpPath, filepath.Join(base, rel)); err == nil {
+                rel = s
+        }
+        rel = strings.Replace(rel, "..", "_", -1)
+        return filepath.Join(baseTmpPath, ".smart", ".tmp", rel)
+}
+
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
 func loadwork(ctx *Context) (targets []Value) {
@@ -126,9 +157,10 @@ func loadwork(ctx *Context) (targets []Value) {
         var (
                 base, _ = os.Getwd()
                 rel, _ = filepath.Rel(base, base)
+                tmp = joinTmpPath(base, rel)
                 sp = filepath.Join(base, ".smart", "modules")
 
-                at = l.globe.NewProject(nil, base, rel, ".", "@")
+                at = l.globe.project(nil, base, rel, tmp, ".", "@")
                 as = at.Scope()
         )
 
