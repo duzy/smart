@@ -108,7 +108,7 @@ func (ctx *Context) run(targets... Value) (err error) {
         return
 }
 
-func walkSmartDirs(cwd string, vis func(string)bool) (s string) {
+func walkSmartBaseDirs(cwd string, vis func(string)bool) (s string) {
         s = cwd
         for s != "" {
                 if fi, err := os.Stat(filepath.Join(s, ".smart")); err == nil && fi != nil && !vis(s) {
@@ -131,7 +131,7 @@ var baseTmpPath string
 
 func joinTmpPath(base, rel string) string {
         if baseTmpPath == "" {
-                var s = walkSmartDirs(base, func(d string) bool {
+                var s = walkSmartBaseDirs(base, func(d string) bool {
                         return false // return the first found
                 })
                 if s == "" {
@@ -287,7 +287,7 @@ func CommandLine() {
         if err != nil {
                 return
         }
-        walkSmartDirs(workdir, func(s string) bool {
+        walkSmartBaseDirs(workdir, func(s string) bool {
                 if baseTmpPath == "" {
                         baseTmpPath = s
                 }
