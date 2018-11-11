@@ -100,33 +100,28 @@ func (p *Project) filemaps() (filemaps []FileMap) {
 func (p *Project) search(file *File) bool {
         var projDir = p.AbsPath()
 
-        ForFiles: for _, filemap := range p.filemaps() {
+        ForFileMaps: for _, filemap := range p.filemaps() {
                 // Match the represented file name.
                 if filemap.Match(file.Name) {
                         file.Match = &filemap
                 } else {
-                        continue ForFiles
+                        continue ForFileMaps
                 }
                 for _, path := range filemap.Paths {
-                        var (
-                                dir = path 
-                                abs = filepath.IsAbs(dir)
-                        )
-                        if !abs {
-                                dir = filepath.Join(projDir, dir)
+                        var dir string // fullpath
+                        if filepath.IsAbs(path) {
+                                dir = path
+                        } else {
+                                dir = filepath.Join(projDir, path)
                         }
 
-                        // fmt.Printf("match: %v %v %v %v %v\n", dir, path, file.Name, filemap.Paths, p.FileMaps())
+                        //fmt.Printf("match: %v %v %v\n", file.Name, dir, filemap.Paths)
 
                         if fi, _ := os.Stat(filepath.Join(dir, file.Name)); fi != nil {
-                                if file.Info, file.Dir = fi, dir; !abs {
-                                        file.Sub = path 
-                                }
-                                break ForFiles
+                                file.Sub, file.Dir, file.Info = path, dir, fi
+                                break ForFileMaps
                         } else if file.Dir == "" {
-                                if file.Dir = dir; !abs {
-                                        file.Sub = path
-                                }
+                                file.Sub, file.Dir = path, dir
                         }
                 }
         }

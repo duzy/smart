@@ -1282,8 +1282,8 @@ type File struct {
         value            // satisify Value interface
         Name string      // constant represented name (e.g. relative filename)
         Match *FileMap   // matched pattern (see 'files' directive)
-        Sub string       // matched sub path (see Project.SearchFile)
-        Dir string       // full directory in which the file was or should be found
+        Sub string       // matched sub path (in Project.SearchFile), may be absolete 
+        Dir string       // full directory where the file was or should be found
         Info os.FileInfo // file info if exists
 }
 func (p *File) Type() Type { return FileType }
