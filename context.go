@@ -21,15 +21,11 @@ type Context struct {
         workdir string
 }
 
-func NewContext(name string) *Context {
-        var (
-                workdir, _ = os.Getwd()
-                context = &Context{
-                        globe:    NewGlobe(name),
-                        workdir:  workdir,
-                }
-        )
-        return context
+func NewContext(workdir, name string) *Context {
+        return &Context{
+                globe:    NewGlobe(name),
+                workdir:  workdir,
+        }
 }
 
 func (ctx *Context) run(targets... Value) (err error) {
@@ -112,27 +108,35 @@ func (ctx *Context) run(targets... Value) (err error) {
         return
 }
 
+func walkSmartDirs(cwd string, vis func(string)bool) (s string) {
+        s = cwd
+        for s != "" {
+                if fi, err := os.Stat(filepath.Join(s, ".smart")); err == nil && fi != nil && !vis(s) {
+                        break
+                }
+                if up := filepath.Dir(s); up == s {
+                        break
+                } else {
+                        s = up
+                }
+        }
+        if s == "" {
+                s = cwd
+        }
+        return
+}
+
 // baseTmpPath is the base tmp path initialized only once.
 var baseTmpPath string
 
 func joinTmpPath(base, rel string) string {
         if baseTmpPath == "" {
-                var s = base
-                for s != "" {
-                        if _, err := os.Stat(filepath.Join(s, ".smart")); err == nil {
-                                break
-                        }
-                        if up := filepath.Dir(s); up == s {
-                                break
-                        } else {
-                                s = up
-                        }
-                }
+                var s = walkSmartDirs(base, func(d string) bool {
+                        return false // return the first found
+                })
                 if s == "" {
-                        if s = base; s == "" {
-                                // FIXME: Windows system temporary path.
-                                s = filepath.Join("/", "tmp")
-                        }
+                        // FIXME: Windows system temporary path.
+                        s = filepath.Join("/", "tmp")
                 }
                 baseTmpPath = s
         }
@@ -279,11 +283,23 @@ func CommandLine() {
 		}
         }()
 
+        workdir, err := os.Getwd()
+        if err != nil {
+                return
+        }
+        walkSmartDirs(workdir, func(s string) bool {
+                if baseTmpPath == "" {
+                        baseTmpPath = s
+                }
+                globalPaths = append(globalPaths, filepath.Join(s, ".smart"))
+                return true
+        })
+
         if !flag.Parsed() {
                 flag.Parse()
         }
 
-        ctx := NewContext("smart")
+        ctx := NewContext(workdir, "smart")
         if err := ctx.run(loadwork(ctx)...); err != nil {
                 scanner.PrintError(os.Stderr, err)
                 return
