@@ -287,17 +287,20 @@ func CommandLine() {
         if err != nil {
                 return
         }
+
+        var smartDirs searchlist
         walkSmartBaseDirs(workdir, func(s string) bool {
-                if baseTmpPath == "" {
-                        baseTmpPath = s
-                }
-                globalPaths = append(globalPaths, filepath.Join(s, ".smart"))
+                if baseTmpPath == "" { baseTmpPath = s }
+                smartDirs = append(smartDirs, filepath.Join(s, ".smart"))
                 return true
         })
 
         if !flag.Parsed() {
                 flag.Parse()
         }
+
+        // make sure that .smart dirs have higher priority.
+        globalPaths = append(smartDirs, globalPaths...)
 
         ctx := NewContext(workdir, "smart")
         if err := ctx.run(loadwork(ctx)...); err != nil {
