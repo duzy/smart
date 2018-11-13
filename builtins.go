@@ -571,7 +571,7 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
                                                 m bool
                                         )
                                         if str, err = v.Strval(); err == nil {
-                                                if m, s, err = p.Match(str); err == nil && m && s != "" {
+                                                if m, s, err = p.match(str); err == nil && m && s != "" {
                                                         //fmt.Printf("match: %v: %v (%v)\n", m, s, v)
                                                         return true
                                                 }
@@ -637,7 +637,7 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
                                 if a, err = arg.Strval(); err != nil {
                                         return
                                 }
-                                if m, s, err = pat.Match(a); err != nil {
+                                if m, s, err = pat.match(a); err != nil {
                                         return
                                 }
                         } else if l, _ := args[0].(*List); l != nil {
@@ -646,7 +646,7 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
                                                 if a, err = arg.Strval(); err != nil {
                                                         return
                                                 }
-                                                if m, s, err = pat.Match(a); err != nil {
+                                                if m, s, err = pat.match(a); err != nil {
                                                         return
                                                 } else if m && s != "" {
                                                         break

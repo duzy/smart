@@ -130,7 +130,7 @@ func (p *ProjectName) Get(name string) (value Value, err error) {
 func (p *ProjectName) prepare(pc *preparer) (err error) {
         var defent = p.project.DefaultEntry()
         if trace_prepare {
-                fmt.Printf("prepare:ProjectName: project %v (default %v) (%v)\n", p.name, defent, pc.entry)
+                fmt.Printf("prepare:ProjectName: project %v (default %v)\n", p.name, defent)
         }
         if defent != nil && defent.class != UseRuleEntry {
                 err = defent.prepare(pc)
@@ -605,25 +605,24 @@ func (entry *RuleEntry) pathdependcompare(c *comparer, path *Path) (err error) {
 
 func (entry *RuleEntry) prepare(pc *preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:RuleEntry: %v (%v) (%v) (%v -> %v)\n", entry.target, entry.Depends(), entry.class, pc.entry.OwnerProject().name, pc.entry)
+                fmt.Printf("prepare:RuleEntry: %v (%v) (%v)\n", entry.target, entry.Depends(), entry.class)
         }
 
         if trace_prepare {
                 for i, prog := range entry.programs {
-                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%v -> %v)\n", entry.target, i, prog.depends, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v)\n", entry.target, i, prog.depends)
                 }
         }
 
         ForPrograms: for i, prog := range entry.programs {
                 if trace_prepare {
-                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%s) (%v -> %v)\n", entry.target, i, prog.depends, entry.class, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%s)\n", entry.target, i, prog.depends, entry.class)
                 }
                 if prog == pc.program {
                         err = fmt.Errorf("depended on itself")
                         fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                         break ForPrograms
                 }
-
                 if err = pc.execute(entry, prog); err == nil {
                         break ForPrograms
                 } else if _, ok := err.(targetNotFoundError); ok {
@@ -638,8 +637,8 @@ type PatternEntry struct {
         Pattern Pattern
 }
 
-func (p *PatternEntry) MakeConcreteEntry(stem string) (entry *RuleEntry, err error) {
-        if entry, err = p.Pattern.MakeConcreteEntry(p.RuleEntry, stem); err == nil && entry != nil {
+func (p *PatternEntry) concrete(stem string) (entry *RuleEntry, err error) {
+        if entry, err = p.Pattern.concrete(p.RuleEntry, stem); err == nil && entry != nil {
                 // entry.creator = p
         }
         return
@@ -657,18 +656,18 @@ func (ps *StemmedEntry) String() (s string) {
         return fmt.Sprintf("{StemmedEntry %s,%s,%s,%s}", ps.Patent, ps.Stem, ps.target, ps.file)
 }
 
-func (ps *StemmedEntry) MakeConcreteEntry() (*RuleEntry, error) {
-        return ps.Patent.MakeConcreteEntry(ps.Stem)
+func (ps *StemmedEntry) concrete() (*RuleEntry, error) {
+        return ps.Patent.concrete(ps.Stem)
 }
 
 func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 if ps.file != nil {
-                        fmt.Printf("prepare:StemmedEntry: %v (%v) (file: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.file, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: %v (%v) (file: %v)\n", ps, ps.Patent.class, ps.file)
                 } else if ps.target != "" {
-                        fmt.Printf("prepare:StemmedEntry: %v (%v) (target: %v) (%v -> %v)\n", ps, ps.Patent.class, ps.target, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: %v (%v) (target: %v)\n", ps, ps.Patent.class, ps.target)
                 } else {
-                        fmt.Printf("prepare:StemmedEntry: %v (%v) (%v -> %v)\n", ps, ps.Patent.class, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: %v (%v)\n", ps, ps.Patent.class)
                 }
         }
         
@@ -685,7 +684,7 @@ func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
         ForSources: for _, source := range sources {
                 var ( stem string; ok bool )
                 if source == "" { continue }
-                if ok, stem, err = ps.Patent.Pattern.Match(source); ok && stem != "" {
+                if ok, stem, err = ps.Patent.Pattern.match(source); ok && stem != "" {
                         for _, s := range stems { if s == stem { continue ForSources } }
                         stems = append(stems, stem)
                 }
@@ -693,21 +692,21 @@ func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
 
         // Try preparing target with all stems.
         ForStems: for i, stem := range stems {
-                if entry, err = ps.Patent.MakeConcreteEntry(stem); err != nil {
+                if entry, err = ps.Patent.concrete(stem); err != nil {
                         return
                 }
 
                 if trace_prepare {
-                        fmt.Printf("prepare:StemmedEntry: %v (%v) ([%d/%d]: %v %v) (file: %v) (%v -> %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: %v (%v) ([%d/%d]: %v %v) (file: %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file)
                 }
 
                 pc.stem = stem // set for the current stem.
                 if err = entry.prepare(pc); err == nil {
                         break ForStems // Good!
                 } else if ute, ok := err.(targetNotFoundError); ok {
-                        fmt.Printf("prepare:StemmedEntry: FIXME: unknown target %v (%v)\n", ute.target, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: FIXME: unknown target %v\n", ute.target)
                 } else if ufe, ok := err.(fileNotFoundError); ok {
-                        fmt.Printf("prepare:StemmedEntry: FIXME: unknown file %v (%v)\n", ufe.file, pc.entry)
+                        fmt.Printf("prepare:StemmedEntry: FIXME: unknown file %v\n", ufe.file)
                 }
         }
         return

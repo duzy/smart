@@ -154,7 +154,7 @@ func (c *comparer) compare(value interface{}) (err error) {
 
 // preparer prepares prerequisites of targets.
 type preparer struct {
-        entry *RuleEntry // caller entry
+        //entry *RuleEntry // caller entry
         program *Program
         arguments []Value
         targets *List
@@ -172,12 +172,12 @@ func (pc *preparer) updateall(value interface{}) (err error) {
                                 // Good!
                         } else if ute, ok := err.(targetNotFoundError); ok {
                                 if trace_prepare {
-                                        fmt.Printf("prepare: target `%v' not found (%v)\n", ute.target, pc.entry)
+                                        fmt.Printf("prepare: target `%v' not found\n", ute.target)
                                 }
                                 break
                         } else if ufe, ok := err.(fileNotFoundError); ok {
                                 if trace_prepare {
-                                        fmt.Printf("prepare: file `%v' not found (%v)\n", ufe.file, pc.entry)
+                                        fmt.Printf("prepare: file `%v' not found\n", ufe.file)
                                 }
                                 break
                         } else {
@@ -203,13 +203,13 @@ func (pc *preparer) update(value interface{}) (err error) {
 
 func (pc *preparer) updateTarget(target string) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:Target: %v (project %s) (%v)\n", target, pc.program.project.name, pc.entry)
+                fmt.Printf("prepare:Target: %v (project %s)\n", target, pc.program.project.name)
         }
 
         var entry *RuleEntry
         if entry, err = pc.program.project.resolveEntry(target); entry != nil {
                 if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (found %v) (%v -> %v)\n", target, entry, pc.program.project.name, pc.entry)
+                        fmt.Printf("prepare:Target: %v (found %v) (%v)\n", target, entry, pc.program.project.name)
                 }
                 err = pc.update(entry)
                 return
@@ -219,7 +219,7 @@ func (pc *preparer) updateTarget(target string) (err error) {
         if pss, err = pc.program.project.resolvePatterns(target); err == nil {
                 for _, ps := range pss {
                         if trace_prepare {
-                                fmt.Printf("prepare:Target: %v (stemmed %v) (%v -> %v)\n", target, ps, pc.program.project.name, pc.entry)
+                                fmt.Printf("prepare:Target: %v (stemmed %v) (%v)\n", target, ps, pc.program.project.name)
                         }
                         ps.target = target // Bounds StemmedEntry with the source.
                         if err = ps.prepare(pc); err == nil {
@@ -256,20 +256,24 @@ func (pc *preparer) updateTargetValue(value Value) (err error) {
 
 func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:Execute: %v (%v) (%v) (%v -> %v)\n", entry.target, prog.depends, entry.class, pc.entry.OwnerProject().name, pc.entry)
+                fmt.Printf("prepare:Execute: %v (%v) (%v)\n", entry.target, prog.depends, entry.class)
                 for i, depent := range prog.depends {
-                        fmt.Printf("prepare:Execute: %v (depend[%d]: %v %v)\n", entry.target, i, depent, pc.stem)
+                        fmt.Printf("prepare:Execute: %v (depend[%d]: %T %v %v)\n", entry.target, i, depent, depent, pc.stem)
                 }
         }
 
         var res Value
 
+        // Pase pc.stem to the program, so that patterns will work.
+        defer func(s string) { prog.stem = s } (prog.stem)
+        prog.stem = pc.stem
+
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err == nil {
                 dd, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
                 if trace_prepare {
-                        fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v) (%v)\n",
-                                entry.target, entry.class, dd, dd, entry.target, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v)\n",
+                                entry.target, entry.class, dd, dd, entry.target)
                 }
                 switch t := dd.(type) {
                 case *File: pc.targets.Append(t)
@@ -296,7 +300,7 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         } else {
                 fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
                 if trace_prepare {
-                        fmt.Printf("prepare:Execute: %v (%v) (error) (%v)\n", entry.target, prog.depends, pc.entry)
+                        fmt.Printf("prepare:Execute: %v (%v) (error)\n", entry.target, prog.depends)
                 }
         }
         return
@@ -337,7 +341,7 @@ func (p *Argumented) Strval() (s string, err error) {
 
 func (p *Argumented) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Argumented: %v (%v)\n", p, pc.entry)
+                fmt.Printf("prepare:Argumented: %v\n", p)
         }
         pc.arguments = p.Args // TODO: merge args with p.Args ??
         return pc.update(p.Value)
@@ -352,7 +356,7 @@ func (p *None) filedependcompare(c *comparer, file *File) error { return nil }
 func (p *None) pathdependcompare(c *comparer, path *Path) error { return nil }
 func (p *None) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:None: (%v)\n", pc.entry)
+                fmt.Printf("prepare:None\n")
         }
         return nil 
 }
@@ -648,7 +652,7 @@ func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
 
 func (p *String) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:String: %v (%v)\n", p, pc.entry)
+                fmt.Printf("prepare:String: %v\n", p)
         }
         //pc.source = p.Value
         return pc.updateTarget(p.Value)
@@ -733,7 +737,7 @@ func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
 
 func (p *Bareword) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Bareword: %v (%v)\n", p, pc.entry)
+                fmt.Printf("prepare:Bareword: %v\n", p)
         }
         //pc.source = p.Value
         return pc.updateTarget(p.Value)
@@ -925,9 +929,9 @@ func (p *Barecomp) pathdependcompare(c *comparer, d *Path) (err error) {
 
 func (p *Barecomp) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Barecomp: %v (%v)\n", p, pc.entry)
+                fmt.Printf("prepare:Barecomp: %v\n", p)
                 for _, elem := range p.Elems {
-                        fmt.Printf("prepare:Barecomp: %v (%v) (%v)\n", p, elem, pc.entry)
+                        fmt.Printf("prepare:Barecomp: %v (%v)\n", p, elem)
                 }
         }
         return pc.updateTargetValue(p)
@@ -1016,7 +1020,7 @@ func (p *Barefile) pathdependcompare(c *comparer, d *Path) (err error) {
 
 func (p *Barefile) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:Barefile: %v (%v -> %v)\n", p, pc.entry.OwnerProject().name, pc.entry)
+                fmt.Printf("prepare:Barefile: %v\n", p)
         }
         if p.File != nil {
                 if s, e := p.Name.Strval(); e != nil {
@@ -1196,9 +1200,9 @@ func (p *Path) pathdependcompare(c *comparer, d *Path) (err error) {
 func (p *Path) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 if p.File != nil {
-                        fmt.Printf("prepare:Path: %v (file: %v) (%v, %v)\n", p, p.File, pc.program.project.name, pc.entry)
+                        fmt.Printf("prepare:Path: %v (file: %v) (%v)\n", p, p.File, pc.program.project.name)
                 } else {
-                        fmt.Printf("prepare:Path: %v (%v, %v)\n", p, pc.program.project.name, pc.entry)
+                        fmt.Printf("prepare:Path: %v (%v)\n", p, pc.program.project.name)
                 }
         }
 
@@ -1211,7 +1215,7 @@ func (p *Path) prepare(pc *preparer) (err error) {
                 if pc.program.project.isFile(filepath.Base(s)) || pc.program.project.isFile(s) {
                         if p.File = pc.program.project.SearchFile(s); p.File != nil {
                                 if trace_prepare {
-                                        fmt.Printf("prepare:Path: %v (found file '%v' in %v) (%v)\n", p, p.File, pc.program.project.name, pc.entry)
+                                        fmt.Printf("prepare:Path: %v (found file '%v' in %v)\n", p, p.File, pc.program.project.name)
                                 }
                         }
                 }
@@ -1226,13 +1230,13 @@ func (p *Path) prepare(pc *preparer) (err error) {
                         pc.targets.Append(p) // Append unknown path anyway.
                         fmt.Printf("path.prepare: 1: %v\n", pc.targets)
                         if trace_prepare {
-                                fmt.Printf("prepare:Path: %v (unknown path: %v) (%v)\n", p, e.target, pc.entry)
+                                fmt.Printf("prepare:Path: %v (unknown path: %v)\n", p, e.target)
                         }
                 } else if info.IsDir() {
                         pc.targets.Append(p)
                         fmt.Printf("path.prepare: 2: %v\n", pc.targets)
                         if trace_prepare {
-                                fmt.Printf("prepare:Path: %v (found unknown path: %v) (%v)\n", p, e.target, pc.entry)
+                                fmt.Printf("prepare:Path: %v (found unknown path: %v)\n", p, e.target)
                         }
                 } else {
                         // Search this path target as a file.
@@ -1240,7 +1244,7 @@ func (p *Path) prepare(pc *preparer) (err error) {
                         pc.targets.Append(p.File)
                         fmt.Printf("path.prepare: 3: %v\n", pc.targets)
                         if trace_prepare {
-                                fmt.Printf("prepare:Path: %v (found unknown target: %v) (file: %v) (%v)\n", p, e.target, p.File.Fullname(), pc.entry)
+                                fmt.Printf("prepare:Path: %v (found unknown target: %v) (file: %v)\n", p, e.target, p.File.Fullname())
                         }
                 }
                 // Make it a path-not-found error.
@@ -1396,7 +1400,7 @@ func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
 
 func (p *File) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:File: %v (%v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry)
+                fmt.Printf("prepare:File: %v (%v) (%v)\n", p.Name, p, pc.program.project.name)
         }
 
         if info, err := os.Stat(p.Dir); err != nil || info == nil {
@@ -1414,19 +1418,19 @@ func (p *File) prepare(pc *preparer) error {
 
         if p.exists() {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: exists %v) (%v)\n", p.Name, p, pc.entry)
+                        fmt.Printf("prepare:File: %v (search: exists %v)\n", p.Name, p)
                 }
                 pc.targets.Append(p)
         } else if pc.program.project.search(p) {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v -> %v)\n",
-                                p.Name, p, pc.program.project.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v)\n",
+                                p.Name, p, pc.program.project.name)
                 }
                 pc.targets.Append(p)
         } else {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: unknown %v) (%v -> %v)\n",
-                                p.Name, p.Dir, pc.program.project.name, pc.entry)
+                        fmt.Printf("prepare:File: %v (search: unknown %v) (%v)\n",
+                                p.Name, p.Dir, pc.program.project.name)
                 }
                 return fileNotFoundError{ p }
         }
@@ -1435,7 +1439,7 @@ func (p *File) prepare(pc *preparer) error {
 
 func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
         if trace_prepare {
-                fmt.Printf("prepare:File: %v (explicitly: %v in %v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+                fmt.Printf("prepare:File: %v (explicitly: %v in %v)\n", p.Name, p, pc.program.project.name)
         }
         var entry *RuleEntry
         // Find concrete entry (by file represented name)
@@ -1451,7 +1455,7 @@ func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
 
 func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
         if trace_prepare {
-                fmt.Printf("prepare:File: %v (implicitly: %v in %v) (%v -> %v)\n", p.Name, p, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+                fmt.Printf("prepare:File: %v (implicitly: %v in %v)\n", p.Name, p, pc.program.project.name)
         }
 
         var pss []*StemmedEntry
@@ -1477,7 +1481,7 @@ func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
                         trybrk = true; break ForPatterns // Updated successfully!
                 } else if _, ok := err.(patternPrepareError); ok {
                         if trace_prepare {
-                                fmt.Printf("prepare:File: %v (implicitly:%d: %v) (error: %s) (%s) (%v -> %v)\n", p.Name, i, ps, err, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+                                fmt.Printf("prepare:File: %v (implicitly:%d: %v) (error: %s) (%s)\n", p.Name, i, ps, err, pc.program.project.name)
                         }
                 } else {
                         trybrk = true; break ForPatterns // Update failed!
@@ -1493,16 +1497,16 @@ func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEnt
                 //fmt.Printf("prepare:File: %v (implicitly:=: %v in %s)\n", p.Name, file, project.name)
                 if file.exists() {
                         if trace_prepare {
-                                fmt.Printf("prepare:File: %v (implicitly: %v exists in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.OwnerProject().name, pc.entry)
+                                fmt.Printf("prepare:File: %v (implicitly: %v exists in %s)\n", p.Name, file, project.name)
                         }
                         res = true
                 } else if trace_prepare && false {
-                        fmt.Printf("prepare:File: %v (implicitly: %v missing in %s) (%v -> %v)\n", p.Name, file, project.name, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:File: %v (implicitly: %v missing in %s)\n", p.Name, file, project.name)
                 }
         }
         if _, sym := project.scope.Find(name); sym != nil {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (implicitly: found %v in %s) (%v -> %v)\n", p.Name, sym, project.name, pc.entry.OwnerProject().name, pc.entry)
+                        fmt.Printf("prepare:File: %v (implicitly: found %v in %s)\n", p.Name, sym, project.name)
                 }
                 res = true
         }
@@ -1972,7 +1976,7 @@ func (p *delegate) pathdependcompare(c *comparer, d *Path) (err error) {
 
 func (p *delegate) prepare(pc *preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:delegate: %v (%v -> %v)\n", p, pc.entry.OwnerProject().name, pc.entry)
+                fmt.Printf("prepare:delegate: %v\n", p)
         }
         var val Value
         if val, err = Reveal(p); err != nil { return }
@@ -2125,7 +2129,7 @@ func (p *closure) closured() bool { return true }
 
 func (p *closure) prepare(pc *preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:closure: %v (%v)\n", p, pc.entry)
+                fmt.Printf("prepare:closure: %v\n", p)
 
         }
         if v, e := p.disclose(); e != nil {
@@ -2271,8 +2275,8 @@ func (p *selection) prepare(pc *preparer) (err error) {
 // Pattern
 type Pattern interface {
         Value
-        MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error)
-        Match(s string) (matched bool, stem string, err error)
+        concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error)
+        match(s string) (matched bool, stem string, err error)
 }
 
 type pattern struct {
@@ -2281,9 +2285,10 @@ type pattern struct {
 func (p *pattern) Type() Type        { return PatternType }
 func (p *pattern) Integer() (int64, error) { return 0, nil }
 func (p *pattern) Float() (float64, error) { return 0, nil }
-func (p *pattern) makeEntry(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
+func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
         entry = new(RuleEntry); *entry = *patent
-        if proj := patent.OwnerProject(); proj.isFile(filepath.Base(target)) {
+        fmt.Printf("pattern.concrete: %v %v\n", entry, target, stem)
+        if proj := patent.OwnerProject(); proj.isFile(/*filepath.Base(target)*/target) {
                 if file := proj.SearchFile(target); file != nil {
                         entry.target = file
                 }
@@ -2333,7 +2338,7 @@ func (p *GlobPattern) Strval() (s string, err error) {
         }
         return
 }
-func (p *GlobPattern) Match(s string) (matched bool, stem string, err error) {
+func (p *GlobPattern) match(s string) (matched bool, stem string, err error) {
         var prefix, suffix string
         if prefix, err = p.Prefix.Strval(); err != nil && prefix == "" || strings.HasPrefix(s, prefix) {
                 if suffix, err = p.Suffix.Strval(); err != nil && suffix == "" || strings.HasSuffix(s, suffix) {
@@ -2355,7 +2360,7 @@ func (p *GlobPattern) MakeString(stem string) (s string, err error) {
         return
 }
 
-func (p *GlobPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
+func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         var target string
         if target, err = p.MakeString(stem); err == nil {
                 entry = &RuleEntry{
@@ -2376,10 +2381,10 @@ func (p *GlobPattern) closured() bool {
 
 func (p *GlobPattern) prepare(pc *preparer) (err error) {
         if trace_prepare {
-                fmt.Printf("prepare:GlobPattern: %v(%v) (from %v) (%v -> %v)\n", p, pc.stem, pc.entry.target, pc.entry.OwnerProject().name, pc.entry)
+                fmt.Printf("prepare:GlobPattern: %v(%v)\n", p, pc.stem)
         }
         if pc.stem == "" {
-                err = fmt.Errorf("empty stem (%s, %v)", p, pc.entry)
+                err = fmt.Errorf("empty stem (%s)", p)
                 return
         }
 
@@ -2387,15 +2392,15 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
         if target, err = p.MakeString(pc.stem); err != nil { return }
 
         // Check if target is a file (if source entry is file).
-        if brk := false; pc.entry.target != nil { //! See also `File.checkPatternDepend`.
+        if file, brk := pc.program.project.file(target), false; file != nil { //! See also `File.checkPatternDepend`.
                 if file := pc.program.project.SearchFile(target); file.exists() {
                         if trace_prepare {
-                                fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s) (%v -> %v)\n", p, pc.stem, file, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+                                fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s)\n", p, pc.stem, file, pc.program.project.name)
                         }
                         err, brk = file.prepare(pc), true
                 } else if _, sym := pc.program.project.scope.Find(target); sym != nil {
                         if trace_prepare {
-                                fmt.Printf("prepare:GlobPattern: %v(%v) (found %v in %v) (%v -> %v)\n", p, pc.stem, sym, pc.program.project.name, pc.entry.OwnerProject().name, pc.entry)
+                                fmt.Printf("prepare:GlobPattern: %v(%v) (found %v in %v)\n", p, pc.stem, sym, pc.program.project.name)
                         }
                         err, brk = pc.update(sym), true
                 }
@@ -2405,13 +2410,13 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
         }
         
         if trace_prepare {
-                fmt.Printf("prepare:GlobPattern: %v(%v) (target %v) (%v -> %v)\n", p, pc.stem, target, pc.entry.OwnerProject().name, pc.entry)
+                fmt.Printf("prepare:GlobPattern: %v(%v) (target %v)\n", p, pc.stem, target)
         }
         if err = pc.updateTarget(target); err == nil {
                 return // Good!
         } else {
                 if trace_prepare {
-                        fmt.Printf("prepare:GlobPattern: %v (error: %v) (%v) (%v)\n", p, err, pc.stem, pc.entry)
+                        fmt.Printf("prepare:GlobPattern: %v (error: %v) (%v)\n", p, err, pc.stem)
                 }
                 err = patternPrepareError(err)
         }
@@ -2438,11 +2443,11 @@ func NewRegexpPattern() Pattern {
 
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
-func (p *RegexpPattern) Match(s string) (matched bool, stem string, err error) {
+func (p *RegexpPattern) match(s string) (matched bool, stem string, err error) {
         panic("TODO: regexp matching...")
         return
 }
-func (p *RegexpPattern) MakeConcreteEntry(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
+func (p *RegexpPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         panic("TODO: creating new match entry")
         return
 }

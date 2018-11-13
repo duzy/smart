@@ -41,6 +41,7 @@ type Program struct {
         globe   *Globe
         project *Project
         scope   *Scope
+        stem    string // set by preparer, for pattern rules
         params  []string
         depends []Value
         recipes []Value
@@ -215,6 +216,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         var targets = append([]Value{ entry.target }, prog.depends...)
         for i, target := range targets {
+                switch target.(type) {
+                case *GlobPattern, *RegexpPattern:
+                        continue
+                }
                 var s string
                 if s, err = target.Strval(); err != nil {
                         return
@@ -226,7 +231,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         prog.auto("@", targets[0])
 
         // Calculate and prepare depends and files.
-        var pc = &preparer{ entry, prog, nil, new(List), "" }
+        var pc = &preparer{ prog, nil, new(List), prog.stem }
         if err = pc.updateall(targets[1:]); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)

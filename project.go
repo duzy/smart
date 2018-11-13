@@ -218,7 +218,7 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
 func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
         for _, p := range p.patterns {
                 var ( stem string; found bool )
-                if found, stem, err = p.Pattern.Match(s); err != nil {
+                if found, stem, err = p.Pattern.match(s); err != nil {
                         return
                 } else if found && stem != "" {
                         res = append(res, &StemmedEntry{ p, stem, "", nil })
