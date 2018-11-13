@@ -538,6 +538,17 @@ func (l *loader) selection(x *ast.SelectionExpr) (v Value) {
         return
 }
 
+func (l *loader) pair(x *ast.KeyValueExpr) (res Value) {
+        if k := l.expr(x.Key); l.p.bits&specialKeyValue != 0 {
+                res = &Pair{k, l.expr(x.Value)}
+        } else if k.Type().Bits()&IsKeyName != 0 {
+                res = MakePair(k, l.expr(x.Value))
+        } else {
+                l.p.error(x.Key.Pos(), "not valid key `%T`", k)
+        }
+        return
+}
+
 func (l *loader) barefile(x *ast.Barefile) (v Value) {
         if file, _ := x.File.(*File); file != nil {
                 if x.Val != nil {
@@ -631,7 +642,7 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
         case *ast.ListExpr:
                 v = MakeList(l.exprs(x.Elems)...)
         case *ast.KeyValueExpr:
-                v = MakePair(l.expr(x.Key), l.expr(x.Value))
+                v = l.pair(x)
         case *ast.PercExpr:
                 v = MakeGlobPattern(l.expr(x.X), l.expr(x.Y))
         case *ast.RecipeExpr:

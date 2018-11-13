@@ -206,37 +206,9 @@ func (pc *preparer) updateTarget(target string) (err error) {
                 fmt.Printf("prepare:Target: %v (project %s)\n", target, pc.program.project.name)
         }
 
-        var entry *RuleEntry
-        if entry, err = pc.program.project.resolveEntry(target); entry != nil {
-                if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (found %v) (%v)\n", target, entry, pc.program.project.name)
-                }
-                err = pc.update(entry)
+        if err = pc.program.project.updateTarget(pc, target); err != nil {
                 return
         }
-
-        var pss []*StemmedEntry
-        if pss, err = pc.program.project.resolvePatterns(target); err == nil {
-                for _, ps := range pss {
-                        if trace_prepare {
-                                fmt.Printf("prepare:Target: %v (stemmed %v) (%v)\n", target, ps, pc.program.project.name)
-                        }
-                        ps.target = target // Bounds StemmedEntry with the source.
-                        if err = ps.prepare(pc); err == nil {
-                                return // Updated successfully!
-                        } else if _, ok := err.(patternPrepareError); ok {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:Target: %v (error: %s)\n", target, err)
-                                }
-                                // Discard pattern unfit errors and caller stack.
-                        } else {
-                                return // Update failed!
-                        }
-                }
-        }
-
-        // TODO: try pc.explicitClosureTarget
-        // TODO: try pc.implicitClosureTarget
 
         err = targetNotFoundError{ target }
 
@@ -2340,8 +2312,8 @@ func (p *GlobPattern) Strval() (s string, err error) {
 }
 func (p *GlobPattern) match(s string) (matched bool, stem string, err error) {
         var prefix, suffix string
-        if prefix, err = p.Prefix.Strval(); err != nil && prefix == "" || strings.HasPrefix(s, prefix) {
-                if suffix, err = p.Suffix.Strval(); err != nil && suffix == "" || strings.HasSuffix(s, suffix) {
+        if prefix, err = p.Prefix.Strval(); err == nil && strings.HasPrefix(s, prefix) {
+                if suffix, err = p.Suffix.Strval(); err == nil && strings.HasSuffix(s, suffix) {
                         if a, b := len(prefix), len(s)-len(suffix); a < b {
                                 matched, stem = true, s[a:b]
                         }
@@ -2392,23 +2364,28 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
         if target, err = p.MakeString(pc.stem); err != nil { return }
 
         // Check if target is a file (if source entry is file).
-        if file, brk := pc.program.project.file(target), false; file != nil { //! See also `File.checkPatternDepend`.
-                if file := pc.program.project.SearchFile(target); file.exists() {
+        for i := len(execstack)-1; i >= 0; i -= 1 {
+                prog := execstack[i]
+                if file := prog.project.file(target); file == nil {
+                        continue
+                } else if file.exists() {
                         if trace_prepare {
-                                fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s)\n", p, pc.stem, file, pc.program.project.name)
+                                fmt.Printf("prepare:GlobPattern: %v(%v) (file %v in %s)\n", p, pc.stem, file, prog.project.name)
                         }
-                        err, brk = file.prepare(pc), true
-                } else if _, sym := pc.program.project.scope.Find(target); sym != nil {
-                        if trace_prepare {
-                                fmt.Printf("prepare:GlobPattern: %v(%v) (found %v in %v)\n", p, pc.stem, sym, pc.program.project.name)
-                        }
-                        err, brk = pc.update(sym), true
+                        // File exists, but we still prepare it to call
+                        // it's dependencies if any.
+                        err = file.prepare(pc)
+                        return
                 }
-                if err != nil || brk {
+
+                // Try update the file target via rules if not found.
+                if err = prog.project.updateTarget(pc, target); err == nil {
+                        continue
+                } else {
                         return
                 }
         }
-        
+
         if trace_prepare {
                 fmt.Printf("prepare:GlobPattern: %v(%v) (target %v)\n", p, pc.stem, target)
         }

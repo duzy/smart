@@ -15,19 +15,22 @@ import (
         "os"
 )
 
-const strPathSep = string(filepath.Separator)
+const PathSep = string(filepath.Separator)
 
 type HashBytes [sha256.Size]byte
 
 type FileMap struct {
-        Pattern string
-        Paths []string
+        Pattern Value
+        Paths []Value
 }
 
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(filename string) (matched bool) {
-        list0 := strings.Split(filemap.Pattern, strPathSep)
-        list1 := strings.Split(filename, strPathSep)
+        pattern, err := filemap.Pattern.Strval()
+        if err != nil { return false }
+
+        list0 := strings.Split(pattern, PathSep)
+        list1 := strings.Split(filename, PathSep)
         if n := len(list0); n == 0 {
                 // FIXME: match any?
         } else if m := len(list1); n == m { // foo/*.o  <->  src/foo.o
@@ -84,7 +87,7 @@ func (p *Project) Chain(bases... *Project) {
         }
 }
 
-func (p *Project) mapfile(pat string, paths []string) {
+func (p *Project) mapfile(pat Value, paths []Value) {
         // List order is significant, duplication is acceptable.
         p.filemap = append(p.filemap, FileMap{ pat, paths })
 }
@@ -107,17 +110,25 @@ func (p *Project) search(file *File) bool {
                 } else {
                         continue ForFileMaps
                 }
-                for _, path := range filemap.Paths {
-                        var dir string // fullpath
+                for _, v := range filemap.Paths {
+                        var err error
+                        var dir, path string // fullpath
+                        if path, err = v.Strval(); err != nil {
+                                return false
+                        }
                         if filepath.IsAbs(path) {
                                 dir = path
                         } else {
                                 dir = filepath.Join(projDir, path)
                         }
 
-                        //fmt.Printf("match: %v %v %v\n", file.Name, dir, filemap.Paths)
+                        // Check file in the filesystem.
+                        fullname := filepath.Join(dir, file.Name)
+                        fi, err := os.Stat(fullname)
 
-                        if fi, _ := os.Stat(filepath.Join(dir, file.Name)); fi != nil {
+                        //fmt.Printf("search: %v %v\n", fullname, err)
+
+                        if err == nil && fi != nil {
                                 file.Sub, file.Dir, file.Info = path, dir, fi
                                 break ForFileMaps
                         } else if file.Dir == "" {
@@ -221,7 +232,7 @@ func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
                 if found, stem, err = p.Pattern.match(s); err != nil {
                         return
                 } else if found && stem != "" {
-                        res = append(res, &StemmedEntry{ p, stem, "", nil })
+                        res = append(res, &StemmedEntry{ p, stem, s, nil })
                 }
         }
         for _, base := range p.bases {
@@ -230,6 +241,39 @@ func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
                         res = append(res, a...)
                 } else {
                         return
+                }
+        }
+        return
+}
+
+func (p *Project) updateTarget(pc *preparer, target string) (err error) {
+        var entry *RuleEntry
+        if entry, err = p.resolveEntry(target); entry != nil {
+                if trace_prepare {
+                        fmt.Printf("prepare:Target: %v (found %v) (%v)\n", target, entry, p.name)
+                }
+                err = pc.update(entry)
+                return
+        }
+
+        var pss []*StemmedEntry
+        if pss, err = p.resolvePatterns(target); err == nil {
+                for _, ps := range pss {
+                        if trace_prepare {
+                                fmt.Printf("prepare:Target: %v (stemmed %v) (%v)\n", target, ps, p.name)
+                        }
+                        ps.target = target // Bounds StemmedEntry with the source.
+                        if err = ps.prepare(pc); err == nil {
+                                return // Updated successfully!
+                        } else if _, ok := err.(patternPrepareError); ok {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:Target: %v (error: %s)\n", target, err)
+                                }
+                                // Discard pattern unfit errors and caller stack.
+                                err = nil
+                        } else {
+                                break // Update failed!
+                        }
                 }
         }
         return

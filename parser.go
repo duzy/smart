@@ -26,6 +26,8 @@ const (
         composingDOTDOT
         composingPCON
         composingPERC
+
+        specialKeyValue
         
         // Bits to disable parsing ArgumentedExpr 
         composingNoArg = composingSELECT_PROP | composingDOT | composingDOTDOT | composingPCON | composingPERC
@@ -1065,6 +1067,7 @@ func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) 
 }
 
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        defer p.setbits(p.setbit(specialKeyValue))
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
         for _, prop := range spec.Props {
                 ee, _ := prop.(*ast.EvaluatedExpr)
@@ -1074,24 +1077,34 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
                 }
                 switch v := ee.Data.(type) {
                 case *Pair:
-                        var (paths []string; s string)
-                        var k, e = v.Key.Strval()
-                        if e != nil { p.error(prop.Pos(), "%s", e) }
+                        var (pats, paths []Value/*; s string*/)
+                        switch k := v.Key.(type) {
+                        case *Group: pats = k.Elems
+                        default:
+                                //var k, e = v.Key.Strval()
+                                //if e != nil { p.error(prop.Pos(), "%s", e) }
+                                pats = append(pats, v.Key)
+                        }
                         switch vv := v.Value.(type) {
                         case *Group:
-                                for _, elem := range vv.Elems {
+                                /*for _, elem := range vv.Elems {
                                         if s, e = elem.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
                                         paths = append(paths, s)
-                                }
+                                }*/
+                                paths = vv.Elems
                         default:
-                                if s, e = vv.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
-                                paths = append(paths, s)
+                                //if s, e = vv.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
+                                //paths = append(paths, s)
+                                paths = append(paths, vv)
                         }
-                        p.project.mapfile(k, paths)
+                        for _, k := range pats {
+                                p.project.mapfile(k, paths)
+                        }
                 case Value:
-                        if s, e := v.Strval(); e != nil { p.error(prop.Pos(), "%s", e) } else {
+                        /*if s, e := v.Strval(); e != nil { p.error(prop.Pos(), "%s", e) } else {
                                 p.project.mapfile(s, nil)
-                        }
+                        }*/
+                        p.project.mapfile(v, nil)
                 default:
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
                 }

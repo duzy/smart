@@ -690,6 +690,9 @@ func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
                 }
         }
 
+        // Recover pc.stem when done.
+        defer func(s string) { pc.stem = s } (pc.stem)
+
         // Try preparing target with all stems.
         ForStems: for i, stem := range stems {
                 if entry, err = ps.Patent.concrete(stem); err != nil {
@@ -704,9 +707,9 @@ func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
                 if err = entry.prepare(pc); err == nil {
                         break ForStems // Good!
                 } else if ute, ok := err.(targetNotFoundError); ok {
-                        fmt.Printf("prepare:StemmedEntry: FIXME: unknown target %v\n", ute.target)
+                        fmt.Printf("FIXME: stemmed unknown target %v\n", ute.target)
                 } else if ufe, ok := err.(fileNotFoundError); ok {
-                        fmt.Printf("prepare:StemmedEntry: FIXME: unknown file %v\n", ufe.file)
+                        fmt.Printf("FIXME: stemmed unknown file %v\n", ufe.file)
                 }
         }
         return
