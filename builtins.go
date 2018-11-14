@@ -96,7 +96,6 @@ var builtins = map[string]BuiltinFunc {
         // TODO: move these into builtin package `path', `filepath'
         `base`:       builtinBase,
         `dir`:        builtinDir,
-        /* TODO:
         `dir2`:       builtinDir2,
         `dir3`:       builtinDir3,
         `dir4`:       builtinDir4,
@@ -104,9 +103,9 @@ var builtins = map[string]BuiltinFunc {
         `dir6`:       builtinDir6,
         `dir7`:       builtinDir7,
         `dir8`:       builtinDir8,
-        `dir9`:       builtinDir9, */
+        `dir9`:       builtinDir9,
         `dirs`:       builtinDirs, // do `dir` n times
-        `dirdir`:     builtinDirDir,
+        //`dirdir`:     builtinDirDir,
 
         `relative-dir`: builtinRelativeDir,
 
@@ -1073,10 +1072,59 @@ func builtinDir(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinDirs(pos token.Position, args... Value) (res Value, err error) {
+func dirx(pos token.Position, n int, args... Value) (res Value, err error) {
         var (
                 l []Value
                 s string
+        )
+        for _, a := range args {
+                if s, err = a.Strval(); err != nil {
+                        return
+                }
+                s = filepath.Dir(s)
+                for i := n-1; 0 < i; i -= 1 {
+                        s = filepath.Dir(s)
+                }
+                l = append(l, &String{s})
+        }
+        res = MakeListOrScalar(l)
+        return
+}
+
+func builtinDir2(pos token.Position, args... Value) (res Value, err error) {
+        return dirx(pos, 2, args...)
+}
+
+func builtinDir3(pos token.Position, args... Value) (res Value, err error) {
+        return dirx(pos, 3, args...)
+}
+
+func builtinDir4(pos token.Position, args... Value) (res Value, err error) {
+        return dirx(pos, 4, args...)
+}
+
+func builtinDir5(pos token.Position, args... Value) (res Value, err error) {
+        return dirx(pos, 5, args...)
+}
+
+func builtinDir6(pos token.Position, args... Value) (res Value, err error) {
+        return dirx(pos, 6, args...)
+}
+
+func builtinDir7(pos token.Position, args... Value) (res Value, err error) {
+        return dirx(pos, 7, args...)
+}
+
+func builtinDir8(pos token.Position, args... Value) (res Value, err error) {
+        return dirx(pos, 8, args...)
+}
+
+func builtinDir9(pos token.Position, args... Value) (res Value, err error) {
+        return dirx(pos, 9, args...)
+}
+
+func builtinDirs(pos token.Position, args... Value) (res Value, err error) {
+        var (
                 i int64
                 n = 0
         )
@@ -1095,17 +1143,7 @@ func builtinDirs(pos token.Position, args... Value) (res Value, err error) {
                         return nil, errors.New("Require (first/last) integer argument")
                 }
         }
-        for _, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        return
-                }
-                s = filepath.Dir(s)
-                for i := n-1; 0 < i; i -= 1 {
-                        s = filepath.Dir(s)
-                }
-                l = append(l, &String{s})
-        }
-        res = MakeListOrScalar(l)
+        res, err = dirx(pos, n, args...)
         return
 }
 
