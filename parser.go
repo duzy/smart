@@ -1307,6 +1307,10 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 }
 
                 //fmt.Printf("define: %s %s %v (%T)\n", name, tok, value, value)
+
+                if _, ok := builtins[name]; ok {
+                        p.error(ident.Pos(), "`%v` is builtin name", name)
+                }
         } else {
                 p.error(ident.Pos(), e)
                 p.error(ident.Pos(), "error declosing name %T", ident)
