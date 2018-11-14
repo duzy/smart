@@ -160,7 +160,7 @@ func (prog *Program) cd(chdir string, exec bool) (err error) {
 
         var cd = &cdinfo{ "", chdir, false }
         if cd.workdir, err = os.Getwd(); err == nil {
-                if cd.workdir == cd.chdir {
+                if cd.workdir == cd.chdir || context.workdir == cd.chdir {
                         cd.print = false
                 } else if err = os.Chdir(cd.chdir); err != nil {
                         return
