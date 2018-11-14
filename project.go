@@ -247,6 +247,10 @@ func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
 }
 
 func (p *Project) updateTarget(pc *preparer, target string) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:Target: %v (project %s)\n", target, p.name)
+        }
+
         var entry *RuleEntry
         if entry, err = p.resolveEntry(target); entry != nil {
                 if trace_prepare {
@@ -275,6 +279,12 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                                 break // Update failed!
                         }
                 }
+        }
+
+        err = targetNotFoundError{ target }
+
+        if trace_prepare {
+                fmt.Printf("prepare: %v %+v\n", err, pc.program.depends)
         }
         return
 }

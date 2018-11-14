@@ -202,19 +202,7 @@ func (pc *preparer) update(value interface{}) (err error) {
 }
 
 func (pc *preparer) updateTarget(target string) (err error) {
-        if trace_prepare {
-                fmt.Printf("prepare:Target: %v (project %s)\n", target, pc.program.project.name)
-        }
-
-        if err = pc.program.project.updateTarget(pc, target); err != nil {
-                return
-        }
-
-        err = targetNotFoundError{ target }
-
-        if trace_prepare {
-                fmt.Printf("prepare: %v %+v\n", err, pc.program.depends)
-        }
+        err = pc.program.project.updateTarget(pc, target)
         return
 }
 
