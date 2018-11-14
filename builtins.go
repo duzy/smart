@@ -121,6 +121,7 @@ var builtins = map[string]BuiltinFunc {
 
         `exists`:     builtinExists,    // stat
 
+        `file-source`:builtinFileSource,
         `wildcard`:   builtinWildcard,
 
         // TODO: move these into builtin package 'io/ioutil'
@@ -1161,47 +1162,6 @@ func builtinDirs(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
-        var proj = getCurrentProject()
-        if proj == nil {
-                err = fmt.Errorf("unknown current context")
-                return
-        }
-
-        var l []Value
-        for _, a := range args {
-                var (names []string; str string)
-                if str, err = a.Strval(); err != nil { return }
-                if file := proj.file(str); file != nil {
-                        if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
-                                if names, err = filepath.Glob(str); err != nil {
-                                        break
-                                }
-                        } else {
-                                subfile := filepath.Join(file.Sub, file.Name)
-                                if names, err = filepath.Glob(subfile); err != nil {
-                                        break
-                                }
-                                // Chop off file.Sub to represent shorter names
-                                // Aka. file.Sub+PathSep
-                                prefix := strings.TrimSuffix(subfile, file.Name)
-                                for i, s := range names {
-                                        names[i] = strings.TrimPrefix(s, prefix)
-                                }
-                        }
-                } else if names, err = filepath.Glob(str); err != nil {
-                        break
-                }
-                for _, s := range names {
-                        l = append(l, &String{s})
-                }
-        }
-        if err == nil {
-                res = MakeListOrScalar(l)
-        }
-        return
-}
-
 func builtinRelativeDir(pos token.Position, args... Value) (res Value, err error) {
         var (
                 l []Value
@@ -1561,6 +1521,79 @@ func builtinSymlink(pos token.Position, args... Value) (res Value, err error) {
 func builtinExists(pos token.Position, args... Value) (res Value, err error) {
         // TODO: $(exists -f filename)
         // TODO: $(exists -d dirname)
+        return
+}
+
+func builtinFileSource(pos token.Position, args... Value) (res Value, err error) {
+        var proj = getCurrentProject()
+        if proj == nil {
+                err = fmt.Errorf("unknown current context")
+                return
+        }
+
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
+
+        var l []Value
+        for _, a := range args {
+                var (names []string; str string)
+                if str, err = a.Strval(); err != nil { return }
+                if file := proj.file(str); file != nil {
+                        names = append(names, file.Sub)
+                }
+                for _, s := range names {
+                        l = append(l, &String{s})
+                }
+        }
+        if err == nil {
+                res = MakeListOrScalar(l)
+        }
+        return
+}
+
+func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
+        var proj = getCurrentProject()
+        if proj == nil {
+                err = fmt.Errorf("unknown current context")
+                return
+        }
+
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
+
+        var l []Value
+        for _, a := range args {
+                var (names []string; str string)
+                if str, err = a.Strval(); err != nil { return }
+                if file := proj.file(str); file != nil {
+                        if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
+                                if names, err = filepath.Glob(str); err != nil {
+                                        break
+                                }
+                        } else {
+                                subfile := filepath.Join(file.Sub, file.Name)
+                                if names, err = filepath.Glob(subfile); err != nil {
+                                        break
+                                }
+                                // Chop off file.Sub to represent shorter names
+                                // Aka. file.Sub+PathSep
+                                prefix := strings.TrimSuffix(subfile, file.Name)
+                                for i, s := range names {
+                                        names[i] = strings.TrimPrefix(s, prefix)
+                                }
+                        }
+                } else if names, err = filepath.Glob(str); err != nil {
+                        break
+                }
+                for _, s := range names {
+                        l = append(l, &String{s})
+                }
+        }
+        if err == nil {
+                res = MakeListOrScalar(l)
+        }
         return
 }
 
