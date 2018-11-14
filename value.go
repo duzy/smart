@@ -263,7 +263,7 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                         pc.targets.Append(prog.project.SearchFile(s))
                 }
                 if res != nil && res.Type() != NoneType {
-                        for _, elem := range Join(res) {
+                        for _, elem := range Merge(res) {
                                 switch elem.(type) {
                                 case *File: pc.targets.Append(elem)
                                 }
@@ -1267,7 +1267,14 @@ func (p *File) String() string { return p.Name }
 
 func (p *File) Strval() (string, error) { return filepath.Join(p.Sub, p.Name), nil }
 
-func (p *File) Fullname() string { return filepath.Join(p.Dir, p.Name) }
+func (p *File) Fullname() (s string) {
+        if filepath.IsAbs(p.Name) {
+                s = p.Name
+        } else {
+                s = filepath.Join(p.Dir, p.Name)
+        }
+        return
+}
 func (p *File) Basename() string {
         if p.Info != nil {
                 return p.Info.Name()
@@ -1952,7 +1959,7 @@ func (p *delegate) prepare(pc *preparer) (err error) {
         }
         var val Value
         if val, err = Reveal(p); err != nil { return }
-        for _, d := range Join(val) {
+        for _, d := range Merge(val) {
                 if err = pc.update(d); err != nil { break }
         }
         return
@@ -2528,11 +2535,11 @@ func DiscloseAll(values ...Value) (res []Value, err error) {
         return
 }
 
-// Join combines lists recursively into one list.
-func Join(args... Value) (elems []Value) {
+// Merge combines lists recursively into one list. Previously called Join.
+func Merge(args... Value) (elems []Value) {
         for _, arg := range args {
                 if l, _ := arg.(*List); l != nil {
-                        elems = append(elems, Join(l.Elems...)...)
+                        elems = append(elems, Merge(l.Elems...)...)
                 } else {
                         elems = append(elems, arg)
                 }
@@ -2540,8 +2547,8 @@ func Join(args... Value) (elems []Value) {
         return
 }
 
-func joinresult(res []Value, err error) ([]Value, error) {
-        if err == nil { res = Join(res...) }
+func mergeresult(res []Value, err error) ([]Value, error) {
+        if err == nil { res = Merge(res...) }
         return res, err
 }
 

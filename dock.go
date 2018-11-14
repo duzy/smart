@@ -171,7 +171,8 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
         if container == "" { err = fmt.Errorf("dock-container undefined"); return }
         if image, err = strval("dock-image"); err != nil { return }
         if image == "" { err = fmt.Errorf("dock-image undefined"); return }
-        if args, err = ExpendAll(Join(args...)...); err != nil { return }
+        //if args, err = ExpendAll(merge(args...)...); err != nil { return }
+        if args, err = mergeresult(ExpendAll(args...)); err != nil { return }
 
         if false {
                 if err = s.ensureContainerRunning(prog, docks, container); err != nil {

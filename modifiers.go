@@ -170,7 +170,8 @@ func modifierSetArgs(pos token.Position, prog *Program, value Value, args... Val
 }
 
 func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        if args, err = ExpendAll(Join(args...)...); err != nil {
+        //if args, err = ExpendAll(Merge(args...)...); err != nil {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
                 return
         }
         var envars = new(List)
@@ -519,7 +520,8 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
 
         if len(args) == 0 {
                 return nil, errors.New("No arguments provided.")
-        } else if args, err = ExpendAll(Join(args...)...); err != nil {
+        //} else if args, err = ExpendAll(Merge(args...)...); err != nil {
+        } else if args, err = mergeresult(ExpendAll(args...)); err != nil {
                 return
         }
 

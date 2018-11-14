@@ -105,7 +105,6 @@ var builtins = map[string]BuiltinFunc {
         `dir8`:       builtinDir8,
         `dir9`:       builtinDir9,
         `dirs`:       builtinDirs, // do `dir` n times
-        //`dirdir`:     builtinDirDir,
 
         `relative-dir`: builtinRelativeDir,
 
@@ -121,6 +120,8 @@ var builtins = map[string]BuiltinFunc {
         `symlink`:    builtinSymlink,   // os/file_*.go
 
         `exists`:     builtinExists,    // stat
+
+        `wildcard`:   builtinWildcard,
 
         // TODO: move these into builtin package 'io/ioutil'
         `read-dir`:   builtinReadDir,   // io/ioutil/ioutil.go
@@ -145,6 +146,16 @@ func EscapedString(v Value) (s string, e error) {
                 }
         } else {
                 s, e = v.Strval()
+        }
+        return
+}
+
+func getCurrentProject() (proj *Project) {
+        switch {
+        case context.loader != nil: // at load time
+                proj = context.loader.project
+        case len(execstack) > 0: // at run time
+                proj = execstack[0].project
         }
         return
 }
@@ -370,7 +381,7 @@ func builtinMinus(pos token.Position, args... Value) (result Value, err error) {
 }
 
 func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = joinresult(ExpendAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpendAll(args...)); err != nil { return }
         if l := len(args); l >= 2 {
                 var (
                         fields []string
@@ -387,7 +398,7 @@ func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = joinresult(ExpendAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpendAll(args...)); err != nil { return }
         if l := len(args); l > 0 {
                 var fields []string
                 var v string
@@ -410,7 +421,7 @@ func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) 
                 }
                 args = args[:l-1]
         }
-        if args, err = joinresult(ExpendAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpendAll(args...)); err != nil { return }
         if l := len(args); l > 0 {
                 var fields []string
                 var v string
@@ -426,7 +437,7 @@ func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinSplitString(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = joinresult(ExpendAll(args...)); err != nil { return }
+        if args, err = mergeresult(ExpendAll(args...)); err != nil { return }
         if l := len(args); l > 0 {
                 var fields []Value
                 for _, a := range args {
@@ -593,7 +604,8 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
                 }
                 if len(pats) > 0 {
                         var elems, a []Value
-                        if a, err = RevealAll(Join(args[1:]...)...); err != nil { return }
+                        //if a, err = RevealAll(Merge(args[1:]...)...); err != nil { return }
+                        if a, err = mergeresult(RevealAll(args[1:]...)); err != nil { return }
                         for _, v := range a {
                                 var okay = f(v)
                                 if err != nil { return }
@@ -617,7 +629,8 @@ func builtinSubst(pos token.Position, args... Value) (res Value, err error) {
                 if s1, err = args[0].Strval(); err != nil { return }
                 if s2, err = args[1].Strval(); err != nil { return }
                 var a []Value
-                if a, err = RevealAll(Join(args[2:]...)...); err != nil { return }
+                //if a, err = RevealAll(Merge(args[2:]...)...); err != nil { return }
+                if a, err = mergeresult(RevealAll(args[2:]...)); err != nil { return }
                 for _, arg := range a {
                         if s, err = arg.Strval(); err != nil { return }
                         list = append(list, &String{ strings.Replace(s, s1, s2, -1) })
@@ -635,7 +648,8 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var a []Value
-                if a, err = RevealAll(Join(args[2:]...)...); err != nil { return }
+                //if a, err = RevealAll(Merge(args[2:]...)...); err != nil { return }
+                if a, err = mergeresult(RevealAll(args[2:]...)); err != nil { return }
                 for _, arg := range a {
                         var (
                                 a, s string // stemp
@@ -722,15 +736,15 @@ func builtinTrimSpace(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
         var (
                 list []Value
                 s string
         )
         for _, a := range args {
-                if a, err = Reveal(a); err != nil { return }
-                if a == nil {
-                        // discard
-                } else if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         list = append(list, MakeString(strings.Title(s)))
@@ -743,15 +757,15 @@ func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
         var (
                 list []Value
                 cutset, s string
         )
         for i, a := range args {
-                if a, err = Reveal(a); err != nil { return }
-                if a == nil {
-                        // discard
-                } else if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -770,15 +784,15 @@ func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
         var (
                 list []Value
                 cutset, s string
         )
         for i, a := range args {
-                if a, err = Reveal(a); err != nil { return }
-                if a == nil {
-                        // discard
-                } else if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -797,15 +811,15 @@ func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
         var (
                 list []Value
                 cutset, s string
         )
         for i, a := range args {
-                if a, err = Reveal(a); err != nil { return }
-                if a == nil {
-                        // discard
-                } else if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -824,15 +838,15 @@ func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
         var (
                 list []Value
                 cutset, s string
         )
         for i, a := range args {
-                if a, err = Reveal(a); err != nil { return }
-                if a == nil {
-                        // discard
-                } else if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -851,15 +865,15 @@ func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
         var (
                 list []Value
                 cutset, s string
         )
         for i, a := range args {
-                if a, err = Reveal(a); err != nil { return }
-                if a == nil {
-                        // discard
-                } else if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 {
@@ -878,15 +892,15 @@ func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinTrimExt(pos token.Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
         var (
                 list []Value
                 ext, s string
         )
         for i, a := range args {
-                if a, err = Reveal(a); err != nil { return }
-                if a == nil {
-                        // discard
-                } else if s, err = a.Strval(); err != nil {
+                if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
                         if i == 0 && len(args) > 1 {
@@ -1147,6 +1161,47 @@ func builtinDirs(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
+func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
+        var proj = getCurrentProject()
+        if proj == nil {
+                err = fmt.Errorf("unknown current context")
+                return
+        }
+
+        var l []Value
+        for _, a := range args {
+                var (names []string; str string)
+                if str, err = a.Strval(); err != nil { return }
+                if file := proj.file(str); file != nil {
+                        if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
+                                if names, err = filepath.Glob(str); err != nil {
+                                        break
+                                }
+                        } else {
+                                subfile := filepath.Join(file.Sub, file.Name)
+                                if names, err = filepath.Glob(subfile); err != nil {
+                                        break
+                                }
+                                // Chop off file.Sub to represent shorter names
+                                // Aka. file.Sub+PathSep
+                                prefix := strings.TrimSuffix(subfile, file.Name)
+                                for i, s := range names {
+                                        names[i] = strings.TrimPrefix(s, prefix)
+                                }
+                        }
+                } else if names, err = filepath.Glob(str); err != nil {
+                        break
+                }
+                for _, s := range names {
+                        l = append(l, &String{s})
+                }
+        }
+        if err == nil {
+                res = MakeListOrScalar(l)
+        }
+        return
+}
+
 func builtinRelativeDir(pos token.Position, args... Value) (res Value, err error) {
         var (
                 l []Value
@@ -1315,7 +1370,7 @@ func builtinRename(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = joinresult(ExpendAll(args...)); err != nil {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
                 return
         }
         var (
@@ -1342,7 +1397,7 @@ func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemoveAll(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = joinresult(ExpendAll(args...)); err != nil {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
                 return
         }
         /*for _, a := range args {

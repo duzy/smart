@@ -254,14 +254,14 @@ func (d *Def) Append(va... Value) (Value, error) {
         } else if d.Value != nil && d.Value.Type() != NoneType {
                 nv = d.Value
                 if l, ok := nv.(*List); ok && l != nil {
-                        l.Append(Join(va...)...)
+                        l.Append(Merge(va...)...)
                 } else if nva > 0 {
                         elems := []Value{ nv }
-                        elems = append(elems, Join(va...)...)
+                        elems = append(elems, Merge(va...)...)
                         nv = &List{ Elements{ elems } }
                 }
         } else if nva > 0 {
-                nv = &List{ Elements{ Join(va...) } }
+                nv = &List{ Elements{ Merge(va...) } }
         }
         if nv != nil {
                 return d.Assign(nv)
@@ -364,7 +364,9 @@ func (p *Builtin) String() string {
         }
 }
 func (p *Builtin) MakeString() (string, error) { return fmt.Sprintf("builtin %v", p.name), nil }
-func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) { return p.f(pos, a...) }
+func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) {
+        return p.f(pos, a...)
+}
 
 type RuleEntryClass int
 

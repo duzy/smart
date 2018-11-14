@@ -17,30 +17,25 @@ import (
 )
 
 type Context struct {
-        globe   *Globe
         workdir string
+        globe   *Globe
+        loader  *loader
 }
 
-func NewContext(workdir, name string) *Context {
-        return &Context{
-                globe:    NewGlobe(name),
-                workdir:  workdir,
-        }
-}
+var context Context
 
 func (ctx *Context) run(targets... Value) (err error) {
         var (
                 result []Value
                 updated int
-                mm = ctx.globe.main
         )
 
-        if mm == nil {
+        if ctx.globe.main == nil {
                 Fail("no targets to update")
         }
 
         if len(targets) == 0 {
-                if entry := mm.DefaultEntry(); entry != nil {
+                if entry := ctx.globe.main.DefaultEntry(); entry != nil {
                         if result, err = entry.Execute(entry.Position); err == nil {
                                 updated += 1
                         }
@@ -53,29 +48,7 @@ func (ctx *Context) run(targets... Value) (err error) {
                                 break
                         }
 
-                        closure := closurecontext{ mm.scope }
-
-                        /*if names := strings.Split(target, "->"); len(names) > 1 {
-                                for _, s := range names[0:len(names)-1] {
-                                        var _, obj = m.Scope().Find(s)
-                                        switch t := obj.(type) {
-                                        case *ProjectName:
-                                                m = t.NamedProject()
-                                        case nil:
-                                                fmt.Printf("'%s' is not defined in %v", s, m.Scope())
-                                                return
-                                        default:
-                                                fmt.Printf("object '%s' is not project (%T)", s, t)
-                                                return
-                                        }
-                                        if m == nil {
-                                                fmt.Printf("project '%s' not imported %v", s)
-                                                return
-                                        }
-                                        closure = append(closure, m.Scope())
-                                }
-                                target = names[len(names)-1]
-                        }*/
+                        closure := closurecontext{ ctx.globe.main.scope }
 
                         defer setclosure(setclosure(append(closure, Closure...)))
 
@@ -149,8 +122,10 @@ func joinTmpPath(base, rel string) string {
 
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
-func loadwork(ctx *Context) (targets []Value) {
-        l := &loader{
+func (ctx *Context) loadwork() (targets []Value) {
+        defer func(l *loader) { ctx.loader = l } (ctx.loader)
+
+        ctx.loader = &loader{
                 Context:  ctx,
                 fset:     token.NewFileSet(), 
                 paths:    []string(globalPaths),
@@ -164,7 +139,7 @@ func loadwork(ctx *Context) (targets []Value) {
                 tmp = joinTmpPath(base, rel)
                 sp = filepath.Join(base, ".smart", "modules")
 
-                at = l.globe.project(nil, base, rel, tmp, ".", "@")
+                at = ctx.loader.globe.project(nil, base, rel, tmp, ".", "@")
                 as = at.Scope()
         )
 
@@ -177,15 +152,15 @@ func loadwork(ctx *Context) (targets []Value) {
         }
 
         if _, e := os.Stat(sp); e == nil {
-                l.AddSearchPaths(sp)
+                ctx.loader.AddSearchPaths(sp)
         }
 
         //absDir, baseName := filepath.Split(at.absPath)
-        saveLoadingInfo(l, at.Spec(), at.absPath, "")
-        linfo := l.loads[len(l.loads)-1]
+        saveLoadingInfo(ctx.loader, at.Spec(), at.absPath, "")
+        linfo := ctx.loader.loads[len(ctx.loader.loads)-1]
         linfo.declares[at.Name()] = &declare{ project: at }
 
-        l.globe.scope.ProjectName(nil, at.Name(), at)
+        ctx.loader.globe.scope.ProjectName(nil, at.Name(), at)
 
         var (
                 ab = base
@@ -205,7 +180,7 @@ func loadwork(ctx *Context) (targets []Value) {
                         if m := fi.Mode(); m.IsRegular() {
                                 defS.Assign(MakeString(ab))
                                 defD.Assign(MakeString(ab))
-                                if err = l.loadFile(s1, nil); err != nil {
+                                if err = ctx.loader.loadFile(s1, nil); err != nil {
                                         scanner.PrintError(os.Stderr, err)
                                         return
                                 } else {
@@ -218,7 +193,7 @@ func loadwork(ctx *Context) (targets []Value) {
                         if m := fi.Mode(); m.IsDir() {
                                 defS.Assign(MakeString(ab))
                                 defD.Assign(MakeString(ab))
-                                if err = l.loadPath(s2, nil); err != nil {
+                                if err = ctx.loader.loadPath(s2, nil); err != nil {
                                         scanner.PrintError(os.Stderr, err)
                                         return
                                 } else {
@@ -236,18 +211,18 @@ func loadwork(ctx *Context) (targets []Value) {
                 }
         }
 
-        restoreLoadingInfo(l)
+        restoreLoadingInfo(ctx.loader)
 
-        if err := l.loadPath(base, nil); err != nil {
+        if err := ctx.loader.loadPath(base, nil); err != nil {
                 scanner.PrintError(os.Stderr, err)
                 return
         }
 
         text := strings.Join(flag.Args(), " ")
-        for _, target := range l.loadText("@", text) {
+        for _, target := range ctx.loader.loadText("@", text) {
                 switch t := target.(type) {
                 case *Bareword:
-                        if entry, err := l.project.resolveEntry(t.Value); err != nil {
+                        if entry, err := ctx.loader.project.resolveEntry(t.Value); err != nil {
                                 fmt.Fprintf(os.Stderr, "%s", err)
                         } else if entry == nil {
                                 fmt.Fprintf(os.Stderr, "no such entry `%s`", t)
@@ -257,7 +232,7 @@ func loadwork(ctx *Context) (targets []Value) {
                 case *delegate:
                         if s, err := t.Strval(); err != nil {
                                 fmt.Fprintf(os.Stderr, "%s", err)
-                        } else if entry, err := l.project.resolveEntry(s); err != nil {
+                        } else if entry, err := ctx.loader.project.resolveEntry(s); err != nil {
                                 fmt.Fprintf(os.Stderr, "%s", err)
                         } else if entry == nil {
                                 fmt.Fprintf(os.Stderr, "no such entry `%s` (via `%v`)", s, t)
@@ -283,13 +258,14 @@ func CommandLine() {
 		}
         }()
 
-        workdir, err := os.Getwd()
-        if err != nil {
+        if s, err := os.Getwd(); err == nil {
+                context.workdir = s
+        } else {
                 return
         }
 
         var smartDirs searchlist
-        walkSmartBaseDirs(workdir, func(s string) bool {
+        walkSmartBaseDirs(context.workdir, func(s string) bool {
                 if baseTmpPath == "" { baseTmpPath = s }
                 smartDirs = append(smartDirs, filepath.Join(s, ".smart"))
                 return true
@@ -302,8 +278,8 @@ func CommandLine() {
         // make sure that .smart dirs have higher priority.
         globalPaths = append(smartDirs, globalPaths...)
 
-        ctx := NewContext(workdir, "smart")
-        if err := ctx.run(loadwork(ctx)...); err != nil {
+        context.globe = NewGlobe("smart")
+        if err := context.run(context.loadwork()...); err != nil {
                 scanner.PrintError(os.Stderr, err)
                 return
         }

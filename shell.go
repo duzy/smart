@@ -111,7 +111,8 @@ func isTrueValue(s string) (res bool) {
 }
 
 func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
-        if args, err = ExpendAll(Join(args...)...); err != nil {
+        //if args, err = ExpendAll(Merge(args...)...); err != nil {
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
                 return
         }
 
