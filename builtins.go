@@ -96,6 +96,15 @@ var builtins = map[string]BuiltinFunc {
         // TODO: move these into builtin package `path', `filepath'
         `base`:       builtinBase,
         `dir`:        builtinDir,
+        /* TODO:
+        `dir2`:       builtinDir2,
+        `dir3`:       builtinDir3,
+        `dir4`:       builtinDir4,
+        `dir5`:       builtinDir5,
+        `dir6`:       builtinDir6,
+        `dir7`:       builtinDir7,
+        `dir8`:       builtinDir8,
+        `dir9`:       builtinDir9, */
         `dirs`:       builtinDirs, // do `dir` n times
         `dirdir`:     builtinDirDir,
 

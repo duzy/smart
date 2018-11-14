@@ -31,6 +31,11 @@ type cdinfo struct {
         print bool
 }
 
+type cdrecord struct {
+        chdir string
+        n int
+}
+
 type modifier struct {
         position token.Position
         name string
@@ -47,6 +52,7 @@ type Program struct {
         recipes []Value
         pipline []*modifier
         cdinfos []*cdinfo
+        subcdrs []*cdrecord
         position token.Position
 }
 
@@ -144,7 +150,12 @@ func (prog *Program) hasCDDash() (res bool) {
 func (prog *Program) cd(chdir string, exec bool) (err error) {
         var main = prog.globe.Main()
         if trace_workdir {
-                fmt.Printf("entering: %v (init: %v)\n", chdir, main.AbsPath())
+                fmt.Printf("entering: %v (init: %v)\n", chdir, main.absPath)
+        }
+
+        var caller *Program
+        if len(execstack) > 1 {
+                caller = execstack[1]
         }
 
         var cd = &cdinfo{ "", chdir, false }
@@ -165,6 +176,15 @@ func (prog *Program) cd(chdir string, exec bool) (err error) {
                                 }
                         }
                 }
+                // check the caller program's subcdrs
+                if caller != nil && cd.print {
+                        if len(caller.subcdrs) > 0 && caller.subcdrs[0].chdir == cd.chdir {
+                                caller.subcdrs[0].n += 1
+                                cd.print = false
+                        } else {
+                                caller.subcdrs = append([]*cdrecord{ &cdrecord{cd.chdir, 1} }, caller.subcdrs...)
+                        }
+                }
                 if cd.print {
                         fmt.Printf("smart: Entering directory '%s'\n", cd.chdir)
                 }
@@ -176,26 +196,31 @@ func (prog *Program) cd(chdir string, exec bool) (err error) {
 
 func (prog *Program) uncd() (err error) {
         for _, cd := range prog.cdinfos {
-                if cd.print {
+                if cd.print && false {
                         fmt.Printf("smart:  Leaving directory '%s'\n", cd.chdir)
                 }
                 if err = os.Chdir(cd.workdir); err != nil {
                         break
                 }
         }
-        prog.cdinfos = prog.cdinfos[:0]
+        prog.cdinfos = prog.cdinfos[:0] // clear all
         return
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
         if trace_prepare {
-                fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.target, prog.depends, entry.class, prog.project.AbsPath())
+                fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.target, prog.depends, entry.class, prog.project.absPath)
         }
 
+        // cd before setting execstack, because cd reads execstack
+        // before changes.
+        if err = prog.cd(prog.project.absPath, true); err != nil { return }
+
+        // Have to set execstack after cd.
         defer setexecstack(setexecstack(append(executestack{prog}, execstack...))) // build the call stack
         defer setclosure(setclosure(append(Closure, entry.DeclScope()))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
 
-        if err = prog.cd(prog.project.AbsPath(), true); err != nil { return }
+        // uncd after setting execstack to meet the FIFO order of execstack
         defer func() { if err == nil { err = prog.uncd() } } ()
 
         var argn = 0
@@ -251,7 +276,13 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.auto("<", pc.targets.Elems[0])
                 prog.auto("^", pc.targets)
         }
-        
+        for _, rec := range prog.subcdrs {
+                fmt.Printf("smart:  Leaving directory '%s'\n", rec.chdir)
+        }
+        if len(prog.subcdrs) > 0 {
+                prog.subcdrs = prog.subcdrs[:0] // clear subcdrs
+        }
+
         var out = prog.auto("-", UniversalNone)
         defer func() { result = out.Value }()
 
