@@ -797,6 +797,10 @@ func (l *loader) use(spec *ast.UseSpec) {
 
 func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
         if num := len(spec.Props); num > 0 {
+                // At the point of `eval` was represented, the closure context
+                // might be empty. So we start closure with the current scope.
+                defer setclosure(setclosure(append(closurecontext{l.scope}, Closure...)))
+
                 var id = spec.Props[0]
                 var position = l.p.file.Position(id.Pos())
                 switch op := l.expr(id).(type) {

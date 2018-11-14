@@ -119,8 +119,7 @@ var builtins = map[string]BuiltinFunc {
         `link`:       builtinLink,      // os/file_*.go
         `symlink`:    builtinSymlink,   // os/file_*.go
 
-        `exists`:     builtinExists,    // stat
-
+        `file-exists`:builtinFileExists,    // stat
         `file-source`:builtinFileSource,
         `wildcard`:   builtinWildcard,
 
@@ -1518,9 +1517,33 @@ func builtinSymlink(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinExists(pos token.Position, args... Value) (res Value, err error) {
-        // TODO: $(exists -f filename)
-        // TODO: $(exists -d dirname)
+func builtinFileExists(pos token.Position, args... Value) (res Value, err error) {
+        // TODO: $(file-exists -f filename)
+        // TODO: $(file-exists -d dirname)
+
+        var proj = getCurrentProject()
+        if proj == nil {
+                err = fmt.Errorf("unknown current context")
+                return
+        }
+
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
+
+        var l []Value
+        for _, a := range args {
+                var (str string)
+                if str, err = a.Strval(); err != nil { return }
+                if file := proj.file(str); file != nil {
+                        if file.exists() {
+                                l = append(l, file)
+                        }
+                }
+        }
+        if err == nil {
+                res = MakeListOrScalar(l)
+        }
         return
 }
 
