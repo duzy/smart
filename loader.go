@@ -879,7 +879,16 @@ func (l *loader) rule(clause *ast.RuleClause) {
                 modifiers = l.exprs(clause.Modifier.Elems)
         }
         
-        var prog = NewProgram(l.globe, clause.Position, l.project, params, progScope, depends, recipes...)
+        //var prog = NewProgram(l.globe, clause.Position, l.project, params, progScope, depends, recipes...)
+        var prog = &Program{
+                globe:    l.globe,
+                project:  l.project,
+                scope:    progScope,
+                params:   params,
+                depends:  depends,
+                recipes:  recipes,
+                position: clause.Position,
+        }
         for i, m := range modifiers {
                 position := l.p.file.Position(clause.Modifier.Elems[i].Pos())
                 if err := prog.AddModifier(position, m); err != nil {

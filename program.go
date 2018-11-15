@@ -240,16 +240,20 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         var targets = append([]Value{ entry.target }, prog.depends...)
+        if targets, err = mergeresult(ExpendAll(targets...)); err != nil {
+                return
+        }
         for i, target := range targets {
                 switch target.(type) {
                 case *GlobPattern, *RegexpPattern:
                         continue
-                }
-                var s string
-                if s, err = target.Strval(); err != nil {
-                        return
-                } else if file := prog.project.file(s); file != nil {
-                        targets[i] = file
+                default:
+                        var s string
+                        if s, err = target.Strval(); err != nil {
+                                return
+                        } else if file := prog.project.file(s); file != nil {
+                                targets[i] = file
+                        }
                 }
         }
 
@@ -334,18 +338,6 @@ func (prog *Program) AddModifier(position token.Position, operation Value) (err 
                 fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
         }
         return
-}
-
-func NewProgram(globe *Globe, position token.Position, project *Project, params []string, scope *Scope, depends []Value, recipes... Value) *Program {
-        return &Program{
-                globe:    globe,
-                project:  project,
-                scope:    scope,
-                params:   params,
-                depends:  depends,
-                recipes:  recipes,
-                position: position,
-        }
 }
 
 func dependEquals(a, b Value) bool {
