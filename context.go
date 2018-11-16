@@ -24,6 +24,16 @@ type Context struct {
 
 var context Context
 
+func current() (proj *Project) {
+        switch {
+        case context.loader != nil: // at load time
+                proj = context.loader.project
+        case len(execstack) > 0: // at run time
+                proj = execstack[0].project
+        }
+        return
+}
+
 func (ctx *Context) run(targets... Value) (err error) {
         var (
                 result []Value
@@ -41,16 +51,14 @@ func (ctx *Context) run(targets... Value) (err error) {
                         }
                 }
         } else {
+                defer setclosure(setclosure(cloctx.unshift(ctx.globe.main.scope)))
+
                 for _, target := range targets {
                         var ( entry *RuleEntry; ok bool )
                         if entry, ok = target.(*RuleEntry); !ok || entry == nil {
                                 fmt.Fprintf(os.Stderr, "`%v` is not an entry", target)
                                 break
                         }
-
-                        closure := closurecontext{ ctx.globe.main.scope }
-
-                        defer setclosure(setclosure(append(closure, Closure...)))
 
                         var v []Value
                         /*for _, a := range args {

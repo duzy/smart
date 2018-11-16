@@ -333,6 +333,10 @@ func joinx(sep string, exprs... Expr) (s string) {
 }
 
 func (x *BadExpr) String() string         { return fmt.Sprintf("BadExpr{%v,%v}", x.From, x.To) }
+func (x *EvaluatedExpr) String() string {
+        //return fmt.Sprintf("EvaluatedExpr{%v=%v}", x.Expr, x.Data)
+        return fmt.Sprintf("%v", x.Expr)
+}
 func (x *Bareword) String() string        { return fmt.Sprintf("%s", x.Value) }
 func (x *BasicLit) String() string        { return fmt.Sprintf("%s", x.Value) }
 func (x *FlagExpr) String() string        { return fmt.Sprintf("-%v", x.Name) }
@@ -361,7 +365,12 @@ func (x *ClosureDelegate) String() (s string) {
 func (x *SelectionExpr) String() string   { return fmt.Sprintf("%v%s%v", x.Lhs, x.Tok, x.Rhs) }
 func (x *ArgumentedExpr) String() string  { return fmt.Sprintf("%v(%v)", x.X, joinx(",", x.Arguments...)) }
 func (x *GroupExpr) String() string       { return fmt.Sprintf("(%v)", joinx(" ", x.Elems...)) }
-func (x *PercExpr) String() string        { return fmt.Sprintf("%v%%%v", x.X, x.Y) }
+func (x *PercExpr) String() (s string) {
+        if x.X != nil { s += fmt.Sprintf("%v", x.X) }
+        s += `%` // infix
+        if x.Y != nil { s += fmt.Sprintf("%v", x.Y) }
+        return
+}
 func (x *KeyValueExpr) String() string    { return fmt.Sprintf("%v%s%v", x.Key, x.Tok, x.Value) }
 func (x *ModifierExpr) String() string    { return fmt.Sprintf("(%v)", joinx(" ", x.Elems...)) }
 func (x *RecipeExpr) String() string      { return fmt.Sprintf("Recipe(%s){%v}", x.Dialect, x.Elems) }

@@ -63,8 +63,7 @@ type ExecResult struct {
         Stderr ExecBuffer
         Status int
 }
-func (p *ExecResult) disclose() (Value, error) { return nil, nil }
-func (p *ExecResult) reveal() (Value, error) { return nil, nil }
+func (p *ExecResult) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *ExecResult) refs(_ Object) bool { return false }
 func (p *ExecResult) closured() bool { return false }
 func (p *ExecResult) Type() Type { return ExecResultType }
@@ -127,7 +126,7 @@ func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result 
                 if l, _ := envarsDef.Value.(*List); l != nil {
                         for _, v := range l.Elems {
                                 //if v, err = Disclose(prog.Scope(), v); err != nil {
-                                if v, err = Disclose(v); err != nil {
+                                if v, err = v.expend(expendClosure); err != nil {
                                         return
                                 } else {
                                         envars = append(envars, v)
@@ -230,7 +229,7 @@ func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result 
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
                         //if v, err = Disclose(prog.Scope(), v); err != nil {
-                        if v, err = Disclose(v); err != nil {
+                        if v, err = v.expend(expendClosure); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)

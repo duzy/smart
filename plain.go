@@ -17,10 +17,9 @@ type Plain struct {
         Value string
         Name string
 }
-func (p *Plain) closured() bool { return false }
-func (p *Plain) disclose() (Value, error) { return nil, nil }
-func (p *Plain) reveal() (Value, error) { return nil, nil }
 func (p *Plain) refs(_ Object) bool { return false }
+func (p *Plain) closured() bool { return false }
+func (p *Plain) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *Plain) Type() Type  { return PlainType }
 func (p *Plain) String() string {
         s := "(plain"

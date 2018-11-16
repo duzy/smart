@@ -16,10 +16,9 @@ import (
 type YAML struct {
         Value Value
 }
-func (p *YAML) closured() bool { return p.Value.closured() }
-func (p *YAML) disclose() (Value, error) { return p.Value.disclose() }
-func (p *YAML) reveal() (Value, error) { return p.Value.reveal() }
 func (p *YAML) refs(_ Object) bool { return false }
+func (p *YAML) closured() bool { return p.Value.closured() }
+func (p *YAML) expend(w expendwhat) (Value, error) { return p.Value.expend(w) }
 func (p *YAML) Type() Type { return YAMLType }
 func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *YAML) Strval() (string, error) { return p.Value.Strval() }

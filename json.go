@@ -17,10 +17,9 @@ import (
 type JSON struct {
         Value Value
 }
-func (p *JSON) closured() bool { return p.Value.closured() }
-func (p *JSON) disclose() (Value, error) { return p.Value.disclose() }
-func (p *JSON) reveal() (Value, error) { return p.Value.reveal() }
 func (p *JSON) refs(_ Object) bool { return false }
+func (p *JSON) closured() bool { return p.Value.closured() }
+func (p *JSON) expend(w expendwhat) (Value, error) { return p.Value.expend(w) }
 func (p *JSON) Type() Type { return JSONType }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
 func (p *JSON) Strval() (string, error) { return p.Value.Strval() }

@@ -308,7 +308,7 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
 func getCompareDepends(pos token.Position, prog *Program) (depends *List, err error) {
         def := prog.scope.Lookup("^").(*Def)
         dependVal, _ := def.Call(pos)
-        if dependVal, err = Reveal(dependVal); err != nil { return }
+        if dependVal, err = dependVal.expend(expendDelegate); err != nil { return }
         if dependList, _ := dependVal.(*List); dependList != nil && dependList.Len() > 0 {
                 depends, err = parseDependList(pos, prog, dependList)
         }
@@ -383,7 +383,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                 fmt.Printf("compare:Target: %v\n", targetVal)
         }
 
-        if targetVal, err = Reveal(targetVal); err != nil { return }
+        if targetVal, err = targetVal.expend(expendDelegate); err != nil { return }
         if targetVal == nil || targetVal.Type() == NoneType {
                 err = break_bad("no target"); return
         }

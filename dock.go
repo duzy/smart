@@ -125,7 +125,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
         if prog.Project().Name() == "dock" {
                 docks = append(docks, prog.Project())
         } else {
-                for _, scope := range Closure {
+                for _, scope := range cloctx {
                         if _, sym := scope.Find("dock"); sym != nil {
                                 if p, ok := sym.(*ProjectName); ok && p != nil {
                                         docks = append(docks, p.NamedProject())
@@ -142,7 +142,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
         }
 
         if docks == nil {
-                err = fmt.Errorf("docking unavailable (in %s)\n", prog.Project().Name())
+                err = fmt.Errorf("docking unavailable (in %s)", prog.Project().Name())
                 return
         }
 
@@ -218,7 +218,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                 if envarsDef, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); envarsDef != nil {
                         if l, _ := envarsDef.Value.(*List); l != nil {
                                 for _, v := range l.Elems {
-                                        if v, err = Disclose(v); err != nil {
+                                        if v, err = v.expend(expendClosure); err != nil {
                                                 return
                                         } else {
                                                 envars = append(envars, v)
@@ -324,7 +324,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                 )
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
-                        if v, err = Disclose(v); err != nil {
+                        if v, err = v.expend(expendClosure); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)

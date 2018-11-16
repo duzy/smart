@@ -150,16 +150,6 @@ func EscapedString(v Value) (s string, e error) {
         return
 }
 
-func getCurrentProject() (proj *Project) {
-        switch {
-        case context.loader != nil: // at load time
-                proj = context.loader.project
-        case len(execstack) > 0: // at run time
-                proj = execstack[0].project
-        }
-        return
-}
-
 func builtinTypeOf(pos token.Position, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
@@ -226,7 +216,7 @@ func builtinAssertValid(pos token.Position, args... Value) (Value, error) {
 
 func builtinLogicalOr(pos token.Position, args... Value) (res Value, err error) {
         for _, a := range args {
-                if a, err = Reveal(a); err != nil { return }
+                if a, err = a.expend(expendDelegate); err != nil { return }
                 if a == nil { continue } // discard nil
                 var s string
                 if s, err = a.Strval(); err != nil { return }
@@ -243,7 +233,7 @@ func builtinBranchIf(pos token.Position, args... Value) (res Value, err error) {
                         cond Value
                         s string
                 )
-                if cond, err = Reveal(args[0]); err != nil { return }
+                if cond, err = args[0].expend(expendDelegate); err != nil { return }
                 if s, err = cond.Strval(); err != nil { return }
                 if strings.TrimSpace(s) != "" { 
                         res = args[1]
@@ -260,8 +250,8 @@ func builtinBranchIfEq(pos token.Position, args... Value) (res Value, err error)
                         a, b Value
                         s1, s2 string
                 )
-                if a, err = Reveal(args[0]); err != nil { return }
-                if b, err = Reveal(args[1]); err != nil { return }
+                if a, err = args[0].expend(expendDelegate); err != nil { return }
+                if b, err = args[1].expend(expendDelegate); err != nil { return }
                 if s1, err = a.Strval(); err != nil { return }
                 if s2, err = b.Strval(); err != nil { return }
                 if s1 == s2 { 
@@ -279,8 +269,8 @@ func builtinBranchIfNE(pos token.Position, args... Value) (res Value, err error)
                         a, b Value
                         s1, s2 string
                 )
-                if a, err = Reveal(args[0]); err != nil { return }
-                if b, err = Reveal(args[1]); err != nil { return }
+                if a, err = args[0].expend(expendDelegate); err != nil { return }
+                if b, err = args[1].expend(expendDelegate); err != nil { return }
                 if s1, err = a.Strval(); err != nil { return }
                 if s2, err = b.Strval(); err != nil { return }
                 if s1 != s2 { 
@@ -299,7 +289,7 @@ func builtinEnv(pos token.Position, args... Value) (res Value, err error) {
                 v string
         )
         for _, a := range args {
-                if val, err = Reveal(a); err != nil { return }
+                if val, err = a.expend(expendDelegate); err != nil { return }
                 if val == nil {
                         // discard
                 } else if v, err = val.Strval(); err == nil {
@@ -1521,7 +1511,7 @@ func builtinFileExists(pos token.Position, args... Value) (res Value, err error)
         // TODO: $(file-exists -f filename)
         // TODO: $(file-exists -d dirname)
 
-        var proj = getCurrentProject()
+        var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown current context")
                 return
@@ -1548,7 +1538,7 @@ func builtinFileExists(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinFileSource(pos token.Position, args... Value) (res Value, err error) {
-        var proj = getCurrentProject()
+        var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown current context")
                 return
@@ -1576,7 +1566,7 @@ func builtinFileSource(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
-        var proj = getCurrentProject()
+        var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown current context")
                 return

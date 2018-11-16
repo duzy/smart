@@ -1070,40 +1070,21 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
         defer p.setbits(p.setbit(specialKeyValue))
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
         for _, prop := range spec.Props {
-                ee, _ := prop.(*ast.EvaluatedExpr)
-                if ee == nil || ee.Data == nil {
-                        p.error(prop.Pos(), "bad file spec (%T)", prop)
-                        continue
-                }
-                switch v := ee.Data.(type) {
+                switch v := p.expr(prop).(type) {
                 case *Pair:
-                        var (pats, paths []Value/*; s string*/)
+                        var (pats, paths []Value)
                         switch k := v.Key.(type) {
                         case *Group: pats = k.Elems
-                        default:
-                                //var k, e = v.Key.Strval()
-                                //if e != nil { p.error(prop.Pos(), "%s", e) }
-                                pats = append(pats, v.Key)
+                        default: pats = append(pats, v.Key)
                         }
                         switch vv := v.Value.(type) {
-                        case *Group:
-                                /*for _, elem := range vv.Elems {
-                                        if s, e = elem.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
-                                        paths = append(paths, s)
-                                }*/
-                                paths = vv.Elems
-                        default:
-                                //if s, e = vv.Strval(); e != nil { p.error(prop.Pos(), "%s", e) }
-                                //paths = append(paths, s)
-                                paths = append(paths, vv)
+                        case *Group: paths = vv.Elems
+                        default: paths = append(paths, vv)
                         }
                         for _, k := range pats {
                                 p.project.mapfile(k, paths)
                         }
                 case Value:
-                        /*if s, e := v.Strval(); e != nil { p.error(prop.Pos(), "%s", e) } else {
-                                p.project.mapfile(s, nil)
-                        }*/
                         p.project.mapfile(v, nil)
                 default:
                         p.error(prop.Pos(), "bad file spec (%T)", prop)
@@ -1114,16 +1095,16 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
 
 func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.EvalSpec{ p.parseDirectiveSpec(), nil }
-        if ee, _ := spec.Props[0].(*ast.EvaluatedExpr); ee == nil {
-                panic("expected evaluated expr (eval)")
-        } else if name, _ := ee.Data.(Value); name == nil {
-                p.error(ee.Pos(), "Invalid eval symbol (%T).", ee.Data)
+        if name, e := p.eval(spec.Props[0], StringValue); e != nil {
+                p.error(spec.Props[0].Pos(), "illegal (%s)", e)
+        } else if name == nil {
+                p.error(spec.Props[0].Pos(), "invalid eval symbol (%T).", spec.Props[0])
         } else if s, err := name.Strval(); err != nil {
                 p.error(spec.Props[0].Pos(), err)
         } else if spec.Resolved, err = p.resolve(&Bareword{s}); err != nil {
                 p.error(spec.Pos(), err)
         } else if spec.Resolved == nil {
-                p.error(ee.Pos(), "Undefined eval symbol `%s' (%v).", s, name)
+                p.error(spec.Props[0].Pos(), "undefined eval symbol `%s' (%v).", s, name)
         } else {
                 p.evalspec(spec)
         }
@@ -1145,16 +1126,9 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
                 doc = p.leadComment
                 comment *ast.CommentGroup
                 props []ast.Expr
-                x = p.parseExpr(false)
         )
-        if v, e := p.eval(x, StringValue); e == nil {
-                x = &ast.EvaluatedExpr{ x, v }
-        } else {
-                p.error(x.Pos(), "illegal (%s)", e)
-        }
 
-        // Append the prop `x'.
-        props = append(props, x)
+        props = append(props, p.parseExpr(false))
 
         // Parse the parameters.
         ParamsParseLoop: for p.tok != token.EOF {
@@ -1167,12 +1141,7 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
                         comment = p.lineComment
                         break
                 }
-                x = p.parseExpr(false)
-                if v, e := p.eval(x, KeepClosures|KeepDelegates); e == nil {
-                        props = append(props, &ast.EvaluatedExpr{ x, v })
-                } else {
-                        p.error(x.Pos(), "immediate (%s)", e)
-                }
+                props = append(props, p.parseExpr(false))
         }
         return ast.DirectiveSpec{
                 Doc: doc,

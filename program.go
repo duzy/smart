@@ -26,6 +26,10 @@ func setexecstack(v []*Program) (saved []*Program) {
         saved = execstack; execstack = v; return
 }
 
+func (xs executestack) unshift(progs... *Program) executestack {
+        return append(progs, execstack...)
+}
+
 type cdinfo struct {
         workdir, chdir string
         print bool
@@ -217,8 +221,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         if err = prog.cd(prog.project.absPath, true); err != nil { return }
 
         // Have to set execstack after cd.
-        defer setexecstack(setexecstack(append(executestack{prog}, execstack...))) // build the call stack
-        defer setclosure(setclosure(append(Closure, entry.DeclScope()))) //(setclosure(append(closurecontext{entry.scope}, Closure...)))
+        defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
+        defer setclosure(setclosure(append(cloctx, entry.DeclScope()))) //(setclosure(append(closurecontext{entry.scope}, cloctx...)))
 
         // uncd after setting execstack to meet the FIFO order of execstack
         defer func() { if err == nil { err = prog.uncd() } } ()
@@ -239,8 +243,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        var targets = append([]Value{ entry.target }, prog.depends...)
-        if targets, err = mergeresult(ExpendAll(targets...)); err != nil {
+        var targets []Value
+        if targets, err = mergeresult(ExpendAll(prog.depends...)); err == nil {
+                targets = append([]Value{ entry.target }, targets...)
+        } else {
                 return
         }
         for i, target := range targets {
