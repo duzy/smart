@@ -63,9 +63,9 @@ type ExecResult struct {
         Stderr ExecBuffer
         Status int
 }
-func (p *ExecResult) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *ExecResult) refs(_ Object) bool { return false }
 func (p *ExecResult) closured() bool { return false }
+func (p *ExecResult) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *ExecResult) Type() Type { return ExecResultType }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }

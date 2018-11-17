@@ -63,15 +63,16 @@ var (
         }
         
         CompositeTypes = []*Composite {
-                CompoundKind: {CompoundKind, IsCompound, "compound"},
-                BarecompKind: {BarecompKind, IsBarecomp, "barecomp"},
-                ListKind:     {ListKind, IsList, "list"},
-                GroupKind:    {GroupKind, IsGroup, "group"},
-                MapKind:      {MapKind, IsMap, "map"},
-                PairKind:     {PairKind, IsPair, "pair"},
-                DelegateKind: {DelegateKind, IsDelegate, "delegate"},
-                ClosureKind:  {ClosureKind, IsClosure, "closure"},
-                SelectionKind:{SelectionKind, IsSelection, "selection"},
+                CompoundKind:   {CompoundKind, IsCompound, "compound"},
+                BarecompKind:   {BarecompKind, IsBarecomp, "barecomp"},
+                ArgumentedKind: {ArgumentedKind, IsArgumented, "argumented"},
+                ListKind:       {ListKind, IsList, "list"},
+                GroupKind:      {GroupKind, IsGroup, "group"},
+                MapKind:        {MapKind, IsMap, "map"},
+                PairKind:       {PairKind, IsPair, "pair"},
+                DelegateKind:   {DelegateKind, IsDelegate, "delegate"},
+                ClosureKind:    {ClosureKind, IsClosure, "closure"},
+                SelectionKind:  {SelectionKind, IsSelection, "selection"},
         }
 
         // Shortcuts of core types
@@ -113,16 +114,17 @@ var (
         NoneType     = BasicTypes[NoneKind]
 
         // Shortcuts for composite types.
-        CompoundType = CompositeTypes[CompoundKind]
-        BarecompType = CompositeTypes[BarecompKind]
-        ListType     = CompositeTypes[ListKind]
-        GroupType    = CompositeTypes[GroupKind]
-        MapType      = CompositeTypes[MapKind]
-        PairType     = CompositeTypes[PairKind]
-        PatternType  = CompositeTypes[PatternKind]
-        DelegateType = CompositeTypes[DelegateKind]
-        ClosureType  = CompositeTypes[ClosureKind]
-        SelectionType= CompositeTypes[SelectionKind]
+        CompoundType   = CompositeTypes[CompoundKind]
+        BarecompType   = CompositeTypes[BarecompKind]
+        ArgumentedType = CompositeTypes[ArgumentedKind]
+        ListType       = CompositeTypes[ListKind]
+        GroupType      = CompositeTypes[GroupKind]
+        MapType        = CompositeTypes[MapKind]
+        PairType       = CompositeTypes[PairKind]
+        PatternType    = CompositeTypes[PatternKind]
+        DelegateType   = CompositeTypes[DelegateKind]
+        ClosureType    = CompositeTypes[ClosureKind]
+        SelectionType  = CompositeTypes[SelectionKind]
 )
 
 func defUniverseBuiltins() {

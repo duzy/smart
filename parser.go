@@ -557,7 +557,10 @@ func (p *parser) parseArgumentedExpr(x ast.Expr) ast.Expr {
                 a = append(a, p.parseListExpr(false))
         }
 
-        return &ast.ArgumentedExpr{ X:x, Arguments:a, EndPos:p.expect(token.RPAREN) }
+        return &ast.ArgumentedExpr{
+                X:x, Arguments:a,
+                EndPos: p.expect(token.RPAREN),
+        }
 }
 
 func (p *parser) parseGlobExpr(lhs bool) (x ast.Expr) {
@@ -1661,7 +1664,7 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Recipes: recipes,
                 Scope: scope,
         }
-        
+
         clause := &ast.RuleClause{
                 Doc: doc,
                 TokPos: pos,

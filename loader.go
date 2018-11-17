@@ -283,7 +283,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                                         return
                                 }
                         case *Argumented: // -param(value)
-                                switch tt := t.Value.(type) {
+                                switch tt := t.Val.(type) {
                                 case *Flag:
                                         if s, err = tt.Name.Strval(); err != nil {
                                                 l.p.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.Name, err)
@@ -386,10 +386,10 @@ func (l *loader) evaluated(x *ast.EvaluatedExpr) (v Value) {
 }
 
 func (l *loader) argumented(x *ast.ArgumentedExpr) Value {
-        av := new(Argumented)
-        av.Value = l.expr(x.X)
-        av.Args = l.exprs(x.Arguments)
-        return av
+        return &Argumented{
+                Val: l.expr(x.X),
+                Args: l.exprs(x.Arguments),
+        }
 }
 
 func (l *loader) closuredelegate(x *ast.ClosureDelegate) (name Value, obj Object, args []Value) {
@@ -652,8 +652,8 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
         }
 
         if v == nil {
-                l.p.error(expr.Pos(), "expr value is nil `%T`", expr)
-                panic(fmt.Sprintf("nil expr: %v (%T)\n", expr, expr))
+                l.p.error(expr.Pos(), "expr `%v` is nil (%T)", expr, expr)
+                panic(fmt.Sprintf("nil expr `%v` (%T)\n", expr, expr))
         }
         return
 }
@@ -876,8 +876,7 @@ func (l *loader) rule(clause *ast.RuleClause) {
         if clause.Modifier != nil {
                 modifiers = l.exprs(clause.Modifier.Elems)
         }
-        
-        //var prog = NewProgram(l.globe, clause.Position, l.project, params, progScope, depends, recipes...)
+
         var prog = &Program{
                 globe:    l.globe,
                 project:  l.project,

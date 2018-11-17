@@ -56,7 +56,7 @@ type Value interface {
         closured() bool
 
         // &(...) -> $(...)
-        // $(...) -> .....
+        // $(...) -> ......
         expend(what expendwhat) (Value, error)
 }
 
@@ -277,20 +277,62 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
 }
 
 type Argumented struct {
-        Value
+        Val Value
         Args []Value
 }
-//func (p *Argumented) Type() Type { return ArgumentedType }
+func (p *Argumented) refs(o Object) bool {
+        if p.Val.refs(o) { return true }
+        for _, a := range p.Args {
+                if a.refs(o) { return true }
+        }
+        return false
+}
+func (p *Argumented) closured() bool {
+        if p.Val.closured() { return true }
+        for _, a := range p.Args {
+                if a.closured() { return true }
+        }
+        return false
+}
+func (p *Argumented) expend(w expendwhat) (res Value, err error) {
+        var (v Value; args []Value)
+        if v, err = p.Val.expend(w); err == nil {
+                var num int
+                args, num, err = expendall(w, p.Args...)
+                if err == nil && (num > 0 || v != p.Val) {
+                        res = &Argumented{ v, args }
+                }
+        }
+        if err == nil && res == nil {
+                res = p
+        }
+        return
+}
+func (p *Argumented) Type() Type { return ArgumentedType }
+func (p *Argumented) Integer() (i int64, err error) {
+        var s string
+        if s, err = p.Strval(); err == nil {
+                i, err = strconv.ParseInt(s, 10, 64)
+        }
+        return
+}
+func (p *Argumented) Float() (f float64, err error) {
+        var s string
+        if s, err = p.Strval(); err == nil {
+                f, err = strconv.ParseFloat(s, 64)
+        }
+        return
+}
 func (p *Argumented) String() (s string) {
         for i, a := range p.Args {
                 if i > 0 { s += "," }
                 s += a.String()
         }
-        s = fmt.Sprintf("%s(%s)", p.Value, s)
+        s = fmt.Sprintf("%s(%s)", p.Val, s)
         return
 }
 func (p *Argumented) Strval() (s string, err error) {
-        if s, err = p.Value.Strval(); err != nil {
+        if s, err = p.Val.Strval(); err != nil {
                 return
         }
         s += "("
@@ -314,7 +356,7 @@ func (p *Argumented) prepare(pc *preparer) error {
                 fmt.Printf("prepare:Argumented: %v\n", p)
         }
         pc.arguments = p.Args // TODO: merge args with p.Args ??
-        return pc.update(p.Value)
+        return pc.update(p.Val)
 }
 
 type None struct { value }
@@ -1808,18 +1850,16 @@ func (p *delegate) reveal() (res Value, err error) {
                 err = fmt.Errorf("unknown delegated object %v", o)
         case Caller:
                 if res, err = o.Call(p.p, args...); err != nil {
-                        var name = p.o.Name()
-                        if name != "error" {
-                                err = fmt.Errorf("$(%s): %v", name, err)
+                        if p.o.Name() != "error" {
+                                err = fmt.Errorf("%v (%s)", err, p)
                         } else {
                                 return
                         }
                 }
         case Executer:
                 if args, err = o.Execute(p.p, args...); err != nil {
-                        var name = p.o.Name()
-                        if name != "error" {
-                                err = fmt.Errorf("${%s}: %v", name, err)
+                        if p.o.Name() != "error" {
+                                err = fmt.Errorf("%v (%s)", err, p)
                         } else {
                                 return
                         }
@@ -2546,7 +2586,7 @@ func expendall(w expendwhat, values ...Value) (res []Value, num int, err error) 
         var v Value
         for _, elem := range values {
                 if elem == nil {
-                        panic(fmt.Sprintf("%v\n", values))
+                        panic(fmt.Sprintf("nil in %v\n", values))
                 }
                 if v, err = elem.expend(w); err == nil {
                         if v != elem { num += 1 }

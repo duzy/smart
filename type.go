@@ -54,6 +54,7 @@ const (
         // composite types
         CompoundKind
         BarecompKind
+        ArgumentedKind
         ListKind
         GroupKind
         MapKind
@@ -90,7 +91,10 @@ var (
         typeNames = [...]string{
                 InvalidKind:    "Invalid",
                 AnyKind:        "Any",
+                BinKind:        "Bin",
+                OctKind:        "Oct",
                 IntKind:        "Int",
+                HexKind:        "Hex",
                 FloatKind:      "Float",
                 DateTimeKind:   "DateTime",
                 DateKind:       "Date",
@@ -105,6 +109,8 @@ var (
                 FileKind:       "File",
                 FlagKind:       "Flag",
                 CompoundKind:   "Compound",
+                BarecompKind:   "Barecomp",
+                ArgumentedKind: "Argumented",
                 ListKind:       "List",
                 GroupKind:      "Group",
                 MapKind:        "Map",
@@ -116,8 +122,8 @@ var (
                 UnknownObjectKind:    "UnknownObject",
                 KnownObjectKind:      "KnownObject",
                 UnresolvedObjectKind: "UnresolvedObject",
-                DefKind:        "Def",
                 BuiltinKind:    "Builtin",
+                DefKind:        "Def",
                 RuleEntryKind:  "RuleEntry",
                 ProjectNameKind: "ProjectName",
                 ScopeNameKind:  "ScopeName",
@@ -171,6 +177,7 @@ const (
         // Properties of composite types.
         IsCompound
         IsBarecomp
+        IsArgumented
         IsList
         IsGroup
         IsMap
@@ -202,7 +209,7 @@ const (
 	IsOrdered   = IsNumeric | IsDateTime | IsString | IsCompound | IsUri | IsBareword | IsBarecomp | IsBarefile | IsPath | IsPathSeg | IsFlag
         IsKeyName   = IsNumeric | IsOrdered | IsBoolean
 	IsBasic     = IsBoolean | IsOrdered | IsNone
-        IsComposite = IsCompound | IsBarecomp | IsList | IsGroup | IsMap | IsPair | IsPattern
+        IsComposite = IsCompound | IsBarecomp | IsArgumented | IsList | IsGroup | IsMap | IsPair | IsPattern
         IsConstType = IsBasic
 
         IsInternal  = IsUnknownObject | IsKnownObject | IsUnresolvedObject | IsClosure | IsDelegate
