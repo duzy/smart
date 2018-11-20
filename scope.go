@@ -249,10 +249,6 @@ func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt
                         TrivialDef, value,
                 }
                 scope.replace(name, def)
-        } else if name == "use" {
-                if sn, ok := alt.(*ScopeName); ok && sn != nil {
-                        def, alt = sn.DeclScope().Def(owner, "=", value)
-                }
         }
         return
 }

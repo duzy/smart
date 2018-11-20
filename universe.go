@@ -27,6 +27,7 @@ var (
                 KnownObjectKind:      {KnownObjectKind, IsKnownObject, "KnownObject"},
                 UnresolvedObjectKind: {UnresolvedObjectKind, IsUnresolvedObject, "UnresolvedObject"},
                 DefKind:         {DefKind, IsDef, "Def"},
+                UndeterminedKind:{UndeterminedKind, IsUndetermined, "Undetermined"},
                 DefinerKind:     {DefinerKind, IsDefiner, "Definer"},
                 PlainKind:       {PlainKind, IsPlain, "Plain"},
                 JSONKind:        {JSONKind, IsJSON, "JSON"},
@@ -79,6 +80,7 @@ var (
         UnknownObjectType    = CoreTypes[UnknownObjectKind]
         KnownObjectType      = CoreTypes[KnownObjectKind]
         UnresolvedObjectType = CoreTypes[UnresolvedObjectKind]
+        UndeterminedType= CoreTypes[UndeterminedKind]
         DefType         = CoreTypes[DefKind]
         DefinerType     = CoreTypes[DefinerKind]
         PlainType       = CoreTypes[PlainKind]

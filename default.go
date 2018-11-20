@@ -29,9 +29,8 @@ LoopRecipes:
                                 e error
                         )
                         switch t := v.(type) {
-                        case *Def:
+                        case *undetermined:
                                 // Noop, just return v to the caller.
-                                //fmt.Printf("dialectDefault: def: %s: %p %v (%s)\n", prog.project.Name(), t, t, t.Strval())
 
                         case Caller:
                                 v, e = t.Call(prog.Position(), stmt.Slice(1)...)
@@ -47,7 +46,7 @@ LoopRecipes:
                                 }
 
                         default:
-                                err = errors.New(fmt.Sprintf("Unknown recipe command `%v' (%T)", t, t))
+                                err = errors.New(fmt.Sprintf("unknown command `%v` (%T)", t, t))
                                 break LoopRecipes
                         }
 

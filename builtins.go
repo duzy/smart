@@ -45,8 +45,8 @@ var builtins = map[string]BuiltinFunc {
         `printl`:  builtinPrintl,
         `println`: builtinPrintln,
 
-        `plus`:    builtinPlus,
-        `minus`:   builtinMinus,
+        //`plus`:    builtinPlus,
+        //`minus`:   builtinMinus,
 
         `quote`: builtinQuote,
         `quote-join`: builtinQuoteJoin,

@@ -51,7 +51,7 @@ type Value interface {
 
         // Recursively detecting whether this value references
         // the object (to avoid loop-delegation).
-        refs(o Object) bool
+        refs(v Value) bool
 
         closured() bool
 
@@ -91,7 +91,7 @@ func (cc closurecontext) String() (s string) {
 }
 
 type value struct {}
-func (_ *value) refs(_ Object) bool { return false }
+func (_ *value) refs(_ Value) bool { return false }
 func (_ *value) closured() bool { return false }
 func (_ *value) Type() Type { return InvalidType }
 func (_ *value) Integer() (int64, error) { return 0, nil }
@@ -280,10 +280,10 @@ type Argumented struct {
         Val Value
         Args []Value
 }
-func (p *Argumented) refs(o Object) bool {
-        if p.Val.refs(o) { return true }
+func (p *Argumented) refs(v Value) bool {
+        if p.Val.refs(v) { return true }
         for _, a := range p.Args {
-                if a.refs(o) { return true }
+                if a.refs(v) { return true }
         }
         return false
 }
@@ -374,6 +374,8 @@ func (p *None) prepare(pc *preparer) error {
         return nil 
 }
 
+type Nil struct { None }
+
 type Any struct {
         Value interface{}
         value
@@ -386,9 +388,9 @@ func MakeAny(v interface{}) *Any { return &Any{ Value:v } }
 type integer struct {
         Value int64
 }
-func (p *integer) Type() Type { return InvalidType }
-func (p *integer) refs(_ Object) bool { return false }
+func (p *integer) refs(_ Value) bool { return false }
 func (p *integer) closured() bool { return false }
+func (p *integer) Type() Type { return InvalidType }
 func (p *integer) Integer() (int64, error) { return p.Value, nil }
 func (p *integer) Float() (float64, error) { return float64(p.Value), nil }
 
@@ -471,7 +473,7 @@ func ParseHex(s string) *Hex {
 type Float struct {
         Value float64
 }
-func (p *Float) refs(_ Object) bool { return false }
+func (p *Float) refs(_ Value) bool { return false }
 func (p *Float) closured() bool { return false }
 func (p *Float) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *Float) Type() Type { return FloatType }
@@ -493,7 +495,7 @@ func ParseFloat(s string) *Float {
 type DateTime struct {
         Value time.Time 
 }
-func (_ *DateTime) refs(_ Object) bool { return false }
+func (_ *DateTime) refs(_ Value) bool { return false }
 func (_ *DateTime) closured() bool { return false }
 func (p *DateTime) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *DateTime) Type() Type { return DateTimeType }
@@ -565,7 +567,7 @@ func ParseTime(s string) *Time {
 type Uri struct {
         Value *url.URL
 }
-func (_ *Uri) refs(_ Object) bool { return false }
+func (_ *Uri) refs(_ Value) bool { return false }
 func (_ *Uri) closured() bool { return false }
 func (p *Uri) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *Uri) Type() Type { return UriType }
@@ -592,7 +594,7 @@ func ParseUri(s string) *Uri {
 type String struct {
         Value string
 }
-func (_ *String) refs(_ Object) bool { return false }
+func (_ *String) refs(_ Value) bool { return false }
 func (_ *String) closured() bool { return false }
 func (p *String) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *String) Type() Type  { return StringType }
@@ -676,7 +678,7 @@ func MakeString(s string) *String { return &String{s} }
 type Bareword struct {
         Value string
 }
-func (_ *Bareword) refs(_ Object) bool { return false }
+func (_ *Bareword) refs(_ Value) bool { return false }
 func (_ *Bareword) closured() bool { return false }
 func (p *Bareword) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *Bareword) Type() Type     { return BarewordType }
@@ -789,9 +791,9 @@ func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *Elements) ToList() *List         { return &List{*p} }
 
-func (p *Elements) refs(o Object) bool {
+func (p *Elements) refs(v Value) bool {
         for _, elem := range p.Elems {
-                if elem != nil && elem.refs(o) {
+                if elem != nil && (elem == v || elem.refs(v)) {
                         return true
                 }
         }
@@ -929,6 +931,19 @@ type Barefile struct {
         Name Value
         File *File
 }
+func (p *Barefile) refs(v Value) bool { return p.Name.refs(v) }
+func (p *Barefile) closured() bool { return p.Name.closured() }
+func (p *Barefile) expend(w expendwhat) (res Value, err error) {
+        var name Value
+        if name, err = p.Name.expend(w); err == nil {
+                if name != nil {
+                        res = &Barefile{ name, p.File }
+                } else {
+                        res = p
+                }
+        }
+        return
+}
 func (p *Barefile) Type() Type { return BarefileType }
 func (p *Barefile) String() string { return p.Name.String() }
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
@@ -941,23 +956,6 @@ func (p *Barefile) Integer() (res int64, err error) {
         return
 }
 func (p *Barefile) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *Barefile) expend(w expendwhat) (res Value, err error) {
-        var name Value
-        if name, err = p.Name.expend(w); err == nil {
-                if name != nil {
-                        res = &Barefile{ name, p.File }
-                } else {
-                        res = p
-                }
-        }
-        return
-}
-func (p *Barefile) refs(o Object) bool {
-        return p.Name.refs(o)
-}
-func (p *Barefile) closured() bool {
-        return p.Name.closured()
-}
 
 func (p *Barefile) compare(c *comparer) (err error) {
         if trace_compare {
@@ -1018,7 +1016,7 @@ func MakeBarefile(name Value, file *File) *Barefile {
 type Glob struct {
         Tok token.Token
 }
-func (p *Glob) refs(o Object) bool { return false }
+func (p *Glob) refs(o Value) bool { return false }
 func (p *Glob) closured() bool { return false }
 func (p *Glob) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *Glob) Type() Type { return GlobType }
@@ -1507,17 +1505,8 @@ func MakeFile(s string) (fv *File) { return &File{ Name:s } }
 type Flag struct {
         Name Value
 }
-func (p *Flag) Type() Type { return FlagType }
-func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", p.Name.String()) }
-func (p *Flag) Strval() (s string, e error) {
-        if s, e = p.Name.Strval(); e == nil { 
-                 s = "-" + s
-        }
-        return
-}
-func (p *Flag) Integer() (int64, error) { return 0, nil }
-func (p *Flag) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-
+func (p *Flag) refs(v Value) bool { return p.Name.refs(v) }
+func (p *Flag) closured() bool { return p.Name.closured() }
 func (p *Flag) expend(w expendwhat) (res Value, err error) {
         var name Value
         if name, err = p.Name.expend(w); err == nil {
@@ -1529,14 +1518,16 @@ func (p *Flag) expend(w expendwhat) (res Value, err error) {
         }
         return
 }
-
-func (p *Flag) refs(o Object) bool {
-        return p.Name.refs(o)
+func (p *Flag) Type() Type { return FlagType }
+func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", p.Name.String()) }
+func (p *Flag) Strval() (s string, e error) {
+        if s, e = p.Name.Strval(); e == nil { 
+                 s = "-" + s
+        }
+        return
 }
-
-func (p *Flag) closured() bool {
-        return p.Name.closured()
-}
+func (p *Flag) Integer() (int64, error) { return 0, nil }
+func (p *Flag) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
 func MakeFlag(name Value) (v *Flag) { return &Flag{name} }
         
@@ -1718,6 +1709,23 @@ type Pair struct { // key=value
         Key Value
         Value Value
 }
+func (p *Pair) refs(v Value) bool { return p.Key.refs(v) || p.Value.refs(v) }
+func (p *Pair) closured() bool { return p.Key.closured() || p.Value.closured() }
+func (p *Pair) expend(x expendwhat) (res Value, err error) {
+        var k, v Value
+        if k, err = p.Key.expend(x); err == nil {
+                if v, err = p.Value.expend(x); err == nil {
+                        if k != nil || v != nil {
+                                if k == nil { k = p.Key }
+                                if v == nil { v = p.Value }
+                                res = &Pair{ k, v }
+                        } else {
+                                res = p
+                        }
+                }
+        }
+        return
+}
 func (p *Pair) Type() Type { return PairType }
 func (p *Pair) String() string {
         return fmt.Sprintf("%s=%s", p.Key.String(), p.Value.String())
@@ -1744,30 +1752,6 @@ func (p *Pair) SetKey(k Value) {
         } else {
                 panic(fmt.Errorf("'%T' is not key type", k))
         }
-}
-
-func (p *Pair) expend(x expendwhat) (res Value, err error) {
-        var k, v Value
-        if k, err = p.Key.expend(x); err == nil {
-                if v, err = p.Value.expend(x); err == nil {
-                        if k != nil || v != nil {
-                                if k == nil { k = p.Key }
-                                if v == nil { v = p.Value }
-                                res = &Pair{ k, v }
-                        } else {
-                                res = p
-                        }
-                }
-        }
-        return
-}
-
-func (p *Pair) refs(o Object) bool {
-        return p.Key.refs(o) || p.Value.refs(o)
-}
-
-func (p *Pair) closured() bool {
-        return p.Key.closured() || p.Value.closured()
 }
 
 func MakePair(k, v Value) (p *Pair) {
@@ -1904,12 +1888,12 @@ func (p *delegate) disclose() (res Value, err error) {
         return
 }
 
-func (p *delegate) refs(o Object) bool {
-        if p.o == o || p.o.refs(o) {
+func (p *delegate) refs(v Value) bool {
+        if p.o == v || p.o.refs(v) {
                 return true
         }
         for _, a := range p.a {
-                if a.refs(o) {
+                if a.refs(v) {
                         return true
                 }
         }
@@ -2128,12 +2112,12 @@ func (p *closure) disclose() (res Value, err error) {
         return
 }
 
-func (p *closure) refs(o Object) bool {
-        if p.o == o {
+func (p *closure) refs(v Value) bool {
+        if p.o == v {
                 return true
         }
         for _, a := range p.a {
-                if a.refs(o) {
+                if a.refs(v) {
                         return true
                 }
         }
@@ -2238,7 +2222,7 @@ func (p *selection) Float() (float64, error) {
         }
 }
 
-func (p *selection) refs(o Object) bool { return p.o.refs(o) || p.s.refs(o) }
+func (p *selection) refs(v Value) bool { return p.o.refs(v) || p.s.refs(v) }
 func (p *selection) closured() bool { return p.o.closured() || p.s.closured() }
 func (p *selection) expend(w expendwhat) (res Value, err error) {
         var o, s Value
@@ -2368,12 +2352,8 @@ func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry
         return
 }
 
-func (p *GlobPattern) refs(o Object) bool {
-        return p.Prefix.refs(o) || p.Suffix.refs(o)
-}
-func (p *GlobPattern) closured() bool {
-        return p.Prefix.closured() || p.Suffix.closured()
-}
+func (p *GlobPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
+func (p *GlobPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
 
 func (p *GlobPattern) prepare(pc *preparer) (err error) {
         if trace_prepare {
@@ -2456,7 +2436,7 @@ func (p *RegexpPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEnt
 }
 
 func (p *RegexpPattern) closured() bool { return false }
-func (p *RegexpPattern) refs(_ Object) bool { return false }
+func (p *RegexpPattern) refs(_ Value) bool { return false }
 
 type Valuer interface {
         Value() Value
@@ -2615,7 +2595,7 @@ func MakeClosure(pos token.Position, tok token.Token, obj Object, args... Value)
         return &closure{closuredelegate{ pos, tok, obj, args }}
 }
 
-func Refs(a Value, o Object) bool { return a.refs(o) }
+func Refs(a Value, v Value) bool { return a.refs(v) }
 
 func MakeListOrScalar(elems []Value) (res Value) {
         if x := len(elems); x > 1 {

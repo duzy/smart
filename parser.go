@@ -36,6 +36,19 @@ const (
         composingNoSelect = composingSELECT_PROP
 )
 
+type ruleSpecial int
+const (
+        ruleSpecialNor ruleSpecial = iota // normal rules
+        ruleSpecialUse // `use` rules
+        ruleSpecialRec // recipe rules
+)
+
+const (
+        selfproj = "self"
+        userproj = "user"
+        usecomment = ":use:"
+)
+
 type parser struct {
         *loader
         
@@ -797,7 +810,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 case token.LBRACE: rpos = p.expect(token.RBRACE)
                 }
         default:
-                if tok != token.AND { // $(...), disabled $name.
+                if tok != token.CLOSURE { // $(...), disabled $name.
                         p.error(p.pos, "expects `%v` or `%v`", token.LPAREN, token.LBRACE)
                         return &ast.BadExpr{ From:p.pos, To:p.pos }
                 } else if p.tok == token.STRING || p.tok == token.COMPOUND {
@@ -840,7 +853,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 TokLp: tokLp,
                 Tok: tok,
         }
-        if tok == token.DOLLAR {
+        if tok == token.DELEGATE {
                 return &ast.DelegateExpr{ cd }
         } else {
                 return &ast.ClosureExpr{ cd }
@@ -899,7 +912,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
         case token.STAR:
                 return p.parseGlobExpr(lhs)
 
-        case token.DOLLAR, token.AND: // delegate, closure
+        case token.DELEGATE, token.CLOSURE: // delegate, closure
                 return p.parseClosureDelegate()
 
         case token.LPAREN:
@@ -1203,7 +1216,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 	}
 }
 
-func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
+func (p *parser) _parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
 	if p.tracing.enabled {
 		defer un(trace(p, "Define"))
 	}
@@ -1269,7 +1282,7 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                         alt = true // it's the second defining this symbol
                 } else if def = s; def != nil {
                         if prev != nil && prev != def {
-                                def.SetOrigin(prev.Origin())
+                                def.origin = prev.origin
                                 def.Assign(MakeDelegate(p.file.Position(pos), token.LPAREN, prev))
                         }
                 } else if s != nil {
@@ -1287,16 +1300,16 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 p.error(ident.Pos(), e)
                 p.error(ident.Pos(), "error declosing name %T", ident)
         }
-       
+
         var bits = KeepClosures|KeepDelegates // assumes DefaultDef
         switch tok {
         case token.ADD_ASSIGN: // +=
                 if def == nil {
                         bits = EvalBits(-1)
-                } else if def.Origin() == ImmediateDef {
+                } else if def.origin == ImmediateDef {
                         bits = KeepClosures
                 } else { // InvalidDef, DefaultDef, etc.
-                        def.SetOrigin(DefaultDef)
+                        def.origin = DefaultDef
                         bits = KeepClosures|KeepDelegates
                 }
         case token.QUE_ASSIGN: // ?=
@@ -1307,12 +1320,12 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
                 bits = KeepClosures|KeepDelegates
         case token.ASSIGN, token.EXC_ASSIGN: // =, !=
                 if def != nil {
-                        def.SetOrigin(DefaultDef)
+                        def.origin = DefaultDef
                 }
                 bits = KeepClosures|KeepDelegates
         case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
                 if def != nil {
-                        def.SetOrigin(ImmediateDef)
+                        def.origin = ImmediateDef
                 }
                 bits = KeepClosures
         default:
@@ -1353,17 +1366,62 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
         }
 }
 
+func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) *ast.DefineClause {
+	if p.tracing.enabled {
+		defer un(trace(p, "Define"))
+	}
+
+        // Only accept scoped identifiers if it's ":use:" program
+        if p.scope.comment == usecomment {
+                switch i := ident.(type) {
+                case *ast.EvaluatedExpr:
+                        if _, ok := i.Data.(*selection); !ok {
+                                p.error(ident.Pos(), "should use scoped names: `%v` (%T)", i.Data, i.Data)
+                        }
+                default:
+                        p.warn(ident.Pos(), "fixme: unexpected name expression: %T", i)
+                }
+        }
+
+        var (
+                doc = p.leadComment
+                pos = p.expect(tok)
+                elems = p.parseRhsList()
+                comment = p.lineComment
+                value ast.Expr
+        )
+
+        // Take it from parser, since the line comment is assigned
+        // to the DefineClause.
+        p.lineComment = nil
+
+        // Create List value or use the first elem.
+        if n := len(elems); n == 1 {
+                value = elems[0]
+        } else if n > 1 {
+                value = &ast.ListExpr{ elems }
+        }
+
+        return &ast.DefineClause{
+                Doc: doc,
+                TokPos: pos,
+                Tok: tok,
+                //Sym: def,
+                Name: ident,
+                Value: value,
+                Comment: comment,
+        }
+}
+
 func (p *parser) parseRecipeDefineClause(x ast.Expr) ast.Expr {
         // TODO: validate x ...
-        d := p.parseDefineClause(p.tok, x).(*ast.DefineClause)
+        d := p.parseDefineClause(p.tok, x)
         return &ast.RecipeDefineClause{ d }
 }
 
 func (p *parser) parseRecipeRuleClause(elems []ast.Expr) (x ast.Expr) {
-        var names = elems
-        d := p.parseRuleClause(p.tok, names).(*ast.RuleClause)
-        x = &ast.RecipeRuleClause{ d }
-        return
+        d := p.parseRuleClause(p.tok, ruleSpecialRec, elems).(*ast.RuleClause)
+        return &ast.RecipeRuleClause{ d }
 }
 
 func (p *parser) parseRecipeBuiltin(elems []ast.Expr) (x ast.Expr) {
@@ -1428,7 +1486,6 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
                         for p.tok != token.LINEND && p.tok != token.EOF {
                                 if p.tok.IsRuleDelim() {
                                         x = p.parseRecipeRuleClause(elems)
-                                        // assert(p.tok == token.LINEND || <DONE>)
                                 } else {
                                         x = p.parseRecipeBuiltin(elems)
                                 }
@@ -1595,7 +1652,7 @@ var automatics = []string{
         "-",
 }
 
-func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause {
+func (p *parser) parseRuleClause(tok token.Token, special ruleSpecial, targets []ast.Expr) ast.Clause {
 	if p.tracing.enabled {
 		defer un(trace(p, "Rule"))
 	}
@@ -1604,16 +1661,21 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 doc = p.leadComment
                 pos = p.expect(tok)
                 modifier *ast.ModifierExpr
-                program *ast.ProgramExpr
                 depends []ast.Expr
                 recipes []ast.Expr
                 scopeComment string
                 dialect string
                 params []string
-                isUseRule bool
         )
 
-        scope := p.openScope(fmt.Sprintf("rule %s", scopeComment))
+        switch special {
+        case ruleSpecialUse:
+                scopeComment = fmt.Sprintf(usecomment)
+        default:
+                scopeComment = fmt.Sprintf("rule %v", targets)
+        }
+
+        scope := p.openScope(scopeComment)
         for _, s := range automatics {
                 if sym, alt := p.def(s); alt != nil {
                         p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
@@ -1623,9 +1685,23 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
         }
         for i := 1; i < 10; i += 1 {
                 if sym, alt := p.def(strconv.Itoa(i)); alt != nil {
-                        p.error(p.pos, "Name `%v' already taken, not numberred (%T).", i, alt)
+                        p.error(p.pos, "name `%v` already taken, not numberred (%T).", i, alt)
                 } else if sym == nil {
                         // TODO: errors
+                }
+        }
+
+        switch special {
+        case ruleSpecialUse:
+                if name, alt := p.scope.ProjectName(p.project, selfproj, p.project); alt != nil {
+                        p.error(p.pos, "name `%s` already taken, not automatic (%T)", selfproj, alt)
+                } else if name == nil {
+                        p.error(p.pos, "cannot define `%s` automatic", selfproj)
+                }
+                if name, alt := p.scope.ProjectName(p.project, userproj, nil); alt != nil {
+                        p.error(p.pos, "name `%s` already taken, not automatic (%T)", userproj, alt)
+                } else if name == nil {
+                        p.error(p.pos, "cannot define `%s` automatic", userproj)
                 }
         }
 
@@ -1648,21 +1724,9 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 p.expectLinend()
         }
 
-        var useContainScope ast.Scope
-        if isUseRule {
-                //useContainScope = p.OpenScope(p.pos, "use")
-        }
-
         // Parse recipes in the program scope.
         for p.tok == token.RECIPE {
                 recipes = append(recipes, p.parseRecipeExpr(dialect))
-        }
-
-        program = &ast.ProgramExpr{
-                Lang: 0, // FIXME: language definition
-                Params: params,
-                Recipes: recipes,
-                Scope: scope,
         }
 
         clause := &ast.RuleClause{
@@ -1671,20 +1735,49 @@ func (p *parser) parseRuleClause(tok token.Token, targets []ast.Expr) ast.Clause
                 Tok: tok,
                 Targets: targets,
                 Depends: depends,
-                Program: program,
+                Program: &ast.ProgramExpr{
+                        Lang: 0, // FIXME: language definition
+                        Params: params,
+                        Recipes: recipes,
+                        Scope: scope,
+                },
                 Modifier: modifier,
                 Position: p.file.Position(pos),
         }
 
-        if useContainScope != nil {
-                p.closeScope(useContainScope)
-        }
-        
         // Close the rule scope and go back to project scope. The current
         // scope must be project scope befor Rule.
         p.closeScope(scope)
-        p.rule(clause)
+        if special != ruleSpecialRec {
+                p.rule(clause, special)
+        }
         return clause
+}
+
+func (p *parser) parseSpecialRuleClause() ast.Clause {
+	if p.tracing.enabled {
+		defer un(trace(p, "SpecialRule"))
+	}
+
+        p.expect(token.COLON) // expect and skip ':'
+        
+        switch p.tok {
+	case token.USE:
+                if pos := p.expect(token.USE); p.tok.IsRuleDelim() {
+                        return p.parseRuleClause(p.tok, ruleSpecialUse, []ast.Expr{
+                                &ast.Bareword{
+                                        ValuePos: pos, 
+                                        Value: token.USE.String(),
+                                },
+                        })
+                } else {                        
+                        p.error(p.pos, "expecting special rule ':'")
+                        return nil
+                }
+        default:
+                p.error(p.pos, "unknown special rule")
+                return nil
+        }
 }
 
 func (p *parser) parseClause(sync func(*parser)) ast.Clause {
@@ -1701,18 +1794,18 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 p.warn(p.pos, "dock clause is deprecated, use dock package instead")
                 return p.parseGenericClause(token.DOCK, p.expect(token.DOCK), p.parseDockSpec)
 	case token.USE:
-                pos := p.expect(token.USE)
-                if p.tok.IsRuleDelim() {
-                        var list = []ast.Expr{
+                if pos := p.expect(token.USE); p.tok.IsRuleDelim() {
+                        return p.parseRuleClause(p.tok, ruleSpecialNor, []ast.Expr{
                                 &ast.Bareword{
                                         ValuePos: pos, 
-                                        Value: "use",
+                                        Value: token.USE.String(),
                                 },
-                        }
-                        return p.parseRuleClause(p.tok, list)
+                        })
                 } else {
                         return p.parseGenericClause(token.USE, pos, p.parseUseSpec)
                 }
+        case token.COLON:
+                return p.parseSpecialRuleClause()
         }
 
         if p.tracing.enabled {
@@ -1721,7 +1814,9 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
 
         x := p.parseExpr(true)
         if p.tok.IsAssign() {
-                return p.parseDefineClause(p.tok, x)
+                define := p.parseDefineClause(p.tok, x)
+                p.define(define)
+                return define
         }
 
         list := []ast.Expr{ x }
@@ -1729,7 +1824,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 list = append(list, p.parseLhsList()...)
         }
         if p.tok.IsRuleDelim() {
-                return p.parseRuleClause(p.tok, list)
+                return p.parseRuleClause(p.tok, ruleSpecialNor, list)
         }
 
         pos := p.pos
@@ -1759,13 +1854,11 @@ func (p *parser) parseFile() *ast.File {
                 doc = p.leadComment
                 pos = p.pos
         )
-        //if strings.HasSuffix(rel, abs) {
-        //        rel = abs
-        //}
 
         scope := p.openScope(fmt.Sprintf("file %s", filename))
         if scope != nil {
                 defer p.closeScope(scope)
+
                 var def *Def
 
                 def, _ = p.def("/")
@@ -1854,7 +1947,7 @@ func (p *parser) parseFile() *ast.File {
         } else if p.mode&Flat == 0 {
                 p.errorExpected(pos, "configure, project or module keyword")
         } else {
-                // TODO: Enter previously delcared project sope!
+                // FIXME: Enter previously delcared project sope!
         }
 
 	var clauses []ast.Clause

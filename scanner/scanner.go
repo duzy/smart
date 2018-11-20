@@ -327,9 +327,9 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                         s.next() //! The second & or $
                         tok, lit = token.STRING, string(s.src[offs:s.offset])
                 } else if s.ch == '$' {
-                        tok = token.DOLLAR // escape to do token.DOLLAR
+                        tok = token.DELEGATE // escape to do token.DELEGATE
                 } else {
-                        tok = token.AND // escape to do token.AND
+                        tok = token.CLOSURE // escape to do token.CLOSURE
                 }
                 return
         }
@@ -376,9 +376,9 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                         s.next() //! The second & or $
                         tok, lit = token.STRING, string(s.src[offs:s.offset])
                 } else if s.ch == '$' {
-                        tok = token.DOLLAR // escape to do token.DOLLAR
+                        tok = token.DELEGATE // escape to do token.DELEGATE
                 } else {
-                        tok = token.AND // escape to do token.AND
+                        tok = token.CLOSURE // escape to do token.CLOSURE
                 }
                 return
         }
@@ -819,7 +819,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                         
                         switch tok {
-                        case token.DOLLAR, token.AND:
+                        case token.DELEGATE, token.CLOSURE:
                                 // escape from '$', '&'
                         case token.COMPOSED:
                                 // skip spaces after composing: "..."
@@ -946,26 +946,26 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.STAR
                 case '$', '&':
                         isDelegate := ch == '$'
-                        tok, ch = token.AND, rune(s.src[s.readOffset-1])
+                        tok, ch = token.CLOSURE, rune(s.src[s.readOffset-1])
                         switch {
-                        case ch == '/': tok = token.AND_R
-                        case ch == '.': tok = token.AND_D
-                        case ch == '@': tok = token.AND_A
-                        case ch == '<': tok = token.AND_L
-                        case ch == '^': tok = token.AND_U
-                        case ch == '*': tok = token.AND_S
-                        case ch == '-': tok = token.AND_M
-                        case ch == '1': tok = token.AND_1
-                        case ch == '2': tok = token.AND_2
-                        case ch == '3': tok = token.AND_3
-                        case ch == '4': tok = token.AND_4
-                        case ch == '5': tok = token.AND_5
-                        case ch == '6': tok = token.AND_6
-                        case ch == '7': tok = token.AND_7
-                        case ch == '8': tok = token.AND_8
-                        case ch == '9': tok = token.AND_9
+                        case ch == '/': tok = token.CLOSURE_R
+                        case ch == '.': tok = token.CLOSURE_D
+                        case ch == '@': tok = token.CLOSURE_A
+                        case ch == '<': tok = token.CLOSURE_L
+                        case ch == '^': tok = token.CLOSURE_U
+                        case ch == '*': tok = token.CLOSURE_S
+                        case ch == '-': tok = token.CLOSURE_M
+                        case ch == '1': tok = token.CLOSURE_1
+                        case ch == '2': tok = token.CLOSURE_2
+                        case ch == '3': tok = token.CLOSURE_3
+                        case ch == '4': tok = token.CLOSURE_4
+                        case ch == '5': tok = token.CLOSURE_5
+                        case ch == '6': tok = token.CLOSURE_6
+                        case ch == '7': tok = token.CLOSURE_7
+                        case ch == '8': tok = token.CLOSURE_8
+                        case ch == '9': tok = token.CLOSURE_9
                         }
-                        if token.AND < tok {
+                        if token.CLOSURE < tok {
                                 lit = string(ch)
                                 s.next() // eat special
                         } else if s.context&(isCompoundString|isCompoundLine) != 0 {
@@ -980,7 +980,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 }
                         }
                         if isDelegate {
-                                tok = token.Token(token.DOLLAR + (tok - token.AND))
+                                tok = token.Token(token.DELEGATE + (tok - token.CLOSURE))
                         }
 
                 case '(':

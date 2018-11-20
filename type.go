@@ -71,6 +71,7 @@ const (
 
         BuiltinKind
         DefKind
+        UndeterminedKind
         RuleEntryKind
         ProjectNameKind
         ScopeNameKind
@@ -124,6 +125,7 @@ var (
                 UnresolvedObjectKind: "UnresolvedObject",
                 BuiltinKind:    "Builtin",
                 DefKind:        "Def",
+                UndeterminedKind: "Undetermined",
                 RuleEntryKind:  "RuleEntry",
                 ProjectNameKind: "ProjectName",
                 ScopeNameKind:  "ScopeName",
@@ -193,6 +195,7 @@ const (
         IsUnresolvedObject
         IsBuiltin
         IsDef
+        IsUndetermined
         IsRuleEntry
         IsScopeName
         IsProjectName

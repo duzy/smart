@@ -289,7 +289,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
         return
 }
 
-func (p *Project) SetProgram(target Value, prog *Program) (entry *RuleEntry, err error) {
+func (p *Project) entry(special ruleSpecial, target Value, prog *Program) (entry *RuleEntry, err error) {
         defer func() {
                 if entry != nil && err == nil {
                         entry.programs = append(entry.programs, prog)
@@ -303,7 +303,7 @@ func (p *Project) SetProgram(target Value, prog *Program) (entry *RuleEntry, err
         }
 
         // The 'use' rule entries.
-        if strval == "use" && !closured {
+        if special == ruleSpecialUse && !closured {
                 if p.userule == nil {
                         p.userule = &RuleEntry{
                                 class: UseRuleEntry,

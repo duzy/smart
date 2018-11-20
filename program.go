@@ -77,6 +77,16 @@ func (prog *Program) auto(name string, value Value) (auto *Def) {
         return
 }
 
+func (prog *Program) setUser(proj *Project) (saved *Project) {
+        if obj := prog.scope.Lookup(userproj); obj != nil {
+                if name, ok := obj.(*ProjectName); ok && name != nil {
+                        saved = name.project
+                        name.project = proj
+                }
+        }
+        return
+}
+
 func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err error) {
         var (
                 recipes []Value

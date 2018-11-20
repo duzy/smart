@@ -325,7 +325,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
         } else {
                 err = l.load(specName, absPath, nil)
         }
-        if err != nil || nouse {
+        if err != nil {
                 if _, ok := err.(scanner.Errors); ok {
                         l.p.error(spec.Pos(), "import `%v` failed (%v)", specName, absPath)
                 } else {
@@ -334,43 +334,14 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                 return
         }
 
+        if nouse { return }
         if loaded, _ := l.loaded[absPath]; loaded != nil {
-                scope := l.project.scope
-                pn, _ := scope.Lookup(loaded.Name()).(*ProjectName)
-                if pn == nil {
-                        l.p.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, scope.comment)
+                name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
+                if name == nil {
+                        l.p.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
                         return
                 }
-                // Add loaded project to the use list ('$(use->*)')
-                if sn, _ := scope.Lookup("use").(*ScopeName); sn != nil {
-                        if alt := sn.NamedScope().Insert(pn); alt != nil {
-                                l.p.error(spec.Pos(), "use: '%s' already defined in %v", specName, sn.DeclScope())
-                                return
-                        }
-                        if _, alt := sn.DeclScope().Def(l.project, "*"/*use list*/, pn); alt != nil {
-                                if def, _ := alt.(*Def); def != nil {
-                                        // If there's no explicit use list, we just add
-                                        // the ProjectName pn, so that the default entry
-                                        // will be executed. Or the specified use list
-                                        // will be used.
-                                        if len(useList) == 0 {
-                                                def.Append(pn)
-                                        } else {
-                                                for _, usee := range useList {
-                                                        // TODO: find usee in pn scope
-                                                        if usee == nil {}
-                                                }
-                                        }
-                                }
-                        }
-                }
-                l.useProject(spec.Props[0].Pos(), loaded)
-        } else if false {
-                position := l.p.file.Position(spec.Props[0].Pos())
-                fmt.Fprintf(os.Stderr, "%v: not loaded %v (%v)\n", position, specName, absPath)
-                for k, v := range l.loaded {
-                        fmt.Fprintf(os.Stderr, "   loaded: %v (%v)\n", v.Name(), k)
-                }
+                l.useProject(spec.Props[0].Pos(), loaded, params)
         }
         return
 }
@@ -402,7 +373,7 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (name Value, obj Object
         switch x.TokLp {
         case token.LPAREN, token.LBRACE: tok = x.TokLp
         case token.STRING, token.COMPOUND:
-                if x.Tok == token.DOLLAR {
+                if x.Tok == token.DELEGATE {
                         l.p.error(x.TokPos, "unsupported delegate (%v).", x.TokLp)
                         return
                 } else {
@@ -416,7 +387,7 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (name Value, obj Object
                         return
                 }
         default:
-                if x.Tok == token.DOLLAR {
+                if x.Tok == token.DELEGATE {
                         l.p.error(x.TokPos, "unregonized delegate (%v).", x.TokLp)
                 } else {
                         l.p.error(x.TokPos, "unregonized closure (%v).", x.TokLp)
@@ -506,8 +477,15 @@ func (l *loader) delegate(x *ast.DelegateExpr) (v Value) {
                 l.p.error(x.Name.Pos(), "invalid delegate name `%T`", x.Name)
         } else if obj != nil {
                 v = MakeDelegate(x.Position, x.TokLp, obj, args...)
+        } else if sel, ok := name.(*selection); ok {
+                if o, err := sel.object(); err == nil && o.DeclScope().comment == usecomment {
+                        obj = unresolved(l.project, name)
+                        v = MakeDelegate(x.Position, x.TokLp, obj, args...)
+                } else {
+                        l.p.error(x.Name.Pos(), "%v: %v", name, err)
+                }
         } else {
-                l.p.error(x.Pos(), "delegate nil object (name `%v`, `%v`)", name, l.scope.comment)
+                l.p.error(x.Name.Pos(), "delegate nil object (name `%v`, `%v`)", name, l.scope.comment)
         }
         return
 }
@@ -582,20 +560,8 @@ func (l *loader) recipe(x *ast.RecipeExpr) (v Value) {
         return
 }
 
-func (l *loader) recipedefine(x *ast.RecipeDefineClause) (v Value) {
-        var name = l.expr(x.Name)
-        if def, _ := x.Sym.(*Def); def == nil {
-                l.p.error(x.Pos(), "`%s` undefined in %v", def.Name(), def.DeclScope().comment)
-        } else if str, err := name.Strval(); err != nil {
-                l.p.error(x.Name.Pos(), "%s", err)
-        } else if def.Name() != str {
-                l.p.error(x.Name.Pos(), "`%s` differs from `%s`", str, def.Name())
-        } else if o := def.DeclScope().Lookup(def.Name()); o != def {
-                l.p.error(x.Pos(), "`%s` undefined in %v", def.Name(), def.DeclScope().comment)
-        } else {
-                v = def
-        }
-        return
+func (l *loader) recipedefine(clause *ast.RecipeDefineClause) (v Value) {
+        return &undetermined{ clause.Tok, l.expr(clause.Name), l.expr(clause.Value) }
 }
 
 func (l *loader) expr(expr ast.Expr) (v Value) {
@@ -653,7 +619,7 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
 
         if v == nil {
                 l.p.error(expr.Pos(), "expr `%v` is nil (%T)", expr, expr)
-                panic(fmt.Sprintf("nil expr `%v` (%T)\n", expr, expr))
+                v = new(Nil)
         }
         return
 }
@@ -665,127 +631,140 @@ func (l *loader) exprs(exprs []ast.Expr) (values []Value) {
         return
 }
 
-func (l *loader) useProject(pos token.Pos, usee *Project) {
-        var (
-                position = l.p.file.Position(pos)
-                entry *RuleEntry
-                obj Object
-        )
-        if use := usee.Scope().Lookup("use"); use == nil {
-                l.p.error(pos, "`%v` has no 'use' package.", usee.Name())
+func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) {
+        if usee.userule == nil {
+                //fmt.Printf("use: %v nil\n", usee.name)
                 return
-        } else if sn, ok := use.(*ScopeName); !ok || sn == nil {
-                l.p.error(pos, "`%v` has invalid 'use' package (%T).", usee.Name(), use)
-                return
-        } else if obj = sn.DeclScope().Lookup(":"); obj == nil {
-                // The use entry is not defined.
-                return
-        } else if entry, _ = obj.(*RuleEntry); entry == nil {
-                l.p.error(pos, "`%v` has invalid 'use' entry (%T).", usee.Name(), obj)
+        } else if usee == l.project {
+                l.p.error(pos, "using itself: `%v`", usee.name)
                 return
         }
 
-        results, err := entry.Execute(position)
+        for _, prog := range usee.userule.programs {
+                defer prog.setUser(prog.setUser(l.project))
+        }
+
+        position := l.p.file.Position(pos)
+        results, err := mergeresult(usee.userule.Execute(position, params...))
         if err != nil {
                 l.p.error(pos, "%v: %v", usee.Name(), err)
                 return
         }
 
-        var defs []*Def
-        for _, result := range results {
-                switch result.Type() {
-                case  ListType:
-                        for _, elem := range result.(*List).Elems {
-                                if def, ok := elem.(*Def); ok && def != nil {
-                                        defs = append(defs, def)
-                                }
-                        }
-                }
-        }
-
-        for _, def := range defs {
-                newDef, alt := l.project.scope.Def(l.project, def.Name(), UniversalNone)
-                if alt != nil {
-                        if d, _ := alt.(*Def); d == nil {
-                                l.p.error(pos, "name `%s` already taken in project `%s' (%T).", def.Name(), alt, l.project.Name())
-                                return
-                        } else {
-                                newDef = d
-                        }
-                }
-                if newDef == nil {
-                        l.p.error(pos, "cannot define `%s' in project `%s'.", def.Name(), l.project.Name())
-                        return
-                }
-
-                // Append the delegate if not referenced yet.
-                if !Refs(newDef, def) {
-                        newDef.Append(MakeDelegate(position, token.LPAREN, def))
+        for _, elem := range results {
+                switch t := elem.(type) {
+                case *undetermined:
+                        l.determine(pos, t.tok, t.identifier, t.value)
+                default:
+                        l.p.error(pos, "todo: use: `%T`", elem)
                 }
         }
         return
 }
 
-func (l *loader) useProjectName(pos token.Pos, pn *ProjectName) {
-        var (
-                scope = l.project.scope
-                project = pn.OwnerProject()
-                //useList []Value
-        )
-        if project == nil {
-                l.p.error(pos, "%v is nil", pn)
-                return
+func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value) {
+        var (def *Def; alt, derived Object)
+        switch t := identifier.(type) {
+        case *selection:
+                if v, err := t.value(); err != nil {
+                        l.p.error(pos, "%v: %v", t, err)
+                        return
+                } else if d, ok := v.(*Def); ok {
+                        def = d
+                } else {
+                        l.p.error(pos, "`%v` is not a def (%T)", t, v)
+                        return
+                }
+        case *Bareword, *Barecomp:
+                if name, err := t.Strval(); err != nil {
+                        l.p.error(pos, "%v: %v", t, err)
+                        return
+                } else if _, ok := builtins[name]; ok {
+                        l.p.error(pos, "`%v` (%v) is builtin name", identifier, name)
+                        return
+                } else {
+                        _, derived = l.scope.Find(name) // value to derive
+                        if def, alt = l.def(name); alt != nil {
+                                def = alt.(*Def)
+                        }
+                }
         }
-        
-        // FIXME: defined used project in represented order
-        if sn, _ := scope.Lookup("use").(*ScopeName); sn != nil {
-                l.p.error(pos, "`use` is not in %s", scope.comment)
-        } else {
-                if alt := sn.DeclScope().Insert(pn); alt != nil {
-                        if alt.Type().Kind() == ProjectNameKind {
-                                l.p.info(pos, "'%s' already used", pn.Name())
-                        } else {
-                                l.p.error(pos, "'%s' already defined in %s", pn.Name(), sn.DeclScope())
+
+        switch tok {
+        case token.ASSIGN, token.EXC_ASSIGN: // = !=
+                if alt != nil {
+                        if alt.OwnerProject() == l.project {
+                                l.p.error(pos, "`%v` already defined (%T)", identifier, alt)
+                                return
+                        } else if def, alt = l.def(alt.Name()); alt != nil {
+                                l.p.error(pos, "`%v` already defined (%T)", identifier, alt)
                                 return
                         }
                 }
-                if _, alt := sn.DeclScope().Def(l.project, "*"/* use list */, pn); alt != nil {
-                        if def, _ := alt.(*Def); def != nil {
-                                def.Append(pn)
+                if tok == token.ASSIGN {
+                        def.origin = DefaultDef
+                        def.Assign(value)
+                } else {
+                        def.origin = ExecDef
+                        def.AssignExec(value)
+                }
+        case token.ADD_ASSIGN: // +=
+                if derived != nil && derived != def {
+                        // If it's the first time this name was determined.
+                        if d, _ := derived.(*Def); d != nil && !def.Value.refs(d) {
+                                // Unshift the delegation to derive value.
+                                position := l.p.file.Position(pos)
+                                def.Append(MakeDelegate(position, token.LPAREN, d)) // Delegation?
                         }
                 }
-                l.useProject(pos, project)
+                if !def.Value.refs(value) {
+                        def.Append(value)
+                }
+        case token.QUE_ASSIGN: // ?=
+                if alt == nil {
+                        def.origin = DefaultDef
+                        def.Assign(value)
+                }
+        case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
+                if v, err := value.expend(expendBoth); err == nil {
+                        def.origin = ImmediateDef
+                        def.Assign(v)
+                }
         }
-        return
 }
 
 func (l *loader) use(spec *ast.UseSpec) {
-        var (
-                name Value
-                params []Value
-        )
         if len(spec.Props) == 0 {
                 l.p.error(spec.Pos(), "empty `use` spec")
-        } else if name = l.expr(spec.Props[0]); name == nil {
+        } else if name := l.expr(spec.Props[0]); name == nil {
                 l.p.error(spec.Pos(), "undefined `use` target")
         } else if name == UniversalNone {
                 l.p.error(spec.Pos(), "none `use` target")
         } else {
-                for _, prop := range spec.Props[1:] {
-                        params = append(params, l.expr(prop))
+                var usee Object
+                switch name.(type) {
+                case *Bareword, *Barecomp, *String, *Compound:
+                        if str, err := name.Strval(); err != nil {
+                                l.p.error(spec.Props[0].Pos(), "%s", err)
+                                return
+                        } else {
+                                _, usee = l.project.scope.Find(str)
+                        }
+                default:
+                        l.p.error(spec.Pos(), "`%s` is not a usee (%T)", name, name)
+                        return
                 }
 
-                var scope = l.project.scope
-                switch t := name.(type) {
+                switch t := usee.(type) {
                 case *ProjectName:
-                        l.useProjectName(spec.Props[0].Pos(), t)
+                        l.useProject(spec.Props[0].Pos(), t.project, l.exprs(spec.Props[1:]))
                 case *Def:
-                        if alt := scope.Insert(t); alt != nil {
-                                l.p.error(spec.Pos(), "`%s` already defined in %s", t.Name(), scope.comment)
+                        if alt := l.project.scope.Insert(t); alt != nil {
+                                l.p.error(spec.Pos(), "`%s` already defined in %s", t.Name(), l.project.scope.comment)
                         }
                 case *RuleEntry:
-                        if alt := scope.Insert(t); alt != nil {
-                                l.p.error(spec.Pos(), "`%s` already defined in %s", t.Name(), scope.comment)
+                        if alt := l.project.scope.Insert(t); alt != nil {
+                                l.p.error(spec.Pos(), "`%s` already defined in %s", t.Name(), l.project.scope.comment)
                         }
                 default:
                         l.p.error(spec.Pos(), "`%s` is not a usee (%T)", name, name)
@@ -843,7 +822,13 @@ func (l *loader) dock(spec *ast.DockSpec) {
         return
 }
 
-func (l *loader) rule(clause *ast.RuleClause) {
+func (l *loader) define(clause *ast.DefineClause) {
+        var identifier = l.expr(clause.Name)
+        var value = l.expr(clause.Value)
+        l.determine(clause.Pos(), clause.Tok, identifier, value)
+}
+
+func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) {
         var (
                 depends []Value
                 recipes []Value
@@ -899,8 +884,7 @@ func (l *loader) rule(clause *ast.RuleClause) {
                         l.p.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])
                         return
                 }
-                var ( entry *RuleEntry; err error )
-                if entry, err = l.project.SetProgram(target, prog); err != nil {
+                if entry, err := l.project.entry(special, target, prog); err != nil {
                         l.p.error(clause.Targets[n].Pos(), "%v", err)
                         return
                 } else /*if entry != nil*/ {
@@ -1038,21 +1022,6 @@ func (l *loader) declareProject(ident *ast.Bareword, params Value) (err error) {
                 
                 l.loaded[linfo.absPath()] = dec.project
                 linfo.declares[name] = dec
-
-                var (
-                        p = dec.project
-                        s = p.Scope()
-                        use = NewScope(s, l.project, "use")
-                )
-                if obj, alt := s.ScopeName(p, "use", use); alt != nil {
-                        if _, ok := alt.(*ScopeName); !ok {
-                                err = fmt.Errorf("Name `use' already taken (%s).", s)
-                                return
-                        }
-                } else if obj == nil {
-                        err = fmt.Errorf("Failed adding `use' scope.")
-                        return
-                }
         }
 
         if loader := linfo.loader; loader != nil {
@@ -1201,15 +1170,9 @@ func (l *loader) resolve(value Value) (obj Object, err error) {
                 _, obj = l.scope.Find(name)
         }
 
-        if obj == nil && l.project != nil /*&& name != "use"*/ {
+        if obj == nil && l.project != nil {
                 if obj, err = l.project.resolveObject(name); err != nil {
                         return
-                }
-        }
-        if obj != nil && name == "use" {
-                if sn, ok := obj.(*ScopeName); ok && sn != nil {
-                        // TODO: FindDef
-                        // TODO: FindRule
                 }
         }
         return
@@ -1336,23 +1299,6 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 
         defer l.closeScope(scope)
 
-        /*var (
-                wd = l.workdir
-                rel, _ = filepath.Rel(wd, pathname)
-                tmp = joinTmpPath(wd, rel)
-        )
-        def, _ = l.def("/")
-        def.Assign(MakeString(pathname))
-
-        def, _ = l.def(".")
-        def.Assign(MakeString(rel))
-
-        def, _ = l.def("CTD") // Current Work Directory
-        def.Assign(MakeString(tmp))
-
-        def, _ = l.def("CWD") // Current Temp Directory
-        def.Assign(MakeString(pathname))*/
-
 	ListLoop: for _, d := range list {
                 var name = d.Name()
                 if strings.HasPrefix(name, ".#") || 
@@ -1385,7 +1331,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
                                 err = fmt.Errorf("%s: invalid UTF8 content", fullname)
                                 break ListLoop
                         }
-                        def.SetOrigin(ImmediateDef)
+                        def.origin = ImmediateDef
                         def.Assign(MakeString(s))
                 } else if s != nil {
                         err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)

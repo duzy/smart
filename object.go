@@ -69,6 +69,16 @@ func (p *knownobject) redecl(scope *Scope) {
         }
 }
 
+/*func unknown(owner *Project, scope *Scope) *unknownobject {
+        return &unknownobject{ owner: owner, scope: scope }
+}
+
+func known(owner *Project, scope *Scope, name string) *knownobject {
+        return &knownobject{
+                unknownobject{ owner: owner, scope: scope }, name,
+        }
+}*/
+
 type unresolvedobject struct { // named callable/executable objects
         unknownobject
         name Value // name could be closured
@@ -114,7 +124,10 @@ func (p *ProjectName) expend(_ expendwhat) (Value, error) { return p, nil }
 // containing the import statement.
 func (p *ProjectName) Type() Type { return ProjectNameType }
 func (p *ProjectName) NamedProject() *Project { return p.project }
-func (p *ProjectName) Strval() (string, error) { return p.name/*fmt.Sprintf("project %s", p.name)*/, nil }
+func (p *ProjectName) Strval() (string, error) {
+        //return fmt.Sprintf("%s!%p", p.name, p.project), nil
+        return p.name, nil
+}
 func (p *ProjectName) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -124,11 +137,9 @@ func (p *ProjectName) String() string {
 }
 
 func (p *ProjectName) Get(name string) (value Value, err error) {
-        /*if scope, sym := p.project.scope.Find(name); scope != nil && sym != nil {
-                value, _ = sym.(Value); return
+        if p.project != nil {
+                value, err = p.project.resolveObject(name)
         }
-        err = fmt.Errorf("`%s` is undefined (in %v)", name, p.project.scope.comment)*/
-        value, err = p.project.resolveObject(name)
         return
 }
 
@@ -177,8 +188,8 @@ const (
         // :=, ::=
         ImmediateDef
 
-        // Immediate Def without closure.
-        // DisclosureDef
+        // !=
+        ExecDef
 )
 
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
@@ -200,20 +211,18 @@ func (d *Def) expend(w expendwhat) (res Value, err error) {
         return
 }
 
-func (d *Def) refs(o Object) bool {
-        if d == o { return true }
-        return d.Value.refs(o)
-}
-
+func (d *Def) refs(v Value) bool { return d == v || d.Value.refs(v) }
 func (d *Def) closured() bool { return d.Value.closured() }
 
 func (d *Def) String() (s string) {
-        /*if s, e := d.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{Def '%s' !(%+v)}", s, e)
-        }*/
-        if s = d.name + "="; d.Value != nil {
+        s = d.name
+        switch d.origin {
+        case ImmediateDef: s += ":="
+        case DefaultDef: s += "="
+        case ExecDef: s += "!="
+        default: s += " => "
+        }
+        if d.Value != nil {
                 s += d.Value.String()
         } else {
                 s += "<nil>"
@@ -221,19 +230,11 @@ func (d *Def) String() (s string) {
         return
 }
 func (d *Def) Strval() (s string, e error) {
-        s = d.name + "="
-        if d.Value == nil {
-                s += "<nil>"
-        } else {
-                var v string
-                if v, e = d.Value.Strval(); e == nil {
-                        s += v
-                }
+        if d.Value != nil {
+                s, e = d.Value.Strval()
         }
         return
 }
-func (d *Def) Origin() DefOrigin { return d.origin }
-func (d *Def) SetOrigin(k DefOrigin) { d.origin = k }
 
 func (d *Def) Assign(v Value) (res Value, err error) {
         if v == nil {
@@ -359,6 +360,47 @@ func (d *Def) pathdependcompare(c *comparer, path *Path) (err error) {
         return
 }
 
+type undetermined struct {
+        tok token.Token
+        identifier Value
+        value Value
+}
+
+func (p *undetermined) refs(v Value) bool {
+        return p.identifier.refs(v) || p.value.refs(v)
+}
+
+func (p *undetermined) closured() bool {
+        return p.identifier.closured() || p.value.closured()
+}
+
+func (p *undetermined) expend(w expendwhat) (res Value, err error) {
+        var i, v Value
+        if i, err = p.identifier.expend(w); err == nil {
+                if v, err = p.value.expend(w); err == nil {
+                        res = &undetermined{ p.tok, i, v }
+                }
+        }
+        return
+}
+
+func (p *undetermined) Type() Type { return UndeterminedType }
+
+func (p *undetermined) String() (s string) {
+        s = p.identifier.String()
+        s += p.tok.String()
+        s += p.value.String()
+        return
+}
+
+func (p *undetermined) Strval() (s string, err error) {
+        s, err = p.value.Strval()
+        return
+}
+
+func (p *undetermined) Float() (float64, error) { return 0, nil }
+func (p *undetermined) Integer() (int64, error) { return 0, nil }
+
 // A Builtin represents a built-in function.
 // Builtins don't have a valid type.
 type Builtin struct {
@@ -467,7 +509,6 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) {
         return
 }
 
-
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value, err error) {
         if entry.class == GlobRuleEntry /*|| entry.class == StemmedFileEntry*/ {
@@ -497,8 +538,8 @@ func (entry *RuleEntry) redecl(scope *Scope) {
         panic("RuleEntry.redecl not supported")
 }
 
-func (entry *RuleEntry) refs(o Object) bool {
-        if entry.target.refs(o) { return true }
+func (entry *RuleEntry) refs(v Value) bool {
+        if entry.target.refs(v) { return true }
         
         // TODO: do more tests for this to see if we need to fallthrough
         return false // only check closured agaist target
@@ -506,14 +547,14 @@ func (entry *RuleEntry) refs(o Object) bool {
         for _, prog := range entry.programs {
                 for _, m := range prog.pipline {
                         for _, a := range m.args {
-                                if a.refs(o) { return true }
+                                if a.refs(v) { return true }
                         }
                 }
                 for _, depend := range prog.depends {
-                        if depend.refs(o) { return true }
+                        if depend.refs(v) { return true }
                 }
                 for _, recipe := range prog.recipes {
-                        if recipe.refs(o) { return true }
+                        if recipe.refs(v) { return true }
                 }
         }
         return false

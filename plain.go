@@ -17,7 +17,7 @@ type Plain struct {
         Value string
         Name string
 }
-func (p *Plain) refs(_ Object) bool { return false }
+func (p *Plain) refs(_ Value) bool { return false }
 func (p *Plain) closured() bool { return false }
 func (p *Plain) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *Plain) Type() Type  { return PlainType }

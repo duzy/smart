@@ -16,7 +16,7 @@ import (
 type YAML struct {
         Value Value
 }
-func (p *YAML) refs(_ Object) bool { return false }
+func (p *YAML) refs(_ Value) bool { return false }
 func (p *YAML) closured() bool { return p.Value.closured() }
 func (p *YAML) expend(w expendwhat) (Value, error) { return p.Value.expend(w) }
 func (p *YAML) Type() Type { return YAMLType }

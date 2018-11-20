@@ -68,42 +68,42 @@ const (
         // NOTE: don't change the order of closures and delegates, scanner
         // relys upon their order.
         closure_beg
-        AND      // &
-        AND_R    // &/
-        AND_D    // &.
-        AND_A    // &@
-        AND_L    // &<
-        AND_U    // &^
-        AND_S    // &*
-        AND_M    // &-
-        AND_1    // &1
-        AND_2    // &2
-        AND_3    // &3
-        AND_4    // &4
-        AND_5    // &5
-        AND_6    // &6
-        AND_7    // &7
-        AND_8    // &8
-        AND_9    // &9
+        CLOSURE      // &
+        CLOSURE_R    // &/
+        CLOSURE_D    // &.
+        CLOSURE_A    // &@
+        CLOSURE_L    // &<
+        CLOSURE_U    // &^
+        CLOSURE_S    // &*
+        CLOSURE_M    // &-
+        CLOSURE_1    // &1
+        CLOSURE_2    // &2
+        CLOSURE_3    // &3
+        CLOSURE_4    // &4
+        CLOSURE_5    // &5
+        CLOSURE_6    // &6
+        CLOSURE_7    // &7
+        CLOSURE_8    // &8
+        CLOSURE_9    // &9
         closure_end
         delegate_beg
-        DOLLAR      // $
-        DOLLAR_R    // $/
-        DOLLAR_D    // $.
-        DOLLAR_A    // $@
-        DOLLAR_L    // $<
-        DOLLAR_U    // $^
-        DOLLAR_S    // $*
-        DOLLAR_M    // $-
-        DOLLAR_1    // $1
-        DOLLAR_2    // $2
-        DOLLAR_3    // $3
-        DOLLAR_4    // $4
-        DOLLAR_5    // $5
-        DOLLAR_6    // $6
-        DOLLAR_7    // $7
-        DOLLAR_8    // $8
-        DOLLAR_9    // $9
+        DELEGATE      // $
+        DELEGATE_R    // $/
+        DELEGATE_D    // $.
+        DELEGATE_A    // $@
+        DELEGATE_L    // $<
+        DELEGATE_U    // $^
+        DELEGATE_S    // $*
+        DELEGATE_M    // $-
+        DELEGATE_1    // $1
+        DELEGATE_2    // $2
+        DELEGATE_3    // $3
+        DELEGATE_4    // $4
+        DELEGATE_5    // $5
+        DELEGATE_6    // $6
+        DELEGATE_7    // $7
+        DELEGATE_8    // $8
+        DELEGATE_9    // $9
         delegate_end
 
         assign_beg
@@ -181,41 +181,41 @@ var tokens = [...]string{
         AT:        "@",
         STAR:      "*",
 
-	AND:      "&",
-        AND_R:    "&/",
-        AND_D:    "&.",
-        AND_A:    "&@",
-        AND_L:    "&<",
-        AND_U:    "&^",
-        AND_S:    "&*",
-        AND_M:    "&-",
-        AND_1:    "&1",
-        AND_2:    "&2",
-        AND_3:    "&3",
-        AND_4:    "&4",
-        AND_5:    "&5",
-        AND_6:    "&6",
-        AND_7:    "&7",
-        AND_8:    "&8",
-        AND_9:    "&9",
+	CLOSURE:      "&",
+        CLOSURE_R:    "&/",
+        CLOSURE_D:    "&.",
+        CLOSURE_A:    "&@",
+        CLOSURE_L:    "&<",
+        CLOSURE_U:    "&^",
+        CLOSURE_S:    "&*",
+        CLOSURE_M:    "&-",
+        CLOSURE_1:    "&1",
+        CLOSURE_2:    "&2",
+        CLOSURE_3:    "&3",
+        CLOSURE_4:    "&4",
+        CLOSURE_5:    "&5",
+        CLOSURE_6:    "&6",
+        CLOSURE_7:    "&7",
+        CLOSURE_8:    "&8",
+        CLOSURE_9:    "&9",
 
-	DOLLAR:      "$",
-        DOLLAR_R:    "$/",
-        DOLLAR_D:    "$.",
-        DOLLAR_A:    "$@",
-        DOLLAR_L:    "$<",
-        DOLLAR_U:    "$^",
-        DOLLAR_S:    "$*",
-        DOLLAR_M:    "$-",
-        DOLLAR_1:    "$1",
-        DOLLAR_2:    "$2",
-        DOLLAR_3:    "$3",
-        DOLLAR_4:    "$4",
-        DOLLAR_5:    "$5",
-        DOLLAR_6:    "$6",
-        DOLLAR_7:    "$7",
-        DOLLAR_8:    "$8",
-        DOLLAR_9:    "$9",
+	DELEGATE:      "$",
+        DELEGATE_R:    "$/",
+        DELEGATE_D:    "$.",
+        DELEGATE_A:    "$@",
+        DELEGATE_L:    "$<",
+        DELEGATE_U:    "$^",
+        DELEGATE_S:    "$*",
+        DELEGATE_M:    "$-",
+        DELEGATE_1:    "$1",
+        DELEGATE_2:    "$2",
+        DELEGATE_3:    "$3",
+        DELEGATE_4:    "$4",
+        DELEGATE_5:    "$5",
+        DELEGATE_6:    "$6",
+        DELEGATE_7:    "$7",
+        DELEGATE_8:    "$8",
+        DELEGATE_9:    "$9",
 
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",
