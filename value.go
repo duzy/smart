@@ -1830,8 +1830,7 @@ func (p *delegate) reveal() (res Value, err error) {
         }
 
         switch o := p.o.(type) {
-        default:
-                err = fmt.Errorf("unknown delegated object %v", o)
+        default: err = fmt.Errorf("unknown delegation `%v` (%T)", o, o)
         case Caller:
                 if res, err = o.Call(p.p, args...); err != nil {
                         if p.o.Name() != "error" {
@@ -2149,7 +2148,7 @@ type selection struct {
         s Value
 }
 
-func (p *selection) Type() Type  { return SelectionType }
+func (p *selection) Type() Type { return SelectionType }
 func (p *selection) String() string {
         return fmt.Sprintf("%v%s%v", p.o, p.t, p.s)
 }

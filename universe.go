@@ -28,6 +28,8 @@ var (
                 UnresolvedObjectKind: {UnresolvedObjectKind, IsUnresolvedObject, "UnresolvedObject"},
                 DefKind:         {DefKind, IsDef, "Def"},
                 UndeterminedKind:{UndeterminedKind, IsUndetermined, "Undetermined"},
+                UsingKind:       {UsingKind, IsUsing, "using"},
+                UsingListKind:   {UsingListKind, IsUsingList, "usinglist"},
                 DefinerKind:     {DefinerKind, IsDefiner, "Definer"},
                 PlainKind:       {PlainKind, IsPlain, "Plain"},
                 JSONKind:        {JSONKind, IsJSON, "JSON"},
@@ -82,6 +84,8 @@ var (
         UnresolvedObjectType = CoreTypes[UnresolvedObjectKind]
         UndeterminedType= CoreTypes[UndeterminedKind]
         DefType         = CoreTypes[DefKind]
+        UsingType       = CoreTypes[UsingKind]
+        UsingListType   = CoreTypes[UsingListKind]
         DefinerType     = CoreTypes[DefinerKind]
         PlainType       = CoreTypes[PlainKind]
         JSONType        = CoreTypes[JSONKind]
@@ -186,11 +190,15 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
                 absPath: absPath,
                 relPath: relPath, 
                 tmpPath: tmpPath,
+                usings: new(usinglist),
                 spec: spec,
                 name: name,
         }
-	
+
         m.scope = NewScope(outer, m, fmt.Sprintf("project %q", name))
+        m.usings.scope = m.scope
+        m.usings.name = name
+        m.usings.owner = m
 
         if name != "@" && g.main == nil {
                 for outer != nil && outer != g.scope {

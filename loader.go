@@ -371,7 +371,8 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (name Value, obj Object
 
         var tok = token.ILLEGAL
         switch x.TokLp {
-        case token.LPAREN, token.LBRACE: tok = x.TokLp
+        case token.LPAREN, token.LBRACE, token.COLON:
+                tok = x.TokLp
         case token.STRING, token.COMPOUND:
                 if x.Tok == token.DELEGATE {
                         l.p.error(x.TokPos, "unsupported delegate (%v).", x.TokLp)
@@ -401,6 +402,18 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (name Value, obj Object
         }
 
         switch tok {
+        case token.COLON:
+                s, err := name.Strval()
+                if err != nil {
+                        l.p.error(x.Name.Pos(), "%v", err)
+                        return
+                }
+                switch s {
+                case "use": obj = l.project.usings;
+                default:
+                        l.p.error(x.Name.Pos(), "unsupported special delegation")
+                        return
+                }
         case token.LPAREN:
                 if resolved == nil { // if not resolved at parse time
                         if resolved, err = l.resolve(name); err != nil {
@@ -639,6 +652,8 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) {
                 l.p.error(pos, "using itself: `%v`", usee.name)
                 return
         }
+
+        l.project.usings.append(usee, params)
 
         for _, prog := range usee.userule.programs {
                 defer prog.setUser(prog.setUser(l.project))

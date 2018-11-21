@@ -24,7 +24,7 @@ type Type interface {
         Bits() TypeBits
 }
 
-type Kind int
+type Kind uint64
 
 // kinds for predeclared types
 const (
@@ -77,6 +77,9 @@ const (
         ScopeNameKind
 
         // special types
+        UsingKind
+        UsingListKind
+        
         DefinerKind
         PlainKind
         JSONKind
@@ -129,6 +132,8 @@ var (
                 RuleEntryKind:  "RuleEntry",
                 ProjectNameKind: "ProjectName",
                 ScopeNameKind:  "ScopeName",
+                UsingKind:      "Using",
+                UsingListKind:  "UsingList",
                 DefinerKind:    "Definer",
                 PlainKind:      "Plain",
                 JSONKind:       "JSON",
@@ -200,7 +205,9 @@ const (
         IsScopeName
         IsProjectName
 
-        IsDefiner // 30
+        IsUsing
+        IsUsingList
+        IsDefiner
         IsPlain
         IsJSON
         IsXML

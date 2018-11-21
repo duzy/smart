@@ -774,10 +774,10 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 resolved Object
         )
         switch p.next(); p.tok {
-        case token.LPAREN, token.LBRACE:
+        case token.LPAREN, token.LBRACE, token.COLON: // $(...), ${...}, $:...:
                 lpos, tokLp = p.pos, p.tok
 
-                // skips LPAREN, LBRACE
+                // skips LPAREN, LBRACE, COLON
                 if name = p.checkExpr(p.parseNextExpr(false)); name == nil {
                         p.error(pos, "bad name expr")
                         return &ast.BadExpr{ From:p.pos, To:p.pos }
@@ -808,10 +808,15 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 switch tokLp {
                 case token.LPAREN: rpos = p.expect(token.RPAREN)
                 case token.LBRACE: rpos = p.expect(token.RBRACE)
+                case token.COLON:
+                        if rpos = p.expect(token.COLON); name.End() != rpos {
+                                p.error(name.Pos(), "special dont need extra spaces")
+                        }
                 }
         default:
                 if tok != token.CLOSURE { // $(...), disabled $name.
-                        p.error(p.pos, "expects `%v` or `%v`", token.LPAREN, token.LBRACE)
+                        // &(...), &{...}, &'...', &"..."
+                        p.error(p.pos, "expects `%v` or `%v` or quotes", token.LPAREN, token.LBRACE)
                         return &ast.BadExpr{ From:p.pos, To:p.pos }
                 } else if p.tok == token.STRING || p.tok == token.COMPOUND {
                         lpos, tokLp = p.pos, p.tok
@@ -1214,156 +1219,6 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		Specs:  specs,
 		Rparen: rparen,
 	}
-}
-
-func (p *parser) _parseDefineClause(tok token.Token, ident ast.Expr) ast.Clause {
-	if p.tracing.enabled {
-		defer un(trace(p, "Define"))
-	}
-
-        var (
-                doc = p.leadComment
-                pos = p.expect(tok)
-
-                elems = p.parseRhsList()
-                comment = p.lineComment
-
-                alt bool
-                def, prev *Def
-                value ast.Expr
-        )
-
-        // Take it from parser, since the line comment is assigned
-        // to the DefineClause.
-        p.lineComment = nil
-
-        // Create List value or use the first elem.
-        if n := len(elems); n == 1 {
-                value = elems[0]
-        } else if n > 1 {
-                value = &ast.ListExpr{ elems }
-        }
-
-        // Create the definition.
-        if v, e := p.eval(ident, StringValue); e == nil {
-                var name string
-                switch t := v.(type) {
-                case Object: //*Def, *RuleEntry:
-                        name = t.Name() // name is previously defined (e.g. in another scope)
-                        ident = &ast.Bareword{ ident.Pos(), name }
-                default: //case *Bareword:
-                        if name, e = v.Strval(); e != nil {
-                                p.error(ident.Pos(), "%s", e)
-                        }
-                }
-
-                // If doing '+=', the assignment will concate the value of the
-                // symbol from the other scope with new one.
-                if tok == token.ADD_ASSIGN {
-                        if sym, err := p.resolve(v); err != nil {
-                                p.error(ident.Pos(), "%s", err)
-                        } else if sym != nil {
-                                prev, _ = sym.(*Def)
-                        }
-                }
-                
-                // Always work in the current runtime scope, so it won't affect
-                // any base symbols.
-                if s, a := p.def(name); a != nil {
-                        switch tok {
-                        case token.ASSIGN, token.EXC_ASSIGN:
-                                p.error(ident.Pos(), "Already defined `%v' (%v).", name, v)
-                        default:
-                                def, _ = a.(*Def) // override the existing
-                                if def == nil {
-                                        p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", name, a)
-                                }
-                        }
-                        alt = true // it's the second defining this symbol
-                } else if def = s; def != nil {
-                        if prev != nil && prev != def {
-                                def.origin = prev.origin
-                                def.Assign(MakeDelegate(p.file.Position(pos), token.LPAREN, prev))
-                        }
-                } else if s != nil {
-                        p.error(ident.Pos(), "Name `%s' already taken, not def (%T).", name, s)
-                } else {
-                        p.error(ident.Pos(), "Failed defining `%s' (%v).", name, v)
-                }
-
-                //fmt.Printf("define: %s %s %v (%T)\n", name, tok, value, value)
-
-                if _, ok := builtins[name]; ok {
-                        p.error(ident.Pos(), "`%v` is builtin name", name)
-                }
-        } else {
-                p.error(ident.Pos(), e)
-                p.error(ident.Pos(), "error declosing name %T", ident)
-        }
-
-        var bits = KeepClosures|KeepDelegates // assumes DefaultDef
-        switch tok {
-        case token.ADD_ASSIGN: // +=
-                if def == nil {
-                        bits = EvalBits(-1)
-                } else if def.origin == ImmediateDef {
-                        bits = KeepClosures
-                } else { // InvalidDef, DefaultDef, etc.
-                        def.origin = DefaultDef
-                        bits = KeepClosures|KeepDelegates
-                }
-        case token.QUE_ASSIGN: // ?=
-                if alt {
-                        // bypass any eval if already defined
-                        bits = EvalBits(-1); break
-                }
-                bits = KeepClosures|KeepDelegates
-        case token.ASSIGN, token.EXC_ASSIGN: // =, !=
-                if def != nil {
-                        def.origin = DefaultDef
-                }
-                bits = KeepClosures|KeepDelegates
-        case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
-                if def != nil {
-                        def.origin = ImmediateDef
-                }
-                bits = KeepClosures
-        default:
-                p.error(pos, "Unsuported assign `%v'", tok)
-                def, bits = nil, EvalBits(-1)
-        }
-
-        if bits != EvalBits(-1) && def != nil {
-                if v, e := p.eval(value, bits); e == nil {
-                        switch tok {
-                        case token.EXC_ASSIGN:
-                                v, e = def.AssignExec(v)
-                        case token.ADD_ASSIGN:
-                                v, e = def.Append(v)
-                        default:
-                                v, e = def.Assign(v)
-                        }
-                        if e != nil {
-                                p.error(value.Pos(), e)
-                        } else if def.Value == nil {
-                                //! Avoid creating a <nil> Def.
-                                def.Value = UniversalNone
-                        }
-                        value = &ast.EvaluatedExpr{ value, v }
-                } else {
-                        p.error(pos, "%v (value=%v)", e, value)
-                }
-        }
-
-        return &ast.DefineClause{
-                Doc: doc,
-                TokPos: pos,
-                Tok: tok,
-                Sym: def,
-                Name: ident,
-                Value: value,
-                Comment: comment,
-        }
 }
 
 func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) *ast.DefineClause {

@@ -59,10 +59,11 @@ type Project struct {
 	name    string
         scope   *Scope
         bases   []*Project
-        uses    []*Use
 
         // List order is significant, duplication is acceptable.
         filemap []FileMap
+
+        usings  *usinglist
 
         // Rule Registry (orderred)
         userule *RuleEntry // the 'use' rule
@@ -77,7 +78,6 @@ func (p *Project) RelPath() string { return p.relPath }
 func (p *Project) Spec() string { return p.spec }
 func (p *Project) Name() string { return p.name }
 func (p *Project) Scope() *Scope { return p.scope }
-func (p *Project) Uses() []*Use { return p.uses }
 func (p *Project) Bases() []*Project { return p.bases }
 
 func (p *Project) Chain(bases... *Project) {
