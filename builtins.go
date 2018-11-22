@@ -309,6 +309,7 @@ func builtinPrint(pos token.Position, args... Value) (Value, error) {
                 if 0 < i && i < x {
                         fmt.Printf(" ")
                 }
+                fmt.Printf("print: %T %v\n", a, a)
                 if s, e := EscapedString(a); e == nil {
                         fmt.Printf("%s", s)
                 } else {

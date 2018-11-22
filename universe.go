@@ -196,9 +196,9 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
         }
 
         m.scope = NewScope(outer, m, fmt.Sprintf("project %q", name))
-        m.usings.scope = m.scope
-        m.usings.name = name
+        m.usings.name = "use"
         m.usings.owner = m
+        m.usings.scope = m.scope
 
         if name != "@" && g.main == nil {
                 for outer != nil && outer != g.scope {

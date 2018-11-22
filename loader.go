@@ -646,11 +646,14 @@ func (l *loader) exprs(exprs []ast.Expr) (values []Value) {
 
 func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) {
         if usee.userule == nil {
-                //fmt.Printf("use: %v nil\n", usee.name)
                 return
         } else if usee == l.project {
                 l.p.error(pos, "using itself: `%v`", usee.name)
                 return
+        }
+
+        for _, base := range usee.bases {
+                l.useProject(pos, base, params)
         }
 
         l.project.usings.append(usee, params)

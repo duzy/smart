@@ -253,31 +253,42 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        var targets []Value
-        if targets, err = mergeresult(ExpendAll(prog.depends...)); err == nil {
-                targets = append([]Value{ entry.target }, targets...)
-        } else {
+        switch t := entry.target.(type) {
+        case *File: prog.auto("@", t)
+        default:
+                var s string
+                if s, err = entry.target.Strval(); err != nil {
+                        return
+                } else if file := prog.project.file(s); file == nil {
+                        prog.auto("@", entry.target)
+                } else {
+                        prog.auto("@", file)
+                }
+        }
+
+        var depends []Value
+        if depends, err = mergeresult(ExpendAll(prog.depends...)); err != nil {
                 return
         }
-        for i, target := range targets {
-                switch target.(type) {
-                case *GlobPattern, *RegexpPattern:
-                        continue
+        for i, depend := range depends {
+                switch depend.(type) {
+                case *GlobPattern, *RegexpPattern: // break
+                case *usinglist: // break
+                case *Group: // break
+                case *File: // break
                 default:
                         var s string
-                        if s, err = target.Strval(); err != nil {
+                        if s, err = depend.Strval(); err != nil {
                                 return
                         } else if file := prog.project.file(s); file != nil {
-                                targets[i] = file
+                                depends[i] = file
                         }
                 }
         }
 
-        prog.auto("@", targets[0])
-
         // Calculate and prepare depends and files.
         var pc = &preparer{ prog, nil, new(List), prog.stem }
-        if err = pc.updateall(targets[1:]); err != nil {
+        if err = pc.updateall(depends); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 }

@@ -61,7 +61,9 @@ func (p *using) Strval() (s string, err error) {
 }
 
 type usinglist struct {
-        knownobject
+        name string
+        scope *Scope
+        owner *Project
         list []*using
 }
 
@@ -88,7 +90,7 @@ func (p *usinglist) expend(w expendwhat) (Value, error) {
                 }
         }
         if num > 0 {
-                return &usinglist{ p.knownobject, list }, nil
+                return &usinglist{ p.name, p.scope, p.owner, list }, nil
         }
         return p, nil
 }
@@ -103,7 +105,21 @@ func (p *usinglist) prepare(pc *preparer) error {
         }
         return nil
 }
+func (p *usinglist) redecl(scope *Scope) { panic("redeclaring using list") }
+func (p *usinglist) DeclScope() *Scope { return p.scope }
+func (p *usinglist) OwnerProject() *Project { return p.owner }
 func (p *usinglist) Type() Type { return UsingListType }
+func (p *usinglist) Name() string { return p.name }
+func (p *usinglist) Integer() (int64, error) { return 0, nil }
+func (p *usinglist) Float() (float64, error) { return 0, nil }
+func (p *usinglist) Strval() (s string, err error) {
+        for i, elem := range p.list {
+                if i > 0 { s += " " }
+                s += elem.project.name
+        }
+        s = fmt.Sprintf("use [%v]", s)
+        return
+}
 func (p *usinglist) String() string {
         var s string
         for i, elem := range p.list {
@@ -114,7 +130,19 @@ func (p *usinglist) String() string {
 }
 
 func (p *usinglist) append(proj *Project, params []Value) {
+        for _, elem := range p.list {
+                if elem.project == proj {
+                        return
+                }
+        }
         p.list = append(p.list, &using{ proj, params })
+}
+
+func (p *usinglist) Get(name string) (Value, error) {
+        //switch name {
+        //case "name":
+        //}
+        return nil, fmt.Errorf("no such property `%s`", name)
 }
 
 func (p *usinglist) Call(pos token.Position, a... Value) (res Value, err error) {

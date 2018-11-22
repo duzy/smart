@@ -1779,6 +1779,7 @@ func (p *closuredelegate) string(t string) (s string) { // source representation
                 s += a.String()
         }
         switch name := p.o.Name(); p.l {
+        case token.COLON: s = fmt.Sprintf("%s:%s%s:", t, name, s)
         case token.LPAREN: s = fmt.Sprintf("%s(%s%s)", t, name, s)
         case token.LBRACE: s = fmt.Sprintf("%s{%s%s}", t, name, s)
         case token.STRING, token.COMPOUND:
