@@ -210,7 +210,7 @@ func (t *_json) Evaluate(prog *Program, args []Value, recipes []Value) (result V
         if result, err = DecodeJSON(source); err == nil {
                 result = &JSON{ result }
         } else {
-                result = &JSON{ UniversalNone }
+                result = &JSON{ universalnone }
         }
         return
 }

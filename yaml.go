@@ -40,7 +40,7 @@ func (t *_yaml) Evaluate(prog *Program, args []Value, recipes []Value) (result V
         if result, err = DecodeYAML(source, t.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
-                result = &YAML{ UniversalNone }
+                result = &YAML{ universalnone }
         }
         return
 }

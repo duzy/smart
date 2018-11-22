@@ -56,6 +56,7 @@ const (
 	SEMICOLON // ;
 
         ruledelim_beg
+        BAR       // |
 	COLON     // :
 	COLON2    // ::
 	EXC       // !    exclamation
@@ -155,6 +156,7 @@ var tokens = [...]string{
         STRING:   "STRING",
         ESCAPE:   "\\",
         COMPOUND: "COMPOUND",
+
         COMPOSED: "COMPOSED",
         RECIPE:   "RECIPE",
         LINEND:   "\\n", //"LINEND",
@@ -172,7 +174,9 @@ var tokens = [...]string{
 	RPAREN:    ")",
 	RBRACK:    "]",
 	RBRACE:    "}",
+        SEMICOLON: ";",
 
+        BAR:       "|",
 	COLON:     ":",
         COLON2:    "::",
         EXC:       "!",

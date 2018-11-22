@@ -564,7 +564,7 @@ func (l *loader) pathseg(x *ast.PathSegExpr) (v Value) {
 
 func (l *loader) recipe(x *ast.RecipeExpr) (v Value) {
         if len(x.Elems) == 0 {
-                v = UniversalNone
+                v = universalnone
         } else if x.Dialect == "" {
                 v = MakeList(l.exprs(x.Elems)...)
         } else {
@@ -580,7 +580,7 @@ func (l *loader) recipedefine(clause *ast.RecipeDefineClause) (v Value) {
 func (l *loader) expr(expr ast.Expr) (v Value) {
         if expr == nil {
                 //l.p.error(l.p.pos, "encountered nil expr")
-                v = UniversalNone
+                v = universalnone
                 return
         }
 
@@ -756,7 +756,7 @@ func (l *loader) use(spec *ast.UseSpec) {
                 l.p.error(spec.Pos(), "empty `use` spec")
         } else if name := l.expr(spec.Props[0]); name == nil {
                 l.p.error(spec.Pos(), "undefined `use` target")
-        } else if name == UniversalNone {
+        } else if name == universalnone {
                 l.p.error(spec.Pos(), "none `use` target")
         } else {
                 var usee Object
@@ -823,7 +823,7 @@ func (l *loader) dock(spec *ast.DockSpec) {
                 scope = scope.Outer()
         }
 
-        def, alt := scope.Def(l.project, DockExecVarName, UniversalNone)
+        def, alt := scope.Def(l.project, DockExecVarName, universalnone)
         if alt != nil {
                 if d, _ := alt.(*Def); d == nil {
                         l.p.error(spec.Pos(), "name `%s` already taken in %v", def.Name(), scope.comment)
@@ -896,7 +896,6 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) {
                         return
                 }
         }
-
         for n, target := range l.exprs(clause.Targets) {
                 if target == nil {
                         l.p.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])
@@ -1212,7 +1211,7 @@ func (l *loader) find(target Value) (obj Object, err error) {
 }
 
 func (l *loader) def(name string) (def *Def, alt Object) {
-        return l.scope.Def(l.project, name, UniversalNone)
+        return l.scope.Def(l.project, name, universalnone)
 }
 
 // If src != nil, readSource converts src to a []byte if possible;

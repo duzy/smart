@@ -17,7 +17,8 @@ import (
 var (
 	universe *Scope
 
-        UniversalNone = &None{}
+        modifierbar = &ModifierBar{}
+        universalnone = &None{}
 )
 
 // Predeclared types.

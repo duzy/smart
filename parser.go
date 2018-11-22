@@ -1381,94 +1381,90 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
         var (
                 lpos = p.expect(token.LBRACK)
                 elems []ast.Expr
-                dialect string
                 params []string
+                dialect string
         )
         for p.tok != token.RBRACK && p.tok != token.EOF {
                 var (
                         x = p.checkExpr(p.parseExpr(false))
                         name string
                         pos token.Pos
+                        err error
                 )
-                
-                switch t := x.(type) {
-                /*case *ast.Bareword:
-                        name, pos = t.Value, t.Pos()
-                        goto checkName*/
-                case *ast.GroupExpr:
-                        switch n := t.Elems[0].(type) {
-                        case *ast.Bareword:
-                                if name, pos = n.Value, n.Pos(); name != "var" {
-                                        goto checkName
-                                }
-                                for _, elem := range t.Elems[1:] {
-                                        //fmt.Printf("var: %T\n", elem)
-                                        kv, _ := elem.(*ast.KeyValueExpr)
-                                        if  kv == nil {
-                                                p.error(elem.Pos(), "bad var form (%T)", elem)
-                                                continue
-                                        }
-                                        v, e := p.eval(kv.Key, StringValue)
-                                        if e == nil {
-                                                var name string
-                                                if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
-                                                if sym, alt := p.def(name); alt != nil {
-                                                        p.error(p.pos, "Name `%s' already taken (%T).", name, alt)
-                                                } else if sym == nil {
-                                                        // TODO: errors
-                                                } else if v, e = p.eval(kv.Value, KeepClosures|KeepDelegates); e == nil {
-                                                        sym.Assign(v)
-                                                        //fmt.Printf("var: %v\n", sym)
-                                                }
-                                        }
-                                        if e != nil {
-                                                p.error(elem.Pos(), "bad var (%T, %v)", elem, e)
-                                        }
-                                }
-                                goto next
-                        case *ast.GroupExpr:
-                                for _, elem := range n.Elems {
-                                        //fmt.Printf("param: %T\n", elem)
-                                        switch elem.(type) {
-                                        case *ast.Bareword, *ast.Barecomp:
-                                                if v, e := p.eval(elem, StringValue); e == nil {
-                                                        var name string
-                                                        if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
-                                                        if sym, alt := p.def(name); alt != nil {
-                                                                p.error(p.pos, "Name `%s' already taken, not parameter (%T).", name, alt)
-                                                        } else if sym == nil {
-                                                                // TODO: errors
-                                                        } else {
-                                                                //sym.(*Def).Assign(MakeString("xxxxxxxxxx"))
-                                                        }
-                                                        params = append(params, name)
-                                                } else {
-                                                        p.error(elem.Pos(), "bad parameter (%T, %v)", elem, e)
-                                                }
-                                        default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
-                                                p.error(elem.Pos(), "bad parameter form (%T)", elem)
-                                        }
-                                }
-                                goto next
-                        case *ast.DelegateExpr, *ast.ClosureExpr, *ast.Barecomp, *ast.BasicLit:
-                                v, e := p.eval(n, StringValue)
-                                if e != nil {
-                                        p.error(n.Pos(), "%v (%v)", e, n); goto next
-                                }
-                                if name, e = v.Strval(); e != nil {
-                                        p.error(n.Pos(), "%v", e); goto next
-                                } else if name == "" {
-                                        p.error(n.Pos(), "empty name (%v)", n); goto next
-                                }
-                                pos = x.Pos()
+
+                group, ok := x.(*ast.GroupExpr)
+                if !ok {
+                        p.error(x.Pos(), "unsupported modifier")
+                        goto next
+                }
+
+                switch n := group.Elems[0].(type) {
+                case *ast.Bareword:
+                        if name, pos = n.Value, n.Pos(); name != "var" {
                                 goto checkName
-                        default:
-                                p.error(n.Pos(), "unsupported dialect or modifier (%T)", t.Elems[0])
+                        }
+                        for _, elem := range group.Elems[1:] {
+                                kv, _ := elem.(*ast.KeyValueExpr)
+                                if  kv == nil {
+                                        p.error(elem.Pos(), "bad var form (%T)", elem)
+                                        continue
+                                }
+                                v, e := p.eval(kv.Key, StringValue)
+                                if e == nil {
+                                        var name string
+                                        if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
+                                        if sym, alt := p.def(name); alt != nil {
+                                                p.error(p.pos, "Name `%s' already taken (%T).", name, alt)
+                                        } else if sym == nil {
+                                                // TODO: errors
+                                        } else if v, e = p.eval(kv.Value, KeepClosures|KeepDelegates); e == nil {
+                                                sym.Assign(v)
+                                                //fmt.Printf("var: %v\n", sym)
+                                        }
+                                }
+                                if e != nil {
+                                        p.error(elem.Pos(), "bad var (%T, %v)", elem, e)
+                                }
+                        }
+                        goto next
+                case *ast.GroupExpr: // parameters: ((foo bar))
+                        for _, elem := range n.Elems {
+                                switch elem.(type) {
+                                case *ast.Bareword, *ast.Barecomp:
+                                        var v = p.expr(elem)
+                                        var s string
+                                        if s, err = v.Strval(); err != nil {
+                                                p.error(p.pos, "%s", err)
+                                        }
+                                        if sym, alt := p.def(s); alt != nil {
+                                                p.error(p.pos, "Name `%s' already taken, not parameter (%T).", name, alt)
+                                        } else if sym == nil {
+                                                // TODO: errors
+                                        } else {
+                                                //sym.(*Def).Assign(MakeString("xxxxxxxxxx"))
+                                        }
+                                        params = append(params, s)
+                                default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
+                                        p.error(elem.Pos(), "bad parameter form (%T)", elem)
+                                }
+                        }
+                        goto next
+                case *ast.DelegateExpr, *ast.ClosureExpr, *ast.Barecomp, *ast.BasicLit:
+                        var v = p.expr(n)
+                        if name, err = v.Strval(); err != nil {
+                                p.error(n.Pos(), "%v", err)
+                                goto next
+                        } else if name == "" {
+                                p.error(n.Pos(), "empty name (%v)", n)
                                 goto next
                         }
+                        pos = x.Pos()
+                        goto checkName
                 default:
-                        p.error(x.Pos(), "unsupported modifier"); goto next
+                        p.error(n.Pos(), "unsupported dialect or modifier (%T)", group.Elems[0])
+                        goto next
                 }
+
                 goto addModifier
 
                 checkName: if IsDialect(name) {
@@ -1486,8 +1482,13 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                 }
                 
                 addModifier: elems = append(elems, x)
-                next: if p.tok == token.COMMA {
+                next: switch p.tok {
+                case token.COMMA:
                         p.next() // TODO: grouping modifiers
+                case token.BAR:
+                        p.next()
+                        bar := &ast.BasicLit{ pos, token.BAR, "|", p.pos }
+                        elems = append(elems, bar)
                 }
         }
         rpos := p.expect(token.RBRACK)

@@ -238,7 +238,7 @@ func (d *Def) Strval() (s string, e error) {
 
 func (d *Def) Assign(v Value) (res Value, err error) {
         if v == nil {
-                v = UniversalNone
+                v = universalnone
         } else if v.refs(d) {
                 err = fmt.Errorf("Recursive variable `%s' references itself.", d.name)
                 return
@@ -291,11 +291,11 @@ func (d *Def) AssignExec(a... Value) (res Value, err error) {
                         sh := exec.Command("sh", "-c", s)
                         sh.Stdout, sh.Stderr = &stdout, &stderr
                         if err = sh.Run(); err != nil {
-                                res, err = d.Assign(UniversalNone)
+                                res, err = d.Assign(universalnone)
                                 return
                         }
                 } else {
-                        res, err = d.Assign(UniversalNone)
+                        res, err = d.Assign(universalnone)
                         return
                 }
         }

@@ -50,6 +50,8 @@ var (
                 `args`:         modifierSetArgs, // interpreter args
                 `env`:          modifierSetEnv,  // interpreter environments
 
+                `closurup`:     modifierClosurup,
+
                 `cd`:           modifierCD,
                 `sudo`:         modifierSudo,
 
@@ -159,7 +161,7 @@ func modifierSelect(pos token.Position, prog *Program, value Value, args... Valu
                         result = g.Get(int(num))
                 }
         } else {
-                result = UniversalNone
+                result = universalnone
         }
         return
 }
@@ -186,6 +188,13 @@ func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Valu
                 }
         }
         result = envars
+        return
+}
+
+func modifierClosurup(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+        if len(cloctx) > 0 {
+                cloctx = cloctx[1:]
+        }
         return
 }
 
@@ -254,7 +263,7 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
 }
 
 func modifierSudo(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        // todo: sudoing commands
+        panic("todo: sudo modifier is not implemented yet")
         return
 }
 

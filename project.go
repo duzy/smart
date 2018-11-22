@@ -116,6 +116,7 @@ func (p *Project) search(file *File) bool {
                         if path, err = v.Strval(); err != nil {
                                 return false
                         }
+
                         if filepath.IsAbs(path) {
                                 dir = path
                         } else {
@@ -123,16 +124,12 @@ func (p *Project) search(file *File) bool {
                         }
 
                         // Check file in the filesystem.
-                        fullname := filepath.Join(dir, file.Name)
-                        fi, err := os.Stat(fullname)
-
-                        //fmt.Printf("search: %v %v\n", fullname, err)
-
+                        fi, err := os.Stat(filepath.Join(dir, file.Name))
                         if err == nil && fi != nil {
-                                file.Sub, file.Dir, file.Info = path, dir, fi
+                                file.Sub, file.Dir, file.Info = v, dir, fi
                                 break ForFileMaps
                         } else if file.Dir == "" {
-                                file.Sub, file.Dir = path, dir
+                                file.Sub, file.Dir = v, dir
                         }
                 }
         }

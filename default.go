@@ -81,7 +81,6 @@ LoopRecipes:
                         panic("unreachable")
                 }
         }
-        //fmt.Printf("statement: %v\n", list)
         return list, err
 }
 

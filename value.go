@@ -77,7 +77,11 @@ func scoping(a ...*Project) (saved closurecontext) {
 }
 
 func (cc closurecontext) unshift(scopers ...*Scope) closurecontext {
-        return append(closurecontext(scopers), cc...)
+        return append(scopers, cc...)
+}
+
+func (cc closurecontext) append(scopers ...*Scope) closurecontext {
+        return append(cc, scopers...)
 }
 
 func (cc closurecontext) String() (s string) {
@@ -375,6 +379,10 @@ func (p *None) prepare(pc *preparer) error {
 }
 
 type Nil struct { None }
+type ModifierBar struct { None }
+func (p *ModifierBar) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *ModifierBar) Strval() (string, error) { return "|", nil }
+func (p *ModifierBar) String() string {return "|" }
 
 type Any struct {
         Value interface{}
@@ -1260,15 +1268,23 @@ type File struct {
         value            // satisify Value interface
         Name string      // constant represented name (e.g. relative filename)
         Match *FileMap   // matched pattern (see 'files' directive)
-        Sub string       // matched sub path (in Project.SearchFile), may be absolete 
+        Sub Value        // matched sub path (in Project.SearchFile), may be absolete 
         Dir string       // full directory where the file was or should be found
         Info os.FileInfo // file info if exists
 }
 func (p *File) expend(_ expendwhat) (Value, error) { return p, nil }
 func (p *File) Type() Type { return FileType }
 func (p *File) String() string { return p.Name }
-
-func (p *File) Strval() (string, error) { return filepath.Join(p.Sub, p.Name), nil }
+func (p *File) Strval() (string, error) {
+        if p.Sub != nil {
+                if s, err := p.Sub.Strval(); err != nil {
+                        return "", err
+                } else {
+                        return filepath.Join(s, p.Name), nil
+                }
+        }
+        return p.Name, nil
+}
 
 func (p *File) Fullname() (s string) {
         if filepath.IsAbs(p.Name) {
@@ -1855,7 +1871,7 @@ func (p *delegate) reveal() (res Value, err error) {
         if err != nil {
                 //fmt.Printf("%v: %v\n", p.p, err)
         } else if res == nil {
-                res = UniversalNone
+                res = universalnone
         }
         return
 }
@@ -2405,8 +2421,8 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
 }
 
 func MakeGlobPattern(prefix, suffix Value) Pattern {
-        if prefix == nil { prefix = UniversalNone }
-        if suffix == nil { suffix = UniversalNone }
+        if prefix == nil { prefix = universalnone }
+        if suffix == nil { suffix = universalnone }
         return &GlobPattern{
                 Prefix: prefix,
                 Suffix: suffix,
@@ -2603,7 +2619,7 @@ func MakeListOrScalar(elems []Value) (res Value) {
         } else if x == 1 {
                 res = elems[0]
         } else {
-                res = UniversalNone
+                res = universalnone
         }
         return
 }
@@ -2636,7 +2652,8 @@ func EscapeChar(s string) string {
 
 func ParseLiteral(tok token.Token, s string) (v Value) {
         switch tok {
-        default:             v = UniversalNone
+        default:             v = universalnone
+        case token.BAR:      v = modifierbar
         case token.BIN:      v = ParseBin(s)
         case token.OCT:      v = ParseOct(s)
         case token.INT:      v = ParseInt(s)
@@ -2663,7 +2680,7 @@ func Make(in interface{}) (out Value) {
         case string:    out = MakeString(v)
         case time.Time: out = MakeDateTime(v) // FIXME: NewDate, NewTime
         case Value:     out = v
-        default:        out = UniversalNone
+        default:        out = universalnone
         }
         return
 }

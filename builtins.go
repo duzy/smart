@@ -399,7 +399,7 @@ func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
                 }
                 res = &String{strconv.Quote(strings.Join(fields, " "))}
         } else {
-                res = UniversalNone
+                res = universalnone
         }
         return
 }
@@ -422,7 +422,7 @@ func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) 
                 }
                 res = &String{strconv.Quote(strings.Join(fields, sep))}
         } else {
-                res = UniversalNone
+                res = universalnone
         }
         return
 }
@@ -439,7 +439,7 @@ func builtinSplitString(pos token.Position, args... Value) (res Value, err error
 
                 res = &List{Elements{fields}}
         } else {
-                res = UniversalNone
+                res = universalnone
         }
         return
 }
@@ -535,7 +535,7 @@ func builtinField(pos token.Position, args... Value) (res Value, err error) {
                         res = &String{s}
                 }
         } else {
-                res = UniversalNone
+                res = universalnone
         }
         return
 }
@@ -607,7 +607,7 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
                 }
         }
         if res == nil {
-                res = UniversalNone
+                res = universalnone
         }
         return
 }
@@ -723,7 +723,7 @@ func builtinStrip(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimSpace(pos token.Position, args... Value) (res Value, err error) {
-        return builtinTrim(pos, append([]Value{ UniversalNone }, args...)...)
+        return builtinTrim(pos, append([]Value{ universalnone }, args...)...)
 }
 
 func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
@@ -1551,13 +1551,10 @@ func builtinFileSource(pos token.Position, args... Value) (res Value, err error)
 
         var l []Value
         for _, a := range args {
-                var (names []string; str string)
+                var str string
                 if str, err = a.Strval(); err != nil { return }
                 if file := proj.file(str); file != nil {
-                        names = append(names, file.Sub)
-                }
-                for _, s := range names {
-                        l = append(l, &String{s})
+                        l = append(l, file.Sub)
                 }
         }
         if err == nil {
@@ -1587,7 +1584,14 @@ func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
                                         break
                                 }
                         } else {
-                                subfile := filepath.Join(file.Sub, file.Name)
+                                var s string
+                                if file.Sub != nil {
+                                        if s, err = file.Sub.Strval(); err != nil {
+                                                break
+                                        }
+                                }
+
+                                subfile := filepath.Join(s, file.Name)
                                 if names, err = filepath.Glob(subfile); err != nil {
                                         break
                                 }
@@ -1626,7 +1630,7 @@ func builtinReadDir(pos token.Position, args... Value) (res Value, err error) {
                         }
                         l = append(l, v)
                 } else {
-                        break //l = append(l, UniversalNone)
+                        break //l = append(l, universalnone)
                 }
         }
         if err == nil {
@@ -1646,7 +1650,7 @@ func builtinReadFile(pos token.Position, args... Value) (res Value, err error) {
                 if s, err = ioutil.ReadFile(str); err == nil {
                         l = append(l, &String{string(s)})
                 } else {
-                        break //l = append(l, UniversalNone)
+                        break //l = append(l, universalnone)
                 }
         }
         if err == nil {

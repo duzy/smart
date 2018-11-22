@@ -876,6 +876,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         s.next() // discard '\n'
                 case '@':
                         tok = token.AT
+                case '|':
+                        tok = token.BAR
                 case '!':
                         tok = token.EXC
                         if s.ch == '=' {

@@ -175,7 +175,7 @@ func (ctx *Context) loadwork() (targets []Value) {
                 defCTD, _ = as.Def(at, "CTD", MakeString(tmp))
                 defCWD, _ = as.Def(at, "CWD", MakeString(at.absPath))
                 defS, _ = as.Def(at, "/", MakeString(at.absPath))
-                defD, _ = as.Def(at, ".", UniversalNone)
+                defD, _ = as.Def(at, ".", universalnone)
         )
         if defCTD == nil { /* ... */ }
         if defCWD == nil { /* ... */ }

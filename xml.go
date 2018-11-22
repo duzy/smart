@@ -128,7 +128,7 @@ func (t *_xml) Evaluate(prog *Program, args []Value, recipes []Value) (result Va
         if result, err = DecodeXML(source, t.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ UniversalNone }
+                result = &XML{ universalnone }
         }
         return
 }
