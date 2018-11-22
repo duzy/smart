@@ -1723,10 +1723,10 @@ func (p *parser) parseFile() *ast.File {
                 def, _ = p.def(".")
                 def.Assign(MakeString(rel))
 
-                def, _ = p.def("CTD") // Current Work Directory
+                def, _ = p.def("CTD") // Current Temp Directory
                 def.Assign(MakeString(tmp))
 
-                def, _ = p.def("CWD") // Current Temp Directory
+                def, _ = p.def("CWD") // Current Work Directory
                 def.Assign(MakeString(abs))
         } else {
                 p.error(p.pos, "open scope")
