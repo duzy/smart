@@ -638,7 +638,6 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var a []Value
-                //if a, err = RevealAll(Merge(args[2:]...)...); err != nil { return }
                 if a, err = mergeresult(RevealAll(args[2:]...)); err != nil { return }
                 for _, arg := range a {
                         var (
