@@ -41,7 +41,9 @@ func (p *using) prepare(pc *preparer) (err error) {
                 fmt.Printf("prepare:using\n")
         }
         if entry := p.project.DefaultEntry(); entry != nil {
-                err = entry.prepare(pc)
+                if err = entry.prepare(pc); err != nil {
+                        fmt.Printf("%v: %v (using)\n", entry.Position, err)
+                }
         }
         return
 }
