@@ -27,7 +27,33 @@ func setexecstack(v []*Program) (saved []*Program) {
 }
 
 func (xs executestack) unshift(progs... *Program) executestack {
+        /*var res executestack
+        ForProgs: for _, prog := range progs {
+                for _, x := range xs {
+                        if prog.project == x.project { continue ForProgs }
+                }
+                res = append(res, prog)
+        }
+        return append(res, execstack...)*/
         return append(progs, execstack...)
+}
+
+func (xs executestack) projects() (res []*Project) {
+        ForXS: for _, x := range xs {
+                for _, p := range res {
+                        if x.project == p { continue ForXS }
+                }
+                res = append(res, x.project)
+        }
+        return
+}
+
+func (xs executestack) String() (s string) {
+        for i, x := range xs {
+                if i > 0 { s += " " }
+                s += x.project.name
+        }
+        return fmt.Sprintf("[%s]", s)
 }
 
 var printstack []string

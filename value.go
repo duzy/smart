@@ -1398,12 +1398,14 @@ func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
 
 func (p *File) prepare(pc *preparer) error {
         if trace_prepare {
-                fmt.Printf("prepare:File: %v (%v) (%v)\n", p.Name, p, pc.program.project.name)
+                fmt.Printf("prepare:File: %v (%v) (%v)\n", p.Name, p.Dir, pc.program.project.name)
         }
 
-        if info, err := os.Stat(p.Dir); err != nil || info == nil {
-                if err = os.MkdirAll(p.Dir, 0755); err != nil {
-                        return err
+        if p.Dir != "" {
+                if info, err := os.Stat(p.Dir); err != nil || info == nil {
+                        if err = os.MkdirAll(p.Dir, 0755); err != nil {
+                                return err
+                        }
                 }
         }
 
@@ -1444,9 +1446,18 @@ func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
         if entry, err = pc.program.project.resolveEntry(p.Name); err != nil {
                 // ... error
         } else if entry == nil {
-                // ... error
+                // Search into the upper projects for matched a rule.
+                for _, proj := range execstack.projects() {
+                        if proj == pc.program.project { continue }
+                        if entry, err = proj.resolveEntry(p.Name); err != nil {
+                                break
+                        } else if entry != nil {
+                                err, trybrk = entry.prepare(pc), true
+                                break
+                        }
+                }
         } else {
-                err = entry.prepare(pc)
+                err, trybrk = entry.prepare(pc), true
         }
         return
 }
