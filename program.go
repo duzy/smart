@@ -68,7 +68,7 @@ type Program struct {
         recipes []Value
         pipline []*modifier
         cdinfos []*cdinfo
-        subcdrs []*cdrecord
+        subcdrs []string // sub-program cd print records
         position token.Position
 }
 
@@ -213,11 +213,10 @@ func (prog *Program) cd(chdir string, print, exec bool) (err error) {
                 }
                 if cd.print && caller != nil {
                         // check the caller program's subcdrs
-                        if len(caller.subcdrs) > 0 && caller.subcdrs[0].chdir == cd.chdir {
-                                caller.subcdrs[0].n += 1
+                        if len(caller.subcdrs) > 0 && caller.subcdrs[0] == cd.chdir {
                                 cd.print = false
                         } else {
-                                caller.subcdrs = append([]*cdrecord{ &cdrecord{cd.chdir, 1} }, caller.subcdrs...)
+                                caller.subcdrs = append([]string{cd.chdir}, caller.subcdrs...)
                         }
                 }
                 if cd.print {
@@ -378,8 +377,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.auto("^", pc.targets)
         }
         for _, rec := range prog.subcdrs {
-                fmt.Printf("smart:  Leaving directory '%s'\n", rec.chdir)
-                if len(printstack) > 0 && printstack[0] == rec.chdir {
+                fmt.Printf("smart:  Leaving directory '%s'\n", rec)
+                if len(printstack) > 0 && printstack[0] == rec {
                         printstack = printstack[1:]
                 }
         }
