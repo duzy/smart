@@ -211,8 +211,8 @@ func (prog *Program) cd(chdir string, print, exec bool) (err error) {
                 if cd.print && len(printstack) > 0 && printstack[0] == cd.chdir {
                         cd.print = false
                 }
-                // check the caller program's subcdrs
-                if caller != nil && cd.print {
+                if cd.print && caller != nil {
+                        // check the caller program's subcdrs
                         if len(caller.subcdrs) > 0 && caller.subcdrs[0].chdir == cd.chdir {
                                 caller.subcdrs[0].n += 1
                                 cd.print = false

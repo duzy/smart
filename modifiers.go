@@ -50,7 +50,7 @@ var (
                 `args`:         modifierSetArgs, // interpreter args
                 `env`:          modifierSetEnv,  // interpreter environments
 
-                `closurup`:     modifierClosurup,
+                `unclose`:      modifierUnclose,
 
                 `cd`:           modifierCD,
                 `sudo`:         modifierSudo,
@@ -191,7 +191,7 @@ func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Valu
         return
 }
 
-func modifierClosurup(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierUnclose(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
         if len(cloctx) > 0 {
                 cloctx = cloctx[1:]
         }
