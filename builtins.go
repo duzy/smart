@@ -106,6 +106,19 @@ var builtins = map[string]BuiltinFunc {
         `dir9`:       builtinDir9,
         `dirs`:       builtinDirs, // do `dir` n times
 
+        `undir`:      builtinUndir,
+        `undir2`:     builtinUndir2,
+        `undir3`:     builtinUndir3,
+        `undir4`:     builtinUndir4,
+        `undir5`:     builtinUndir5,
+        `undir6`:     builtinUndir6,
+        `undir7`:     builtinUndir7,
+        `undir8`:     builtinUndir8,
+        `undir9`:     builtinUndir9,
+        `undirs`:     builtinUndirs, // do `undir` n times
+
+        `dir-chop`:   builtinDirChop,
+
         `relative-dir`: builtinRelativeDir,
 
         // TODO: move these into builtin package `os'
@@ -1047,7 +1060,7 @@ func builtinBase(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinDirDir(pos token.Position, args... Value) (res Value, err error) {
+func dirx(pos token.Position, n int, args... Value) (res Value, err error) {
         var (
                 l []Value
                 s string
@@ -1056,8 +1069,34 @@ func builtinDirDir(pos token.Position, args... Value) (res Value, err error) {
                 if s, err = a.Strval(); err != nil {
                         return
                 }
-                s = filepath.Dir(filepath.Dir(s))
+                s = filepath.Dir(s)
+                for i := n-1; 0 < i; i -= 1 {
+                        s = filepath.Dir(s)
+                }
                 l = append(l, &String{s})
+        }
+        res = MakeListOrScalar(l)
+        return
+}
+
+func undirx(pos token.Position, n int, args... Value) (res Value, err error) {
+        var (
+                l []Value
+                s string
+        )
+        for _, a := range args {
+                if s, err = a.Strval(); err != nil {
+                        return
+                }
+                v := strings.Split(s, PathSep)
+                if i := len(v); i == 0 {
+                        // v is empty
+                } else if n < i {
+                        v = v[n:]
+                } else {
+                        v = v[i-1:] // empty
+                }
+                l = append(l, &String{filepath.Join(v...)})
         }
         res = MakeListOrScalar(l)
         return
@@ -1073,25 +1112,6 @@ func builtinDir(pos token.Position, args... Value) (res Value, err error) {
                         return
                 }
                 s = filepath.Dir(s)
-                l = append(l, &String{s})
-        }
-        res = MakeListOrScalar(l)
-        return
-}
-
-func dirx(pos token.Position, n int, args... Value) (res Value, err error) {
-        var (
-                l []Value
-                s string
-        )
-        for _, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        return
-                }
-                s = filepath.Dir(s)
-                for i := n-1; 0 < i; i -= 1 {
-                        s = filepath.Dir(s)
-                }
                 l = append(l, &String{s})
         }
         res = MakeListOrScalar(l)
@@ -1147,10 +1167,113 @@ func builtinDirs(pos token.Position, args... Value) (res Value, err error) {
                         }
                         args, n = args[:x-1], int(i)
                 } else {
-                        return nil, errors.New("Require (first/last) integer argument")
+                        return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
                 }
         }
         res, err = dirx(pos, n, args...)
+        return
+}
+
+func builtinUndir(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 1, args...)
+}
+
+func builtinUndir2(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 2, args...)
+}
+
+func builtinUndir3(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 3, args...)
+}
+
+func builtinUndir4(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 4, args...)
+}
+
+func builtinUndir5(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 5, args...)
+}
+
+func builtinUndir6(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 6, args...)
+}
+
+func builtinUndir7(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 7, args...)
+}
+
+func builtinUndir8(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 8, args...)
+}
+
+func builtinUndir9(pos token.Position, args... Value) (res Value, err error) {
+        return undirx(pos, 9, args...)
+}
+
+func builtinUndirs(pos token.Position, args... Value) (res Value, err error) {
+        var (
+                i int64
+                n = 0
+        )
+        if x := len(args); x > 0 {
+                if v := Scalar(args[0], IntType); v != nil {
+                        if i, err = v.Integer(); err != nil {
+                                return
+                        }
+                        args, n = args[1:], int(i)
+                } else if v := Scalar(args[x-1], IntType); v != nil {
+                        if i, err = v.Integer(); err != nil {
+                                return
+                        }
+                        args, n = args[:x-1], int(i)
+                } else {
+                        return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
+                }
+        }
+        return undirx(pos, n, args...)
+}
+
+func builtinDirChop(pos token.Position, args... Value) (res Value, err error) {
+        var (
+                l []Value
+                n = 0
+        )
+        if x := len(args); x > 0 {
+                var i int64
+                if v := Scalar(args[0], IntType); v != nil {
+                        if i, err = v.Integer(); err != nil {
+                                return
+                        }
+                        args, n = args[1:], int(i)
+                } else if v := Scalar(args[x-1], IntType); v != nil {
+                        if i, err = v.Integer(); err != nil {
+                                return
+                        }
+                        args, n = args[:x-1], int(i)
+                } else {
+                        return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
+                }
+        }
+        for _, a := range args {
+                var s string
+                if s, err = a.Strval(); err != nil {
+                        return
+                }
+                var v = strings.Split(s, PathSep)
+                if i := len(v); 0 < i {
+                        if n < 0 { n = i + n }
+                        if 0 <= n && n+1 < i {
+                                v = append(v[0:n], v[n+1:]...)
+                        } else {
+                                v = append(v[0:n])
+                        }
+                        if len(v) > 0 && v[0] == "" {
+                                v[0] = PathSep // for absolute paths
+                        }
+                }
+                l = append(l, &String{filepath.Join(v...)})
+        }
+        res = MakeListOrScalar(l)
         return
 }
 

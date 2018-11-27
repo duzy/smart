@@ -2638,7 +2638,7 @@ func MakeListOrScalar(elems []Value) (res Value) {
 func Scalar(v Value, t Type) (res Value) {
         if v.Type() == t {
                 res = v
-        } else if l, _ := v.(*List); l != nil && l.Len() > 0 {
+        } else if l, o := v.(*List); l != nil && o && l.Len() > 0 {
                 res = Scalar(l.Elems[0], t)
         }
         return

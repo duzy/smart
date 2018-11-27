@@ -642,7 +642,6 @@ func (p *parser) parseFlagExpr(lhs bool) ast.Expr {
 }
 
 func (p *parser) parseBasicLit(lhs bool) ast.Expr {
-        //fmt.Printf("%s %s\n", p.tok, p.lit)
         pos, tok, lit := p.pos, p.tok, p.lit
         end := int(pos) + len(lit)
         switch tok {

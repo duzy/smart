@@ -909,6 +909,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 tok = token.SELECT_PROP
                                 s.next()
                                 //s.skipPostLineFeeds = true
+                        } else if '0' <= s.ch && s.ch <= '9' {
+                                tok, lit = s.scanNumber(false)
+                                lit = "-" + lit // minus number
                         } else {
                                 tok = token.MINUS
                         }
