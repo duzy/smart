@@ -124,8 +124,11 @@ func joinTmpPath(base, rel string) string {
         if s, err := filepath.Rel(baseTmpPath, filepath.Join(base, rel)); err == nil {
                 rel = s
         }
+        if s := ".smart"+PathSep; strings.HasPrefix(rel, s) {
+                rel = strings.TrimPrefix(rel, s)
+        }
         rel = strings.Replace(rel, "..", "_", -1)
-        return filepath.Join(baseTmpPath, ".smart", ".tmp", rel)
+        return filepath.Join(baseTmpPath, ".smart", "tmp", rel)
 }
 
 // loadwork loads smart files, making it as individual func to avoid being
@@ -275,7 +278,7 @@ func CommandLine() {
         var smartDirs searchlist
         walkSmartBaseDirs(context.workdir, func(s string) bool {
                 if baseTmpPath == "" { baseTmpPath = s }
-                smartDirs = append(smartDirs, filepath.Join(s, ".smart"))
+                smartDirs = append(smartDirs, filepath.Join(s, ".smart/modules"))
                 return true
         })
 
