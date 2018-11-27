@@ -322,7 +322,7 @@ func (p *Project) entry(special ruleSpecial, target Value, prog *Program) (entry
         // Looking for pattern rule entries.
         if glob, ok := target.(*GlobPattern); ok {
                 if glob == nil { /* FIXME: error */ }
-                for _, pat := range p.patterns {
+                /*for _, pat := range p.patterns {
                         var sv string
                         if closured && pat.RuleEntry.String() == name {
                                 entry = pat.RuleEntry; break
@@ -338,7 +338,12 @@ func (p *Project) entry(special ruleSpecial, target Value, prog *Program) (entry
                                 target: target,
                         }
                         p.patterns = append(p.patterns, &PatternEntry{ entry, glob })
+                }*/
+                entry = &RuleEntry{
+                        class: GlobRuleEntry,
+                        target: target,
                 }
+                p.patterns = append(p.patterns, &PatternEntry{ entry, glob })
                 return
         }
 

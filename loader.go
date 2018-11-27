@@ -167,7 +167,6 @@ func restoreLoadingInfo(l *loader) {
 }
 
 func saveLoadingInfo(l *loader, specName, absDir, baseName string) *loader {
-        //absDir, baseName := filepath.Split(filepath.Clean(absPath))
         l.loads = append(l.loads, &loadinfo{
                 absDir: absDir,
                 baseName: baseName,
@@ -661,6 +660,9 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) {
         for _, prog := range usee.userule.programs {
                 defer prog.setUser(prog.setUser(l.project))
         }
+
+        defer func(v bool) { printcd = v } (printcd)
+        printcd = false // turn off `entering directory`
 
         position := l.p.file.Position(pos)
         results, err := mergeresult(usee.userule.Execute(position, params...))

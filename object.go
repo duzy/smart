@@ -265,14 +265,14 @@ func (d *Def) Append(va... Value) (Value, error) {
         } else if d.Value != nil && d.Value.Type() != NoneType {
                 nv = d.Value
                 if l, ok := nv.(*List); ok && l != nil {
-                        l.Append(Merge(va...)...)
+                        l.Append(merge(va...)...)
                 } else if nva > 0 {
                         elems := []Value{ nv }
-                        elems = append(elems, Merge(va...)...)
+                        elems = append(elems, merge(va...)...)
                         nv = &List{ Elements{ elems } }
                 }
         } else if nva > 0 {
-                nv = &List{ Elements{ Merge(va...) } }
+                nv = &List{ Elements{ merge(va...) } }
         }
         if nv != nil {
                 return d.Assign(nv)

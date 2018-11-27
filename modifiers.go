@@ -253,7 +253,8 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                                 return
                         }
                 }
-                if err = prog.cd(dir, false); err == nil {
+                var print = true
+                if err = prog.cd(dir, print, false); err == nil {
                         //for _, cd := range prog.cdinfos[1:] { cd.print = false }
                 }
         } else {

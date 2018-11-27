@@ -265,7 +265,7 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                         pc.targets.Append(prog.project.SearchFile(s))
                 }
                 if res != nil && res.Type() != NoneType {
-                        for _, elem := range Merge(res) {
+                        for _, elem := range merge(res) {
                                 switch elem.(type) {
                                 case *File: pc.targets.Append(elem)
                                 }
@@ -1975,7 +1975,7 @@ func (p *delegate) prepare(pc *preparer) (err error) {
         }
         var val Value
         if val, err = p.expend(expendDelegate); err != nil { return }
-        for _, d := range Merge(val) {
+        for _, d := range merge(val) {
                 if err = pc.update(d); err != nil { break }
         }
         return
@@ -2553,10 +2553,10 @@ func DiscloseAll(values ...Value) (res []Value, err error) {
 }
 
 // Merge combines lists recursively into one list. Previously called Join.
-func Merge(args... Value) (elems []Value) {
+func merge(args... Value) (elems []Value) {
         for _, arg := range args {
                 if l, _ := arg.(*List); l != nil {
-                        elems = append(elems, Merge(l.Elems...)...)
+                        elems = append(elems, merge(l.Elems...)...)
                 } else {
                         elems = append(elems, arg)
                 }
@@ -2565,7 +2565,7 @@ func Merge(args... Value) (elems []Value) {
 }
 
 func mergeresult(res []Value, err error) ([]Value, error) {
-        if err == nil { res = Merge(res...) }
+        if err == nil { res = merge(res...) }
         return res, err
 }
 

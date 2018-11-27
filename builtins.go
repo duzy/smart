@@ -23,63 +23,63 @@ import (
 type BuiltinFunc func(pos token.Position, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
-        `typeof`: builtinTypeOf,
+        `typeof`:       builtinTypeOf,
 
-        `error`:  builtinError,
+        `error`:        builtinError,
 
         `assert-valid`: builtinAssertValid,
 
-        `or`:    builtinLogicalOr,
+        `or`:           builtinLogicalOr,
         /* TODO:
         `and`:   builtinLogicalAnd,
         `xor`:   builtinLogicalXor,
         `not`:   builtinLogicalNot, */
 
-        `if`:    builtinBranchIf,
-        `ifeq`:  builtinBranchIfEq,
-        `ifne`:  builtinBranchIfNE,
+        `if`:           builtinBranchIf,
+        `ifeq`:         builtinBranchIfEq,
+        `ifne`:         builtinBranchIfNE,
 
-        `env`:     builtinEnv,
+        `env`:          builtinEnv,
         
-        `print`:   builtinPrint,
-        `printl`:  builtinPrintl,
-        `println`: builtinPrintln,
+        `print`:        builtinPrint,
+        `printl`:       builtinPrintl,
+        `println`:      builtinPrintln,
 
         //`plus`:    builtinPlus,
         //`minus`:   builtinMinus,
 
-        `quote`: builtinQuote,
-        `quote-join`: builtinQuoteJoin,
+        `quote`:        builtinQuote,
+        `quote-join`:   builtinQuoteJoin,
         `split-string`: builtinSplitString,
-        `split-quote`: builtinSplitQuote,
+        `split-quote`:  builtinSplitQuote,
         `split-quote-join`: builtinSplitQuoteJoin,
         `split-join-quote`: builtinSplitJoinQuote,
-        `join`:    builtinJoin,
-        `field`:   builtinField,
-        `fields`:  builtinFields,
+        `join`:         builtinJoin,
+        `field`:        builtinField,
+        `fields`:       builtinFields,
 
-        `string`:  builtinString,
-        `strip`:   builtinStrip,
-        `title`:       builtinTitle,
-        `trim`:        builtinTrim,
-        `trim-space`:  builtinTrimSpace,
-        `trim-left`:   builtinTrimLeft,
-        `trim-right`:  builtinTrimRight,
-        `trim-prefix`: builtinTrimPrefix,
-        `trim-suffix`: builtinTrimSuffix,
-        `trim-ext`:    builtinTrimExt,
+        `string`:       builtinString,
+        `strip`:        builtinStrip,
+        `title`:        builtinTitle,
+        `trim`:         builtinTrim,
+        `trim-space`:   builtinTrimSpace,
+        `trim-left`:    builtinTrimLeft,
+        `trim-right`:   builtinTrimRight,
+        `trim-prefix`:  builtinTrimPrefix,
+        `trim-suffix`:  builtinTrimSuffix,
+        `trim-ext`:     builtinTrimExt,
 
-        `indent`:      builtinIndent,
+        `indent`:       builtinIndent,
 
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-        `subst`:      builtinSubst,
-        `patsubst`:   builtinPatsubst,
+        `subst`:        builtinSubst,
+        `patsubst`:     builtinPatsubst,
 
-        `filter`:     builtinFilter,
-        `filter-out`: builtinFilterOut,
+        `filter`:       builtinFilter,
+        `filter-out`:   builtinFilterOut,
 
-        `encode-base64`:  builtinEncodeBase64,
-        `decode-base64`:  builtinDecodeBase64,
+        `encode-base64`:builtinEncodeBase64,
+        `decode-base64`:builtinDecodeBase64,
 
         /* TODO:
         `encode-base32`
@@ -119,8 +119,9 @@ var builtins = map[string]BuiltinFunc {
         `link`:       builtinLink,      // os/file_*.go
         `symlink`:    builtinSymlink,   // os/file_*.go
 
-        `file-exists`:builtinFileExists,    // stat
+        `file-exists`:builtinFileExists,// stat
         `file-source`:builtinFileSource,
+        `file`:       builtinFile,
         `wildcard`:   builtinWildcard,
 
         // TODO: move these into builtin package 'io/ioutil'
@@ -638,12 +639,15 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var a []Value
-                if a, err = mergeresult(RevealAll(args[2:]...)); err != nil { return }
+                if a, err = mergeresult(RevealAll(args[2:]...)); err != nil {
+                        return
+                }
                 for _, arg := range a {
                         var (
                                 a, s string // stemp
                                 m bool // matched
                         )
+
                         if pat, _ := args[0].(*GlobPattern); pat != nil {
                                 if a, err = arg.Strval(); err != nil {
                                         return
@@ -1561,6 +1565,35 @@ func builtinFileSource(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
+func builtinFile(pos token.Position, args... Value) (res Value, err error) {
+        var proj = current()
+        if proj == nil {
+                err = fmt.Errorf("unknown current context")
+                return
+        }
+
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
+
+        var list []Value
+        for _, a := range args {
+                var str string
+                if str, err = a.Strval(); err != nil {
+                        fmt.Fprintf(os.Stdout, "%s: %v", pos, err)
+                        return
+                } else if file := proj.file(str); file != nil {
+                        list = append(list, file)
+                } else {
+                        fmt.Fprintf(os.Stdout, "%s: no such file `%v`", pos, a)
+                }
+        }
+        if err == nil {
+                res = MakeListOrScalar(list)
+        }
+        return
+}
+
 func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
         var proj = current()
         if proj == nil {
@@ -1572,7 +1605,7 @@ func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
                 return
         }
 
-        var l []Value
+        var list []Value
         for _, a := range args {
                 var (names []string; str string)
                 if str, err = a.Strval(); err != nil { return }
@@ -1593,6 +1626,7 @@ func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
                                 if names, err = filepath.Glob(subfile); err != nil {
                                         break
                                 }
+
                                 // Chop off file.Sub to represent shorter names
                                 // Aka. file.Sub+PathSep
                                 prefix := strings.TrimSuffix(subfile, file.Name)
@@ -1604,11 +1638,11 @@ func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
                         break
                 }
                 for _, s := range names {
-                        l = append(l, &String{s})
+                        list = append(list, &String{s})
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(l)
+                res = MakeListOrScalar(list)
         }
         return
 }
