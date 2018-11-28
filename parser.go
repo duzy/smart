@@ -1267,6 +1267,12 @@ func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) *ast.DefineC
         }
 }
 
+func (p *parser) parseDefine(ident ast.Expr) (clause *ast.DefineClause) {
+        clause = p.parseDefineClause(p.tok, ident)
+        p.define(clause)
+        return
+}
+
 func (p *parser) parseRecipeDefineClause(x ast.Expr) ast.Expr {
         // TODO: validate x ...
         d := p.parseDefineClause(p.tok, x)
@@ -1637,6 +1643,11 @@ func (p *parser) parseSpecialRuleClause() ast.Clause {
 
 func (p *parser) parseClause(sync func(*parser)) ast.Clause {
  	switch p.tok {
+        case token.IMPORT:
+                pos := p.pos
+                p.error(pos, "`%v` unexpected here", p.tok)
+                sync(p)
+                return &ast.BadClause{From: pos, To: p.pos}
 	case token.INCLUDE:
                 return p.parseGenericClause(token.INCLUDE, p.expect(token.INCLUDE), p.parseIncludeSpec)
 	case token.INSTANCE:
@@ -1669,9 +1680,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
 
         x := p.parseExpr(true)
         if p.tok.IsAssign() {
-                define := p.parseDefineClause(p.tok, x)
-                p.define(define)
-                return define
+                return p.parseDefine(x)
         }
 
         list := []ast.Expr{ x }
@@ -1807,10 +1816,15 @@ func (p *parser) parseFile() *ast.File {
 
 	var clauses []ast.Clause
 	if p.mode&ModuleClauseOnly == 0 {
-                if p.mode&Flat == 0 {
-                        // import clauses
-                        for p.tok == token.IMPORT {
+                /*if p.mode&Flat == 0 {
+                        // import & define clauses
+                        for p.tok {
+                        case token.IMPORT:
                                 clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
+                        //default:
+                        //        if x := p.parseExpr(true); p.tok.IsAssign() {
+                        //                return p.parseDefine(p.tok, x)
+                        //        }
                         }
                 }
 		if p.mode&ImportsOnly == 0 {
@@ -1819,8 +1833,35 @@ func (p *parser) parseFile() *ast.File {
                                  switch p.tok {
                                  case token.LINEND:
                                          p.next() // skip empty lines
-                                 case token.IMPORT:
-                                         p.errorExpected(p.pos, "'"+p.tok.String()+"'")
+                                 default:
+                                         clauses = append(clauses, p.parseClause(syncClause))
+                                 }
+			}
+		}*/
+                if p.mode&Flat == 0 {
+                        // import & define clauses
+                        ForInit: for {
+                                switch p.tok {
+                                case token.IMPORT:
+                                        clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
+                                default:
+                                        if p.tok.IsKeyword() {
+                                                break ForInit
+                                        } else if x := p.parseExpr(true); p.tok.IsAssign() {
+                                                clauses = append(clauses, p.parseDefine(x))
+                                        } else {
+                                                p.error(p.pos, "`%v` unexpected here (%v)", p.tok, x)
+                                                syncClause(p)
+                                        }
+                                }
+                        }
+                }
+		if p.mode&ImportsOnly == 0 {
+			// rest of module body
+			for p.tok != token.EOF {
+                                 switch p.tok {
+                                 case token.LINEND:
+                                         p.next() // skip empty lines
                                  default:
                                          clauses = append(clauses, p.parseClause(syncClause))
                                  }
