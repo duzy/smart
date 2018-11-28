@@ -95,7 +95,7 @@ func (p *unresolvedobject) Name() string {
         }
 }
 func (p *unresolvedobject) String() string { return p.name.String() }
-func (p *unresolvedobject) Strval() (string, error) { return p.name.Strval() }
+func (p *unresolvedobject) Strval() (string, error) { return /*p.name.Strval()*/"", nil }
 func (p *unresolvedobject) Call(pos token.Position, a... Value) (result Value, err error) { result = p; return }
 func (p *unresolvedobject) Execute(pos token.Position, a... Value) (result []Value, err error) { result = []Value{p}; return }
 func (p *unresolvedobject) redecl(scope *Scope) {
