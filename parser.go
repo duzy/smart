@@ -483,7 +483,7 @@ func (p *parser) isEndOfList(lhs bool) bool {
                 return true
         }
         return p.tok == token.EOF || p.tok == token.LINEND || p.lineComment != nil ||
-                p.tok == token.COMMA || (lhs && p.tok.IsAssign())
+               p.tok == token.COMMA || (lhs && p.tok.IsAssign())
 }
 
 // If lhs is set, result list elements which are identifiers are not resolved.
@@ -1842,6 +1842,8 @@ func (p *parser) parseFile() *ast.File {
                         // import & define clauses
                         ForInit: for {
                                 switch p.tok {
+                                case token.LINEND:
+                                        p.next() // skip empty lines
                                 case token.IMPORT:
                                         clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
                                 default:
@@ -1849,6 +1851,10 @@ func (p *parser) parseFile() *ast.File {
                                                 break ForInit
                                         } else if x := p.parseExpr(true); p.tok.IsAssign() {
                                                 clauses = append(clauses, p.parseDefine(x))
+                                        } else if p.tok.IsRuleDelim() {
+                                                clause := p.parseRuleClause(p.tok, ruleSpecialNor, []ast.Expr{x})
+                                                clauses = append(clauses, clause)
+                                                break ForInit
                                         } else {
                                                 p.error(p.pos, "`%v` unexpected here (%v)", p.tok, x)
                                                 syncClause(p)
