@@ -281,7 +281,13 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         // Have to set execstack after cd.
         defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
-        defer setclosure(setclosure(cloctx.unshift(entry.DeclScope())))////defer setclosure(setclosure(cloctx.append(entry.DeclScope())))
+        if true {
+                //defer setclosure(setclosure(cloctx.unshift(entry.DeclScope())))
+                defer setclosure(setclosure(cloctx.unshift(prog.scope)))
+        } else {
+                //defer setclosure(setclosure(cloctx.append(entry.DeclScope())))
+                defer setclosure(setclosure(cloctx.append(prog.scope)))
+        }
 
         // uncd after setting execstack to meet the FIFO order of execstack
         defer func() { if err == nil { err = prog.uncd() } } ()
