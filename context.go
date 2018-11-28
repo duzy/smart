@@ -124,8 +124,11 @@ func joinTmpPath(base, rel string) string {
         if s, err := filepath.Rel(baseTmpPath, filepath.Join(base, rel)); err == nil {
                 rel = s
         }
-        if s := ".smart"+PathSep; strings.HasPrefix(rel, s) {
+        if s := ".smart"+PathSep; strings.HasPrefix(rel, s) { // .smart/
                 rel = strings.TrimPrefix(rel, s)
+                if s = "modules"+PathSep; strings.HasPrefix(rel, s) { // modules/
+                        rel = strings.TrimPrefix(rel, s)
+                }
         }
         rel = strings.Replace(rel, "..", "_", -1)
         return filepath.Join(baseTmpPath, ".smart", "tmp", rel)
