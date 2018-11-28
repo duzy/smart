@@ -23,6 +23,11 @@ type ExecBuffer struct {
         Line *regexp.Regexp
         Subm [][][][]byte
         line []byte
+        filters []string
+}
+
+func (p *ExecBuffer) filter(s string) {
+        p.filters = append(p.filters, s)
 }
 
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
@@ -38,6 +43,11 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
                 }
                 if i != -1 {
                         p.line = b[i+1:]
+                }
+        }
+        for _, s := range p.filters {
+                if string(b) == s {
+                        return len(b), nil
                 }
         }
         if p.Tie != nil {
@@ -241,7 +251,10 @@ func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result 
                 if verberr { exeres.Stderr.Tie = os.Stderr }
                 if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
                 if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
-                if stdin   { sh.Stdin = os.Stdin }
+                if stdin { sh.Stdin = os.Stdin }
+
+                exeres.Stderr.filter("bash: no job control in this shell\n")
+
                 if err = sh.Run(); err == nil {
                         exeres.Status, source = 0, ""
                 } else {
