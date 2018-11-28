@@ -54,6 +54,7 @@ var builtins = map[string]BuiltinFunc {
         `split-quote`:  builtinSplitQuote,
         `split-quote-join`: builtinSplitQuoteJoin,
         `split-join-quote`: builtinSplitJoinQuote,
+        `unique`:       builtinUnique,
         `join`:         builtinJoin,
         `field`:        builtinField,
         `fields`:       builtinFields,
@@ -382,6 +383,24 @@ func builtinMinus(pos token.Position, args... Value) (result Value, err error) {
                 }
         }
         return &Int{integer{num}}, nil
+}
+
+func builtinUnique(pos token.Position, args... Value) (res Value, err error) {
+        var list []Value
+        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+                return
+        }
+        ForArgs: for _, a := range args {
+                var s1, s2 string
+                if s1, err = a.Strval(); err != nil { return }
+                for _, v := range list {
+                        if s2, err = v.Strval(); err != nil { return }
+                        if s1 == s2 { continue ForArgs }
+                }
+                list = append(list, a)
+        }
+        res = MakeListOrScalar(list)
+        return
 }
 
 func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
