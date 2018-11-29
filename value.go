@@ -2228,7 +2228,7 @@ func (p *selection) Strval() (s string, err error) {
                 // sth's wrong
         } else if v != nil {
                 s, err = v.Strval()
-        } else {
+        } else if false {
                 err = fmt.Errorf("selection.strval: `%s` is nil", p.String())
         }
         return

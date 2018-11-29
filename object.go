@@ -69,16 +69,6 @@ func (p *knownobject) redecl(scope *Scope) {
         }
 }
 
-/*func unknown(owner *Project, scope *Scope) *unknownobject {
-        return &unknownobject{ owner: owner, scope: scope }
-}
-
-func known(owner *Project, scope *Scope, name string) *knownobject {
-        return &knownobject{
-                unknownobject{ owner: owner, scope: scope }, name,
-        }
-}*/
-
 type unresolvedobject struct { // named callable/executable objects
         unknownobject
         name Value // name could be closured
@@ -89,13 +79,17 @@ func (p *unresolvedobject) Name() string {
         if p.name == nil {
                 panic("unresolved object name is nil")
         } else if s, err := p.name.Strval(); err != nil {
-                panic(fmt.Sprintf("unresolved object name: %v", err))
+                panic(fmt.Sprintf("unresolved object name: %v: %v", p.name, err))
         } else {
                 return s
         }
 }
 func (p *unresolvedobject) String() string { return p.name.String() }
-func (p *unresolvedobject) Strval() (string, error) { return /*p.name.Strval()*/"", nil }
+func (p *unresolvedobject) Strval() (string, error) {
+        // The string value of a unresolved object is "", so that a
+        // unresolved &(var) is stringed to ""
+        return /*p.name.Strval()*/"", nil
+}
 func (p *unresolvedobject) Call(pos token.Position, a... Value) (result Value, err error) { result = p; return }
 func (p *unresolvedobject) Execute(pos token.Position, a... Value) (result []Value, err error) { result = []Value{p}; return }
 func (p *unresolvedobject) redecl(scope *Scope) {
@@ -139,6 +133,14 @@ func (p *ProjectName) String() string {
 func (p *ProjectName) Get(name string) (value Value, err error) {
         if p.project != nil {
                 value, err = p.project.resolveObject(name)
+        }
+        return
+}
+
+// Call a ProjectName returns the project name.
+func (p *ProjectName) Call(pos token.Position, a... Value) (value Value, err error) {
+        if p.project != nil {
+                value = &String{ p.project.name }
         }
         return
 }
