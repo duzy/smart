@@ -651,11 +651,20 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) {
                 return
         }
 
-        fmt.Printf("use: %v -> %v\n", l.project.name, usee.name)
+        for _, using := range l.project.usings.list {
+                if using.project == usee {
+                        return
+                }
+        }
 
         for _, base := range usee.bases {
                 l.useProject(pos, base, params)
         }
+        for _, using := range usee.usings.list {
+                l.useProject(pos, using.project, params)
+        }
+
+        //fmt.Printf("use: %v -> %v\n", l.project.name, usee.name)
 
         l.project.usings.append(usee, params)
 
