@@ -1840,7 +1840,7 @@ func (p *parser) parseFile() *ast.File {
 		}*/
                 if p.mode&Flat == 0 {
                         // import & define clauses
-                        ForInit: for {
+                        ForInit: for p.tok != token.EOF {
                                 switch p.tok {
                                 case token.LINEND:
                                         p.next() // skip empty lines
