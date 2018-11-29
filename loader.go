@@ -651,6 +651,8 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) {
                 return
         }
 
+        fmt.Printf("use: %v -> %v\n", l.project.name, usee.name)
+
         for _, base := range usee.bases {
                 l.useProject(pos, base, params)
         }

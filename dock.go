@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "path/filepath"
         "os/exec"
         "strings"
         "strconv"
@@ -29,11 +30,17 @@ var (
         errNotTTYDevice = `the input device is not a TTY`
         errNoContainer = `Error.*: No such container: (.*)`
         errNoNetwork = `Error.*: network (.*) not found\.`
+
+        errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
+        rxFileNotFound = regexp.MustCompile(errFileNotFound)
+
         rxKnownErrors = regexp.MustCompile(strings.Join([]string{
                 errNotTTYDevice,
                 errNoContainer,
                 errNoNetwork,
+                errFileNotFound,
         }, "|"))
+
         ensureSkips = make(map[string]bool)
 )
 
@@ -351,21 +358,24 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                                                 c := exec.Command(cmd, a...)
                                                 c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
                                                 sh = c; goto RunCommand // retry the command
-                                        } else if errstr == errNoNetwork {
+                                        } else if m := rxFileNotFound.FindAllStringSubmatch(errstr, -1); m != nil {
+                                                err = fmt.Errorf("`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
+                                        } else if matched, _ := regexp.MatchString(errNoNetwork, errstr); matched {
                                                 // TODO: dealing with network not found error
-                                        }
-
-                                        var (
-                                                name = string(exeres.Stderr.Subm[0][0][1])
-                                                skip, _ = ensureSkips[name]
-                                        )
-                                        if !skip {
-                                                ensureSkips[name] = true
-                                                if err = s.runContainer(prog, docks); err == nil {
-                                                        fmt.Printf("smart: started %s (name=%s)\n", container, name) // name
-                                                        c := exec.Command(cmd, a...)
-                                                        c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
-                                                        sh = c; goto RunCommand
+                                        } else {
+                                                // retry the command
+                                                var (
+                                                        name = string(exeres.Stderr.Subm[0][0][1])
+                                                        skip, _ = ensureSkips[name]
+                                                )
+                                                if !skip {
+                                                        ensureSkips[name] = true
+                                                        if err = s.runContainer(prog, docks); err == nil {
+                                                                fmt.Printf("smart: started %s (name=%s)\n", container, name) // name
+                                                                c := exec.Command(cmd, a...)
+                                                                c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
+                                                                sh = c; goto RunCommand
+                                                        }
                                                 }
                                         }
                                 }

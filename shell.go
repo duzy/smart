@@ -254,6 +254,8 @@ func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result 
                 if stdin { sh.Stdin = os.Stdin }
 
                 exeres.Stderr.filter("bash: no job control in this shell\n")
+                //exeres.Stderr.Subm = nil
+                //exeres.Stderr.Line = rxKnownErrors
 
                 if err = sh.Run(); err == nil {
                         exeres.Status, source = 0, ""
