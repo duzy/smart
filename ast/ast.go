@@ -450,10 +450,6 @@ type (
                 DirectiveSpec
                 Resolved Symbol // resolved symbol
         }
-
-	DockSpec struct {
-                DirectiveSpec
-        }
 )
 
 func (s *DirectiveSpec) Pos() token.Pos {

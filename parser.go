@@ -342,7 +342,7 @@ func sync(p *parser, tok token.Token) {
 func syncClause(p *parser) {
 	for {
 		switch p.tok {
-		case token.IMPORT, token.INCLUDE, token.FILES, token.INSTANCE, token.USE, token.EXPORT, token.EVAL, token.DOCK:
+		case token.IMPORT, token.INCLUDE, token.FILES, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
 			if p.pos == p.syncPos && p.syncCnt < 10 {
 				p.syncCnt++
 				return
@@ -1131,11 +1131,11 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
         return spec
 }
 
-func (p *parser) parseDockSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+/*func (p *parser) parseDockSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.DockSpec{ p.parseDirectiveSpec() }
         p.dock(spec)
         return spec
-}
+}*/
 
 func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
 	if p.tracing.enabled {
@@ -1656,9 +1656,6 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 return p.parseGenericClause(token.FILES, p.expect(token.FILES), p.parseFilesSpec)
         case token.EVAL:
                 return p.parseGenericClause(token.EVAL, p.expect(token.EVAL), p.parseEvalSpec)
-        case token.DOCK:
-                p.warn(p.pos, "dock clause is deprecated, use dock package instead")
-                return p.parseGenericClause(token.DOCK, p.expect(token.DOCK), p.parseDockSpec)
 	case token.USE:
                 if pos := p.expect(token.USE); p.tok.IsRuleDelim() {
                         return p.parseRuleClause(p.tok, ruleSpecialNor, []ast.Expr{

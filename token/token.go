@@ -129,7 +129,6 @@ const (
         CONFIGURE  // configure [...]
         USE        // use b
         EVAL       // evaluate a builtin immediately
-        DOCK       // docking setup: dock (...)
         EXPORT     // export ...
         INCLUDE    // include a.smart
         IMPORT     // import a.smart
@@ -238,7 +237,6 @@ var tokens = [...]string{
         CONFIGURE:  "configure",
         USE:        "use",
         EVAL:       "eval",
-        DOCK:       "dock",
         EXPORT:     "export",
         INCLUDE:    "include",
         IMPORT:     "import",

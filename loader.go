@@ -830,7 +830,7 @@ func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
         return
 }
 
-func (l *loader) dock(spec *ast.DockSpec) {
+/*func (l *loader) dock(spec *ast.DockSpec) {
         var scope = l.scope
         for scope != nil && !strings.HasPrefix(scope.comment, "file ") {
                 scope = scope.Outer()
@@ -851,7 +851,7 @@ func (l *loader) dock(spec *ast.DockSpec) {
                 l.p.error(spec.Props[0].Pos(), "cannot define `%v` in %v", DockExecVarName, scope)
         }
         return
-}
+}*/
 
 func (l *loader) define(clause *ast.DefineClause) {
         var identifier = l.expr(clause.Name)
@@ -1022,9 +1022,8 @@ func (l *loader) loadProjectBases(linfo *loadinfo, params Value) (err error) {
 }
 
 func (l *loader) declareProject(ident *ast.Bareword, params Value) (err error) {
-        var name = ident.Value
-
         var (
+                name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
                 dec, ok = linfo.declares[name]
         )
@@ -1071,7 +1070,28 @@ func (l *loader) declareProject(ident *ast.Bareword, params Value) (err error) {
         l.project = dec.project
         l.scope = l.project.scope
 
-        err = l.loadProjectBases(linfo, params)
+        if err = l.loadProjectBases(linfo, params); err != nil {
+                return
+        }
+        if l.project.name == "dock" {
+                return
+        }
+        walkSmartBaseDirs(l.project.absPath, func(s string) bool {
+                var dir = filepath.Join(s, ".smart", "dock")
+                if fi, err := os.Stat(dir); err != nil || fi == nil {
+                        // no docking enabled
+                } else if err = l.loadDir("dock", dir, nil); err != nil {
+                        l.p.error(ident.Pos(), "dock: %v", err)
+                } else if loaded, _ := l.loaded[dir]; loaded != nil {
+                        name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
+                        if name == nil {
+                                l.p.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, dir)
+                        } else {
+                                l.useProject(ident.Pos(), loaded, nil)
+                        }
+                }
+                return false
+        })
         return
 }
 
