@@ -126,21 +126,15 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
 }
 
 func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err error) {
-        var (
-                recipes []Value
-                target, value Value
-        )
-        if recipes, err = DiscloseAll(prog.recipes...); err != nil {
-                return
-        }
-        if value, err = i.Evaluate(prog, params, recipes); err == nil {
+        var target, value Value
+        if value, err = i.Evaluate(prog, params); err == nil {
                 if value != nil {
                         out.Assign(value)
                 }
                 def := prog.scope.Lookup("@").(*Def)
                 if target, err = def.Call(prog.position); err == nil {
                         var strings []string
-                        for _, recipe := range recipes {
+                        for _, recipe := range prog.recipes {
                                 // Avoids calling recipe.Strval() twice, so that it won't be
                                 // evaluated more than once.
                                 strings = append(strings, recipe.String())
@@ -159,14 +153,8 @@ func (prog *Program) modify(m *modifier, out *Def) (interpreted string, err erro
         if name, err = m.name.Strval(); err != nil {
                 return
         } else if f, ok := modifiers[name]; ok {
-                var (
-                        value = out.Value
-                        args []Value
-                )
-                if args, err = DiscloseAll(m.args...); err != nil {
-                        return
-                }
-                if value, err = f(prog.position, prog, value, args...); err == nil && value !=  nil {
+                var value = out.Value
+                if value, err = f(prog.position, prog, value, m.args...); err == nil && value !=  nil {
                         out.Assign(value)
                 }
         } else if i, _ := dialects[name]; i != nil {
@@ -360,9 +348,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        // Expending all dependencies after pre-modifiers.
+        // Expanding all dependencies after pre-modifiers.
         var depends []Value
-        if depends, err = mergeresult(ExpendAll(prog.depends...)); err != nil {
+        if depends, err = mergeresult(ExpandAll(prog.depends...)); err != nil {
                 return
         }
         for i, depend := range depends {
@@ -443,7 +431,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
         if err == nil && preInterpreted == "" && postInterpreted == "" {
                 // Using the default statements interpreter.
-                if i, ok := dialects[""]; ok && i != nil {
+                if i, ok := dialects["eval"]; ok && i != nil {
                         err = prog.interpret(i, modifyBuf, nil)
                 } else {
                         err = fmt.Errorf("no default dialect")

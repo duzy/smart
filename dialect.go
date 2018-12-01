@@ -7,7 +7,7 @@
 package smart
 
 type Interpreter interface {
-        Evaluate(prog *Program, args []Value, recipes []Value) (Value, error)
+        Evaluate(prog *Program, args []Value) (Value, error)
 }
 
 type dialect struct {

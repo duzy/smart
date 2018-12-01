@@ -67,6 +67,7 @@ var (
                 
                 `write-file`:   modifierWriteFile,
                 `update-file`:  modifierUpdateFile,
+                `configure-file`: modifierConfigureFile,
         }
 
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
@@ -172,8 +173,8 @@ func modifierSetArgs(pos token.Position, prog *Program, value Value, args... Val
 }
 
 func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        //if args, err = ExpendAll(Merge(args...)...); err != nil {
-        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+        //if args, err = ExpandAll(Merge(args...)...); err != nil {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
         var envars = new(List)
@@ -248,7 +249,7 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                 if trace_prepare {
                         fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
                 }
-                if optPath && dir != "." && dir != "/" {// mkdir -p
+                if optPath && dir != "." && dir != PathSep {// mkdir -p
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
                                 return
                         }
@@ -318,7 +319,7 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
 func getCompareDepends(pos token.Position, prog *Program) (depends *List, err error) {
         def := prog.scope.Lookup("^").(*Def)
         dependVal, _ := def.Call(pos)
-        if dependVal, err = dependVal.expend(expendDelegate); err != nil { return }
+        if dependVal, err = dependVal.expand(expandDelegate); err != nil { return }
         if dependList, _ := dependVal.(*List); dependList != nil && dependList.Len() > 0 {
                 depends, err = parseDependList(pos, prog, dependList)
         }
@@ -393,7 +394,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                 fmt.Printf("compare:Target: %v\n", targetVal)
         }
 
-        if targetVal, err = targetVal.expend(expendDelegate); err != nil { return }
+        if targetVal, err = targetVal.expand(expandDelegate); err != nil { return }
         if targetVal == nil || targetVal.Type() == NoneType {
                 err = break_bad("no target"); return
         }
@@ -521,8 +522,8 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
                 targetVal, _ = prog.scope.Lookup("@").(Caller).Call(pos)
                 targetName string
                 rxs []*regexp.Regexp                
-                f *os.File
                 optDiscardMissing = false
+                f *os.File
         )
         if targetName, err = targetVal.Strval(); err != nil {
                 return
@@ -530,8 +531,8 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
 
         if len(args) == 0 {
                 return nil, errors.New("No arguments provided.")
-        //} else if args, err = ExpendAll(Merge(args...)...); err != nil {
-        } else if args, err = mergeresult(ExpendAll(args...)); err != nil {
+        //} else if args, err = ExpandAll(Merge(args...)...); err != nil {
+        } else if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
 
@@ -853,5 +854,42 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 }
                 err = break_bad("file %s not updated", targetDef.Value)
         }
+        return
+}
+
+// configure-file modifier (see also builtinConfigureFile), example usage:
+// 
+//     config.h:[(compare) (configure-file)]: config.h.in
+//     
+func modifierConfigureFile(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        }
+
+        var target Value
+        for _, arg := range args {
+                switch a := arg.(type) {
+                case *None, *Flag, *Pair:
+                default: if target == nil {
+                        target = a
+                } else {
+                        err = fmt.Errorf("too many configure files")
+                        return
+                }}
+        }
+
+        if target == nil {
+                if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+                        return
+                } else if target == nil {
+                        err = fmt.Errorf("unknown configure file")
+                        return
+                } else {
+                        args = append(args, target)
+                }
+        }
+
+        args = append(args, value)
+        result, err = builtinConfigureFile(pos, args...)
         return
 }

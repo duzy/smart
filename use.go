@@ -28,8 +28,8 @@ func (p *using) closured() bool {
         }
         return false
 }
-func (p *using) expend(w expendwhat) (Value, error) {
-        if params, num, err := expendall(w, p.params...); err != nil {
+func (p *using) expand(w expandwhat) (Value, error) {
+        if params, num, err := expandall(w, p.params...); err != nil {
                 return nil, err
         } else if num > 0 {
                 return &using{ p.project, params }, nil
@@ -81,10 +81,10 @@ func (p *usinglist) closured() bool {
         }
         return false
 }
-func (p *usinglist) expend(w expendwhat) (Value, error) {
+func (p *usinglist) expand(w expandwhat) (Value, error) {
         var (list []*using; num int)
         for _, elem := range p.list {
-                if v, err := elem.expend(w); err != nil {
+                if v, err := elem.expand(w); err != nil {
                         return nil, err
                 } else {
                         if v != elem { num += 1 }

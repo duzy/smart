@@ -16,28 +16,25 @@ import (
 type dialectDefault struct {
 }
 
-func (t *dialectDefault) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
-        var list = &List{}
-LoopRecipes:
-        for _, recipe := range recipes {
+func (t *dialectDefault) Evaluate(prog *Program, args []Value) (result Value, err error) {
+        var list []Value
+        ForRecipes: for _, recipe := range prog.recipes {
                 switch stmt := recipe.(type) {
                 case *None:
                 case *List:
                         if stmt.Len() == 0 { continue }
-                        var (
-                                v = stmt.Get(0)
-                                e error
-                        )
+
+                        var v = stmt.Get(0)
                         switch t := v.(type) {
                         case *undetermined:
                                 // Noop, just return v to the caller.
 
                         case Caller:
-                                v, e = t.Call(prog.Position(), stmt.Slice(1)...)
+                                v, err = t.Call(prog.Position(), stmt.Slice(1)...)
 
                         case Executer:
                                 var a []Value
-                                if a, e = t.Execute(prog.Position(), stmt.Slice(1)...); e == nil {
+                                if a, err = t.Execute(prog.Position(), stmt.Slice(1)...); err == nil {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
@@ -47,33 +44,31 @@ LoopRecipes:
 
                         default:
                                 err = errors.New(fmt.Sprintf("unknown command `%v` (%T)", t, t))
-                                break LoopRecipes
+                                break ForRecipes
                         }
 
-                        if e == nil && v != nil {
-                                list.Append(v)
+                        if err == nil && v != nil {
+                                list = append(list, v)
                                 if g, _ := v.(*Group); g != nil {
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
-                                                var (
-                                                        str string
-                                                        num int64
-                                                )
+                                                var (str string; num int64)
                                                 if str, err = s.Strval(); err != nil { return }
                                                 if num, err = c.Integer(); err != nil { return }
                                                 if str == "shell" && num != 0 {
                                                         //fmt.Printf("evaluate: %v\n", v)
-                                                        break LoopRecipes
+                                                        break ForRecipes
                                                 }
                                         }
                                 }
-                        } else if p, _ := e.(*Returner); p != nil {
+                        } else if p, _ := err.(*Returner); p != nil {
                                 if p.Value != nil {
-                                        list.Append(p.Value)
+                                        list = append(list, p.Value)
                                 }
-                                break LoopRecipes
-                        } else if e != nil {
-                                fmt.Fprintf(os.Stderr, "%v\n", e)
-                                err = e; break LoopRecipes
+                                err = nil
+                                break ForRecipes
+                        } else {
+                                fmt.Fprintf(os.Stderr, "%v\n", err)
+                                break ForRecipes
                         }
 
                 default:
@@ -81,9 +76,12 @@ LoopRecipes:
                         panic("unreachable")
                 }
         }
-        return list, err
+        result = MakeListOrScalar(list)
+        return
 }
 
 func init() {
-        RegisterDialect("", new(dialectDefault))
+        var p = new(dialectDefault)
+        RegisterDialect("eval", p)
+        RegisterDialect("", p)
 }

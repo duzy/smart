@@ -18,7 +18,7 @@ type YAML struct {
 }
 func (p *YAML) refs(_ Value) bool { return false }
 func (p *YAML) closured() bool { return p.Value.closured() }
-func (p *YAML) expend(w expendwhat) (Value, error) { return p.Value.expend(w) }
+func (p *YAML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
 func (p *YAML) Type() Type { return YAMLType }
 func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *YAML) Strval() (string, error) { return p.Value.Strval() }
@@ -34,9 +34,9 @@ type _yaml struct {
         whitespace bool
 }
 
-func (t *_yaml) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (t *_yaml) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(recipes...); err != nil { return }
+        if source, err = joinRecipesString(prog.recipes...); err != nil { return }
         if result, err = DecodeYAML(source, t.whitespace); err == nil {
                 result = &YAML{ result }
         } else {

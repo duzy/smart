@@ -19,7 +19,7 @@ type Plain struct {
 }
 func (p *Plain) refs(_ Value) bool { return false }
 func (p *Plain) closured() bool { return false }
-func (p *Plain) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Plain) Type() Type  { return PlainType }
 func (p *Plain) String() string {
         s := "(plain"
@@ -35,12 +35,12 @@ func (p *Plain) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64
 
 type _plain struct {}
 
-func (t *_plain) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (t *_plain) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var str, name string
         if len(args) > 0 {
                 if name, err = args[0].Strval(); err != nil { return }
         }
-        if str, err = joinRecipesString(recipes...); err != nil { return }
+        if str, err = joinRecipesString(prog.recipes...); err != nil { return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{ str, name, }
         return

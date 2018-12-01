@@ -1323,7 +1323,7 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
         )
 
         SwitchDialect: switch dialect {
-        case "":
+        case "", "eval":
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE and parse in list mode
                 if p.tok != token.LINEND && p.tok != token.EOF {

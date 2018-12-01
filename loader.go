@@ -49,7 +49,7 @@ const (
         // Wants value for rule depends.
         DependValue
 
-        // Wants v.Strval(), expends delegates and closures,
+        // Wants v.Strval(), expands delegates and closures,
         // turn off KeepClosures, KeepDelegates.
         StringValue = 0
 )
@@ -564,10 +564,13 @@ func (l *loader) pathseg(x *ast.PathSegExpr) (v Value) {
 func (l *loader) recipe(x *ast.RecipeExpr) (v Value) {
         if len(x.Elems) == 0 {
                 v = universalnone
-        } else if x.Dialect == "" {
-                v = MakeList(l.exprs(x.Elems)...)
         } else {
-                v = MakeCompound(l.exprs(x.Elems)...)
+                switch x.Dialect {
+                case "", "eval":
+                        v = MakeList(l.exprs(x.Elems)...)
+                default:
+                        v = MakeCompound(l.exprs(x.Elems)...)
+                }
         }
         return
 }
@@ -757,7 +760,7 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                         def.Assign(value)
                 }
         case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
-                if v, err := value.expend(expendBoth); err == nil {
+                if v, err := value.expand(expandBoth); err == nil {
                         def.origin = ImmediateDef
                         def.Assign(v)
                 }
@@ -1179,7 +1182,7 @@ func (l *loader) eval(x ast.Expr, ec EvalBits) (res Value, err error) {
                 return
         }
         if ec&KeepClosures == 0 {
-                if res, err = res.expend(expendClosure); err != nil {
+                if res, err = res.expand(expandClosure); err != nil {
                         l.p.error(x.Pos(), "%v", err)
                         return
                 } else if res == nil {
@@ -1187,7 +1190,7 @@ func (l *loader) eval(x ast.Expr, ec EvalBits) (res Value, err error) {
                 }
         }
         if ec&KeepDelegates == 0 {
-                if res, err = res.expend(expendDelegate); err != nil {
+                if res, err = res.expand(expandDelegate); err != nil {
                         l.p.error(x.Pos(), "%v", err)
                         return
                 } else if res == nil {

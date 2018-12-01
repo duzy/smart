@@ -39,7 +39,7 @@ type unknownobject struct { // generally unnamed objects
         scope *Scope
         owner *Project
 }
-func (p *unknownobject) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *unknownobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unknownobject) Type() Type { return UnknownObjectType }
 func (p *unknownobject) Name() string { panic("inquiring name of an unknown object") }
 func (p *unknownobject) DeclScope() *Scope { return p.scope }
@@ -53,7 +53,7 @@ type knownobject struct { // generally named objects
         unknownobject
         name string
 }
-func (p *knownobject) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *knownobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *knownobject) Type() Type { return KnownObjectType }
 func (p *knownobject) Name() string { return p.name }
 func (p *knownobject) Strval() (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
@@ -73,7 +73,7 @@ type unresolvedobject struct { // named callable/executable objects
         unknownobject
         name Value // name could be closured
 }
-func (p *unresolvedobject) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *unresolvedobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unresolvedobject) Type() Type { return UnresolvedObjectType }
 func (p *unresolvedobject) Name() string {
         if p.name == nil {
@@ -111,7 +111,7 @@ type ProjectName struct {
         project *Project
 }
 
-func (p *ProjectName) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *ProjectName) expand(_ expandwhat) (Value, error) { return p, nil }
 
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
@@ -161,7 +161,7 @@ type ScopeName struct {
         scope *Scope
 }
 
-func (p *ScopeName) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *ScopeName) expand(_ expandwhat) (Value, error) { return p, nil }
 
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
@@ -201,9 +201,9 @@ type Def struct {
         Value Value
 }
 
-func (d *Def) expend(w expendwhat) (res Value, err error) {
+func (d *Def) expand(w expandwhat) (res Value, err error) {
         var v Value
-        if v, err = d.Value.expend(w); err == nil {
+        if v, err = d.Value.expand(w); err == nil {
                 if v != nil {
                         res = &Def{ d.knownobject, d.origin, v }
                 } else {
@@ -250,8 +250,8 @@ func (d *Def) Assign(v Value) (res Value, err error) {
         case TrivialDef, DefaultDef:
                 d.Value = v // Keeps delegates and closures.
         case ImmediateDef:
-                // Eval expends delegates in the value.
-                if d.Value, err = v.expend(expendDelegate); err != nil { return }
+                // Eval expands delegates in the value.
+                if d.Value, err = v.expand(expandDelegate); err != nil { return }
         }
         res = d.Value
         return
@@ -308,7 +308,7 @@ func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
         // TODO: parameterization, e.g. $1, $2, $3, $4, $5
         if d.origin != ImmediateDef {
                 res = d.Value
-        } else if res, err = d.Value.expend(expendDelegate); err != nil {
+        } else if res, err = d.Value.expand(expandDelegate); err != nil {
                 //fmt.Printf("%v: %v\n", d.position, err)
         }
         return
@@ -316,7 +316,7 @@ func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
 
 func (d *Def) DiscloseValue() (res Value, err error) {
         if d.Value != nil {
-                if res, err = d.Value.expend(expendClosure); err != nil { return }
+                if res, err = d.Value.expand(expandClosure); err != nil { return }
                 if res == nil { res = d.Value }
         }
         return
@@ -376,10 +376,10 @@ func (p *undetermined) closured() bool {
         return p.identifier.closured() || p.value.closured()
 }
 
-func (p *undetermined) expend(w expendwhat) (res Value, err error) {
+func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         var i, v Value
-        if i, err = p.identifier.expend(w); err == nil {
-                if v, err = p.value.expend(w); err == nil {
+        if i, err = p.identifier.expand(w); err == nil {
+                if v, err = p.value.expand(w); err == nil {
                         res = &undetermined{ p.tok, i, v }
                 }
         }
@@ -410,7 +410,7 @@ type Builtin struct {
         f BuiltinFunc
 }
 
-func (p *Builtin) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
 
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) {
@@ -583,9 +583,9 @@ func (entry *RuleEntry) closured() bool {
         }
         return false
 }
-func (entry *RuleEntry) expend(w expendwhat) (res Value, err error) {
+func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         var target Value
-        if target, err = entry.target.expend(w); err != nil { return }
+        if target, err = entry.target.expand(w); err != nil { return }
         if target != nil {
                 // TODO: test if programs are needed to be disclosed??
                 res = &RuleEntry{

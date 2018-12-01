@@ -19,7 +19,7 @@ type JSON struct {
 }
 func (p *JSON) refs(_ Value) bool { return false }
 func (p *JSON) closured() bool { return p.Value.closured() }
-func (p *JSON) expend(w expendwhat) (Value, error) { return p.Value.expend(w) }
+func (p *JSON) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
 func (p *JSON) Type() Type { return JSONType }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
 func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
@@ -204,9 +204,9 @@ func DecodeJSON(source string) (result Value, err error) {
 
 type _json struct {}
 
-func (t *_json) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (t *_json) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(recipes...); err != nil { return }
+        if source, err = joinRecipesString(prog.recipes...); err != nil { return }
         if result, err = DecodeJSON(source); err == nil {
                 result = &JSON{ result }
         } else {

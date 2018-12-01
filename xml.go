@@ -17,7 +17,7 @@ type XML struct {
 }
 func (p *XML) refs(_ Value) bool { return false }
 func (p *XML) closured() bool { return p.Value.closured() }
-func (p *XML) expend(w expendwhat) (Value, error) { return p.Value.expend(w) }
+func (p *XML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
 func (p *XML) Type() Type { return XMLType }
 func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *XML) Strval() (string, error) { return p.Value.Strval() }
@@ -122,9 +122,9 @@ type _xml struct {
         whitespace bool
 }
 
-func (t *_xml) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
+func (t *_xml) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(recipes...); err != nil { return }
+        if source, err = joinRecipesString(prog.recipes...); err != nil { return }
         if result, err = DecodeXML(source, t.whitespace); err == nil {
                 result = &XML{ result }
         } else {

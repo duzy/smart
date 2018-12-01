@@ -75,7 +75,7 @@ type ExecResult struct {
 }
 func (p *ExecResult) refs(_ Value) bool { return false }
 func (p *ExecResult) closured() bool { return false }
-func (p *ExecResult) expend(_ expendwhat) (Value, error) { return p, nil }
+func (p *ExecResult) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *ExecResult) Type() Type { return ExecResultType }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
@@ -119,9 +119,14 @@ func isTrueValue(s string) (res bool) {
         return
 }
 
-func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
-        //if args, err = ExpendAll(Merge(args...)...); err != nil {
-        if args, err = mergeresult(ExpendAll(args...)); err != nil {
+func (s *_shell) Evaluate(prog *Program, args []Value) (result Value, err error) {
+        var recipes []Value
+        if recipes, err = DiscloseAll(prog.recipes...); err != nil {
+                return
+        }
+
+        //if args, err = ExpandAll(Merge(args...)...); err != nil {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
 
@@ -136,7 +141,7 @@ func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result 
                 if l, _ := envarsDef.Value.(*List); l != nil {
                         for _, v := range l.Elems {
                                 //if v, err = Disclose(prog.Scope(), v); err != nil {
-                                if v, err = v.expend(expendClosure); err != nil {
+                                if v, err = v.expand(expandClosure); err != nil {
                                         return
                                 } else {
                                         envars = append(envars, v)
@@ -239,7 +244,7 @@ func (s *_shell) Evaluate(prog *Program, args []Value, recipes []Value) (result 
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
                         //if v, err = Disclose(prog.Scope(), v); err != nil {
-                        if v, err = v.expend(expendClosure); err != nil {
+                        if v, err = v.expand(expandClosure); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)

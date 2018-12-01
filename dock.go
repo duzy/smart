@@ -126,9 +126,13 @@ func (s *dialectDock) ensureContainerRunning(prog *Program, docks []*Project, co
         return
 }
 
-func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (result Value, err error) {
-        var docks []*Project
+func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err error) {
+        var recipes []Value
+        if recipes, err = DiscloseAll(prog.recipes...); err != nil {
+                return
+        }
 
+        var docks []*Project
         if prog.Project().Name() == "dock" {
                 docks = append(docks, prog.Project())
         } else {
@@ -178,8 +182,8 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
         if container == "" { err = fmt.Errorf("dock-container undefined"); return }
         if image, err = strval("dock-image"); err != nil { return }
         if image == "" { err = fmt.Errorf("dock-image undefined"); return }
-        //if args, err = ExpendAll(merge(args...)...); err != nil { return }
-        if args, err = mergeresult(ExpendAll(args...)); err != nil { return }
+        //if args, err = ExpandAll(merge(args...)...); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         if false {
                 if err = s.ensureContainerRunning(prog, docks, container); err != nil {
@@ -225,7 +229,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                 if envarsDef, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); envarsDef != nil {
                         if l, _ := envarsDef.Value.(*List); l != nil {
                                 for _, v := range l.Elems {
-                                        if v, err = v.expend(expendClosure); err != nil {
+                                        if v, err = v.expand(expandClosure); err != nil {
                                                 return
                                         } else {
                                                 envars = append(envars, v)
@@ -331,7 +335,7 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value, recipes []Value) (re
                 )
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
-                        if v, err = v.expend(expendClosure); err != nil {
+                        if v, err = v.expand(expandClosure); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
                                 sh.Env = append(sh.Env, str)
