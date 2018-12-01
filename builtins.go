@@ -2049,11 +2049,10 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                 } else if str == "" {
                         continue
                 }
-                err = configure(&data, scope, srcname, str)
-                if err != nil { return }
+                if err = configure(&data, scope, srcname, str); err != nil {
+                        return
+                }
         }
-
-        //fmt.Printf("%s\n", data.Bytes())
 
         var file *File
         var dir, filename string
@@ -2073,7 +2072,7 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                 err = fmt.Errorf("invalid file `%v`", file)
                 return
         }
-        
+
         if file.Info != nil {
                 var f *os.File
                 if f, err = os.Open(filename); err == nil && f != nil {
@@ -2085,13 +2084,9 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                         }
                         w1 := crc64.New(crc64Table)
                         w2 := crc64.New(crc64Table)
-                        if _, err = io.Copy(w1, f); err != nil {
-                                return
-                        }
-                        if _, err = io.Copy(w2, &data); err != nil {
-                                return
-                        }
-                        if w1.Sum64() == w2.Sum64() {
+                        if _, err = io.Copy(w1, f); err != nil { return }
+                        if _, err = w2.Write(data.Bytes()); err != nil { return }
+                        if s1, s2 := w1.Sum64(), w2.Sum64(); s1 == s2 {
                                 res = file
                                 return
                         }
