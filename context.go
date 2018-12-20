@@ -18,6 +18,7 @@ import (
 
 type Context struct {
         workdir string
+        prefix  string // FIXME: prefix for distribution
         globe   *Globe
         loader  *loader
 }
@@ -34,16 +35,13 @@ func current() (proj *Project) {
         return
 }
 
-func (ctx *Context) run(targets... Value) (err error) {
-        var (
-                result []Value
-                updated int
-        )
-
+func (ctx *Context) run(targets... Value) (result []Value, err error) {
         if ctx.globe.main == nil {
-                Fail("no targets to update")
+                err = fmt.Errorf("no targets to update `%v`", targets)
+                return
         }
 
+        var updated int
         if len(targets) == 0 {
                 if entry := ctx.globe.main.DefaultEntry(); entry != nil {
                         if result, err = entry.Execute(entry.Position); err == nil {
@@ -52,7 +50,6 @@ func (ctx *Context) run(targets... Value) (err error) {
                 }
         } else {
                 defer setclosure(setclosure(cloctx.unshift(ctx.globe.main.scope)))
-
                 for _, target := range targets {
                         var ( entry *RuleEntry; ok bool )
                         if entry, ok = target.(*RuleEntry); !ok || entry == nil {
@@ -74,17 +71,6 @@ func (ctx *Context) run(targets... Value) (err error) {
                                 break
                         }
                 }
-        }
-        if err == nil && result != nil && len(result) > 0 {
-                for _, v := range result {
-                        var s string
-                        if s, err = v.Strval(); err != nil {
-                                fmt.Printf("%s [%s]", v, err)
-                        } else {
-                                fmt.Printf("%s", s)
-                        }
-                }
-                fmt.Printf("\n")
         }
         return
 }
@@ -136,14 +122,16 @@ func joinTmpPath(base, rel string) string {
 
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
-func (ctx *Context) loadwork() (targets []Value) {
+func (ctx *Context) loadwork() (targets []Value, err error) {
         defer func(l *loader) { ctx.loader = l } (ctx.loader)
-
         ctx.loader = &loader{
                 Context:  ctx,
                 fset:     token.NewFileSet(), 
                 paths:    []string(globalPaths),
                 loaded:   make(map[string]*Project),
+                ruleParseFunc: parseRuleClause,
+                includeFunc: includespec,
+                usefunc:  useProject,
                 scope:    ctx.globe.scope,
         }
 
@@ -169,7 +157,6 @@ func (ctx *Context) loadwork() (targets []Value) {
                 ctx.loader.AddSearchPaths(sp)
         }
 
-        //absDir, baseName := filepath.Split(at.absPath)
         saveLoadingInfo(ctx.loader, at.Spec(), at.absPath, "")
         linfo := ctx.loader.loads[len(ctx.loader.loads)-1]
         linfo.declares[at.Name()] = &declare{ project: at }
@@ -186,16 +173,13 @@ func (ctx *Context) loadwork() (targets []Value) {
         if defCTD == nil { /* ... */ }
         if defCWD == nil { /* ... */ }
         AtLookupLoop: for {
-                var (
-                        s1 = filepath.Join(ab, "@.smart")
-                        s2 = filepath.Join(ab, "@")
-                )
-                if fi, err := os.Stat(s1); err == nil {
+                var s1 = filepath.Join(ab, "@.smart")
+                var s2 = filepath.Join(ab, "@")
+                if fi, _ := os.Stat(s1); fi != nil {
                         if m := fi.Mode(); m.IsRegular() {
                                 defS.Assign(MakeString(ab))
                                 defD.Assign(MakeString(ab))
                                 if err = ctx.loader.loadFile(s1, nil); err != nil {
-                                        scanner.PrintError(os.Stderr, err)
                                         return
                                 } else {
                                         break AtLookupLoop
@@ -203,12 +187,11 @@ func (ctx *Context) loadwork() (targets []Value) {
                         } else {
                                 fmt.Fprintf(os.Stderr, "@.smart is not a regular")
                         }
-                } else if fi, err = os.Stat(s2); err == nil {
+                } else if fi, _ = os.Stat(s2); fi != nil {
                         if m := fi.Mode(); m.IsDir() {
                                 defS.Assign(MakeString(ab))
                                 defD.Assign(MakeString(ab))
                                 if err = ctx.loader.loadPath(s2, nil); err != nil {
-                                        scanner.PrintError(os.Stderr, err)
                                         return
                                 } else {
                                         break AtLookupLoop
@@ -227,8 +210,7 @@ func (ctx *Context) loadwork() (targets []Value) {
 
         restoreLoadingInfo(ctx.loader)
 
-        if err := ctx.loader.loadPath(base, nil); err != nil {
-                scanner.PrintError(os.Stderr, err)
+        if err = ctx.loader.loadPath(base, nil); err != nil {
                 return
         }
 
@@ -236,25 +218,25 @@ func (ctx *Context) loadwork() (targets []Value) {
         for _, target := range ctx.loader.loadText("@", text) {
                 switch t := target.(type) {
                 case *Bareword:
-                        if entry, err := ctx.loader.project.resolveEntry(t.Value); err != nil {
-                                fmt.Fprintf(os.Stderr, "%s", err)
+                        if entry, err := ctx.loader.project.resolveEntry(t.string); err != nil {
+                                fmt.Fprintf(os.Stderr, "%sn", err)
                         } else if entry == nil {
-                                fmt.Fprintf(os.Stderr, "no such entry `%s`", t)
+                                fmt.Fprintf(os.Stderr, "no such entry `%s`\n", t)
                         } else {
                                 targets = append(targets, entry)
                         }
                 case *delegate:
                         if s, err := t.Strval(); err != nil {
-                                fmt.Fprintf(os.Stderr, "%s", err)
+                                fmt.Fprintf(os.Stderr, "%s\n", err)
                         } else if entry, err := ctx.loader.project.resolveEntry(s); err != nil {
-                                fmt.Fprintf(os.Stderr, "%s", err)
+                                fmt.Fprintf(os.Stderr, "%s\n", err)
                         } else if entry == nil {
-                                fmt.Fprintf(os.Stderr, "no such entry `%s` (via `%v`)", s, t)
+                                fmt.Fprintf(os.Stderr, "no such entry `%s` (via `%v`)\n", s, t)
                         } else {
                                 targets = append(targets, entry)
                         }
                 default:
-                        fmt.Fprintf(os.Stderr, "unknown target `%s` (of %T)", target, target)
+                        fmt.Fprintf(os.Stderr, "unknown target `%s` (of %T)\n", target, target)
                 }
         }
         return
@@ -270,7 +252,7 @@ func CommandLine() {
                                 scanner.PrintError(os.Stderr, failure)
                         }
 		}
-        }()
+        } ()
 
         if s, err := os.Getwd(); err == nil {
                 context.workdir = s
@@ -278,23 +260,39 @@ func CommandLine() {
                 return
         }
 
-        var smartDirs searchlist
+        var modulesPaths, packagePaths searchlist
         walkSmartBaseDirs(context.workdir, func(s string) bool {
                 if baseTmpPath == "" { baseTmpPath = s }
-                smartDirs = append(smartDirs, filepath.Join(s, ".smart/modules"))
+                packagePaths = append(packagePaths, filepath.Join(s, ".smart", "packages"))
+                modulesPaths = append(modulesPaths, filepath.Join(s, ".smart", "modules"))
                 return true
         })
+        packagePaths = append(packagePaths, filepath.Join(context.prefix, "user", "lib", "smart", "packages"))
+        modulesPaths = append(modulesPaths, filepath.Join(context.prefix, "user", "lib", "smart", "modules"))
 
         if !flag.Parsed() {
                 flag.Parse()
         }
 
         // make sure that .smart dirs have higher priority.
-        globalPaths = append(smartDirs, globalPaths...)
+        globalPaths = append(modulesPaths, globalPaths...)
 
+        defer func(globe *Globe) { context.globe = globe } (context.globe)
         context.globe = NewGlobe("smart")
-        if err := context.run(context.loadwork()...); err != nil {
+        init_configuration(packagePaths)
+        if works, err := context.loadwork(); err != nil {
                 scanner.PrintError(os.Stderr, err)
-                return
+        } else if result, err := context.run(works...); err != nil {
+                scanner.PrintError(os.Stderr, err)
+        } else if result != nil {
+                for _, v := range result {
+                        var s string
+                        if s, err = v.Strval(); err != nil {
+                                fmt.Printf("%s [%s]", v, err)
+                        } else {
+                                fmt.Printf("%s", s)
+                        }
+                }
+                fmt.Printf("\n")
         }
 }

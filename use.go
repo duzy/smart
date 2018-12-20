@@ -48,6 +48,7 @@ func (p *using) prepare(pc *preparer) (err error) {
         return
 }
 func (p *using) Type() Type { return UsingType }
+func (p *using) True() bool { return p.project != nil }
 func (p *using) Integer() (i int64, err error) { return 0, nil }
 func (p *using) Float() (f float64, err error) { return 0, nil }
 func (p *using) String() string {
@@ -111,6 +112,7 @@ func (p *usinglist) redecl(scope *Scope) { panic("redeclaring using list") }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
 func (p *usinglist) OwnerProject() *Project { return p.owner }
 func (p *usinglist) Type() Type { return UsingListType }
+func (p *usinglist) True() bool { return len(p.list) > 0 }
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }
 func (p *usinglist) Float() (float64, error) { return 0, nil }

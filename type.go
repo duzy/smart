@@ -33,6 +33,8 @@ const (
         AnyKind
 
         // basic types
+        AnswerKind
+        BooleanKind
         BinKind
         OctKind
         IntKind
@@ -41,7 +43,7 @@ const (
         DateTimeKind
         DateKind
         TimeKind
-        UriKind
+        URLKind
         StringKind
         BarewordKind
         BarefileKind
@@ -50,6 +52,8 @@ const (
         PathKind
         FileKind
         FlagKind
+
+        NegativeKind
 
         // composite types
         CompoundKind
@@ -95,6 +99,8 @@ var (
         typeNames = [...]string{
                 InvalidKind:    "Invalid",
                 AnyKind:        "Any",
+                AnswerKind:     "Answer",
+                BooleanKind:    "Boolean",
                 BinKind:        "Bin",
                 OctKind:        "Oct",
                 IntKind:        "Int",
@@ -103,7 +109,7 @@ var (
                 DateTimeKind:   "DateTime",
                 DateKind:       "Date",
                 TimeKind:       "Time",
-                UriKind:        "Uri",
+                URLKind:        "URL",
                 StringKind:     "String",
                 BarewordKind:   "Bareword",
                 BarefileKind:   "Barefile",
@@ -112,6 +118,7 @@ var (
                 PathKind:       "Path",
                 FileKind:       "File",
                 FlagKind:       "Flag",
+                NegativeKind:   "Negative",
                 CompoundKind:   "Compound",
                 BarecompKind:   "Barecomp",
                 ArgumentedKind: "Argumented",
@@ -161,6 +168,7 @@ const (
 
 	IsNone
 
+	IsAnswer
 	IsBoolean
 	IsBin
 	IsOct
@@ -171,7 +179,7 @@ const (
 	IsString
         IsDate     // Time type with date component
         IsTime     // Time type with time component
-        IsUri
+        IsURL
         IsBareword
         IsBarefile
         IsGlob
@@ -180,6 +188,8 @@ const (
 
         IsFile
         IsFlag
+        
+        IsNegative
 
         // Properties of composite types.
         IsCompound
@@ -215,10 +225,10 @@ const (
         IsExecResult
 
         IsDateTime  = IsDate | IsTime
-	IsNumeric   = IsBin | IsOct | IsInt | IsHex | IsFloat
-	IsOrdered   = IsNumeric | IsDateTime | IsString | IsCompound | IsUri | IsBareword | IsBarecomp | IsBarefile | IsPath | IsPathSeg | IsFlag
-        IsKeyName   = IsNumeric | IsOrdered | IsBoolean
-	IsBasic     = IsBoolean | IsOrdered | IsNone
+	IsNumeric   = IsAnswer | IsBoolean | IsBin | IsOct | IsInt | IsHex | IsFloat
+	IsOrdered   = IsNumeric | IsDateTime | IsString | IsCompound | IsURL | IsBareword | IsBarecomp | IsBarefile | IsPath | IsPathSeg | IsFlag
+        IsKeyName   = IsNumeric | IsOrdered | IsAnswer | IsBoolean
+	IsBasic     = IsAnswer | IsBoolean | IsOrdered | IsNone
         IsComposite = IsCompound | IsBarecomp | IsArgumented | IsList | IsGroup | IsMap | IsPair | IsPattern
         IsConstType = IsBasic
 
@@ -264,7 +274,7 @@ func (t *Basic) IsString() bool   { return t.info&IsString != 0 }
 func (t *Basic) IsDate() bool     { return t.info&IsDate != 0 }
 func (t *Basic) IsTime() bool     { return t.info&IsTime != 0 }
 func (t *Basic) IsDateTime() bool { return t.info&IsDateTime != 0 }
-func (t *Basic) IsUri() bool      { return t.info&IsUri != 0 }
+func (t *Basic) IsURL() bool      { return t.info&IsURL != 0 }
 func (t *Basic) IsBareword() bool { return t.info&IsBareword != 0 }
 func (t *Basic) IsBarefile() bool { return t.info&IsBarefile != 0 }
 func (t *Basic) IsGlob() bool     { return t.info&IsGlob != 0 }
@@ -272,6 +282,7 @@ func (t *Basic) IsPathSeg() bool  { return t.info&IsPathSeg != 0 }
 func (t *Basic) IsPath() bool     { return t.info&IsPath != 0 }
 func (t *Basic) IsFile() bool     { return t.info&IsFile != 0 }
 func (t *Basic) IsFlag() bool     { return t.info&IsFlag != 0 }
+func (t *Basic) IsNegative() bool { return t.info&IsNegative != 0 }
 func (t *Basic) IsNone() bool     { return t.info&IsNone != 0 }
 
 type Composite struct {

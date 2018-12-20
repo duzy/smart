@@ -77,6 +77,7 @@ func (p *ExecResult) refs(_ Value) bool { return false }
 func (p *ExecResult) closured() bool { return false }
 func (p *ExecResult) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *ExecResult) Type() Type { return ExecResultType }
+func (p *ExecResult) True() bool { return p.Status == 0 && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */ }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
 func (p *ExecResult) Strval() (s string, err error) {
@@ -106,20 +107,12 @@ func trimRightSpaces(s string) string {
         return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
-type _shell struct {
-        interpreter string // shell interpreter
-        xopt string // execute option: -c (sh, python), -e (perl)
+type executor struct {
+        cmd string // shell command
+        opt string // execute option: -c (sh, python), -e (perl)
 }
 
-func isTrueValue(s string) (res bool) {
-        switch strings.ToLower(s) {
-        case "on", "yes", "y", "1":
-                res = true
-        }
-        return
-}
-
-func (s *_shell) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (s *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var recipes []Value
         if recipes, err = DiscloseAll(prog.recipes...); err != nil {
                 return
@@ -187,17 +180,13 @@ func (s *_shell) Evaluate(prog *Program, args []Value) (result Value, err error)
                         source = fmt.Sprintf("%s && %s", s, source)
                 }*/
 
-                var (
-                        verbout, verberr, saveout, saveerr, stdin, silent bool
-                        sh *exec.Cmd
-                )
+                var sh *exec.Cmd
+                var verbout, verberr, saveout, saveerr, stdin, silent bool
                 if len(args) == 0 {
-                        sh = exec.Command(s.interpreter, s.xopt, source)
+                        sh = exec.Command(s.cmd, s.opt, source)
                 } else {
-                        var (
-                                key, value string
-                                a []string
-                        )
+                        var key, value string
+                        var a []string
                         ForArgs: for _, v := range args {
                                 switch t := v.(type) {
                                 case *Pair:
@@ -214,36 +203,25 @@ func (s *_shell) Evaluate(prog *Program, args []Value) (result Value, err error)
                                                 }
                                         }
                                 case *Flag:
-                                        if key, err = t.Name.Strval(); err != nil { return }
-                                        switch key {
-                                        case "s" : silent = true;  continue ForArgs
-                                        case "so": saveout = true; continue ForArgs
-                                        case "se": saveerr = true; continue ForArgs
-                                        case "soe", "seo":
-                                                saveout, saveerr = true, true
-                                                continue ForArgs
-                                        case "vo": verbout = true; continue ForArgs
-                                        case "ve": verberr = true; continue ForArgs
-                                        case "veo", "voe", "eo", "oe":
-                                                verbout, verberr = true, true
-                                                continue ForArgs
-                                        case "i":
-                                                stdin, a = true, append(a, "-ti")
-                                                continue ForArgs
-                                        }
+                                        if str, err = t.Name.Strval(); err != nil { return }
+                                        if verbout = strings.ContainsRune(str, 'v'); verbout { exeres.Stdout.Tie = os.Stdout }
+                                        if verberr = strings.ContainsRune(str, 'w'); verberr { exeres.Stderr.Tie = os.Stderr }
+                                        if silent  = strings.ContainsRune(str, 's'); silent  { }
+                                        if saveout = strings.ContainsRune(str, 'o'); saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
+                                        if saveerr = strings.ContainsRune(str, 'e'); saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
+                                        if stdin   = strings.ContainsRune(str, 'i'); stdin   { a = append(a, "-ti") }
+                                        continue ForArgs
                                 }
-                                if str, err = v.Strval(); err == nil {
+                                if str, err = v.Strval(); err != nil { return } else {
                                         a = append(a, str)
-                                } else {
-                                        return
                                 }
                         }
-                        a = append(a, s.xopt, source)
-                        sh = exec.Command(s.interpreter, a...)
+                        a = append(a, s.opt, source)
+                        sh = exec.Command(s.cmd, a...)
                 }
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
+                if stdin { sh.Stdin = os.Stdin }
                 for _, v := range envars {
-                        //if v, err = Disclose(prog.Scope(), v); err != nil {
                         if v, err = v.expand(expandClosure); err != nil {
                                 return
                         } else if str, err = v.Strval(); err == nil {
@@ -252,15 +230,10 @@ func (s *_shell) Evaluate(prog *Program, args []Value) (result Value, err error)
                                 return
                         }
                 }
-                if verbout { exeres.Stdout.Tie = os.Stdout }
-                if verberr { exeres.Stderr.Tie = os.Stderr }
-                if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
-                if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
-                if stdin { sh.Stdin = os.Stdin }
 
                 exeres.Stderr.filter("bash: no job control in this shell\n")
-                //exeres.Stderr.Subm = nil
                 //exeres.Stderr.Line = rxKnownErrors
+                //exeres.Stderr.Subm = nil
 
                 if err = sh.Run(); err == nil {
                         exeres.Status, source = 0, ""
@@ -285,16 +258,7 @@ func (s *_shell) Evaluate(prog *Program, args []Value) (result Value, err error)
 }
 
 func init() {
-        RegisterDialect("shell", &_shell{
-                interpreter: "bash", // "sh"
-                xopt: "-c",
-        })
-        RegisterDialect("python", &_shell{
-                interpreter: "python",
-                xopt: "-c",
-        })
-        RegisterDialect("perl", &_shell{
-                interpreter: "perl",
-                xopt: "-e",
-        })
+        RegisterDialect("shell", &executor{ "bash", "-c" })
+        RegisterDialect("python", &executor{ "python", "-c" })
+        RegisterDialect("perl", &executor{ "perl", "-e" })
 }

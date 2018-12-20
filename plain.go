@@ -9,7 +9,7 @@ package smart
 import (
         "strings"
         "strconv"
-        //"fmt"
+        "fmt"
 )
 
 // Value returned by (plain) modifier.
@@ -20,14 +20,15 @@ type Plain struct {
 func (p *Plain) refs(_ Value) bool { return false }
 func (p *Plain) closured() bool { return false }
 func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Plain) Type() Type  { return PlainType }
-func (p *Plain) String() string {
-        s := "(plain"
-        if p.Name != "" {
-                s += "(" + p.Name + ")"
-        } 
-        s += " " + p.Value + ")"
-        return s
+func (p *Plain) Type() Type { return PlainType }
+func (p *Plain) True() bool { return strings.TrimSpace(p.Value) != "" }
+func (p *Plain) String() (s string) {
+        if p.Name == "" {
+                s = fmt.Sprintf("((plain) %s)", p.Value)
+        } else {
+                s = fmt.Sprintf("((plain %s) %s)", p.Name, p.Value)
+        }
+        return
 }
 func (p *Plain) Strval() (string, error) { return p.Value, nil }
 func (p *Plain) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }

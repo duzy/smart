@@ -55,12 +55,13 @@ const (
 	RBRACE    // }    right curly
 	SEMICOLON // ;
 
+	EXC       // !    exclamation
+	QUE       // ?
+
         ruledelim_beg
         BAR       // |
 	COLON     // :
 	COLON2    // ::
-	EXC       // !    exclamation
-	QUE       // ?
         ruledelim_end
 
         AT        // @
@@ -125,8 +126,10 @@ const (
 
 	keyword_beg
         PROJECT    // project a
+        PACKAGE    // package a
         MODULE     // module a
-        CONFIGURE  // configure [...]
+        CONFIGURE  // configure [...] TODO: use a different keyword
+        CONFIGURATION
         USE        // use b
         EVAL       // evaluate a builtin immediately
         EXPORT     // export ...
@@ -175,11 +178,12 @@ var tokens = [...]string{
 	RBRACE:    "}",
         SEMICOLON: ";",
 
+        EXC:       "!",
+        QUE:       "?",
+
         BAR:       "|",
 	COLON:     ":",
         COLON2:    "::",
-        EXC:       "!",
-        QUE:       "?",
 
         AT:        "@",
         STAR:      "*",
@@ -233,8 +237,10 @@ var tokens = [...]string{
 	PERC:  "%",
         
         PROJECT:    "project",
+        PACKAGE:    "package",
         MODULE:     "module",
         CONFIGURE:  "configure",
+        CONFIGURATION: "configuration",
         USE:        "use",
         EVAL:       "eval",
         EXPORT:     "export",
@@ -279,3 +285,9 @@ func (tok Token) IsClosure() bool { return closure_beg < tok && tok < closure_en
 func (tok Token) IsDelegate() bool { return delegate_beg < tok && tok < delegate_end }
 func (tok Token) IsAssign() bool { return assign_beg < tok && tok < assign_end }
 func (tok Token) IsRuleDelim() bool { return ruledelim_beg < tok && tok < ruledelim_end }
+func (tok Token) IsListDelim() bool {
+        return tok.IsRuleDelim() ||
+               tok == RPAREN || tok == RBRACK || tok == RBRACE ||
+               tok == SEMICOLON || tok == COMMA || tok == LINEND ||
+               tok == EOF
+}

@@ -38,10 +38,15 @@ func (xs executestack) unshift(progs... *Program) executestack {
         return append(progs, execstack...)
 }
 
-func (xs executestack) projects() (res []*Project) {
+func (xs executestack) projects(first *Project) (res []*Project) {
+        if first != nil {
+                res = append(res, first)
+        }
         ForXS: for _, x := range xs {
                 for _, p := range res {
-                        if x.project == p { continue ForXS }
+                        if x.project == p || p == first {
+                                continue ForXS
+                        }
                 }
                 res = append(res, x.project)
         }
@@ -125,7 +130,7 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
         return
 }
 
-func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err error) {
+func (prog *Program) interpret(i interpreter, out *Def, params []Value) (err error) {
         var target, value Value
         if value, err = i.Evaluate(prog, params); err == nil {
                 if value != nil {
@@ -145,21 +150,38 @@ func (prog *Program) interpret(i Interpreter, out *Def, params []Value) (err err
         return
 }
 
-func (prog *Program) modify(m *modifier, out *Def) (interpreted string, err error) {
+func (prog *Program) modify(m *modifier, post bool, interpreted *string, out *Def) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
+        var v []Value
         var name string
-        if name, err = m.name.Strval(); err != nil {
+        if v, err = mergeresult(ExpandAll(m.name)); err != nil {
                 return
-        } else if f, ok := modifiers[name]; ok {
-                var value = out.Value
-                if value, err = f(prog.position, prog, value, m.args...); err == nil && value !=  nil {
-                        out.Assign(value)
+        } else if name, err = v[0].Strval(); err != nil {
+                return
+        } else {
+                v = append(v[1:], m.args...)
+        }
+
+        if f, ok := modifiers[name]; ok {
+                // Special modifier processing (implicit interpretation)
+                switch name {
+                case "configure": if post && *interpreted == "" {
+                        if i, ok := dialects["eval"]; ok && i != nil {
+                                err = prog.interpret(i, out, v)
+                                *interpreted = "eval"
+                        }
+                }}
+                if err == nil {
+                        var value Value
+                        if value, err = f(prog.position, prog, v...); err == nil && value != nil {
+                                out.Assign(value)
+                        }
                 }
         } else if i, _ := dialects[name]; i != nil {
-                err = prog.interpret(i, out, m.args)
-                interpreted = name // return dialect name
+                err = prog.interpret(i, out, v)
+                *interpreted = name // return dialect name
         } else {
                 err = fmt.Errorf("no modifier or dialect '%s'", name)
         }
@@ -262,6 +284,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         var print = prog.getModifier("cd") == nil
+        // Flag targets (-foo) will turn off printing
+        if _, ok := entry.target.(*Flag); ok { print = false }
 
         // cd before setting execstack, because cd reads execstack
         // before changes.
@@ -288,8 +312,15 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        // set up arguments ($1, $2, ..., $9, etc.)
         var argn = 0
+
+        // clear last argument set
+        /*for i, param := range prog.params {
+                prog.auto(strconv.Itoa(i+1), universalnone)
+                prog.auto(param, universalnone)
+        }*/
+
+        // set up arguments ($1, $2, ..., $9, etc.)
         for _, a := range args {
                 switch t := a.(type) {
                 case *Pair:
@@ -307,7 +338,11 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         // modifier buffer
         var modifyBuf = prog.auto("-", universalnone)
-        defer func() { result = modifyBuf.Value }()
+        defer func() {
+                for i := 0; i < argn; i += 1 { prog.auto(strconv.Itoa(i+1), universalnone) }
+                for _, param := range prog.params { prog.auto(param, universalnone) }
+                result = modifyBuf.Value
+        } ()
 
         // Split modifiers by '|', if no '|', all goes postModifiers.
         var preModifiers, postModifiers []*modifier
@@ -329,11 +364,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         // Pre-modifiers
         var preInterpreted string
-        PrePipeline: for _, m := range preModifiers {
-                var lang string
+        PrePipe: for _, m := range preModifiers {
                 if m.name == modifierbar {
                         continue
-                } else if lang, err = prog.modify(m, modifyBuf); err != nil {
+                } else if err = prog.modify(m, false, &preInterpreted, modifyBuf); err != nil {
                         if p, ok := err.(*breaker); ok && p != nil && p.good {
                                 // Discard err and change dialect to avoid
                                 // default interpreter being called.
@@ -342,9 +376,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         if err != nil {
                                 fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
                         }
-                        break PrePipeline
-                } else if lang != "" && preInterpreted == "" {
-                        preInterpreted = lang
+                        break PrePipe
                 }
         }
 
@@ -355,7 +387,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
         for i, depend := range depends {
                 switch depend.(type) {
-                case *GlobPattern, *RegexpPattern: // break
+                case *PercPattern, *RegexpPattern: // break
                 case *usinglist: // break
                 case *Group: // break
                 case *File: // break
@@ -410,11 +442,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         //              smart statments going here...
         //              
         var postInterpreted string
-        PostPipeline: for _, m := range postModifiers {
-                var lang string
+        PostPipe: for _, m := range postModifiers {
                 if m.name == modifierbar {
                         continue
-                } else if lang, err = prog.modify(m, modifyBuf); err != nil {
+                } else if err = prog.modify(m, true, &postInterpreted, modifyBuf); err != nil {
                         if p, ok := err.(*breaker); ok && p != nil && p.good {
                                 // Discard err and change dialect to
                                 // avoid default interpreter being
@@ -424,9 +455,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         if err != nil {
                                 fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
                         }
-                        break PostPipeline
-                } else if lang != "" && postInterpreted == "" {
-                        postInterpreted = lang
+                        break PostPipe
                 }
         }
         if err == nil && preInterpreted == "" && postInterpreted == "" {
@@ -440,7 +469,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         return
 }
 
-func (prog *Program) AddModifier(position token.Position, operation Value) (err error) {
+func (prog *Program) pipe(position token.Position, operation Value) (err error) {
         switch g := operation.(type) {
         case *Group:
                 prog.pipline = append(prog.pipline, &modifier{
@@ -454,6 +483,11 @@ func (prog *Program) AddModifier(position token.Position, operation Value) (err 
                 err = fmt.Errorf("unknown modifier (%T `%v`)", operation, operation)
                 fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
         }
+        return
+}
+
+func (prog *Program) passExecution(position token.Position, entry *RuleEntry, args... Value) (result []Value, err error) {
+        result, err = Executer(entry).Execute(position, args...)
         return
 }
 

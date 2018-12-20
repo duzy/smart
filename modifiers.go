@@ -13,8 +13,8 @@ import (
         "strings"
         "regexp"
         "errors"
-        //"bytes"
         "bufio"
+        "bytes"
         "time"
         "fmt"
         "os"
@@ -36,7 +36,7 @@ func break_good(s string, a... interface{}) *breaker {
         return &breaker{ true, fmt.Sprintf(s, a...) }
 }
 
-type modifierFunc func(pos token.Position, prog *Program, value Value, args... Value) (Value, error)
+type modifierFunc func(pos token.Position, prog *Program, args... Value) (Value, error)
 
 const (
         TheShellEnvarsDef = "shell->envars"
@@ -60,23 +60,21 @@ var (
                 `grep-dependents`: modifierGrepDependents,
 
                 `check`:        modifierCheck,
-                `check-dir`:    modifierCheckDir,
-                `check-file`:   modifierCheckFile,
-                `dir-p`:        modifierCheckDir,
-                `file-p`:       modifierCheckFile,
+                //`check-dir`:    modifierCheckDir,
+                //`check-file`:   modifierCheckFile,
+                //`dir-p`:        modifierCheckDir,
+                //`file-p`:       modifierCheckFile,
                 
                 `write-file`:   modifierWriteFile,
                 `update-file`:  modifierUpdateFile,
                 `configure-file`: modifierConfigureFile,
+
+                `configure`: modifierConfigure,
+                `extract-configuration`: modifierExtractConfiguration,
         }
 
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
-
-func IsModifier(s string) (ok bool) {
-        _, ok = modifiers[s]
-        return
-}
 
 func getGroupElem(value Value, n int, v Value) Value {
         if g, ok := value.(*Group); ok {
@@ -107,7 +105,10 @@ func promptShellResult(value Value, n int) (err error) {
         return
 }
 
-func modifierStatusEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierStatusEquals(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        var value Value
+        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
+
         var v = getGroupElem(value, 1, nil)
         if v != nil && len(args) == 1 {
                 var a, s string
@@ -123,8 +124,11 @@ func modifierStatusEquals(pos token.Position, prog *Program, value Value, args..
         return
 }
 
-func modifierStdoutEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        v := getGroupElem(value, 2, nil)
+func modifierStdoutEquals(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        var value Value
+        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
+
+        var v = getGroupElem(value, 2, nil)
         if v != nil && len(args) == 1 {
                 var a, s string
                 if a, err = args[0].Strval(); err != nil {
@@ -139,8 +143,11 @@ func modifierStdoutEquals(pos token.Position, prog *Program, value Value, args..
         return
 }
 
-func modifierStderrEquals(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        v := getGroupElem(value, 3, nil)
+func modifierStderrEquals(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        var value Value
+        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
+
+        var v = getGroupElem(value, 3, nil)
         if v != nil && len(args) == 1 {
                 var a, s string
                 if a, err = args[0].Strval(); err != nil {
@@ -155,7 +162,9 @@ func modifierStderrEquals(pos token.Position, prog *Program, value Value, args..
         return
 }
 
-func modifierSelect(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierSelect(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        var value Value
+        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
         if g, ok := value.(*Group); ok && len(args) > 0 {
                 var num int64
                 if num, err = args[0].Integer(); err == nil {
@@ -167,12 +176,12 @@ func modifierSelect(pos token.Position, prog *Program, value Value, args... Valu
         return
 }
 
-func modifierSetArgs(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierSetArgs(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         // TODO: preserve args for interpreter
         return
 }
 
-func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierSetEnv(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         //if args, err = ExpandAll(Merge(args...)...); err != nil {
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
@@ -192,27 +201,27 @@ func modifierSetEnv(pos token.Position, prog *Program, value Value, args... Valu
         return
 }
 
-func modifierUnclose(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierUnclose(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if len(cloctx) > 0 {
                 cloctx = cloctx[1:]
         }
         return
 }
 
-func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        var ( n = len(args); optPath bool )
+func modifierCD(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        var (optPrint, optPath bool; n = len(args))
+        var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
+        if _, ok := target.(*Flag); ok { optPrint = false }
         if n > 0 {
-                var (v []Value; name string)
+                var v []Value
                 for _, arg := range args {
                         switch a := arg.(type) {
                         default: v = append(v, arg)
                         case *Flag:
-                                if name, err = a.Name.Strval(); err != nil {
-                                        return
-                                }
-                                switch name {
-                                case "p", "path": optPath = true
-                                case "":
+                                var opt bool
+                                if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
+                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optPrint = !opt }
+                                if opt, err = a.is(0, ""); err != nil { return } else if opt {
                                         var dir string
                                         if len(execstack) > 1 {
                                                 // Find a backtrack.
@@ -254,8 +263,7 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
                                 return
                         }
                 }
-                var print = true
-                if err = prog.cd(dir, print, false); err == nil {
+                if err = prog.cd(dir, optPrint, false); err == nil {
                         //for _, cd := range prog.cdinfos[1:] { cd.print = false }
                 }
         } else {
@@ -264,7 +272,7 @@ func modifierCD(pos token.Position, prog *Program, value Value, args... Value) (
         return
 }
 
-func modifierSudo(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierSudo(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         panic("todo: sudo modifier is not implemented yet")
         return
 }
@@ -370,42 +378,39 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
         return
 }
 
-func modifierCompare_0(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCompare_0(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         var (
-                targetVal Value
+                tardef = prog.scope.Lookup("@").(*Def)
+                target Value
                 depends = new(List)
                 nargs   = len(args)
         )
-        if def := prog.scope.Lookup("@").(*Def); nargs == 0 {
-                targetVal, _ = def.Call(pos)
+        if nargs == 0 {
+                if target, err = tardef.Call(pos); err != nil { return }
         } else if nargs == 1 {
-                //switch targetVal = args[0]; t := targetVal.(type) {
-                //case *List: targetVal = t.Elems[0]
-                //}
-                targetVal = args[0]
-                def.Assign(targetVal)
+                tardef.Assign(target)
+                if target, err = tardef.Call(pos); err != nil { return }
         } else if nargs > 1 {
                 s := fmt.Sprintf("accepts only one optional argument (%v)", args)
                 return nil, break_bad(s)
         }
 
         if trace_compare {
-                //fmt.Printf("compare: %T %v (%v)\n", targetVal, targetVal, Reveal(Disclose(prog.disctx, targetVal)))
-                fmt.Printf("compare:Target: %v\n", targetVal)
+                fmt.Printf("compare:Target: %v\n", target)
         }
 
-        if targetVal, err = targetVal.expand(expandDelegate); err != nil { return }
-        if targetVal == nil || targetVal.Type() == NoneType {
+        if target, err = target.expand(expandDelegate); err != nil { return }
+        if target == nil || target.Type() == NoneType {
                 err = break_bad("no target"); return
         }
 
         // deal with list.
-        switch t := targetVal.(type) {
+        switch t := target.(type) {
         case *List:
                 if n := t.Len(); n == 1 {
-                        targetVal = t.Elems[0]
+                        target = t.Elems[0]
                 } else {
-                        s := fmt.Sprintf("compare: multiple targets (%v)", targetVal)
+                        s := fmt.Sprintf("compare: multiple targets (%v)", target)
                         err = break_bad(s); return
                 }
         }
@@ -423,13 +428,13 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                 outdated = false
                 tt time.Time
         )
-        if targetVal != nil && targetVal.Type() != NoneType {
+        if target != nil && target.Type() != NoneType {
                 var (
                         targetFile *File
                         name string
                 )
-                if name, err = targetVal.Strval(); err != nil { return }
-                switch t := targetVal.(type) {
+                if name, err = target.Strval(); err != nil { return }
+                switch t := target.(type) {
                 case *File: targetFile = t
                 case *Barefile: 
                         targetFile = &File{ Name:name }
@@ -451,7 +456,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                         }}
                 }
                 if targetFile == nil {
-                        err = break_bad("unknown target (%T '%v')", targetVal, targetVal)
+                        err = break_bad("unknown target (%T '%v')", target, target)
                         return
                 } else if nargs == 1 {
                         // Replace the value of "$@"
@@ -475,7 +480,7 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                 for _, depend := range depends.Elems {
                         switch depend.(type) {
                         case *File:
-                                outdated, err = compareTargetDepend(pos, prog, targetVal, depend, tt)
+                                outdated, err = compareTargetDepend(pos, prog, target, depend, tt)
                                 //fmt.Printf("compare-target-depend: %v (%v)\n", outdated, err)
                                 if err != nil || outdated {
                                         return
@@ -483,11 +488,11 @@ func modifierCompare_0(pos token.Position, prog *Program, value Value, args... V
                         }
                 }
         }
-        err = break_good("%s already up to date", targetVal)
+        err = break_good("%s already up to date", target)
         return
 }
 
-func modifierCompare(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         var target = prog.scope.Lookup("@").(*Def)
         if nargs := len(args); nargs == 1 {
                 target.Assign(args[0])
@@ -504,34 +509,35 @@ func modifierCompare(pos token.Position, prog *Program, value Value, args... Val
         return
 }
 
-func modifierGrepCompare(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        if v, e := modifierGrepDependents(pos, prog, value, args...); e != nil {
+// grep-compare - grep dependencies and compare, example usag:
+//
+//      (grep-compare '\s*#\s*include\s*<(.*)>')
+//      
+func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        if v, e := modifierGrepDependents(pos, prog, args...); e != nil {
                 err = e; return
         } else if v != nil {
                 def := prog.scope.Lookup("^").(*Def)
                 old := def.Value
                 def.Assign(v)
-                result, err = modifierCompare(pos, prog, value)
+                result, err = modifierCompare(pos, prog, args...)
                 def.Assign(old)
         }
         return
 }
 
-func modifierGrepDependents(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+// https://github.com/google/re2/wiki/Syntax
+func modifierGrepDependents(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         var (
-                targetVal, _ = prog.scope.Lookup("@").(Caller).Call(pos)
+                target, _ = prog.scope.Lookup("@").(Caller).Call(pos)
                 targetName string
-                rxs []*regexp.Regexp                
+                rxs []*regexp.Regexp
                 optDiscardMissing = false
                 f *os.File
         )
-        if targetName, err = targetVal.Strval(); err != nil {
-                return
-        }
-
+        if targetName, err = target.Strval(); err != nil { return }
         if len(args) == 0 {
-                return nil, errors.New("No arguments provided.")
-        //} else if args, err = ExpandAll(Merge(args...)...); err != nil {
+                err = errors.New("no arguments provided"); return
         } else if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
@@ -539,13 +545,8 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
         for _, arg := range args {
                 switch a := arg.(type) {
                 case *Flag:
-                        var name string
-                        if name, err = a.Name.Strval(); err != nil {
-                                return
-                        }
-                        switch name {
-                        case "discard-missing": optDiscardMissing = true
-                        }
+                        var opt bool
+                        if opt, err = a.is('d', "discard-missing"); err != nil { return } else if opt { optDiscardMissing = opt }
                 case *Pair:
                         //fmt.Printf("todo: grep-dependents: %v\n", a)
                 default:
@@ -555,9 +556,7 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
                         )
                         if str, err = a.Strval(); err != nil {
                                 return
-                        }
-                        // https://github.com/google/re2/wiki/Syntax
-                        if x, err = regexp.Compile(str); err != nil {
+                        } else if x, err = regexp.Compile(str); err != nil {
                                 return
                         } else {
                                 rxs = append(rxs, x)
@@ -575,9 +574,7 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
                 }
                 return
         } else {
-                defer func() {
-                        err = f.Close()
-                }()
+                defer func() { err = f.Close() }()
         }
 
         project := prog.project
@@ -610,79 +607,120 @@ func modifierGrepDependents(pos token.Position, prog *Program, value Value, args
 // (check status=1 stdout="foobar" stderr="")
 // (check file=filename.txt)
 // (check dir=directory)
-func modifierCheck(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCheck(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        var value Value
+        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
+
         var exeres, _ = value.(*ExecResult)
         if exeres == nil {
-                s := fmt.Sprintf("bad value (%T)", value)
-                err = break_bad(s)
+                err = break_bad("bad value (%T)", value)
                 return
         }
-        ForArgs: for _, arg := range args {
-                switch t := arg.(type) {
-                case *Pair:
-                        var (
-                                key, str string
-                                num int64
-                        )
 
-                        if key, err = t.Key.Strval(); err != nil { return }
+        var (
+                optSilent bool // don't break on failures
+                makeResult func(bool) Value // returns results only if non-nil
+                values []Value
+                pairs []*Pair
+        )
+        for _, arg := range args { switch t := arg.(type) {
+        case *Pair: pairs = append(pairs, t)
+        case *Flag:
+                var opt bool
+                if opt, err = t.is('a', "answer"); err != nil { return } else if opt { makeResult = MakeAnswer }
+                if opt, err = t.is('r', "result"); err != nil { return } else if opt { makeResult = MakeBoolean }
+                if opt, err = t.is('s', "silent"); err != nil { return } else if opt { optSilent = opt }
+        default:
+                err = fmt.Errorf("unknown check '%v' (%T)", arg, arg)
+                return
+        }}
+
+        if optSilent && makeResult == nil {
+                makeResult = MakeBoolean
+        }
+
+        ForPairs: for _, t := range pairs {
+                var key, str string
+                if key, err = t.Key.Strval(); err != nil { return }
+                switch key {
+                case "status":
+                        var num int64
+                        if num, err = t.Value.Integer(); err != nil { return }
+                        if res := exeres.Status == int(num); makeResult != nil {
+                                values = append(values, makeResult(res))
+                        } else if !res {
+                                s := "bad status (%v) (expects %v)"
+                                err = break_bad(s, exeres.Status, t.Value)
+                                break ForPairs
+                        }
+                case "stdout", "stderr":
+                        var v *bytes.Buffer
                         switch key {
-                        case "status":
-                                if num, err = t.Value.Integer(); err != nil { return }
-                                if exeres.Status != int(num) {
-                                        s := fmt.Sprintf("bad status (%v) (expects %v)", exeres.Status, t.Value)
-                                        err = break_bad(s)
-                                        break ForArgs
-                                }
-                        case "stdout":
-                                if v := exeres.Stdout.Buf; v != nil {
-                                        if str, err = t.Value.Strval(); err != nil { 
-                                                return
-                                        } else if v.String() != str {
-                                                s := fmt.Sprintf("bad stdout (%v) (expects %v)", v, t.Value)
-                                                err = break_bad(s)
-                                                break ForArgs
+                        case "stdout": v = exeres.Stdout.Buf
+                        case "stderr": v = exeres.Stderr.Buf
+                        default: unreachable()
+                        }
+                        if v == nil {
+                                s := "bad %s (expects %v)"
+                                err = break_bad(s, key, t.Value)
+                                break ForPairs
+                        }
+                        if str, err = t.Value.Strval(); err != nil { 
+                                return
+                        } else if res := v.String() == str; makeResult != nil {
+                                values = append(values, makeResult(res))
+                        } else if !res {
+                                s := "bad %s (%v) (expects %v)"
+                                err = break_bad(s, key, v, t.Value)
+                                break ForPairs
+                        }
+                case "file", "dir":
+                        if str, err = t.Value.Strval(); err != nil {
+                                return
+                        } else if fi, er := os.Stat(str); er != nil || fi == nil {
+                                s := "`%v` no such file or directory"
+                                err = break_bad(s, t.Value)
+                                break ForPairs
+                        } else {
+                                switch key {
+                                case "file":
+                                        if res := fi.Mode().IsRegular(); makeResult != nil {
+                                                values = append(values, makeResult(res))
+                                        } else if !res {
+                                                s := "`%v` is not a regular file"
+                                                err = break_bad(s, t.Value)
+                                                break ForPairs
                                         }
-                                } else {
-                                        s := fmt.Sprintf("bad stdout (expects %v)", t.Value)
-                                        err = break_bad(s)
-                                        break ForArgs
-                                }
-                        case "stderr":
-                                if v := exeres.Stderr.Buf; v != nil {
-                                        if str, err = t.Value.Strval(); err != nil {
-                                                return
-                                        } else if v.String() != str {
-                                                s := fmt.Sprintf("bad stderr (%v) (expects %v)", v, t.Value)
-                                                err = break_bad(s)
-                                                break ForArgs
+                                case "dir":
+                                        if res := fi.Mode().IsDir(); makeResult != nil {
+                                                values = append(values, makeResult(res))
+                                        } else if !res {
+                                                s := "`%v` is not a directory"
+                                                err = break_bad(s, t.Value)
+                                                break ForPairs
                                         }
-                                } else {
-                                        s := fmt.Sprintf("bad stderr (expects %v)", t.Value)
-                                        err = break_bad(s)
-                                        break ForArgs
+                                default: unreachable()
                                 }
-                        default:
-                                err = fmt.Errorf("unknown check '%v'", t.Key)
-                                break ForArgs
                         }
                 default:
-                        err = fmt.Errorf("unknown check '%v' (%T)", arg, arg)
-                        break ForArgs
+                        err = fmt.Errorf("unknown check '%v'", t.Key)
+                        break ForPairs
                 }
+        }
+        if err == nil && values != nil {
+                result = MakeListOrScalar(values)
         }
         return
 }
 
-func modifierCheckDir(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCheckDir(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         var (
-                targetDef, _ = prog.scope.Lookup("@").(*Def)
-                targetVal Value
+                target Value
                 filename string
         )
-        if targetVal, err = targetDef.Call(pos); err != nil {
+        if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
                 return
-        } else if filename, err = targetVal.Strval(); err != nil {
+        } else if filename, err = target.Strval(); err != nil {
                 return
         }
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsDir() {
@@ -692,45 +730,47 @@ func modifierCheckDir(pos token.Position, prog *Program, value Value, args... Va
                 }
                 result = &Path{Elements{segments}, nil}
         } else {
-                err = break_bad("file %s not exists", targetVal)
+                err = break_bad("file %s not exists", target)
         }
         return
 }
 
-func modifierCheckFile(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierCheckFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         var (
-                targetDef, _ = prog.scope.Lookup("@").(*Def)
-                targetVal Value
+                target Value
                 filename string
         )
-        if targetVal, err = targetDef.Call(pos); err != nil {
+        if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
                 return
-        } else if filename, err = targetVal.Strval(); err != nil {
+        } else if filename, err = target.Strval(); err != nil {
                 return
         }
         if fi, _ := os.Stat(filename); fi != nil && fi.Mode().IsRegular() {
                 result = &File{ Name: filename }
         } else {
-                err = break_bad("file %s not exists", targetVal)
+                err = break_bad("file %s not exists", target)
         }
         return
 }
 
-func modifierWriteFile(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierWriteFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         var (
-                targetDef, _ = prog.scope.Lookup("@").(*Def)
-                targetVal Value
                 filename, str string
+                target Value
                 f *os.File
         )
-        if targetVal, err = targetDef.Call(pos); err != nil {
+        if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
                 return
-        } else if filename, err = targetVal.Strval(); err != nil {
+        } else if filename, err = target.Strval(); err != nil {
                 return
         }
         if f, err = os.Create(filename); err == nil {
                 defer f.Close()
-                if str, err = value.Strval(); err != nil {
+
+                var value Value
+                if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil {
+                        return
+                } else if str, err = value.Strval(); err != nil {
                         return
                 } else if _, err = f.WriteString(str); err == nil {
                         result = &File{ Name: filename }
@@ -738,25 +778,25 @@ func modifierWriteFile(pos token.Position, prog *Program, value Value, args... V
                         os.Remove(filename)
                 }
         } else {
-                err = break_bad("file %s not generated", targetDef.Value)
+                err = break_bad("file %s not generated", target)
         }
         return
 }
 
-func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
+func modifierUpdateFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        var target Value
+        if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+                return
+        }
+
         var (
-                targetDef, _ = prog.scope.Lookup("@").(*Def)
                 nargs = len(args)
                 perm = os.FileMode(0640) // sys default 0666
-                targetVal Value
-                filename, content, s string
-                optPath = false
+                filename, content string
+                optPath, optSilent bool
                 num int64
                 f *os.File
         )
-        if targetVal, err = targetDef.Call(pos); err != nil {
-                return
-        }
 
         // Process flags
         if nargs > 0 {
@@ -765,13 +805,9 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                         switch a := arg.(type) {
                         default: v = append(v, arg)
                         case *Flag:
-                                var name string
-                                if name, err = a.Name.Strval(); err != nil {
-                                        return
-                                }
-                                switch name {
-                                case "p", "path": optPath = true
-                                }
+                                var opt bool
+                                if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
+                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optSilent = opt }
                         }
                 }
                 args, nargs = v, len(v) // Reset args
@@ -779,7 +815,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
 
         // Get target filename
         if nargs == 0 {
-                if filename, err = targetVal.Strval(); err != nil { return }
+                if filename, err = target.Strval(); err != nil { return }
         } else {
                 if filename, err = args[0].Strval(); err != nil { return }
                 if nargs > 1 {
@@ -798,6 +834,8 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
         }
 
         // Check existed file content checksum
+        var value Value
+        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
         if content, err = value.Strval(); err != nil { return }
         if f, err = os.Open(filename); err == nil && f != nil {
                 defer f.Close()
@@ -823,13 +861,8 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 }
         }
 
-        if len(args) > 0 {
-                if s, err = args[0].Strval(); err != nil { return }
-        }
-
-        var slient = len(args) > 0 && s == "slient"
-        if !slient {
-                fmt.Printf("update file '%v' ..", filename)
+        if !optSilent {
+                fmt.Printf("update file '%v' …", filename)
         }
 
         // Create or update the file with new content
@@ -839,57 +872,14 @@ func modifierUpdateFile(pos token.Position, prog *Program, value Value, args... 
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
                         result = &File{ Name: filename }
-                        if !slient {
-                                fmt.Printf(". (ok)\n")
-                        }
+                        if !optSilent { fmt.Printf("… (ok)\n") }
                 } else {
                         os.Remove(filename)
-                        if !slient {
-                                fmt.Printf(". (%s)\n", err)
-                        }
+                        if !optSilent { fmt.Printf("… (%s)\n", err) }
                 }
         } else {
-                if !slient {
-                        fmt.Printf(". (%s)\n", err)
-                }
-                err = break_bad("file %s not updated", targetDef.Value)
+                if !optSilent { fmt.Printf("… (%s)\n", err) }
+                err = break_bad("file %s not updated", target)
         }
-        return
-}
-
-// configure-file modifier (see also builtinConfigureFile), example usage:
-// 
-//     config.h:[(compare) (configure-file)]: config.h.in
-//     
-func modifierConfigureFile(pos token.Position, prog *Program, value Value, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        }
-
-        var target Value
-        for _, arg := range args {
-                switch a := arg.(type) {
-                case *None, *Flag, *Pair:
-                default: if target == nil {
-                        target = a
-                } else {
-                        err = fmt.Errorf("too many configure files")
-                        return
-                }}
-        }
-
-        if target == nil {
-                if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
-                        return
-                } else if target == nil {
-                        err = fmt.Errorf("unknown configure file")
-                        return
-                } else {
-                        args = append(args, target)
-                }
-        }
-
-        args = append(args, value)
-        result, err = builtinConfigureFile(pos, args...)
         return
 }

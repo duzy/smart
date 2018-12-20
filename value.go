@@ -14,6 +14,7 @@ import (
         "strconv"
         "strings"
         "time"
+        "math"
         "fmt"
         "os"
 )
@@ -36,6 +37,9 @@ const (
 type Value interface {
         // Type returns the underlying type of the value.
         Type() Type
+
+        // Returns true if the value can be evaluated as 'true', 'yes', etc.
+        True() bool
 
         // Lit returns the literal representations of the value.
         String() string
@@ -98,6 +102,7 @@ type value struct {}
 func (_ *value) refs(_ Value) bool { return false }
 func (_ *value) closured() bool { return false }
 func (_ *value) Type() Type { return InvalidType }
+func (_ *value) True() bool { return false }
 func (_ *value) Integer() (int64, error) { return 0, nil }
 func (_ *value) Float() (float64, error) { return 0, nil }
 func (p *value) Strval() (string, error) { return fmt.Sprintf("{value %p}", p), nil }
@@ -210,7 +215,7 @@ func (pc *preparer) update(value interface{}) (err error) {
         } else if value == nil {
                 err = fmt.Errorf("updating nil prerequisite")
         } else {
-                err = fmt.Errorf("`%T` is not prerequisite", value)
+                err = fmt.Errorf("`%v` is not prerequisite (%T)", value, value)
         }
         return
 }
@@ -313,6 +318,7 @@ func (p *Argumented) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Argumented) Type() Type { return ArgumentedType }
+func (p *Argumented) True() bool { return p.Val.True() }
 func (p *Argumented) Integer() (i int64, err error) {
         var s string
         if s, err = p.Strval(); err == nil {
@@ -366,6 +372,7 @@ func (p *Argumented) prepare(pc *preparer) error {
 type None struct { value }
 func (p *None) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *None) Type() Type { return NoneType }
+func (p *None) True() bool { return false }
 func (p *None) String() string {return "" }
 func (p *None) Strval() (string, error) { return "", nil }
 func (p *None) compare(c *comparer) (err error) { return }
@@ -384,29 +391,216 @@ func (p *ModifierBar) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *ModifierBar) Strval() (string, error) { return "|", nil }
 func (p *ModifierBar) String() string {return "|" }
 
-type Any struct {
-        Value interface{}
-        value
-}
-func (p *Any) expand(_ expandwhat) (Value, error) { return p, nil }
+// Any is used to box an arbitrary value
+type Any struct { value interface{} }
 func (p *Any) Type() Type { return AnyType }
-
-func MakeAny(v interface{}) *Any { return &Any{ Value:v } }
-
-type integer struct {
-        Value int64
+func (p *Any) expand(w expandwhat) (res Value, err error) {
+        if v, ok := p.value.(Value); ok {
+                res, err = v.expand(w)
+        } else {
+                res = p
+        }
+        return
 }
+func (p *Any) refs(o Value) (res bool) {
+        if v, ok := p.value.(Value); ok {
+                res = v.refs(o)
+        }
+        return
+}
+func (p *Any) closured() (res bool) {
+        if v, ok := p.value.(Value); ok {
+                res = v.closured()
+        }
+        return
+}
+func (p *Any) True() (t bool) {
+        switch v := p.value.(type) {
+        case Value: t = v.True()
+        case float32: t = math.Abs(float64(v))-0 >= FloatEpsilon
+        case float64: t = math.Abs(v)-0 >= FloatEpsilon
+        case int: t = v != 0
+        case int64: t = v != 0
+        case bool: t = v
+        }
+        return
+}
+func (p *Any) Float() (res float64, err error) {
+        switch v := p.value.(type) {
+        case Value: res, err = v.Float()
+        case float32: res = float64(v)
+        case float64: res = v
+        case int: res = float64(v)
+        case int64: res = float64(v)
+        case bool: if v { res = FloatEpsilon }
+        }
+        return
+}
+func (p *Any) Integer() (res int64, err error) {
+        switch v := p.value.(type) {
+        case Value: res, err = v.Integer()
+        case float32: res = int64(v)
+        case float64: res = int64(v)
+        case int: res = int64(v)
+        case int64: res = v
+        case bool: if v { res = 1 }
+        }
+        return
+}
+func (p *Any) Strval() (s string, err error) {
+        s = fmt.Sprintf("%v", p.value)
+        return
+}
+func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
+func (p *Any) compare(c *comparer) (err error) {
+        if p, ok := p.value.(comparable); ok {
+                err = p.compare(c)
+        }
+        return
+}
+func (p *Any) filedependcompare(c *comparer, file *File) (err error) {
+        if p, ok := p.value.(filedepend); ok {
+                err = p.filedependcompare(c, file)
+        }
+        return
+}
+func (p *Any) pathdependcompare(c *comparer, path *Path) (err error) {
+        if p, ok := p.value.(pathdepend); ok {
+                err = p.pathdependcompare(c, path)
+        }
+        return
+}
+func (p *Any) prepare(pc *preparer) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:Any\n")
+        }
+        if p, ok := p.value.(prerequisite); ok {
+                err = p.prepare(pc)
+        }
+        return 
+}
+
+// Boxing any value
+func Box(v interface{}) (any *Any) {
+        if any, _ = v.(*Any); any == nil {
+                any = &Any{v}
+        }
+        return
+}
+func Unbox(any *Any) interface{} { return any.value }
+
+type negative struct { x Value }
+func (p *negative) refs(o Value) bool { return p.x.refs(o) }
+func (p *negative) closured() bool { return p.x.closured() }
+func (p *negative) expand(w expandwhat) (res Value, err error) {
+        var v Value
+        if v, err = p.x.expand(w); err != nil { return }
+        if v == p.x { res = p } else { res = &negative{v} }
+        return
+}
+func (p *negative) Type() Type { return NegativeType }
+func (p *negative) True() bool { return !p.x.True() }
+func (p *negative) String() (s string) { return fmt.Sprintf("!%v", p.x) }
+func (p *negative) Strval() (string, error) { return fmt.Sprintf("%v", !p.x.True()), nil }
+func (p *negative) Float() (res float64, err error) {
+        if !p.x.True() { res = FloatEpsilon }
+        return
+}
+func (p *negative) Integer() (res int64, err error) {
+        if !p.x.True() { res = 1 }
+        return
+}
+func (p *negative) compare(c *comparer) (err error) {
+        if p, ok := p.x.(comparable); ok {
+                err = p.compare(c)
+        }
+        return
+}
+func (p *negative) filedependcompare(c *comparer, file *File) (err error) {
+        if p, ok := p.x.(filedepend); ok {
+                err = p.filedependcompare(c, file)
+        }
+        return
+}
+func (p *negative) pathdependcompare(c *comparer, path *Path) (err error) {
+        if p, ok := p.x.(pathdepend); ok {
+                err = p.pathdependcompare(c, path)
+        }
+        return
+}
+func (p *negative) prepare(pc *preparer) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:negative\n")
+        }
+        if p, ok := p.x.(prerequisite); ok {
+                err = p.prepare(pc)
+        }
+        return
+}
+
+func Negative(val Value) *negative { return &negative{val} }
+
+type boolean struct { bool }
+func (p *boolean) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *boolean) refs(_ Value) bool { return false }
+func (p *boolean) closured() bool { return false }
+func (p *boolean) Type() Type { return BooleanType }
+func (p *boolean) True() bool { return p.bool }
+func (p *boolean) String() (s string) { return fmt.Sprintf("%v", p.bool) }
+func (p *boolean) Strval() (string, error) { return p.String(), nil }
+func (p *boolean) Float() (v float64, err error) {
+        if p.bool { v = 1. }
+        return
+}
+func (p *boolean) Integer() (v int64, err error) {
+        if p.bool { v = 1 }
+        return
+}
+func (p *boolean) compare(c *comparer) (err error) { return }
+func (p *boolean) filedependcompare(c *comparer, file *File) error { return nil }
+func (p *boolean) pathdependcompare(c *comparer, path *Path) error { return nil }
+func (p *boolean) prepare(pc *preparer) error { return nil }
+
+type answer struct { bool }
+func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *answer) refs(_ Value) bool { return false }
+func (p *answer) closured() bool { return false }
+func (p *answer) Type() Type { return AnswerType }
+func (p *answer) True() bool { return p.bool }
+func (p *answer) String() (s string) {
+        if p.bool { s = "yes" } else { s = "no" }
+        return
+}
+func (p *answer) Strval() (string, error) { return p.String(), nil }
+func (p *answer) Float() (v float64, err error) {
+        if p.bool { v = 1. }
+        return
+}
+func (p *answer) Integer() (v int64, err error) {
+        if p.bool { v = 1 }
+        return
+}
+func (p *answer) compare(c *comparer) (err error) { return }
+func (p *answer) filedependcompare(c *comparer, file *File) error { return nil }
+func (p *answer) pathdependcompare(c *comparer, path *Path) error { return nil }
+func (p *answer) prepare(pc *preparer) error { return nil }
+
+func MakeAnswer(v bool) Value { if v { return universalyes } else { return universalno } }
+func MakeBoolean(v bool) Value { if v { return universaltrue } else { return universalfalse } }
+
+type integer struct { int64 }
 func (p *integer) refs(_ Value) bool { return false }
 func (p *integer) closured() bool { return false }
 func (p *integer) Type() Type { return InvalidType }
-func (p *integer) Integer() (int64, error) { return p.Value, nil }
-func (p *integer) Float() (float64, error) { return float64(p.Value), nil }
+func (p *integer) True() bool { return p.int64 != 0 }
+func (p *integer) Integer() (int64, error) { return p.int64, nil }
+func (p *integer) Float() (float64, error) { return float64(p.int64), nil }
 
 type Bin struct { integer }
 func (p *Bin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Bin) Type() Type { return BinType }
-func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.Value),2)) }
-func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),2), nil }
+func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
+func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),2), nil }
 
 func MakeBin(i int64) *Bin { return &Bin{integer{i}} }
 func ParseBin(s string) *Bin {
@@ -429,9 +623,9 @@ func (p *Oct) String() string {
         } else {
                 return fmt.Sprintf("{Oct '%s' !(%+v)}", s, e)
         }*/
-        return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.Value),8))
+        return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8))
 }
-func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),8), nil }
+func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),8), nil }
 
 func MakeOct(i int64) *Oct { return &Oct{integer{i}} }
 func ParseOct(s string) *Oct {
@@ -448,8 +642,8 @@ func ParseOct(s string) *Oct {
 type Int struct { integer }
 func (p *Int) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Int) Type() Type { return IntType }
-func (p *Int) String() string { return strconv.FormatInt(int64(p.Value),10) }
-func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),10), nil }
+func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
+func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),10), nil }
 
 func MakeInt(i int64) *Int { return &Int{integer{i}} }
 func ParseInt(s string) *Int {
@@ -463,8 +657,8 @@ func ParseInt(s string) *Int {
 type Hex struct { integer }
 func (p *Hex) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Hex) Type() Type { return HexType }
-func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.Value),16)) }
-func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.Value),16), nil }
+func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
+func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),16), nil }
 
 func MakeHex(i int64) *Hex { return &Hex{integer{i}} }
 func ParseHex(s string) *Hex {
@@ -478,17 +672,17 @@ func ParseHex(s string) *Hex {
         }
 }
 
-type Float struct {
-        Value float64
-}
+const FloatEpsilon = 1e-15 /* 1e-16 */
+type Float struct { float64 } // IEEE-754 64-bit binary floating-point
 func (p *Float) refs(_ Value) bool { return false }
 func (p *Float) closured() bool { return false }
 func (p *Float) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Float) Type() Type { return FloatType }
-func (p *Float) String() string { return strconv.FormatFloat(float64(p.Value),'g', -1, 64) }
-func (p *Float) Strval() (string, error) { return strconv.FormatFloat(float64(p.Value),'g', -1, 64), nil }
-func (p *Float) Integer() (int64, error) { return int64(p.Value), nil }
-func (p *Float) Float() (float64, error) { return p.Value, nil }
+func (p *Float) True() bool { return math.Abs(p.float64)-0 > FloatEpsilon }
+func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
+func (p *Float) Strval() (string, error) { return strconv.FormatFloat(float64(p.float64),'g', -1, 64), nil }
+func (p *Float) Integer() (int64, error) { return int64(p.float64), nil }
+func (p *Float) Float() (float64, error) { return p.float64, nil }
 
 func MakeFloat(f float64) *Float { return &Float{f} }
 func ParseFloat(s string) *Float {
@@ -500,13 +694,12 @@ func ParseFloat(s string) *Float {
 }
 
 
-type DateTime struct {
-        Value time.Time 
-}
+type DateTime struct { Value time.Time }
 func (_ *DateTime) refs(_ Value) bool { return false }
 func (_ *DateTime) closured() bool { return false }
 func (p *DateTime) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *DateTime) Type() Type { return DateTimeType }
+func (p *DateTime) True() bool { return !p.Value.IsZero() }
 func (p *DateTime) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -572,44 +765,41 @@ func ParseTime(s string) *Time {
         }
 }
 
-type Uri struct {
-        Value *url.URL
-}
-func (_ *Uri) refs(_ Value) bool { return false }
-func (_ *Uri) closured() bool { return false }
-func (p *Uri) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Uri) Type() Type { return UriType }
-func (p *Uri) String() string {
-        if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{Uri '%s' !(%+v)}", s, e)
-        }
-}
-func (p *Uri) Strval() (string, error) { return p.Value.String(), nil }
-func (p *Uri) Integer() (int64, error) { return int64(len(p.Value.String())), nil }
-func (p *Uri) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+type URL struct { url.URL }
+func (_ *URL) refs(_ Value) bool { return false }
+func (_ *URL) closured() bool { return false }
+func (p *URL) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *URL) Type() Type { return URLType }
+func (p *URL) True() bool { return p.URL.String() != "" }
+func (p *URL) String() string { return p.URL.String() }
+func (p *URL) Strval() (string, error) { return p.URL.String(), nil }
+func (p *URL) Integer() (int64, error) { return int64(len(p.URL.String())), nil }
+func (p *URL) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
-func MakeUri(s *url.URL) *Uri { return &Uri{s} }
-func ParseUri(s string) *Uri {
+func MakeURL(s *url.URL) *URL { return &URL{ *s } }
+func ParseURL(s string) *URL {
         if u, e := url.Parse(s); e == nil {
-                return MakeUri(u)
+                return MakeURL(u)
         } else {
                 panic(e)
         }
 }
 
-type String struct {
-        Value string
-}
+type String struct { string }
 func (_ *String) refs(_ Value) bool { return false }
 func (_ *String) closured() bool { return false }
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *String) Type() Type  { return StringType }
-func (p *String) String() string { return fmt.Sprintf("'%s'", p.Value) }
-func (p *String) Strval() (string, error) { return p.Value, nil }
-func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
-func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
+func (p *String) Type() Type { return StringType }
+func (p *String) True() (t bool) {
+        if t = p.string != ""; t {
+                // TODO: check for 'true', 'false'; 'yes', 'no'
+        }
+        return
+}
+func (p *String) String() string { return fmt.Sprintf("'%s'", p.string) }
+func (p *String) Strval() (string, error) { return p.string, nil }
+func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
+func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 
 func (p *String) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
@@ -617,7 +807,7 @@ func (p *String) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         var tt, dt time.Time
-        if info, _ := os.Stat(p.Value); info != nil {
+        if info, _ := os.Stat(p.string); info != nil {
                 tt = info.ModTime()
         }
 
@@ -634,7 +824,7 @@ func (p *String) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[p.Value] = dt // Or tt?
+                c.globe.Timestamps[p.string] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated file '%s'", p)
@@ -648,7 +838,7 @@ func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         var tt, dt time.Time
-        if info, _ := os.Stat(p.Value); info != nil {
+        if info, _ := os.Stat(p.string); info != nil {
                 tt = info.ModTime()
         }
 
@@ -665,7 +855,7 @@ func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[p.Value] = dt // Or tt?
+                c.globe.Timestamps[p.string] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated directory '%s'", p)
@@ -678,22 +868,28 @@ func (p *String) prepare(pc *preparer) error {
                 fmt.Printf("prepare:String: %v\n", p)
         }
         //pc.source = p.Value
-        return pc.updateTarget(p.Value)
+        return pc.updateTarget(p.string)
 }
 
 func MakeString(s string) *String { return &String{s} }
 
-type Bareword struct {
-        Value string
-}
+type Bareword struct { string }
 func (_ *Bareword) refs(_ Value) bool { return false }
 func (_ *Bareword) closured() bool { return false }
 func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Bareword) Type() Type     { return BarewordType }
-func (p *Bareword) String() string { return p.Value/*fmt.Sprintf("Bareword{%s}", p.Value)*/ }
-func (p *Bareword) Strval() (string, error) { return p.Value, nil }
-func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
-func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
+func (p *Bareword) Type() Type { return BarewordType }
+func (p *Bareword) True() (t bool) {
+        switch p.string {
+        case "", "false", "no", "off", "0": t = false
+        case "true", "yes", "on", "1": t = true
+        default: t = true
+        }
+        return
+}
+func (p *Bareword) String() string { return p.string/*fmt.Sprintf("Bareword{%s}", p.string)*/ }
+func (p *Bareword) Strval() (string, error) { return p.string, nil }
+func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
+func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 
 func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
@@ -701,7 +897,7 @@ func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         var tt, dt time.Time
-        if info, _ := os.Stat(p.Value); info != nil {
+        if info, _ := os.Stat(p.string); info != nil {
                 tt = info.ModTime()
         }
 
@@ -718,7 +914,7 @@ func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[p.Value] = dt // Or tt?
+                c.globe.Timestamps[p.string] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated file '%s'", p)
@@ -732,7 +928,7 @@ func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         var tt, dt time.Time
-        if info, _ := os.Stat(p.Value); info != nil {
+        if info, _ := os.Stat(p.string); info != nil {
                 tt = info.ModTime()
         }
 
@@ -749,7 +945,7 @@ func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[p.Value] = dt // Or tt?
+                c.globe.Timestamps[p.string] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated directory '%s'", p)
@@ -761,15 +957,13 @@ func (p *Bareword) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Bareword: %v\n", p)
         }
-        //pc.source = p.Value
-        return pc.updateTarget(p.Value)
+        //pc.source = p.string
+        return pc.updateTarget(p.string)
 }
 
 func MakeBareword(s string) *Bareword { return &Bareword{s} }
 
-type Elements struct {
-        Elems []Value
-}
+type Elements struct { Elems []Value }
 func (p *Elements) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *Elements) Integer() (int64, error) {
         if n := len(p.Elems); n == 1 {
@@ -797,7 +991,13 @@ func (p *Elements) Take(n int) (v Value) {
 }
 func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
-func (p *Elements) ToList() *List         { return &List{*p} }
+func (p *Elements) ToList() *List { return &List{*p} }
+func (p *Elements) True() (t bool) {
+        for _, elem := range p.Elems {
+                if t = elem.True(); t { break }
+        }
+        return
+}
 
 func (p *Elements) refs(v Value) bool {
         for _, elem := range p.Elems {
@@ -815,9 +1015,7 @@ func (p *Elements) closured() bool {
         return false 
 }
 
-type Barecomp struct {
-        Elements
-}
+type Barecomp struct { Elements }
 func (p *Barecomp) Type() Type { return BarecompType }
 func (p *Barecomp) Strval() (s string, e error) {
         for _, elem := range p.Elems {
@@ -953,6 +1151,7 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Barefile) Type() Type { return BarefileType }
+func (p *Barefile) True() bool { return p.File != nil }
 func (p *Barefile) String() string { return p.Name.String() }
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
@@ -1021,19 +1220,48 @@ func MakeBarefile(name Value, file *File) *Barefile {
         return &Barefile{ name, file }
 }
 
-type Glob struct {
+type GlobMeta struct {
         Tok token.Token
 }
-func (p *Glob) refs(o Value) bool { return false }
-func (p *Glob) closured() bool { return false }
-func (p *Glob) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Glob) Type() Type { return GlobType }
-func (p *Glob) String() (s string) { return p.Tok.String() }
-func (p *Glob) Strval() (string, error) { return p.Tok.String(), nil }
-func (p *Glob) Integer() (int64, error) { return 0, nil }
-func (p *Glob) Float() (float64, error) { return 0, nil }
+func (p *GlobMeta) refs(o Value) bool { return false }
+func (p *GlobMeta) closured() bool { return false }
+func (p *GlobMeta) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *GlobMeta) Type() Type { return GlobType }
+func (p *GlobMeta) True() bool { return false }
+func (p *GlobMeta) String() (s string) { return p.Tok.String() }
+func (p *GlobMeta) Strval() (string, error) { return p.Tok.String(), nil }
+func (p *GlobMeta) Integer() (int64, error) { return 0, nil }
+func (p *GlobMeta) Float() (float64, error) { return 0, nil }
 
-func MakeGlob(tok token.Token) *Glob { return &Glob{tok} }
+type GlobRange struct { // `[a-b]`, `[abc]`, ...
+        Chars Value // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
+}
+func (p *GlobRange) refs(v Value) bool { return p.Chars.refs(v) }
+func (p *GlobRange) closured() bool { return p.Chars.closured() }
+func (p *GlobRange) expand(w expandwhat) (Value, error) {
+        if v, err := p.Chars.expand(w); err != nil {
+                return nil, err
+        } else if v != p.Chars {
+                return &GlobRange{v}, nil
+        } else {
+                return p, nil
+        }
+}
+func (p *GlobRange) Type() Type { return GlobType }
+func (p *GlobRange) True() bool { return false }
+func (p *GlobRange) String() (s string) { return fmt.Sprintf("[%s]", p.Chars) }
+func (p *GlobRange) Strval() (s string, err error) {
+        var chars string
+        if chars, err = p.Chars.Strval(); err == nil {
+                s = fmt.Sprintf("[%s]", chars)
+        }
+        return
+}
+func (p *GlobRange) Integer() (int64, error) { return 0, nil }
+func (p *GlobRange) Float() (float64, error) { return 0, nil }
+
+func MakeGlobMeta(tok token.Token) *GlobMeta { return &GlobMeta{tok} }
+func MakeGlobRange(v Value) *GlobRange { return &GlobRange{v} }
 
 type Path struct {
         Elements
@@ -1056,7 +1284,7 @@ func (p *Path) Strval() (s string, e error) {
                 var v string
                 if v, e = seg.Strval(); e != nil { return }
                 s += v
-                if ps, ok := seg.(*PathSeg); ok && ps != nil && ps.Value == '/' {
+                if ps, ok := seg.(*PathSeg); ok && ps != nil && ps.rune == '/' {
                         sep = false
                 } else {
                         sep = true
@@ -1068,6 +1296,14 @@ func (p *Path) Strval() (s string, e error) {
 func (p *Path) Integer() (int64, error) { return 0, nil }
 func (p *Path) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *Path) Type() Type { return PathType }
+func (p *Path) True() (t bool) {
+        if t = p.File != nil; !t {
+                for _, elem := range p.Elems {
+                        t = elem.True(); break
+                }
+        }
+        return
+}
 func (p *Path) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {
@@ -1208,28 +1444,28 @@ func (p *Path) prepare(pc *preparer) (err error) {
                 // Good!
         } else if e, ok := err.(targetNotFoundError); ok {
                 if info, _ := os.Stat(e.target); info == nil {
-                        pc.targets.Append(p) // Append unknown path anyway.
-                        fmt.Printf("path.prepare: 1: %v\n", pc.targets)
                         if trace_prepare {
                                 fmt.Printf("prepare:Path: %v (unknown path: %v)\n", p, e.target)
                         }
+                        pc.targets.Append(p) // Append unknown path anyway.
+                        err = pathNotFoundError{ p }
                 } else if info.IsDir() {
-                        pc.targets.Append(p)
-                        fmt.Printf("path.prepare: 2: %v\n", pc.targets)
                         if trace_prepare {
                                 fmt.Printf("prepare:Path: %v (found unknown path: %v)\n", p, e.target)
                         }
+                        pc.targets.Append(p)
+                        err = nil
                 } else {
                         // Search this path target as a file.
                         p.File = pc.program.project.SearchFile(e.target)
-                        pc.targets.Append(p.File)
-                        fmt.Printf("path.prepare: 3: %v\n", pc.targets)
-                        if trace_prepare {
-                                fmt.Printf("prepare:Path: %v (found unknown target: %v) (file: %v)\n", p, e.target, p.File.Fullname())
+                        if p.File != nil {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:Path: %v (found unknown target: %v) (file: %v)\n", p, e.target, p.File.Fullname())
+                                }
+                                pc.targets.Append(p.File)
+                                err = nil
                         }
                 }
-                // Make it a path-not-found error.
-                err = pathNotFoundError{ p }
         }
         return
 }
@@ -1238,12 +1474,20 @@ func MakePath(segments... Value) (v *Path) {
         return &Path{Elements{segments}, nil}
 }
 
-type PathSeg struct {
-        Value rune 
-        value
+func MakePathStr(str string) (v *Path) {
+        var segments []Value
+        for _, s := range strings.Split(str, PathSep) {
+                segments = append(segments, &Bareword{s})
+        }
+        return MakePath(segments...)
 }
+
+type PathSeg struct { rune }
 func (p *PathSeg) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *PathSeg) refs(_ Value) bool { return false }
+func (p *PathSeg) closured() bool { return false }
 func (p *PathSeg) Type() Type { return PathSegType }
+func (p *PathSeg) True() bool { return true }
 func (p *PathSeg) String() string { 
         if s, e := p.Strval(); e == nil {
                 return s
@@ -1252,17 +1496,23 @@ func (p *PathSeg) String() string {
         }
 }
 func (p *PathSeg) Strval() (s string, e error) {
-        switch p.Value {
+        switch p.rune {
         case '/': s = "/"
         case '~': s = "~"
         case '.': s = "."
         case '^': s = ".."
-        default: e = fmt.Errorf("unknown pathseg (%s)", p.Value)
+        default: e = fmt.Errorf("unknown pathseg (%s)", p.rune)
         }
         return
 }
+func (p *PathSeg) Float() (v float64, err error) { return }
+func (p *PathSeg) Integer() (v int64, err error) { return }
+func (p *PathSeg) compare(c *comparer) (err error) { return }
+func (p *PathSeg) filedependcompare(c *comparer, file *File) error { return nil }
+func (p *PathSeg) pathdependcompare(c *comparer, path *Path) error { return nil }
+func (p *PathSeg) prepare(pc *preparer) error { return nil }
 
-func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ Value:ch } }
+func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
 
 type File struct {
         value            // satisify Value interface
@@ -1274,6 +1524,7 @@ type File struct {
 }
 func (p *File) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *File) Type() Type { return FileType }
+func (p *File) True() bool { return p.Name != "" }
 func (p *File) String() string { return p.Name }
 func (p *File) Strval() (string, error) {
         if p.Sub != nil {
@@ -1441,23 +1692,16 @@ func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v (explicitly: %v in %v)\n", p.Name, p, pc.program.project.name)
         }
-        var entry *RuleEntry
         // Find concrete entry (by file represented name)
-        if entry, err = pc.program.project.resolveEntry(p.Name); err != nil {
-                // ... error
-        } else if entry == nil {
-                // Search into the upper projects for matched a rule.
-                for _, proj := range execstack.projects() {
-                        if proj == pc.program.project { continue }
-                        if entry, err = proj.resolveEntry(p.Name); err != nil {
-                                break
-                        } else if entry != nil {
-                                err, trybrk = entry.prepare(pc), true
-                                break
-                        }
+        // Search into the upper projects for matched a rule.
+        for _, proj := range execstack.projects(pc.program.project) {
+                var entry *RuleEntry
+                if entry, err = proj.resolveEntry(p.Name); err != nil {
+                        break
+                } else if entry != nil {
+                        err, trybrk = entry.prepare(pc), true
+                        break
                 }
-        } else {
-                err, trybrk = entry.prepare(pc), true
         }
         return
 }
@@ -1466,64 +1710,73 @@ func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v (implicitly: %v in %v)\n", p.Name, p, pc.program.project.name)
         }
-
-        var pss []*StemmedEntry
-        if pss, err = pc.program.project.resolvePatterns(p.Name); err != nil {
-                return
-        }
-
-        ForPatterns: for i, ps := range pss {
-                for _, prog := range ps.Patent.programs {
-                        if trace_prepare {
-                                fmt.Printf("prepare:File: %v (implicitly:%d: %v : %v) (in %v)\n", p.Name, i, ps, prog.depends, pc.program.project.name)
-                        }
-                        for _, dep := range prog.depends {
-                                var ( g, _ = dep.(*GlobPattern); ok bool )
-                                if g != nil {
-                                        if ok, err = p.checkPatternDepend(pc, pc.program.project, ps, prog, g); err != nil { return }
-                                        if !ok { continue ForPatterns }
+        // Search into the upper projects for matched a rule.
+        ForProjects: for _, proj := range execstack.projects(pc.program.project) {
+                var pss []*StemmedEntry
+                if pss, err = proj.resolvePatterns(p.Name); err != nil {
+                        break ForProjects
+                } else if len(pss) == 0 {
+                        continue ForProjects
+                }
+                ForPatterns: for i, ps := range pss {
+                        for _, prog := range ps.Patent.programs {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:File: %v (implicitly:%d: %v : %v) (in %v)\n", p.Name, i, ps, prog.depends, proj.name)
+                                }
+                                for _, dep := range prog.depends {
+                                        if g, ok := dep.(*PercPattern); ok && g != nil {
+                                                ok, err = p.checkPatternDepend(pc, proj, ps, prog, g)
+                                                if err != nil { break ForProjects }
+                                                if !ok { continue ForPatterns }
+                                        }
                                 }
                         }
-                }
-                ps.file = p // Bounds StemmedEntry with the File.
-                if err = ps.prepare(pc); err == nil {
-                        trybrk = true; break ForPatterns // Updated successfully!
-                } else if _, ok := err.(patternPrepareError); ok {
-                        if trace_prepare {
-                                fmt.Printf("prepare:File: %v (implicitly:%d: %v) (error: %s) (%s)\n", p.Name, i, ps, err, pc.program.project.name)
+                        ps.file = p // Bounds StemmedEntry with the File.
+                        if err = ps.prepare(pc); err == nil {
+                                trybrk = true
+                                break ForProjects // Updated successfully!
+                        } else if _, ok := err.(patternPrepareError); ok {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:File: %v (implicitly:%d: %v) (error: %s) (%s)\n", p.Name, i, ps, err, proj.name)
+                                }
+                        } else {
+                                trybrk = true
+                                break ForProjects // Update failed!
                         }
-                } else {
-                        trybrk = true; break ForPatterns // Update failed!
                 }
         }
         return
 }
 
-func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEntry, prog *Program, g *GlobPattern) (res bool, err error) {
+func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEntry, prog *Program, g *PercPattern) (res bool, err error) {
         var name string
         if name, err = g.MakeString(ps.Stem); err != nil { return }
         if file := project.file(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
-                //fmt.Printf("prepare:File: %v (implicitly:=: %v in %s)\n", p.Name, file, project.name)
                 if file.exists() {
                         if trace_prepare {
                                 fmt.Printf("prepare:File: %v (implicitly: %v exists in %s)\n", p.Name, file, project.name)
                         }
-                        res = true
+                        res = true; return
                 } else if trace_prepare && false {
                         fmt.Printf("prepare:File: %v (implicitly: %v missing in %s)\n", p.Name, file, project.name)
                 }
         }
-        if _, sym := project.scope.Find(name); sym != nil {
+
+        var entry *RuleEntry
+        if entry, err = project.resolveEntry(name); err != nil {
+                return
+        } else if entry != nil {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (implicitly: found %v in %s)\n", p.Name, sym, project.name)
+                        fmt.Printf("prepare:File: %v (implicitly: found %v in %s)\n", p.Name, entry, project.name)
                 }
-                res = true
+                res = true; return
         }
 
-        // TODO: recursive find patterns:
-        /*if project.FindPatterns(name) != nil {
-                res = true
-        }*/
+        // TODO: project.resolvePatterns(name)
+
+        if trace_prepare && false {
+                fmt.Printf("%v: `%v` requires `%v`, but missing\n", ps.Patent.Position, p, name)
+        }
         return
 }
 
@@ -1534,9 +1787,7 @@ type FileContent struct {
         content []byte
 }
 
-type Flag struct {
-        Name Value
-}
+type Flag struct { Name Value }
 func (p *Flag) refs(v Value) bool { return p.Name.refs(v) }
 func (p *Flag) closured() bool { return p.Name.closured() }
 func (p *Flag) expand(w expandwhat) (res Value, err error) {
@@ -1551,6 +1802,7 @@ func (p *Flag) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Flag) Type() Type { return FlagType }
+func (p *Flag) True() bool { return p.Name.True() }
 func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", p.Name.String()) }
 func (p *Flag) Strval() (s string, e error) {
         if s, e = p.Name.Strval(); e == nil { 
@@ -1560,6 +1812,15 @@ func (p *Flag) Strval() (s string, e error) {
 }
 func (p *Flag) Integer() (int64, error) { return 0, nil }
 func (p *Flag) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Flag) is(r rune, s string) (result bool, err error) {
+        switch t := p.Name.(type) {
+        case *Flag: result, err = t.is(r, s)
+        case *String: result = t.string == s
+        case *Bareword: if result = t.string == s; !result && r != 0 {
+                result = strings.ContainsRune(t.string, r)
+        }}
+        return
+}
 
 func MakeFlag(name Value) (v *Flag) { return &Flag{name} }
         
@@ -1603,9 +1864,7 @@ func MakeCompound(elems... Value) (v *Compound) {
         return &Compound{Elements{elems}}
 }
 
-type List struct {
-        Elements
-}
+type List struct { Elements }
 func (p *List) Type() Type { return ListType }
 func (p *List) String() (s string) {
         var strs []string
@@ -1693,9 +1952,7 @@ func (p *List) pathdependcompare(c *comparer, d *Path) (err error) {
 
 func MakeList(elems... Value) *List { return &List{Elements{elems}} }
 
-type Group struct {
-        List
-}
+type Group struct { List }
 func (p *Group) Type() Type { return GroupType }
 func (p *Group) String() string {
         var strs []string
@@ -1759,6 +2016,7 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
         return
 }
 func (p *Pair) Type() Type { return PairType }
+func (p *Pair) True() bool { return p.Value.True() || p.Key.True() }
 func (p *Pair) String() string {
         return fmt.Sprintf("%s=%s", p.Key.String(), p.Value.String())
 }
@@ -1784,6 +2042,11 @@ func (p *Pair) SetKey(k Value) {
         } else {
                 panic(fmt.Errorf("'%T' is not key type", k))
         }
+}
+
+func (p *Pair) isFlag(r rune, s string) (result bool, err error) {
+        if k, ok := p.Key.(*Flag); ok { result, err = k.is(r, s) }
+        return
 }
 
 func MakePair(k, v Value) (p *Pair) {
@@ -1831,6 +2094,12 @@ func (p *closuredelegate) string(t string) (s string) { // source representation
 // Delegate wraps '$(foo a,b,c)' into Valuer
 type delegate struct { closuredelegate }
 func (p *delegate) Type() Type { return DelegateType }
+func (p *delegate) True() (t bool) {
+        if s, err := p.Strval(); err == nil {
+                t = s != ""
+        }
+        return
+}
 func (p *delegate) String() (s string) { return p.string("$") }
 func (p *delegate) Strval() (string, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Strval() } else { return "", e }}
 func (p *delegate) Integer() (int64, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Integer() } else { return 0, e }}
@@ -1999,6 +2268,12 @@ func (p *delegate) prepare(pc *preparer) (err error) {
 
 type closure struct { closuredelegate }
 func (p *closure) Type() Type { return ClosureType }
+func (p *closure) True() (t bool) {
+        if s, err := p.Strval(); err == nil {
+                t = s != ""
+        }        
+        return
+}
 func (p *closure) String() (s string) { return p.string("&") }
 func (p *closure) Integer() (int64, error) {
         if p.o == nil {
@@ -2182,6 +2457,12 @@ type selection struct {
 }
 
 func (p *selection) Type() Type { return SelectionType }
+func (p *selection) True() (t bool) {
+        if s, err := p.Strval(); err == nil {
+                t = s != ""
+        }
+        return
+}
 func (p *selection) String() string {
         return fmt.Sprintf("%v%s%v", p.o, p.t, p.s)
 }
@@ -2295,10 +2576,9 @@ type Pattern interface {
         match(s string) (matched bool, stem string, err error)
 }
 
-type pattern struct {
-}
-
-func (p *pattern) Type() Type        { return PatternType }
+type pattern struct {}
+func (p *pattern) Type() Type { return PatternType }
+func (p *pattern) True() bool { return false }
 func (p *pattern) Integer() (int64, error) { return 0, nil }
 func (p *pattern) Float() (float64, error) { return 0, nil }
 func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
@@ -2313,24 +2593,15 @@ func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleE
         return
 }
 
-// GlobPattern represents glob expressions (e.g. '%.o', '[a-z].o', 'a?a.o')
-// FIXME: PercPattern -> %.o
-//        GlobPattern -> [a-z].o a?a.o
-type GlobPattern struct {
+// PercPattern represents percent pattern expressions (e.g. '%.o')
+type PercPattern struct {
         pattern
         Prefix Value
         Suffix Value
 }
-func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *GlobPattern) String() string {
-        /*if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{GlobPattern '%s' !(%+v)}", s, e)
-        }*/
-        return fmt.Sprintf("%s%%%s", p.Prefix.String(), p.Suffix.String())
-}
-func (p *GlobPattern) Strval() (s string, err error) {
+func (p *PercPattern) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *PercPattern) String() string { return fmt.Sprintf("%s%%%s", p.Prefix.String(), p.Suffix.String()) }
+func (p *PercPattern) Strval() (s string, err error) {
         if p.Prefix != nil {
                 var v string
                 if v, err = p.Prefix.Strval(); err == nil {
@@ -2350,7 +2621,7 @@ func (p *GlobPattern) Strval() (s string, err error) {
         }
         return
 }
-func (p *GlobPattern) match(s string) (matched bool, stem string, err error) {
+func (p *PercPattern) match(s string) (matched bool, stem string, err error) {
         var prefix, suffix string
         if prefix, err = p.Prefix.Strval(); err == nil && strings.HasPrefix(s, prefix) {
                 if suffix, err = p.Suffix.Strval(); err == nil && strings.HasSuffix(s, suffix) {
@@ -2362,13 +2633,139 @@ func (p *GlobPattern) match(s string) (matched bool, stem string, err error) {
         return
 }
 
-func (p *GlobPattern) MakeString(stem string) (s string, err error) {
+func (p *PercPattern) MakeString(stem string) (s string, err error) {
         if s, err = p.Prefix.Strval(); err == nil {
                 var v string
                 if v, err = p.Suffix.Strval(); err == nil {
                         s += stem + v
                 }
         }
+        return
+}
+
+func (p *PercPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
+        var target string
+        if target, err = p.MakeString(stem); err == nil {
+                entry = &RuleEntry{
+                        patent.class, &String{ target },
+                        patent.programs, patent.Position,
+                }
+                return
+        }
+        return
+}
+
+func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
+func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
+
+func (p *PercPattern) prepare(pc *preparer) (err error) {
+        if trace_prepare {
+                fmt.Printf("prepare:PercPattern: %v(%v)\n", p, pc.stem)
+        }
+        if pc.stem == "" {
+                err = fmt.Errorf("empty stem (%s)", p)
+                return
+        }
+
+        var target string
+        if target, err = p.MakeString(pc.stem); err != nil { return }
+
+        // Check if target is a file (if source entry is file).
+        for i := len(execstack)-1; i >= 0; i -= 1 {
+                prog := execstack[i]
+                if file := prog.project.file(target); file == nil {
+                        continue
+                } else if file.exists() {
+                        if trace_prepare {
+                                fmt.Printf("prepare:PercPattern: %v(%v) (file %v in %s)\n", p, pc.stem, file, prog.project.name)
+                        }
+                        // File exists, but we still prepare it to call
+                        // it's dependencies if any.
+                        err = file.prepare(pc)
+                        return
+                }
+
+                // Try update the file target via rules if not found.
+                if err = prog.project.updateTarget(pc, target); err == nil {
+                        continue
+                } else {
+                        return
+                }
+        }
+
+        if trace_prepare {
+                fmt.Printf("prepare:PercPattern: %v(%v) (target %v)\n", p, pc.stem, target)
+        }
+        if err = pc.updateTarget(target); err == nil {
+                return // Good!
+        } else {
+                if trace_prepare {
+                        fmt.Printf("prepare:PercPattern: %v (error: %v) (%v)\n", p, err, pc.stem)
+                }
+                err = patternPrepareError(err)
+        }
+        return
+}
+
+func MakePercPattern(prefix, suffix Value) Pattern {
+        if prefix == nil { prefix = universalnone }
+        if suffix == nil { suffix = universalnone }
+        return &PercPattern{
+                Prefix: prefix,
+                Suffix: suffix,
+        }
+}
+
+// GlobPattern represents glob pattern expressions (e.g. '*.o', '[a-z].o', 'a?a.o')
+// 
+// The pattern syntax is:
+//
+//	pattern:
+//		{ term }
+//	term:
+//		'*'         matches any sequence of non-Separator characters
+//		'?'         matches any single non-Separator character
+//		'[' [ '^' ] { character-range } ']'
+//		            character class (must be non-empty)
+//		c           matches character c (c != '*', '?', '\\', '[')
+//		'\\' c      matches character c
+//
+//	character-range:
+//		c           matches character c (c != '\\', '-', ']')
+//		'\\' c      matches character c
+//		lo '-' hi   matches character c for lo <= c <= hi
+type GlobPattern struct {
+        pattern
+        Components []Value
+}
+func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *GlobPattern) String() (s string) {
+        for _, comp := range p.Components {
+                s += comp.String()
+        }
+        return
+}
+func (p *GlobPattern) Strval() (s string, err error) {
+        for _, comp := range p.Components {
+                var v string
+                if v, err = comp.Strval(); err != nil {
+                        return
+                }
+                s += v
+        }
+        return
+}
+func (p *GlobPattern) match(s string) (matched bool, stem string, err error) {
+        var pat string
+        if pat, err = p.Strval(); err == nil {
+                matched, err = filepath.Match(pat, s)
+        }
+        // FIXME: calculate stem from matching
+        return
+}
+
+func (p *GlobPattern) MakeString(stem string) (s string, err error) {
+        // FIXME: make string from stem
         return
 }
 
@@ -2384,8 +2781,18 @@ func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry
         return
 }
 
-func (p *GlobPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
-func (p *GlobPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
+func (p *GlobPattern) refs(v Value) (res bool) {
+        for _, comp := range p.Components {
+                if res = comp.refs(v); res { break }
+        }
+        return
+}
+func (p *GlobPattern) closured() (res bool) {
+        for _, comp := range p.Components {
+                if res = comp.closured(); res { break }
+        }
+        return
+}
 
 func (p *GlobPattern) prepare(pc *preparer) (err error) {
         if trace_prepare {
@@ -2436,13 +2843,8 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
         return
 }
 
-func MakeGlobPattern(prefix, suffix Value) Pattern {
-        if prefix == nil { prefix = universalnone }
-        if suffix == nil { suffix = universalnone }
-        return &GlobPattern{
-                Prefix: prefix,
-                Suffix: suffix,
-        }
+func MakeGlobPattern(components... Value) Pattern {
+        return &GlobPattern{Components:components}
 }
 
 // TODO: implement regexp pattern
@@ -2597,9 +2999,7 @@ func mergeresult(res []Value, err error) ([]Value, error) {
 func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) {
         var v Value
         for _, elem := range values {
-                if elem == nil {
-                        panic(fmt.Sprintf("nil in %v\n", values))
-                }
+                if elem == nil { panic(fmt.Sprintf("nil in %v\n", values)) }
                 if v, err = elem.expand(w); err == nil {
                         if v != elem { num += 1 }
                         res = append(res, v)
@@ -2678,7 +3078,7 @@ func ParseLiteral(tok token.Token, s string) (v Value) {
         case token.DATETIME: v = ParseDateTime(s)
         case token.DATE:     v = ParseDate(s)
         case token.TIME:     v = ParseTime(s)
-        case token.URI:      v = ParseUri(s)
+        case token.URI:      v = ParseURL(s)
         case token.BAREWORD: v = MakeBareword(s)
         case token.STRING:   v = MakeString(s)
         case token.ESCAPE:   v = MakeString(EscapeChar(s))

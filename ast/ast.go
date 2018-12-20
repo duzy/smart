@@ -140,10 +140,27 @@ type (
                 EndPos   token.Pos
 	}
 
+        // A GlobMeta node represents an glob meta characters "*?".
+        GlobMeta struct {
+                TokPos token.Pos
+                Tok token.Token
+        }
+
+        // A GlobRange node represents an glob range term "[a-b]".
+        GlobRange struct {
+                Chars Expr
+        }
+        
         // A FlagExpr is a bare word leading by dash '-'.
         FlagExpr struct {
                 DashPos token.Pos
                 Name    Expr
+        }
+
+        // A NegExpr represents a negative expression '!...'.
+        NegExpr struct {
+                NegPos token.Pos
+                Val    Expr
         }
 
         // A CompoundLit node represents a composed list of expressions (not separated by spaces).
@@ -165,12 +182,6 @@ type (
                 Val interface{}  // name value, to avoid re-eval Name expr.
         }
 
-        // A GlobExpr node represents an expression containing glob characters "*?".
-        GlobExpr struct {
-                TokPos token.Pos
-                Tok token.Token
-        }
-        
         // A ListExpr node represents a list of expressions (seperated spaces).
         ListExpr struct {
                 Elems []Expr
@@ -236,6 +247,11 @@ type (
 		Y     Expr        // right operand
         }
 
+	// A GlobExpr node represents a glob pattern expression.
+        GlobExpr struct {
+		Components []Expr
+        }
+
 	// A KeyValueExpr node represents 'key=value' pairs
 	// in composite literals.
 	//
@@ -274,10 +290,10 @@ func (d *BadExpr) Pos() token.Pos         { return d.From }
 func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
+func (d *NegExpr) Pos() token.Pos         { return d.NegPos }
 func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
 func (d *PathExpr) Pos() token.Pos        { return d.Segments[0].Pos() }
 func (d *PathSegExpr) Pos() token.Pos     { return d.TokPos }
-func (d *GlobExpr) Pos() token.Pos        { return d.TokPos }
 func (d *ClosureDelegate) Pos() token.Pos { return d.TokPos }
 func (d *SelectionExpr) Pos() token.Pos   { return d.Lhs.Pos() }
 func (d *ArgumentedExpr) Pos() token.Pos  { return d.X.Pos() }
@@ -286,6 +302,9 @@ func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
 func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
 func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
 func (d *PercExpr) Pos() token.Pos        { return d.OpPos }
+func (d *GlobExpr) Pos() token.Pos        { return d.Components[0].Pos() }
+func (d *GlobMeta) Pos() token.Pos        { return d.TokPos }
+func (d *GlobRange) Pos() token.Pos       { return d.Chars.Pos() - 1 }
 func (d *KeyValueExpr) Pos() token.Pos    { return d.Key.Pos() }
 func (d *ModifierExpr) Pos() token.Pos    { return d.Lbrack }
 func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
@@ -295,13 +314,13 @@ func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *BasicLit) End() token.Pos        { return d.EndPos /*token.Pos(int(d.ValuePos) + len(d.Value))*/ }
 func (d *FlagExpr) End() token.Pos        { return d.Name.End() }
+func (d *NegExpr) End() token.Pos         { return d.Val.End() }
 func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *Barefile) End() token.Pos        { return d.Name.End() }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *PathExpr) End() token.Pos        { return d.Segments[len(d.Segments)-1].End() }
 func (d *PathSegExpr) End() token.Pos     { if d.Tok == token.DOTDOT { return d.TokPos+2 } else { return d.TokPos+1 } }
-func (d *GlobExpr) End() token.Pos        { return d.TokPos + 1 }
 func (d *ClosureDelegate) End() token.Pos {
         if d.TokLp == token.ILLEGAL {
                 switch d.Tok {
@@ -314,6 +333,9 @@ func (d *SelectionExpr) End() token.Pos   { return d.Rhs.End() }
 func (d *ArgumentedExpr) End() token.Pos  { return d.EndPos }
 func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }
+func (d *GlobExpr) End() token.Pos        { return d.Components[len(d.Components)-1].End() }
+func (d *GlobMeta) End() token.Pos        { return d.TokPos + 1 }
+func (d *GlobRange) End() token.Pos        { return d.Chars.End() + 1 }
 func (d *KeyValueExpr) End() token.Pos    { return d.Value.End() }
 func (d *ModifierExpr) End() token.Pos    { return d.Rbrack + 1 }
 func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
@@ -340,13 +362,13 @@ func (x *EvaluatedExpr) String() string {
 func (x *Bareword) String() string        { return fmt.Sprintf("%s", x.Value) }
 func (x *BasicLit) String() string        { return fmt.Sprintf("%s", x.Value) }
 func (x *FlagExpr) String() string        { return fmt.Sprintf("-%v", x.Name) }
+func (x *NegExpr) String() string         { return fmt.Sprintf("!%v", x.Val) }
 func (x *CompoundLit) String() string     { return fmt.Sprintf(`"%v"`, joins(x.Elems...)) }
 func (x *Barecomp) String() string        { return fmt.Sprintf("%v", joins(x.Elems...)) }
 func (x *Barefile) String() string        { return fmt.Sprintf("%v", x.Name) }
 func (x *ListExpr) String() string        { return fmt.Sprintf("%v", joinx(" ", x.Elems...)) }
 func (x *PathExpr) String() string        { return fmt.Sprintf("%v", joinx("/", x.Segments...)) }
 func (x *PathSegExpr) String() string     { return fmt.Sprintf("%v", x.Tok) }
-func (x *GlobExpr) String() string        { return fmt.Sprintf("%v", x.Tok) }
 func (x *ClosureDelegate) String() (s string) {
         var a string
         if len(x.Args) > 0 {
@@ -371,6 +393,9 @@ func (x *PercExpr) String() (s string) {
         if x.Y != nil { s += fmt.Sprintf("%v", x.Y) }
         return
 }
+func (x *GlobExpr) String() string        { return fmt.Sprintf("%v", joins(x.Components...)) }
+func (x *GlobMeta) String() string        { return x.Tok.String() }
+func (x *GlobRange) String() string       { return fmt.Sprintf("[%s]", x.Chars) }
 func (x *KeyValueExpr) String() string    { return fmt.Sprintf("%v%s%v", x.Key, x.Tok, x.Value) }
 func (x *ModifierExpr) String() string    { return fmt.Sprintf("(%v)", joinx(" ", x.Elems...)) }
 func (x *RecipeExpr) String() string      { return fmt.Sprintf("Recipe(%s){%v}", x.Dialect, x.Elems) }
@@ -380,18 +405,21 @@ func (*BadExpr) expr()         {}
 func (*Bareword) expr()        {}
 func (*BasicLit) expr()        {}
 func (*FlagExpr) expr()        {}
+func (*NegExpr) expr()         {}
 func (*CompoundLit) expr()     {}
 func (*Barecomp) expr()        {}
 func (*Barefile) expr()        {}
 func (*ListExpr) expr()        {}
 func (*PathExpr) expr()        {}
 func (*PathSegExpr) expr()     {}
-func (*GlobExpr) expr()        {}
 func (*ClosureDelegate) expr() {}
-func (*SelectionExpr) expr() {}
+func (*SelectionExpr) expr()   {}
 func (*ArgumentedExpr) expr()  {}
 func (*GroupExpr) expr()       {}
 func (*PercExpr) expr()        {}
+func (*GlobExpr) expr()        {}
+func (*GlobMeta) expr()        {}
+func (*GlobRange) expr()       {}
 func (*KeyValueExpr) expr()    {}
 func (*ModifierExpr) expr()    {}
 func (*RecipeExpr) expr()      {}
@@ -443,24 +471,24 @@ type (
         FilesSpec struct {
                 DirectiveSpec
         }
-        
+
         // A EvalSpec node represents evaluation statements.
         // 
 	EvalSpec struct {
                 DirectiveSpec
                 Resolved Symbol // resolved symbol
         }
+
+        ConfigurationSpec struct {
+                DefineClause
+        }
 )
 
-func (s *DirectiveSpec) Pos() token.Pos {
-        return s.Props[0].Pos()
-}
+func (s *DirectiveSpec) Pos() token.Pos { return s.Props[0].Pos() }
+func (s *DirectiveSpec) End() token.Pos { return s.Props[len(s.Props)-1].End() }
+func (_ *DirectiveSpec) specNode() {}
 
-func (s *DirectiveSpec) End() token.Pos {
-        return s.Props[len(s.Props)-1].End()
-}
-
-func (*DirectiveSpec) specNode() {}
+func (_ *ConfigurationSpec) specNode() {}
 
 // A declaration is represented by one of the following declaration nodes.
 //
@@ -528,12 +556,15 @@ type (
         RecipeRuleClause struct {
                 *RuleClause
         }
+        IncludeRuleClause struct {
+                *RuleClause
+        }
 )
 
 func (d *BadClause) Pos() token.Pos    { return d.From }
 func (d *GenericClause) Pos() token.Pos    { return d.TokPos }
 func (d *DefineClause) Pos() token.Pos { return d.Name.Pos() }
-func (d *RuleClause) Pos() token.Pos   { return d.TokPos }
+func (d *RuleClause) Pos() token.Pos   { return /*d.TokPos*/d.Targets[0].Pos() }
 
 func (d *BadClause) End() token.Pos { return d.To }
 func (d *GenericClause) End() token.Pos {
@@ -542,11 +573,15 @@ func (d *GenericClause) End() token.Pos {
 	}
 	return d.Specs[0].End()
 }
-func (d *DefineClause) End() token.Pos {
-        return d.Name.Pos() 
-}
-func (d *RuleClause) End() token.Pos {
-        return d.TokPos 
+func (d *DefineClause) End() token.Pos { return d.Name.Pos() }
+func (d *RuleClause) End() token.Pos { return d.TokPos }
+
+func (d *RuleClause) String() string {
+        var targets []string
+        for _, t := range d.Targets {
+                targets = append(targets, fmt.Sprintf("%v", t))
+        }
+        return strings.Join(targets, " ")
 }
 
 func (*BadClause) clauseNode()     {}
@@ -556,6 +591,7 @@ func (*RuleClause) clauseNode()    {}
 
 func (*RecipeDefineClause) expr() {}
 func (*RecipeRuleClause) expr() {}
+func (*IncludeRuleClause) expr() {}
 
 // A File node represents a Smart source file.
 //
@@ -565,8 +601,8 @@ func (*RecipeRuleClause) expr() {}
 //
 type File struct {
 	Doc        *CommentGroup   // associated documentation; or nil
-	Keypos     token.Pos       // position of "module" or "project" keyword
-        Keyword    token.Token     // e.g. "module", "project"
+	KeyPos     token.Pos       // position of "project", "package" or "module" keyword
+        Keyword    token.Token     // e.g. "project", "package", "module"
 	Name       *Bareword       // project/module name
 	Scope      Scope           // module scope (this file only)
 	Clauses    []Clause        // top-level declarations; or nil
@@ -579,7 +615,7 @@ type File struct {
 // collectively building a Project.
 //
 type Project struct {
-	Keypos  token.Pos         // position of "project" keyword
+	KeyPos  token.Pos         // position of "project" keyword
 	Name    string            // project name
 	Scope   Scope             // project scope across all files
 	Imports map[string]Symbol // map of project id -> project symbol
@@ -587,5 +623,5 @@ type Project struct {
         Runtime interface{}
 }
 
-func (*Project) Pos() token.Pos { return token.NoPos }
-func (*Project) End() token.Pos { return token.NoPos }
+func (p *Project) Pos() token.Pos { return p.KeyPos }
+func (_ *Project) End() token.Pos { return token.NoPos }

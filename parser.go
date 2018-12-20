@@ -25,15 +25,19 @@ const (
         composingDOT
         composingDOTDOT
         composingPCON
+        composingGLOB
         composingPERC
+        composingREXP
 
         specialKeyValue
         
         // Bits to disable parsing ArgumentedExpr 
         composingNoArg = composingSELECT_PROP | composingDOT | composingDOTDOT | composingPCON | composingPERC
         composingNoPair = composingSELECT_PROP | composingDOT | composingPCON | composingPERC
-        composingNoPerc = 0
         composingNoSelect = composingSELECT_PROP
+        composingNoGlob = composingGLOB | composingPERC | composingREXP
+        composingNoPerc = composingGLOB | composingPERC | composingREXP
+        composingNoRexp = composingGLOB | composingPERC | composingREXP
 )
 
 type ruleSpecial int
@@ -51,7 +55,7 @@ const (
 
 type parser struct {
         *loader
-        
+
         file    *token.File
         scanner scanner.Scanner
 
@@ -79,7 +83,7 @@ type parser struct {
         bits parsingBits
         
 	// Ordinary identifier scopes
-	imports    []*ast.ImportSpec // list of imports
+	imports []*ast.ImportSpec // list of imports
 }
 
 func (p *parser) init(l *loader, filename string, src []byte) {
@@ -398,6 +402,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
         case *ast.Barefile:
         case *ast.EvaluatedExpr:
         case *ast.FlagExpr:
+        case *ast.NegExpr:
         case *ast.KeyValueExpr:
         case *ast.PathSegExpr:
         case *ast.PathExpr:
@@ -405,12 +410,12 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
         case *ast.SelectionExpr:
         case nil:
                 //p.warn(p.pos, "nil expression")
-		p.errorExpected(p.pos, "nil expression")
+		p.error(p.pos, "nil expression")
 		x = &ast.BadExpr{From:token.NoPos, To:token.NoPos}
 	default:
 		// all other nodes are not proper expressions
                 //p.warn(x.Pos(), "bad expression (%T)\n", x)
-		p.errorExpected(x.Pos(), "bad expression (%T)", x)
+		p.error(x.Pos(), "bad expression `%v` (%T)", x, x)
 		x = &ast.BadExpr{From: x.Pos(), To: p.safePos(x.End())}
 	}
 	return x
@@ -418,14 +423,6 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
-
-func (p *parser) parseBadExpr(lhs bool) (x ast.Expr) {
-        pos := p.pos
-        p.warn(pos, "bad '%v'\n", p.tok)
-        p.errorExpected(pos, "clause or expression")
-        p.next() // go to next token
-        return &ast.BadExpr{ From:pos, To:p.pos }
-}
 
 func (p *parser) parseBareword(lhs bool) (x ast.Expr) {
 	var pos, value = p.pos, ""
@@ -473,17 +470,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
 func (p *parser) isEndOfList(lhs bool) bool {
         // If there's a comment right after the parsed expression, we break
         // the expression list to treat the end-of-line comment like a LINEND.
-        if p.lineComment != nil {
-                return true
-        }
-        if p.tok == token.RPAREN || p.tok == token.RBRACK || p.tok == token.RBRACE /*|| p.tok == token.COLON_RBK*/ {
-                return true
-        }
-        if p.tok.IsRuleDelim() {
-                return true
-        }
-        return p.tok == token.EOF || p.tok == token.LINEND || p.lineComment != nil ||
-               p.tok == token.COMMA || (lhs && p.tok.IsAssign())
+        return p.lineComment != nil || p.tok.IsListDelim() || (lhs && p.tok.IsAssign())
 }
 
 // If lhs is set, result list elements which are identifiers are not resolved.
@@ -576,20 +563,72 @@ func (p *parser) parseArgumentedExpr(x ast.Expr) ast.Expr {
         }
 }
 
-func (p *parser) parseGlobExpr(lhs bool) (x ast.Expr) {
+func (p *parser) parseGlobMeta() (x ast.Expr) {
+        tok, pos := p.tok, p.pos
+        p.next()
+        x = &ast.GlobMeta{ pos, tok }
+        return
+}
+
+func (p *parser) parseGlobRange() (x ast.Expr) {
 	if p.tracing.enabled {
 		defer un(trace(p, "Glob"))
 	}
+
+        p.next() // skip '['
+
+        chars := p.parseExpr(false)
+
+        p.expect(token.RBRACK) // skip ']'
+        if chars.End()+1 != p.pos {
+                p.error(p.pos, "unexpected extra spaces")
+        }
+
+        x = &ast.GlobRange{ chars }
+        return
+}
+
+func (p *parser) parseGlobExpr(x ast.Expr) ast.Expr {
+	if p.tracing.enabled {
+		defer un(trace(p, "Glob"))
+	}
+
+        var components []ast.Expr
+        if x != nil {
+                components = append(components, x)
+        }
+
+        // avoid nesting glob expressions
+        defer p.setbits(p.setbit(composingGLOB))
+
+        ForTok: for {
+                switch p.tok {
+                case token.RPAREN, token.COMMA, token.LINEND, token.EOF:
+                        break ForTok
+                case token.STAR, token.QUE:
+                        x = p.parseGlobMeta()
+                case token.LBRACK:
+                        x = p.parseGlobRange()
+                default:
+                        // FIXME: escaped glob metas/chars
+                        x = p.parseExpr(false)
+                }
+                components = append(components, x)
+                if p.lineComment != nil || x.End() != p.pos {
+                        break ForTok
+                }
+        }
         
-        x = &ast.GlobExpr{ TokPos:p.pos, Tok:p.tok }
-        p.next() // skip '*'
-        return x
+        return &ast.GlobExpr{ components }
 }
 
 func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
 	if p.tracing.enabled {
 		defer un(trace(p, "Perc"))
 	}
+
+        // avoid nesting percent expressions
+        defer p.setbits(p.setbit(composingPERC))
 
         var (
                 y ast.Expr
@@ -604,6 +643,19 @@ func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
                 OpPos: pos,
                 Y: y,
         }
+}
+
+func (p *parser) parseRegexpExpr() (x ast.Expr) {
+	if p.tracing.enabled {
+		defer un(trace(p, "Regexp"))
+	}
+
+        // avoid nesting percent expressions
+        defer p.setbits(p.setbit(composingREXP))
+
+        p.error(p.pos, "todo: regexp")
+
+        return
 }
 
 func (p *parser) parseKeyValueExpr(x ast.Expr) ast.Expr {
@@ -639,6 +691,15 @@ func (p *parser) parseFlagExpr(lhs bool) ast.Expr {
                 x = p.checkExpr(p.parseUnaryExpr(false))
         }
         return &ast.FlagExpr{ DashPos: pos, Name: x }
+}
+
+func (p *parser) parseNegExpr(lhs bool) ast.Expr {
+	if p.tracing.enabled {
+		defer un(trace(p, "Negative"))
+	}
+        pos := p.expect(token.EXC)
+        val := p.parseExpr(lhs)
+        return &ast.NegExpr{ NegPos: pos, Val: val }
 }
 
 func (p *parser) parseBasicLit(lhs bool) ast.Expr {
@@ -778,7 +839,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
 
                 // skips LPAREN, LBRACE, COLON
                 if name = p.checkExpr(p.parseNextExpr(false)); name == nil {
-                        p.error(pos, "bad name expr")
+                        p.error(pos, "bad closure name")
                         return &ast.BadExpr{ From:p.pos, To:p.pos }
                 } else if v := p.expr(name); v == nil {
                         p.error(name.Pos(), "name is nil (`%T`)", name)
@@ -913,9 +974,6 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
         case token.COMPOUND:
                 return p.parseCompoundLit(lhs)
                 
-        case token.STAR:
-                return p.parseGlobExpr(lhs)
-
         case token.DELEGATE, token.CLOSURE: // delegate, closure
                 return p.parseClosureDelegate()
 
@@ -942,11 +1000,20 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
         case token.PCON:
                 return p.parsePathExpr(lhs, &ast.PathSegExpr{ p.pos, p.tok })
                 
+        case token.STAR, token.QUE, token.LBRACK: // * ? [
+                return p.parseGlobExpr(nil) // (ie. no prefix)
+
         case token.PERC: // %bar (ie. no prefix)
                 return p.parsePercExpr(lhs, nil)
-                
+
+        case token.LBRACE: // TODO: regexp: {^.*}   or token.REGEXP
+                return p.parseRegexpExpr()
+
         case token.MINUS:
                 return p.parseFlagExpr(lhs)
+
+        case token.EXC:
+                return p.parseNegExpr(lhs)
 
         default:
                 if p.tok.IsClosure() || p.tok.IsDelegate() {
@@ -955,7 +1022,12 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
                         return p.parseBareword(lhs)
                 }
         }
-        return p.parseBadExpr(lhs)
+
+        pos := p.pos
+        p.warn(pos, "'%v' bad unary expression (%v)\n", p.tok, p.lit)
+        p.errorExpected(pos, "unary expression")
+        p.next() // go to next token
+        return &ast.BadExpr{ From:pos, To:p.pos }
 }
 
 func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
@@ -974,6 +1046,10 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
                                 x = p.parseKeyValueExpr(x); break
                         }*/
                 }
+        case token.STAR, token.QUE, token.LBRACK: // foo*bar foo?bar foo[a-z]bar
+                if p.bits&composingNoGlob == 0 && x.End() == p.pos {
+                        x = p.parseGlobExpr(x)
+                }
         case token.PERC: // foo%bar
                 if p.bits&composingNoPerc == 0 && x.End() == p.pos {
                         x = p.parsePercExpr(lhs, x)
@@ -990,12 +1066,6 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
                         default: x = p.parsePathExpr(lhs, x)
                         }
                 }
-
-        case token.STAR:        // TODO: glob: foo*bar
-        case token.LBRACK:      // TODO: glob: foo[1-9]bar
-        case token.QUE:         // TODO: glob: foo?bar
-
-        case token.LBRACE:      // TODO: regexp: {^.*}.o   or token.REGEXP
         }
         return
 }
@@ -1004,7 +1074,11 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 	if false && p.tracing.enabled {
                 defer un(trace(p, "Expression"))
 	}
-        if x = p.parseComposedExpr(lhs); !lhs {
+        pos, tok := p.pos, p.tok
+        if x = p.parseComposedExpr(lhs); x == nil {
+                p.warn(pos, "`%v` invalid expression", tok)
+                sync(p, token.LINEND)
+        } else if !lhs {
                 switch p.tok {
                 case token.ASSIGN: // Example: '*.o = obj'
                         if !lhs && p.bits&composingNoPair == 0 {
@@ -1070,7 +1144,29 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, _ int) as
 }
 
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        spec := &ast.IncludeSpec{ p.parseDirectiveSpec() }
+	if p.tracing.enabled {
+		defer un(trace(p, "Spec"))
+	}
+        
+        var (
+                x = p.parseExpr(false)
+                comment = p.lineComment
+                props []ast.Expr
+        )
+
+        if p.tok == token.COLON {
+                x = &ast.IncludeRuleClause{
+                        p.parseRuleClause(p.tok, ruleSpecialNor, []ast.Expr{x}),
+                }
+        }
+        props = append(props, x)
+
+        spec := &ast.IncludeSpec{ast.DirectiveSpec{
+                Doc: doc,
+                Props: props,
+                Comment: comment,
+                EndPos: p.pos,
+        }}
         p.include(spec)
         return spec
 }
@@ -1084,6 +1180,14 @@ func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.S
 
 func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         return &ast.InstanceSpec{ p.parseDirectiveSpec() }
+}
+
+func (p *parser) parseConfigurationSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
+        name := p.parseExpr(false)
+        define := p.parseDefineClause(p.tok, name)
+        spec := &ast.ConfigurationSpec{ *define }
+        p.configuration(spec)
+        return spec
 }
 
 func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
@@ -1130,12 +1234,6 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
         }
         return spec
 }
-
-/*func (p *parser) parseDockSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
-        spec := &ast.DockSpec{ p.parseDirectiveSpec() }
-        p.dock(spec)
-        return spec
-}*/
 
 func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
 	if p.tracing.enabled {
@@ -1197,10 +1295,19 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                 }
 	} else {
 		for iota := 0; p.tok != token.LINEND && p.tok != token.EOF; iota++ {
-                        specs = append(specs, f(nil, keyword, iota))
+                        spec := f(nil, keyword, iota)
+                        specs = append(specs, spec)
                         if p.lineComment != nil {
                                 break
                         }
+
+                        // Checking for `include xxx:[...]`
+                        if inc, _ := spec.(*ast.IncludeSpec); inc != nil && len(inc.Props) > 0 {
+                                if p, ok := inc.Props[0].(*ast.IncludeRuleClause); ok && p != nil {
+                                        goto GoodEnd
+                                }
+                        }
+
                         if p.tok == token.COMMA {
                                 p.next()
                         }
@@ -1210,7 +1317,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                 }
 	}
 
-	return &ast.GenericClause{
+        GoodEnd: return &ast.GenericClause{
 		Doc:    doc,
 		TokPos: pos,
 		Tok:    keyword,
@@ -1280,7 +1387,7 @@ func (p *parser) parseRecipeDefineClause(x ast.Expr) ast.Expr {
 }
 
 func (p *parser) parseRecipeRuleClause(elems []ast.Expr) (x ast.Expr) {
-        d := p.parseRuleClause(p.tok, ruleSpecialRec, elems).(*ast.RuleClause)
+        d := p.parseRuleClause(p.tok, ruleSpecialRec, elems)
         return &ast.RecipeRuleClause{ d }
 }
 
@@ -1289,10 +1396,10 @@ func (p *parser) parseRecipeBuiltin(elems []ast.Expr) (x ast.Expr) {
                 // Resolve builtin names.
                 switch t := elem.Data.(type) {
                 case *Bareword:
-                        if sym, err := p.resolve(&Bareword{t.Value}); err != nil {
+                        if sym, err := p.resolve(/*&Bareword{t.Value}*/t); err != nil {
                                 p.error(elem.Pos(), "%v", err)
                         } else if sym == nil {
-                                p.error(elem.Pos(), "undefined builtin %v", t.Value)
+                                p.error(elem.Pos(), "undefined builtin %v", t.string)
                         } else {
                                 elem.Data = sym
                         }
@@ -1325,7 +1432,7 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
         SwitchDialect: switch dialect {
         case "", "eval":
                 p.scanner.LeaveCompoundLineContext()
-                p.next() // skip RECIPE and parse in list mode
+                p.next() // skip RECIPE or SEMICOLON and parse in list mode
                 if p.tok != token.LINEND && p.tok != token.EOF {
                         x := p.parseExpr(true) // parse first expr of recipe
                         if v, e := p.eval(x, KeepClosures|KeepDelegates); e != nil {
@@ -1343,7 +1450,7 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
 
                         elems = append(elems, x)
                         cmdarg := new(ast.ListExpr)
-                        for p.tok != token.LINEND && p.tok != token.EOF {
+                        for p.tok != token.EOF && p.tok != token.SEMICOLON && p.tok != token.LINEND && p.lineComment == nil {
                                 if p.tok.IsRuleDelim() {
                                         x = p.parseRecipeRuleClause(elems)
                                 } else {
@@ -1365,7 +1472,7 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
                 }
 
         default:
-                p.next() // skip RECIPE and parse in line-string mode
+                p.next() // skip RECIPE or SEMICOLON and parse in line-string mode
                 for p.tok != token.LINEND && p.tok != token.EOF {
                         elems = append(elems, p.parseExpr(false))
                 }
@@ -1455,8 +1562,10 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                         }
                         goto next
                 case *ast.DelegateExpr, *ast.ClosureExpr, *ast.Barecomp, *ast.BasicLit:
-                        var v = p.expr(n)
-                        if name, err = v.Strval(); err != nil {
+                        var v []Value
+                        if v, err = mergeresult(ExpandAll(p.expr(n))); err != nil {
+                                p.error(n.Pos(), "%v", err)
+                        } else if name, err = v[0].Strval(); err != nil {
                                 p.error(n.Pos(), "%v", err)
                                 goto next
                         } else if name == "" {
@@ -1472,17 +1581,17 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
 
                 goto addModifier
 
-                checkName: if IsDialect(name) {
+                checkName: if _, ok = dialects[name]; ok {
                         if dialect == "" {
                                 dialect = name
                         } else {
                                 p.error(pos, "multi-dialect unsupported, already defined '%s'", dialect)
                                 goto next
                         }
-                } else if IsModifier(name) {
+                } else if _, ok = modifiers[name]; ok {
                         goto addModifier
                 } else {
-                        p.error(pos, "No such dialect or modifier `%s'", name)
+                        p.error(pos, "`%s` no such dialect or modifier", name)
                         goto next
                 }
                 
@@ -1513,7 +1622,16 @@ var automatics = []string{
         "-",
 }
 
-func (p *parser) parseRuleClause(tok token.Token, special ruleSpecial, targets []ast.Expr) ast.Clause {
+func (p *parser) parseRuleClause(tok token.Token, special ruleSpecial, targets []ast.Expr) *ast.RuleClause {
+        if p.ruleParseFunc == nil || p.project.keyword == token.PACKAGE {
+                p.error(p.pos, "rules forbidden: %v", targets)
+                return nil
+        } else {
+                return p.ruleParseFunc(p, tok, special, targets)
+        }
+}
+
+func parseRuleClause(p *parser, tok token.Token, special ruleSpecial, targets []ast.Expr) *ast.RuleClause {
 	if p.tracing.enabled {
 		defer un(trace(p, "Rule"))
 	}
@@ -1524,9 +1642,9 @@ func (p *parser) parseRuleClause(tok token.Token, special ruleSpecial, targets [
                 modifier *ast.ModifierExpr
                 depends []ast.Expr
                 recipes []ast.Expr
+                params  []string
                 scopeComment string
                 dialect string
-                params []string
         )
 
         switch special {
@@ -1576,17 +1694,22 @@ func (p *parser) parseRuleClause(tok token.Token, special ruleSpecial, targets [
         }
 
         if p.tok == token.COLON {
-                p.next()
-        }
-        if p.tok != token.LINEND {
-                depends = p.parseExprList(false)
-        }
-        if p.tok != token.EOF {
-                p.expectLinend()
+                p.next() // the second colon ':' is just optional
         }
 
-        // Parse recipes in the program scope.
-        for p.tok == token.RECIPE {
+        if p.tok != token.SEMICOLON && p.tok != token.LINEND && p.lineComment == nil {
+                depends = p.parseExprList(false)
+        }
+
+        if p.tok == token.LINEND || p.lineComment != nil {
+                // Proceed with the next line
+                p.expectLinend() // Take the new line
+                // Parse recipes in the program scope.
+                for p.tok != token.EOF && p.tok == token.RECIPE {
+                        recipes = append(recipes, p.parseRecipeExpr(dialect))
+                }
+        } else if p.tok == token.SEMICOLON { // :;
+                // Parse inline recipe in the program scope.
                 recipes = append(recipes, p.parseRecipeExpr(dialect))
         }
 
@@ -1652,6 +1775,8 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 return p.parseGenericClause(token.INCLUDE, p.expect(token.INCLUDE), p.parseIncludeSpec)
 	case token.INSTANCE:
                 return p.parseGenericClause(token.INSTANCE, p.expect(token.INSTANCE), p.parseInstanceSpec)
+        case token.CONFIGURATION:
+                return p.parseGenericClause(token.CONFIGURATION, p.expect(token.CONFIGURATION), p.parseConfigurationSpec)
         case token.FILES:
                 return p.parseGenericClause(token.FILES, p.expect(token.FILES), p.parseFilesSpec)
         case token.EVAL:
@@ -1706,7 +1831,6 @@ func (p *parser) parseFile() *ast.File {
 	}
 
         var (
-                keyword token.Token
                 ident *ast.Bareword
                 filename = p.file.Name()
                 abs = filepath.Dir(filename)
@@ -1723,21 +1847,23 @@ func (p *parser) parseFile() *ast.File {
                 var def *Def
 
                 def, _ = p.def("/")
-                def.Assign(MakeString(abs))
+                def.Assign(MakePathStr(abs))
 
                 def, _ = p.def(".")
-                def.Assign(MakeString(rel))
+                def.Assign(MakePathStr(rel))
 
                 def, _ = p.def("CTD") // Current Temp Directory
-                def.Assign(MakeString(tmp))
+                def.Assign(MakePathStr(tmp))
 
                 def, _ = p.def("CWD") // Current Work Directory
-                def.Assign(MakeString(abs))
+                def.Assign(MakePathStr(abs))
         } else {
                 p.error(p.pos, "open scope")
         }
 
-        if keyword = p.tok; keyword == token.CONFIGURE {
+        var keyword = p.tok
+        switch keyword {
+        case token.CONFIGURE:
                 switch p.next(); p.tok {
                 case token.PERIOD:
                         if err := p.ParseConfigDir(abs, abs); err != nil {
@@ -1752,10 +1878,12 @@ func (p *parser) parseFile() *ast.File {
                 default:
                         p.error(p.pos, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
                 }
-        } else if keyword == token.PROJECT || keyword == token.MODULE {
+        case token.PROJECT, token.PACKAGE, token.MODULE:
                 if p.mode&Flat != 0 {
-                        p.error(p.pos, "forbidden %v in flat file", p.tok)
+                        p.error(p.pos, "forbidden `%v` in flat file", p.tok)
                 }
+
+                // TODO: generate ast.Project, ast.Package, ast.Module
 
                 p.next()
                 
@@ -1763,12 +1891,18 @@ func (p *parser) parseFile() *ast.File {
                 //   * the project clause is not a declaration;
                 //   * the project name does not appear in any scope.
                 if p.tok == token.LPAREN || p.tok == token.LINEND {
-                        basename := filepath.Base(filepath.Dir(filename))
-                        // TODO: validate base for identifier 
-                        ident = &ast.Bareword{
-                                ValuePos: pos,
-                                Value: basename,
+                        s := filepath.Base(filepath.Dir(filename))
+                        // TODO: validate basename as identifier
+                        ident = &ast.Bareword{ ValuePos: pos, Value: s }
+                } else if p.tok == token.TILDE {
+                        if ext := filepath.Ext(filename); ext != ".smart" {
+                                p.error(p.pos, "`%v` not smart file", filepath.Base(filename))
+                        } else if s := strings.TrimSuffix(filepath.Base(filename), ext); s == "~" {
+                                ident = &ast.Bareword{ ValuePos: pos, Value: s }
+                        } else {
+                                p.error(p.pos, "`%v` not tilde name", filepath.Base(filename))
                         }
+                        p.next() // skip tilde
                 } else {
                         x := p.parseBareword(false)
                         if ident, _ = x.(*ast.Bareword); ident == nil {
@@ -1780,11 +1914,11 @@ func (p *parser) parseFile() *ast.File {
                         p.error(p.pos, "invalid package name _")
                 }
 
-                var params Value
+                var params []Value
                 if p.tok == token.LPAREN {
                         value, err := p.eval(p.parseGroupExpr(false), StringValue)
                         if err == nil {
-                                params = value
+                                params = value.(*Group).Elems
                         } else {
                                 p.error(p.pos, err)
                         }
@@ -1799,42 +1933,18 @@ func (p *parser) parseFile() *ast.File {
                 }
 
                 if p.mode&Flat == 0 {
-                        if err := p.DeclareProject(ident, params); err != nil {
+                        if err := p.declare(keyword, ident, params); err != nil {
                                 p.error(ident.Pos(), err)
                         } else {
-                                defer p.CloseCurrentProject(ident)
+                                defer p.closecurrent(ident)
                         }
                 }
-        } else if p.mode&Flat == 0 {
-                p.errorExpected(pos, "configure, project or module keyword")
-        } else {
-                // FIXME: Enter previously delcared project sope!
-        }
+        default:if p.mode&Flat == 0 {
+                p.errorExpected(pos, "configure, project, module or package keyword")
+        }}
 
 	var clauses []ast.Clause
 	if p.mode&ModuleClauseOnly == 0 {
-                /*if p.mode&Flat == 0 {
-                        // import & define clauses
-                        for p.tok {
-                        case token.IMPORT:
-                                clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
-                        //default:
-                        //        if x := p.parseExpr(true); p.tok.IsAssign() {
-                        //                return p.parseDefine(p.tok, x)
-                        //        }
-                        }
-                }
-		if p.mode&ImportsOnly == 0 {
-			// rest of module body
-			for p.tok != token.EOF {
-                                 switch p.tok {
-                                 case token.LINEND:
-                                         p.next() // skip empty lines
-                                 default:
-                                         clauses = append(clauses, p.parseClause(syncClause))
-                                 }
-			}
-		}*/
                 if p.mode&Flat == 0 {
                         // import & define clauses
                         ForInit: for p.tok != token.EOF {
@@ -1874,7 +1984,7 @@ func (p *parser) parseFile() *ast.File {
 
 	return &ast.File{
 		Doc:        doc,
-		Keypos:     pos,
+		KeyPos:     pos,
                 Keyword:    keyword,
 		Name:       ident,
 		Scope:      scope,

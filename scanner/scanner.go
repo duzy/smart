@@ -1054,24 +1054,23 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                         //s.skipPostLineFeeds = true
                 case ':':
-                        if s.parenDepth == 0 {
-                                switch s.ch {
-                                case ':':
-                                        tok = token.COLON2
-                                        s.next() // consume the second ':'
-                                        if s.ch == '=' {
-                                                tok = token.DCO_ASSIGN
-                                                s.next() // consume '='
-                                        }
-                                case '=':
-                                        tok = token.SCO_ASSIGN
+                        switch s.ch {
+                        case ':':
+                                tok = token.COLON2
+                                s.next() // consume the second ':'
+                                if s.ch == '=' {
+                                        tok = token.DCO_ASSIGN
                                         s.next() // consume '='
-                                default:
-                                        tok = token.COLON
                                 }
-                        } else {
-                                
+                        case '=':
+                                tok = token.SCO_ASSIGN
+                                s.next() // consume '='
+                        default:
+                                tok = token.COLON
                         }
+                case ';':
+                        tok = token.SEMICOLON
+                        //s.skipPostLineFeeds = true
                 case '[':
                         tok = token.LBRACK
                 case ']':

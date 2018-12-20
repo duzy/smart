@@ -33,9 +33,8 @@ var builtins = map[string]BuiltinFunc {
         `assert-valid`: builtinAssertValid,
 
         `or`:           builtinLogicalOr,
-        /* TODO:
-        `and`:   builtinLogicalAnd,
-        `xor`:   builtinLogicalXor,
+        `and`:          builtinLogicalAnd,
+        /*`xor`:   builtinLogicalXor,
         `not`:   builtinLogicalNot, */
 
         `if`:           builtinBranchIf,
@@ -43,6 +42,7 @@ var builtins = map[string]BuiltinFunc {
         `ifne`:         builtinBranchIfNE,
 
         `env`:          builtinEnv,
+        `var`:          builtinVar,
         
         `print`:        builtinPrint,
         `printl`:       builtinPrintl,
@@ -236,11 +236,20 @@ func builtinAssertValid(pos token.Position, args... Value) (Value, error) {
 
 func builtinLogicalOr(pos token.Position, args... Value) (res Value, err error) {
         for _, a := range args {
-                if a, err = a.expand(expandDelegate); err != nil { return }
-                if a == nil { continue } // discard nil
                 var s string
                 if s, err = a.Strval(); err != nil { return }
                 if strings.TrimSpace(s) != "" { 
+                        res = a; break
+                }
+        }
+        return
+}
+
+func builtinLogicalAnd(pos token.Position, args... Value) (res Value, err error) {
+        for _, a := range args {
+                var s string
+                if s, err = a.Strval(); err != nil { return }
+                if strings.TrimSpace(s) == "" { 
                         res = a; break
                 }
         }
@@ -323,33 +332,48 @@ func builtinEnv(pos token.Position, args... Value) (res Value, err error) {
         return MakeListOrScalar(vals), nil
 }
 
-func builtinPrint(pos token.Position, args... Value) (Value, error) {
-        var x = len(args)
-        for i, a := range args {
-                if 0 < i && i < x {
-                        fmt.Printf(" ")
-                }
-                if s, e := EscapedString(a); e == nil {
-                        fmt.Printf("%s", s)
+func builtinVar(pos token.Position, args... Value) (res Value, err error) {
+        var scope *Scope
+        switch {
+        case len(execstack) > 0: scope = execstack[0].scope
+        case context.loader != nil: scope = context.loader.scope
+        }
+        var vals []Value
+        for _, a := range args {
+                var s string
+                if s, err = a.Strval(); err != nil { return }
+                if def := scope.FindDef(s); def != nil {
+                        vals = append(vals, def.Value)
                 } else {
-                        fmt.Fprintf(os.Stderr, "%s: %s", pos, e)
+                        vals = append(vals, universalnone)
                 }
         }
-        return nil, nil
+        return MakeListOrScalar(vals), nil
+}
+
+func builtinPrint(pos token.Position, args... Value) (res Value, err error) {
+        var x = len(args)
+        for i, a := range args {
+                var s string
+                if 0 < i && i < x { fmt.Printf(" ") }
+                if a == nil {
+                        continue
+                } else if s, err = EscapedString(a); err == nil {
+                        if s != "" { fmt.Printf("%s", s) }
+                } else {
+                        fmt.Fprintf(os.Stderr, "%s: %s", pos, err)
+                        break
+                }
+        }
+        return
 }
 
 func builtinPrintl(pos token.Position, args... Value) (res Value, err error) {
-        var (
-                x = len(args)
-                s string
-        )
+        var x = len(args)
         for i, a := range args {
-                if 0 < i && i < x {
-                        fmt.Printf(" ")
-                }
-                if s, err = EscapedString(a); err != nil {
-                        return
-                }
+                var s string
+                if 0 < i && i < x { fmt.Printf(" ") }
+                if s, err = EscapedString(a); err != nil { return }
                 fmt.Printf("%s", s)
                 if i == x && !strings.HasSuffix(s, "\n") {
                         fmt.Printf("\n")
@@ -484,7 +508,7 @@ func builtinSplitString(pos token.Position, args... Value) (res Value, err error
 func quotestrings(value Value) {
         switch v := value.(type) {
         case *String:
-                v.Value = strconv.Quote(v.Value)
+                v.string = strconv.Quote(v.string)
         case *List:
                 for _, elem := range v.Elems {
                         quotestrings(elem)
@@ -598,6 +622,36 @@ func builtinString(pos token.Position, args... Value) (result Value, err error) 
         return
 }
 
+func filterValues(pats []Value, neg bool, values... Value) (result []Value, err error) {
+        var f = func(v Value) bool {
+                for _, pat := range pats {
+                        switch p := pat.(type) {
+                        case *PercPattern:
+                                var (str, s string; m bool)
+                                if str, err = v.Strval(); err == nil {
+                                        if m, s, err = p.match(str); err == nil && m && s != "" {
+                                                return true
+                                        }
+                                }
+                                if err != nil { break }
+                        default:
+                                fmt.Printf("todo: %v (%T) (%v)\n", pat, pat, v)
+                        }
+                }
+                return false
+        }
+        if values, err = mergeresult(RevealAll(values...)); err != nil {
+                return
+        }
+        for _, v := range values {
+                var okay = f(v)
+                if err != nil { break }
+                if neg { okay = !okay }
+                if okay { result = append(result, v) }
+        }
+        return
+}
+
 func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value, err error) {
         if len(args) > 1 {
                 var pats []Value
@@ -609,10 +663,10 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
                 default:
                         pats = append(pats, pat)
                 }
-                f := func(v Value) bool {
+                /*f := func(v Value) bool {
                         for _, pat := range pats {
                                 switch p := pat.(type) {
-                                case *GlobPattern:
+                                case *PercPattern:
                                         var (
                                                 str, s string
                                                 m bool
@@ -632,7 +686,6 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
                 }
                 if len(pats) > 0 {
                         var elems, a []Value
-                        //if a, err = RevealAll(Merge(args[1:]...)...); err != nil { return }
                         if a, err = mergeresult(RevealAll(args[1:]...)); err != nil { return }
                         for _, v := range a {
                                 var okay = f(v)
@@ -641,9 +694,13 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
                                 if okay { elems = append(elems, v) }
                         }
                         res = MakeListOrScalar(elems)
+                }*/
+                var elems []Value
+                if elems, err = filterValues(pats, neg, args[1:]...); err == nil {
+                        res = MakeListOrScalar(elems)
                 }
         }
-        if res == nil {
+        if res == nil && err == nil {
                 res = universalnone
         }
         return
@@ -685,7 +742,7 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
                                 m bool // matched
                         )
 
-                        if pat, _ := args[0].(*GlobPattern); pat != nil {
+                        if pat, _ := args[0].(*PercPattern); pat != nil {
                                 if a, err = arg.Strval(); err != nil {
                                         return
                                 }
@@ -694,7 +751,7 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
                                 }
                         } else if l, _ := args[0].(*List); l != nil {
                                 for _, elem := range l.Elems {
-                                        if pat, _ := elem.(*GlobPattern); pat != nil {
+                                        if pat, _ := elem.(*PercPattern); pat != nil {
                                                 if a, err = arg.Strval(); err != nil {
                                                         return
                                                 }
@@ -709,7 +766,7 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
 
                         if m && s != "" {
                                 var s1, s2 string
-                                if rep, ok := args[1].(*GlobPattern); ok {
+                                if rep, ok := args[1].(*PercPattern); ok {
                                         if s1, err = rep.Prefix.Strval(); err != nil {
                                                 return
                                         }
@@ -720,7 +777,7 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
                                 } else if l, _ := args[1].(*List); l != nil {
                                         var str = s
                                         for _, elem := range l.Elems {
-                                                if rep, _ := elem.(*GlobPattern); rep != nil {
+                                                if rep, _ := elem.(*PercPattern); rep != nil {
                                                         if s1, err = rep.Prefix.Strval(); err != nil {
                                                                 return
                                                         }
@@ -1998,24 +2055,14 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
         if len(args) > 0 {
                 var altargs []Value
                 for _, arg := range args {
+                        var opt bool
                         switch a := arg.(type) {
                         default: altargs = append(altargs, a)
                         case *None:
                         case *Flag:
-                                var name string
-                                if name, err = a.Name.Strval(); err != nil {
-                                        return
-                                }
-                                switch name {
-                                case "p", "path":  optPath = true
-                                }
+                                if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
                         case *Pair:
-                                var name string
-                                if name, err = a.Key.Strval(); err != nil {
-                                        return
-                                }
-                                switch name {
-                                case "m", "mode":
+                                if opt, err = a.isFlag('m', "mode"); err != nil { return } else if opt {
                                         var num int64
                                         if num, err = a.Value.Integer(); err != nil {
                                                 return

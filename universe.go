@@ -19,6 +19,10 @@ var (
 
         modifierbar = &ModifierBar{}
         universalnone = &None{}
+        universalyes = &answer{ true }
+        universalno = &answer{ false }
+        universaltrue = &boolean{ true }
+        universalfalse = &boolean{ false }
 )
 
 // Predeclared types.
@@ -46,6 +50,8 @@ var (
         BasicTypes = []*Basic {
                 InvalidKind:  {InvalidKind, 0, "invalid"},
                 AnyKind:      {AnyKind, IsAny, "any"},
+                AnswerKind:   {AnswerKind, IsAnswer, "answer"},
+                BooleanKind:  {BooleanKind, IsBoolean, "boolean"},
                 BinKind:      {BinKind, IsBin, "bin"},
                 OctKind:      {OctKind, IsOct, "oct"},
                 IntKind:      {IntKind, IsInt, "int"},
@@ -54,7 +60,7 @@ var (
                 DateTimeKind: {DateTimeKind, IsDateTime, "datetime"},
                 DateKind:     {DateKind, IsDate, "date"},
                 TimeKind:     {TimeKind, IsTime, "time"},
-                UriKind:      {UriKind, IsUri, "uri"},
+                URLKind:      {URLKind, IsURL, "url"},
                 StringKind:   {StringKind, IsString, "string"},
                 BarewordKind: {BarewordKind, IsBareword, "bareword"},
                 BarefileKind: {BarefileKind, IsBarefile, "barefile"},
@@ -63,6 +69,7 @@ var (
                 PathKind:     {PathKind, IsPath, "path"},
                 FileKind:     {FileKind, IsFile, "file"},
                 FlagKind:     {FlagKind, IsFlag, "flag"},
+                NegativeKind: {NegativeKind, IsNegative, "negative"},
                 NoneKind:     {NoneKind, IsNone, "none"},
         }
         
@@ -101,6 +108,8 @@ var (
         // Shortcuts of basic types.
         InvalidType  = BasicTypes[InvalidKind]
         AnyType      = BasicTypes[AnyKind]
+        AnswerType   = BasicTypes[AnswerKind]
+        BooleanType  = BasicTypes[BooleanKind]
         BinType      = BasicTypes[BinKind]
         OctType      = BasicTypes[OctKind]
         IntType      = BasicTypes[IntKind]
@@ -109,7 +118,7 @@ var (
         DateTimeType = BasicTypes[DateTimeKind]
         DateType     = BasicTypes[DateKind]
         TimeType     = BasicTypes[TimeKind]
-        UriType      = BasicTypes[UriKind]
+        URLType      = BasicTypes[URLKind]
         StringType   = BasicTypes[StringKind]
         BarewordType = BasicTypes[BarewordKind]
         BarefileType = BasicTypes[BarefileKind]
@@ -118,6 +127,7 @@ var (
         PathType     = BasicTypes[PathKind]
         FileType     = BasicTypes[FileKind]
         FlagType     = BasicTypes[FlagKind]
+        NegativeType = BasicTypes[NegativeKind]
         NoneType     = BasicTypes[NoneKind]
 
         // Shortcuts for composite types.
@@ -186,7 +196,7 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
         if outer == nil {
                 outer = g.scope
         }
-        
+
 	m = &Project{
                 absPath: absPath,
                 relPath: relPath, 
@@ -201,7 +211,7 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
         m.usings.owner = m
         m.usings.scope = m.scope
 
-        if name != "@" && g.main == nil {
+        if g.main == nil && spec != "" && name != "@" && name != "~" {
                 for outer != nil && outer != g.scope {
                         if p := outer.project; p != nil && p.Name() == "@" {
                                 return

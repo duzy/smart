@@ -41,6 +41,7 @@ type unknownobject struct { // generally unnamed objects
 }
 func (p *unknownobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unknownobject) Type() Type { return UnknownObjectType }
+func (p *unknownobject) True() bool { return false }
 func (p *unknownobject) Name() string { panic("inquiring name of an unknown object") }
 func (p *unknownobject) DeclScope() *Scope { return p.scope }
 func (p *unknownobject) OwnerProject() *Project { return p.owner }
@@ -55,6 +56,7 @@ type knownobject struct { // generally named objects
 }
 func (p *knownobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *knownobject) Type() Type { return KnownObjectType }
+func (p *knownobject) True() bool { return true }
 func (p *knownobject) Name() string { return p.name }
 func (p *knownobject) Strval() (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
 func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
@@ -75,6 +77,7 @@ type unresolvedobject struct { // named callable/executable objects
 }
 func (p *unresolvedobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unresolvedobject) Type() Type { return UnresolvedObjectType }
+func (p *unresolvedobject) True() bool { return false }
 func (p *unresolvedobject) Name() string {
         if p.name == nil {
                 panic("unresolved object name is nil")
@@ -117,6 +120,7 @@ func (p *ProjectName) expand(_ expandwhat) (Value, error) { return p, nil }
 // It is distinct from Project(), which is the project
 // containing the import statement.
 func (p *ProjectName) Type() Type { return ProjectNameType }
+func (p *ProjectName) True() bool { return p.project != nil }
 func (p *ProjectName) NamedProject() *Project { return p.project }
 func (p *ProjectName) Strval() (string, error) {
         //return fmt.Sprintf("%s!%p", p.name, p.project), nil
@@ -167,6 +171,7 @@ func (p *ScopeName) expand(_ expandwhat) (Value, error) { return p, nil }
 // It is distinct from Project(), which is the project
 // containing the import statement.
 func (n *ScopeName) Type() Type { return ScopeNameType }
+func (n *ScopeName) True() bool { return n.scope != nil }
 func (n *ScopeName) NamedScope() *Scope { return n.scope }
 func (n *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", n.name) }
 func (n *ScopeName) Strval() (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
@@ -216,6 +221,7 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
 func (d *Def) refs(v Value) bool { return d == v || d.Value.refs(v) }
 func (d *Def) closured() bool { return d.Value.closured() }
 
+func (d *Def) True() bool { return d.Value.True() }
 func (d *Def) String() (s string) {
         s = d.name
         switch d.origin {
@@ -258,28 +264,26 @@ func (d *Def) Assign(v Value) (res Value, err error) {
 }
 
 func (d *Def) Append(va... Value) (Value, error) {
-        var (
-                nva = len(va)
-                nv Value // new value
-        )
-        if nva == 0 {
+        var value Value // new value
+        if num := len(va); num == 0 {
                 // Does nothing...
         } else if d.Value != nil && d.Value.Type() != NoneType {
-                nv = d.Value
-                if l, ok := nv.(*List); ok && l != nil {
+                value = d.Value
+                if l, ok := value.(*List); ok && l != nil {
                         l.Append(merge(va...)...)
-                } else if nva > 0 {
-                        elems := []Value{ nv }
+                } else if num > 0 {
+                        elems := []Value{ value }
                         elems = append(elems, merge(va...)...)
-                        nv = &List{ Elements{ elems } }
+                        value = &List{Elements{ elems }}
                 }
-        } else if nva > 0 {
-                nv = &List{ Elements{ merge(va...) } }
+        } else if num > 0 {
+                value = &List{Elements{ merge(va...) }}
         }
-        if nv != nil {
-                return d.Assign(nv)
+        if value != nil {
+                return d.Assign(value)
+        } else {
+                return d.Value, nil
         }
-        return d.Value, nil
 }
 
 func (d *Def) AssignExec(a... Value) (res Value, err error) {
@@ -387,6 +391,7 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
 }
 
 func (p *undetermined) Type() Type { return UndeterminedType }
+func (p *undetermined) True() bool { return p.value.True() }
 
 func (p *undetermined) String() (s string) {
         s = p.identifier.String()
@@ -450,6 +455,7 @@ type RuleEntry struct {
 }
 
 func (entry *RuleEntry) Type() Type { return RuleEntryType }
+func (entry *RuleEntry) True() bool { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
 func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }
 func (entry *RuleEntry) OwnerProject() *Project { return entry.programs[0].project }
@@ -647,9 +653,6 @@ func (entry *RuleEntry) pathdependcompare(c *comparer, path *Path) (err error) {
 func (entry *RuleEntry) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:RuleEntry: %v (%v) (%v)\n", entry.target, entry.Depends(), entry.class)
-        }
-
-        if trace_prepare {
                 for i, prog := range entry.programs {
                         fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v)\n", entry.target, i, prog.depends)
                 }

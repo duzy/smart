@@ -21,6 +21,7 @@ func (p *JSON) refs(_ Value) bool { return false }
 func (p *JSON) closured() bool { return p.Value.closured() }
 func (p *JSON) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
 func (p *JSON) Type() Type { return JSONType }
+func (p *JSON) True() bool { return p.Value.True() }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
 func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
 func (p *JSON) Integer() (int64, error) { return 0, nil }

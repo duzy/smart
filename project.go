@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "extbit.io/smart/token"
         "crypto/sha256"
         "path/filepath"
         "strings"
@@ -52,6 +53,8 @@ func (filemap *FileMap) Match(filename string) (matched bool) {
 }
 
 type Project struct {
+        keyword  token.Token // project, package, module
+        
 	absPath string
 	relPath string
         tmpPath string
@@ -320,8 +323,8 @@ func (p *Project) entry(special ruleSpecial, target Value, prog *Program) (entry
         }
 
         // Looking for pattern rule entries.
-        if glob, ok := target.(*GlobPattern); ok {
-                if glob == nil { /* FIXME: error */ }
+        if pat, ok := target.(*PercPattern); ok {
+                if pat == nil { /* FIXME: error */ }
                 /*for _, pat := range p.patterns {
                         var sv string
                         if closured && pat.RuleEntry.String() == name {
@@ -343,7 +346,7 @@ func (p *Project) entry(special ruleSpecial, target Value, prog *Program) (entry
                         class: GlobRuleEntry,
                         target: target,
                 }
-                p.patterns = append(p.patterns, &PatternEntry{ entry, glob })
+                p.patterns = append(p.patterns, &PatternEntry{ entry, pat })
                 return
         }
 

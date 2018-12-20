@@ -33,7 +33,6 @@ var (
 
         errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
         rxFileNotFound = regexp.MustCompile(errFileNotFound)
-
         rxKnownErrors = regexp.MustCompile(strings.Join([]string{
                 errNotTTYDevice,
                 errNoContainer,
@@ -44,7 +43,7 @@ var (
         ensureSkips = make(map[string]bool)
 )
 
-type dialectDock struct {}
+type dock struct {}
 
 func docksFindObj(docks []*Project, name string) (obj Object) {
         for _, dock := range docks {
@@ -64,7 +63,7 @@ func docksFindEnt(docks []*Project, name string) (entry *RuleEntry) {
         return
 }
 
-func (s *dialectDock) runContainer(prog *Program, docks []*Project) (err error) {
+func (s *dock) runContainer(prog *Program, docks []*Project) (err error) {
         if run := docksFindEnt(docks, "run"); run != nil {
                 _, err = run.Execute(prog.Position()/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
         } else {
@@ -73,7 +72,7 @@ func (s *dialectDock) runContainer(prog *Program, docks []*Project) (err error) 
         return
 }
 
-func (s *dialectDock) ensureContainerRunning(prog *Program, docks []*Project, container string) (err error) {
+func (s *dock) ensureContainerRunning(prog *Program, docks []*Project, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -114,7 +113,7 @@ func (s *dialectDock) ensureContainerRunning(prog *Program, docks []*Project, co
                         }
                         fmt.Printf("%s", s)
                 }
-        }(stderrR)
+        } (stderrR)
 
         if err = cmd.Run(); err == nil {
                 if foundID == "" {
@@ -126,11 +125,9 @@ func (s *dialectDock) ensureContainerRunning(prog *Program, docks []*Project, co
         return
 }
 
-func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (s *dock) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var recipes []Value
-        if recipes, err = DiscloseAll(prog.recipes...); err != nil {
-                return
-        }
+        if recipes, err = DiscloseAll(prog.recipes...); err != nil { return }
 
         var docks []*Project
         if prog.Project().Name() == "dock" {
@@ -165,7 +162,6 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err e
                                 var v Value
                                 if v, err = def.DiscloseValue(); err == nil && v != nil {
                                         if str, err = v.Strval(); str == "-" {
-                                                //fmt.Printf("dock: %v %v\n", docks, cc)
                                                 /*if v, err = def.DiscloseValue(docks); err == nil && v != nil {
                                                         if str, err = v.Strval(); str == "" { str = "-" }
                                                         fmt.Printf("%v: %v (%v)\n", name, str, def)
@@ -182,7 +178,6 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err e
         if container == "" { err = fmt.Errorf("dock-container undefined"); return }
         if image, err = strval("dock-image"); err != nil { return }
         if image == "" { err = fmt.Errorf("dock-image undefined"); return }
-        //if args, err = ExpandAll(merge(args...)...); err != nil { return }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         if false {
@@ -222,12 +217,10 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err e
                         fmt.Printf("%v\n", s)
                 }
 
-                var (
-                        src = source
-                        envars []Value // disclosed values
-                )
-                if envarsDef, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); envarsDef != nil {
-                        if l, _ := envarsDef.Value.(*List); l != nil {
+                var src = source
+                var envars []Value // disclosed values
+                if def, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
+                        if l, _ := def.Value.(*List); l != nil {
                                 for _, v := range l.Elems {
                                         if v, err = v.expand(expandClosure); err != nil {
                                                 return
@@ -238,12 +231,9 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err e
                         }
                 }
 
-                var (
-                        verbout, verberr, saveout, saveerr, stdin, silent bool
-                        nocd bool
-                        cmd, str string
-                        a = []string{ "exec" }
-                )
+                var cmd, str string
+                var a = []string{ "exec" }
+                var verbout, verberr, saveout, saveerr, stdin, silent, nocd bool
                 ForArgs: for _, v := range args {
                         switch t := v.(type) {
                         case *Pair:
@@ -261,41 +251,29 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err e
                                         }
                                 }
                         case *Flag:
-                                var name string
-                                if name, err = t.Name.Strval(); err != nil { return }
-                                switch name {
-                                case "s" : silent = true;  continue ForArgs
-                                case "so": saveout = true; continue ForArgs
-                                case "se": saveerr = true; continue ForArgs
-                                case "soe", "seo":
-                                        saveout, saveerr = true, true
-                                        continue ForArgs
-                                case "vo": verbout = true; continue ForArgs
-                                case "ve": verberr = true; continue ForArgs
-                                case "veo", "voe", "eo", "oe":
-                                        verbout, verberr = true, true
-                                        continue ForArgs
-                                case "i":
-                                        stdin, a = true, append(a, "-ti")
-                                        continue ForArgs
-                                case "nocd": nocd = true; continue ForArgs
-                                }
+                                if str, err = t.Name.Strval(); err != nil { return }
+                                if verbout = strings.ContainsRune(str, 'v'); verbout { exeres.Stdout.Tie = os.Stdout }
+                                if verberr = strings.ContainsRune(str, 'w'); verberr { exeres.Stderr.Tie = os.Stderr }
+                                if silent  = strings.ContainsRune(str, 's'); silent  { }
+                                if saveout = strings.ContainsRune(str, 'o'); saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
+                                if saveerr = strings.ContainsRune(str, 'e'); saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
+                                if stdin   = strings.ContainsRune(str, 'i'); stdin   { a = append(a, "-ti") }
+                                if nocd = str == "nocd"; nocd {}
+                                continue ForArgs
                         default:
                                 if shi, err = args[0].Strval(); err != nil { return }
                                 continue ForArgs
                         }
-                        if str, err = v.Strval(); err == nil {
+                        if str, err = v.Strval(); err != nil { return } else {
                                 a = append(a, str)
-                        } else {
-                                return
                         }
                 }
 
-                wd := prog.Scope().Lookup("CWD").(*Def)
-                if str, err = wd.Value.Strval(); err != nil { return }
+                var wd = prog.scope.Lookup("CWD").(*Def).Value //Call(pos)
+                if str, err = wd.Strval(); err != nil { return }
                 if str != "" || nocd {
                         if false {
-                                fmt.Printf("dialectDock.evaluate: %s\n", str)
+                                fmt.Printf("dock.evaluate: %s\n", str)
                         }
                         if t := strings.TrimSpace(source); t == "" {
                                 src = fmt.Sprintf("cd '%s'", str)
@@ -318,21 +296,15 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err e
                                 src = fmt.Sprintf("%s && %s", str, src)
                         }
                 }
-
-                if shi == "shell" {
-                        shi = "bash" //defaultShellInterpreter
-                }
-
+                if shi == "shell" { shi = "bash" } //defaultShellInterpreter
                 if container == "-" && image == "-" {
                         cmd, a = shi, []string{ "-c", src }
                 } else {
                         cmd, a = "docker", append(a, container, shi, "-c", src)
                 }
-                
-                var (
-                        sh = exec.Command(cmd, a...)
-                        num = 0
-                )
+
+                var sh = exec.Command(cmd, a...)
+                if stdin { sh.Stdin = os.Stdin }
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
                 for _, v := range envars {
                         if v, err = v.expand(expandClosure); err != nil {
@@ -343,13 +315,11 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err e
                                 return
                         }
                 }
-                if verbout { exeres.Stdout.Tie = os.Stdout }
-                if verberr { exeres.Stderr.Tie = os.Stderr }
-                if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
-                if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
-                if stdin   { sh.Stdin = os.Stdin }
                 exeres.Stderr.Line = rxKnownErrors
-                RunCommand: exeres.Stderr.Subm = nil
+
+        RunCommand:
+                var num = 0
+                exeres.Stderr.Subm = nil
                 if err, num = sh.Run(), num+1; err == nil {
                         exeres.Status, source = 0, ""
                 } else {
@@ -401,5 +371,5 @@ func (s *dialectDock) Evaluate(prog *Program, args []Value) (result Value, err e
 }
 
 func init() {
-        RegisterDialect("dock", new(dialectDock))
+        RegisterDialect("dock", new(dock))
 }

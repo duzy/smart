@@ -20,6 +20,7 @@ func (p *YAML) refs(_ Value) bool { return false }
 func (p *YAML) closured() bool { return p.Value.closured() }
 func (p *YAML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
 func (p *YAML) Type() Type { return YAMLType }
+func (p *YAML) True() bool { return p.Value.True() }
 func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *YAML) Strval() (string, error) { return p.Value.Strval() }
 func (p *YAML) Integer() (int64, error) { return 0, nil }

@@ -6,12 +6,12 @@
 
 package smart
 
-type Interpreter interface {
+type interpreter interface {
         Evaluate(prog *Program, args []Value) (Value, error)
 }
 
 type dialect struct {
-        Interpreter
+        interpreter
         s string
 }
 
@@ -21,11 +21,6 @@ var (
         dialects = make(map[string]*dialect)
 )
 
-func RegisterDialect(name string, int Interpreter) {
+func RegisterDialect(name string, int interpreter) {
         dialects[name] = &dialect{ int, name }
-}
-
-func IsDialect(s string) (ok bool) {
-        _, ok = dialects[s]
-        return
 }

@@ -19,6 +19,7 @@ func (p *XML) refs(_ Value) bool { return false }
 func (p *XML) closured() bool { return p.Value.closured() }
 func (p *XML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
 func (p *XML) Type() Type { return XMLType }
+func (p *XML) True() bool { return p.Value.True() }
 func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *XML) Strval() (string, error) { return p.Value.Strval() }
 func (p *XML) Integer() (int64, error) { return 0, nil }

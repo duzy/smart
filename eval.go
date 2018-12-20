@@ -7,16 +7,15 @@
 package smart
 
 import (
-        "errors"
         "fmt"
         "os"
 )
 
-// dialectDefault evaluates smart statements
-type dialectDefault struct {
+// dialectEval evaluates smart statements
+type dialectEval struct {
 }
 
-func (t *dialectDefault) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *dialectEval) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var list []Value
         ForRecipes: for _, recipe := range prog.recipes {
                 switch stmt := recipe.(type) {
@@ -43,11 +42,23 @@ func (t *dialectDefault) Evaluate(prog *Program, args []Value) (result Value, er
                                 }
 
                         default:
-                                err = errors.New(fmt.Sprintf("unknown command `%v` (%T)", t, t))
-                                break ForRecipes
+                                v, err = t.expand(expandClosure)
                         }
 
-                        if err == nil && v != nil {
+                        if err != nil {
+                                if p, _ := err.(*Returner); p != nil {
+                                        if p.Value != nil {
+                                                list = append(list, p.Value)
+                                        }
+                                        err = nil
+                                        break ForRecipes
+                                } else {
+                                        fmt.Fprintf(os.Stderr, "eval: %v\n", err)
+                                        break ForRecipes
+                                }
+                        }
+
+                        if v != nil {
                                 list = append(list, v)
                                 if g, _ := v.(*Group); g != nil {
                                         if s, c := g.Get(0), g.Get(1); s != nil && c != nil {
@@ -60,15 +71,6 @@ func (t *dialectDefault) Evaluate(prog *Program, args []Value) (result Value, er
                                                 }
                                         }
                                 }
-                        } else if p, _ := err.(*Returner); p != nil {
-                                if p.Value != nil {
-                                        list = append(list, p.Value)
-                                }
-                                err = nil
-                                break ForRecipes
-                        } else {
-                                fmt.Fprintf(os.Stderr, "%v\n", err)
-                                break ForRecipes
                         }
 
                 default:
@@ -81,7 +83,7 @@ func (t *dialectDefault) Evaluate(prog *Program, args []Value) (result Value, er
 }
 
 func init() {
-        var p = new(dialectDefault)
+        var p = new(dialectEval)
         RegisterDialect("eval", p)
         RegisterDialect("", p)
 }
