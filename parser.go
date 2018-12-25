@@ -1834,11 +1834,16 @@ func (p *parser) parseFile() *ast.File {
 		return nil
 	}
 
-        var (
-                ident *ast.Bareword
-                filename = p.file.Name()
+        var abs string
+        var filename = p.file.Name()
+        if p.mode&Flat != 0 {
+                abs = p.project.absPath
+        } else {
                 abs = filepath.Dir(filename)
-                rel , _ = filepath.Rel(p.workdir, abs)
+        }
+
+        var (
+                rel, _ = filepath.Rel(p.workdir, abs)
                 tmp = joinTmpPath(p.workdir, rel)
                 doc = p.leadComment
                 pos = p.pos
@@ -1847,24 +1852,33 @@ func (p *parser) parseFile() *ast.File {
         scope := p.openScope(fmt.Sprintf("file %s", filename))
         if scope != nil {
                 defer p.closeScope(scope)
+                var (def *Def; s = scope.(*Scope))
+                if p.mode&Flat == 0 {
+                        def, _ = p.def("/")
+                        def.Assign(MakePathStr(abs))
 
-                var def *Def
+                        def, _ = p.def(".")
+                        def.Assign(MakePathStr(rel))
 
-                def, _ = p.def("/")
-                def.Assign(MakePathStr(abs))
+                        def, _ = p.def("CTD") // Current Temp Directory
+                        def.Assign(MakePathStr(tmp))
 
-                def, _ = p.def(".")
-                def.Assign(MakePathStr(rel))
-
-                def, _ = p.def("CTD") // Current Temp Directory
-                def.Assign(MakePathStr(tmp))
-
-                def, _ = p.def("CWD") // Current Work Directory
-                def.Assign(MakePathStr(abs))
+                        def, _ = p.def("CWD") // Current Work Directory
+                        def.Assign(MakePathStr(abs))
+                } else if def = s.FindDef("/"); def == nil {
+                        p.error(p.pos, "/ not in the scope (%v)", s.comment)
+                } else if def = s.FindDef("."); def == nil {
+                        p.error(p.pos, ". not in the scope (%v)", s.comment)
+                } else if def = s.FindDef("CTD"); def == nil {
+                        p.error(p.pos, "CTD not in the scope (%v)", s.comment)
+                } else if def = s.FindDef("CWD"); def == nil {
+                        p.error(p.pos, "CWD not in the scope (%v)", s.comment)
+                }
         } else {
                 p.error(p.pos, "open scope")
         }
 
+        var ident *ast.Bareword
         var keyword = p.tok
         switch keyword {
         case token.CONFIGURE:

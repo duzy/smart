@@ -207,13 +207,11 @@ func configmessage(pos token.Position, s string, fields map[string]Value, params
         case "compiles":
                 configinfox(pos, fields, params[0])
         case "library":
-                if n == 3 {
-                        configinfox(pos, fields, params[2])
-                } else if n == 4 {
-                        s := fmt.Sprintf("%v(%v)", params[2], params[3])
+                if n == 2 {
+                        s := fmt.Sprintf("%v(%v)", params[0], params[1])
                         configinfox(pos, fields, &String{s})
                 } else {
-                        configinfox(pos, fields, params[0])
+                        configinfox(pos, fields, params...)
                 }
         case "include", "symbol", "function", "package":
                 if n > 2 {
@@ -632,17 +630,12 @@ func modifierExtractConfiguration(pos token.Position, prog *Program, args... Val
                 }
         }
 
-        var out *bufio.Writer
-        var f *os.File
-        f, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optPerm)
-        if err != nil {
-                return
-        } else {
-                out = bufio.NewWriter(f)
-        }
+        var ( fil *os.File; out *bufio.Writer )
+        fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optPerm)
+        if err != nil { return } else { out = bufio.NewWriter(fil) }
         defer func() {
                 out.Flush()
-                f.Close()
+                fil.Close()
         }()
 
         var sources []Value
@@ -682,19 +675,19 @@ func modifierExtractConfiguration(pos token.Position, prog *Program, args... Val
                 }
         }
 
-        exprs := make(map[string]int)
-        ForSource: for _, source := range sources {
+        var exprs = make(map[string]int)
+        ForSources: for _, source := range sources {
                 var (s string; f *os.File)
                 switch t := source.(type) {
                 case *File: s = filepath.Join(t.Dir, t.Name)
                 default:
                         if s, err = t.Strval(); err != nil {
-                                break ForSource
+                                break ForSources
                         }
                 }
                 if f, err = os.Open(s); err != nil {
                         fmt.Fprintf(os.Stderr, "%v: %v: %v\n", pos, source, err)
-                        continue ForSource
+                        continue ForSources
                 }
                 scanner := bufio.NewScanner(f)
                 scanner.Split(bufio.ScanLines)
@@ -739,8 +732,13 @@ func modifierConfigure(pos token.Position, prog *Program, args... Value) (result
         if alt != nil {
                 if d, _ := alt.(*Def); d != nil {
                         result = d // use the existed Def
-                        // if it's already configured, just return
-                        if d.Value != nil { return }
+                        if d.Value != nil { // if it's already configured
+                                if optionReconfig {
+                                        def = d // reconfigure the def
+                                } else {
+                                        return
+                                }
+                        }
                 }
         } else {
                 result = def
@@ -794,22 +792,22 @@ LOADLIBES :=
 LIBS :=
 LANG := c++
 INCLUDES :=
--include:[((TARGET VALUE)) (unclose) (cd &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG).include($(VALUE))
+-include:[((TARGET VALUE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG).include($(VALUE))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--symbol:[((TARGET VALUE SYMBOL)) (unclose) (cd &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).symbol($(VALUE),$(SYMBOL))
+-symbol:[((TARGET VALUE SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).symbol($(VALUE),$(SYMBOL))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--function:[((TARGET VALUE FUNCTION)) (unclose) (cd &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(VALUE),$(FUNCTION))
+-function:[((TARGET VALUE FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(VALUE),$(FUNCTION))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--library:[((TARGET VALUE LIBRARY FUNCTION)) (unclose) (cd &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(VALUE),$(FUNCTION))
+-library:[((TARGET VALUE LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(VALUE),$(FUNCTION))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -l$(LIBRARY) -o &(CTD)/check.out
--struct-member:[((TARGET VALUE STRUCT MEMBER)) (unclose) (cd &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).structmember($(VALUE),$(STRUCT),$(MEMBER))
+-struct-member:[((TARGET VALUE STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).structmember($(VALUE),$(STRUCT),$(MEMBER))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--sizeof:[((TARGET VALUE TYPE)) (unclose) (cd &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).sizeof($(VALUE),$(TYPE))
+-sizeof:[((TARGET VALUE TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).sizeof($(VALUE),$(TYPE))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--compiles:[((TARGET VALUE)) (unclose) (cd &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG)($(VALUE))
+-compiles:[((TARGET VALUE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG)($(VALUE))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
 
-%.c.include:[((VALUE)) (unclose) (cd &/) | (plain c) (update-file -sp)]
+%.c.include:[((VALUE)) (unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	$(INCLUDES)
 	#ifdef __CLASSIC_C__
 	int main() { return 0; }
@@ -817,11 +815,11 @@ INCLUDES :=
 	int main(void) { return 0; }
 	#endif
 	
-%.c++.include:[((VALUE)) (unclose) (cd &/) | (plain c++) (update-file -sp)]
+%.c++.include:[((VALUE)) (unclose) (cd -s &/) | (plain c++) (update-file -sp)]
 	$(INCLUDES)
 	int main() { return 0; }
 	
-%.symbol:[((VALUE SYMBOL)) (unclose) (cd &/) | (plain text) (update-file -sp)]
+%.symbol:[((VALUE SYMBOL)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	$(INCLUDES)
 	int main(int argc, char** argv)
 	{
@@ -834,7 +832,7 @@ INCLUDES :=
 	#endif
 	}
 	
-%.variable:[((VALUE VARIABLE)) (unclose) (cd &/) | (plain text) (update-file -sp)]
+%.variable:[((VALUE VARIABLE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	$(INCLUDES)
 	extern int $(VARIABLE)
 	#ifdef __CLASSIC_C__
@@ -844,7 +842,7 @@ INCLUDES :=
 	#endif
 	{ (void)argv; return $(VARIABLE); }
 	
-%.function:[((VALUE FUNCTION)) (unclose) (cd &/) | (plain text) (update-file -sp)]
+%.function:[((VALUE FUNCTION)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	$(INCLUDES)
 	#ifdef __cplusplus
 	extern "C"
@@ -857,11 +855,11 @@ INCLUDES :=
 	#endif
 	{ $(FUNCTION)(); return 0; }
 	
-%.structmember:[((VALUE STRUCT MEMBER)) (unclose) (cd &/) | (plain text) (update-file -sp)]
+%.structmember:[((VALUE STRUCT MEMBER)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	$(INCLUDES)
 	int main() { (void)sizeof((($(STRUCT) *)0)->$(MEMBER)); return 0; }
 	
-%.sizeof:[((VALUE TYPE)) (unclose) (cd &/) | (plain text) (update-file -sp)]
+%.sizeof:[((VALUE TYPE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	#undef ARCH
 	#if defined(__i386)
 	#   define ARCH "__i386"
@@ -886,7 +884,7 @@ INCLUDES :=
 	#endif
 	{ (void)argv; return SIZE; }
 	
-&(CTD)/check/pthreads.c:[((VALUE)) (unclose) (cd &/) | (plain c) (update-file -sp)]
+&(CTD)/check/pthreads.c:[((VALUE)) (unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	#include <pthread.h>
 	void* routine(void* args) { return args; }
 	int main(void) {
@@ -896,10 +894,10 @@ INCLUDES :=
 	  return 0;
 	}
 	
-%.c:[((VALUE)) (unclose) (cd &/) | (plain c) (update-file -sp)]
+%.c:[((VALUE)) (unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	$(VALUE)
 	
-%.c++:[((VALUE)) (unclose) (cd &/) | (plain c++) (update-file -sp)]
+%.c++:[((VALUE)) (unclose) (cd -s &/) | (plain c++) (update-file -sp)]
 	$(VALUE)
 	
 `

@@ -2046,27 +2046,25 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
 //      	configure-file -p -m=0600 $@ $(read-file $<)
 //     
 func builtinConfigureFile(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var optMode = os.FileMode(0600)
+        var optVerb = true
         var optPath = false
+        var optMode = os.FileMode(0600)
         if len(args) > 0 {
                 var altargs []Value
                 for _, arg := range args {
                         var opt bool
                         switch a := arg.(type) {
                         default: altargs = append(altargs, a)
-                        case *None:
+                        case *None: // ignores
                         case *Flag:
                                 if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
+                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optVerb = false }
                         case *Pair:
                                 if opt, err = a.isFlag('m', "mode"); err != nil { return } else if opt {
                                         var num int64
-                                        if num, err = a.Value.Integer(); err != nil {
-                                                return
-                                        } else {
+                                        if num, err = a.Value.Integer(); err != nil { return } else {
                                                 optMode = os.FileMode(num & 0777)
                                         }
                                 }
@@ -2086,6 +2084,10 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
         switch {
         case len(execstack) > 0: scope = execstack[0].scope
         case context.loader != nil: scope = context.loader.scope
+        }
+        if scope == nil {
+                err = fmt.Errorf("unknown configure scope")
+                return
         }
         
         var data bytes.Buffer
@@ -2120,38 +2122,44 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                 return
         }
 
+        var status string
+        if optVerb {
+                fmt.Printf("configure file %v …", file)
+                defer func() {
+                        if err != nil { status = "error!" } else {
+                                if status == "" { status = "done." }
+                        }
+                        fmt.Printf("… %s\n", status)
+                } ()
+        }
+
         if file.Info != nil {
                 var f *os.File
                 if f, err = os.Open(filename); err == nil && f != nil {
                         defer f.Close()
                         if st, _ := f.Stat(); st.Mode().Perm() != optMode {
-                                if err = f.Chmod(optMode); err != nil {
-                                        return
-                                }
+                                if err = f.Chmod(optMode); err != nil { return }
                         }
                         w1 := crc64.New(crc64Table)
                         w2 := crc64.New(crc64Table)
                         if _, err = io.Copy(w1, f); err != nil { return }
                         if _, err = w2.Write(data.Bytes()); err != nil { return }
                         if s1, s2 := w1.Sum64(), w2.Sum64(); s1 == s2 {
-                                res = file
+                                res, status = file, fmt.Sprintf("unchanged (crc=%v).", s1)
                                 return
                         }
                 }
         } else if dir = filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
-                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                        return
-                }
+                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
         }
 
         if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err == nil {
-                if file.Info != nil {
-                        res = file
-                } else {
+                if file.Info != nil { res = file } else {
                         if file.Info, err = os.Stat(filename); err == nil {
                                 res = file
                         }
                 }
+                status = fmt.Sprintf("updated (%d bytes).", data.Len())
         }
         return
 }

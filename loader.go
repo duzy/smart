@@ -716,6 +716,7 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
 
         for _, elem := range results {
                 switch t := elem.(type) {
+                case *None: // does nothing
                 case *undetermined:
                         l.determine(pos, t.tok, t.identifier, t.value)
                 default:
@@ -1535,11 +1536,11 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
                         }
                 }
 
-                if strings.HasPrefix(d.Name(), ".#") ||
-                        (!strings.HasSuffix(d.Name(), ".smart") &&
-                        !strings.HasSuffix(d.Name(), ".sm")) {
-                        continue
-                } else if s := d.Name(); (s == "configure.smart" || s == "configure.sm") && (len(linked) > 0 || mo.IsDir()) {
+                if s := d.Name(); s != "" {
+                        var skip = strings.HasPrefix(s, ".#")
+                        skip = skip || !(strings.HasSuffix(s, ".smart") || strings.HasSuffix(s, ".sm"))
+                        if skip { continue ListLoop }
+                } else if (s == "configure.smart" || s == "configure.sm") && (len(linked) > 0 || mo.IsDir()) {
                         if err := l.ParseConfigDir(filepath.Dir(filename), linked); err != nil {
                                 if first == nil {
                                         first = err
@@ -1547,9 +1548,6 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
                                 return
                         }
                         continue ListLoop
-                } else if s == "config.smart" || s == "config.sm" {
-                        err = fmt.Errorf("use configure.sm[art] instead of config.sm[art]")
-                        break
                 }
 
 		if mo.IsRegular() && (filter == nil || filter(d)) {

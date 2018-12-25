@@ -172,7 +172,7 @@ func modifierCD(pos token.Position, prog *Program, args... Value) (result Value,
                         case *Flag:
                                 var opt bool
                                 if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
-                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optPrint = !opt }
+                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optPrint = false }
                                 if opt, err = a.is(0, ""); err != nil { return } else if opt {
                                         var dir = findBacktrackDir()
                                         // Back to main project if no backtracks.

@@ -283,9 +283,12 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.target, prog.depends, entry.class, prog.project.absPath)
         }
 
-        var print = prog.getModifier("cd") == nil
-        // Flag targets (-foo) will turn off printing
+        var print = true // printing work directories (Entering/Leaving)
+
+        // Flag targets (-foo) turn off printing
         if _, ok := entry.target.(*Flag); ok { print = false }
+        if print && prog.getModifier("cd") != nil { print = false }
+        if print && prog.getModifier("configure") != nil { print = false }
 
         // cd before setting execstack, because cd reads execstack
         // before changes.

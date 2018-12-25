@@ -10,19 +10,15 @@ import (
         "extbit.io/smart/token"
 	"path/filepath"
         "strings"
-        "flag"
         "fmt"
         "os"
 )
 
 var (
+        optionReconfig = false
         optionConfigures = false
         usageConfigures = ``
 )
-
-func init() {
-        flag.BoolVar(&optionConfigures, "configure", optionConfigures, usageConfigures)
-}
 
 type Context struct {
         workdir string
@@ -125,7 +121,22 @@ func joinTmpPath(base, rel string) string {
                 }
         }
         rel = strings.Replace(rel, "..", "_", -1)
+        if strings.HasPrefix(rel, "tmp"+PathSep) {
+                return filepath.Join(baseTmpPath, ".smart", rel)
+        }
         return filepath.Join(baseTmpPath, ".smart", "tmp", rel)
+}
+
+func processCommandOption(flag *Flag, args... Value) (err error) {
+        var opt bool
+        if opt, err = flag.is('c', "configure"); err != nil { return } else if opt {
+                optionConfigures = true; return
+        }
+        if opt, err = flag.is('r', "reconfigure"); err != nil { return } else if opt {
+                optionConfigures, optionReconfig = true, true; return
+        }
+        err = fmt.Errorf("`%v` unknown command option", flag.Name)
+        return
 }
 
 // loadwork loads smart files, making it as individual func to avoid being
@@ -208,26 +219,33 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                                 fmt.Fprintf(os.Stderr, "@ is not a directory")
                         }
                 }
-                if ab == "/" {
-                        break
-                }
-                if ab = filepath.Dir(ab); ab == "." {
-                        break
-                }
+                if ab == "/" { break }
+                if ab = filepath.Dir(ab); ab == "." { break }
         }
 
         restoreLoadingInfo(ctx.loader)
 
-        if err = ctx.loader.loadPath(base, nil); err != nil {
-                return
-        }
+        if err = ctx.loader.loadPath(base, nil); err != nil { return }
 
-        text := strings.Join(flag.Args(), " ")
+        text := strings.Join(os.Args[1:], " ")
         for _, target := range ctx.loader.loadText("@", text) {
                 switch t := target.(type) {
+                case *Flag:
+                        if err = processCommandOption(t); err != nil {
+                                fmt.Fprintf(os.Stderr, "%s\n", err)
+                        }
+                case *Pair:
+                        switch k := t.Key.(type) {
+                        case *Flag:
+                                if err = processCommandOption(k, t.Value); err != nil {
+                                        fmt.Fprintf(os.Stderr, "%s\n", err)
+                                }
+                        default:
+                                fmt.Fprintf(os.Stderr, "unknown target `%v`\n", t)
+                        }
                 case *Bareword:
                         if entry, err := ctx.loader.project.resolveEntry(t.string); err != nil {
-                                fmt.Fprintf(os.Stderr, "%sn", err)
+                                fmt.Fprintf(os.Stderr, "%s\n", err)
                         } else if entry == nil {
                                 fmt.Fprintf(os.Stderr, "no such entry `%s`\n", t)
                         } else {
@@ -251,10 +269,8 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
 }
 
 func CommandLine() {
-        if s, err := os.Getwd(); err == nil {
+        if s, err := os.Getwd(); err != nil { return } else {
                 context.workdir = s
-        } else {
-                return
         }
 
         var modulesPaths, packagePaths searchlist
@@ -266,8 +282,6 @@ func CommandLine() {
         })
         packagePaths = append(packagePaths, filepath.Join(context.prefix, "user", "lib", "smart", "packages"))
         modulesPaths = append(modulesPaths, filepath.Join(context.prefix, "user", "lib", "smart", "modules"))
-
-        if !flag.Parsed() { flag.Parse() }
 
         // make sure that .smart dirs have higher priority.
         globalPaths = append(modulesPaths, globalPaths...)
