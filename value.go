@@ -30,7 +30,8 @@ type expandwhat int
 const (
         expandDelegate expandwhat = 1<<iota // $(...) -> ...
         expandClosure // &(...) -> $(...)
-        expandBoth = expandDelegate | expandClosure
+        expandPath // $(...)/foo -> /path/to/foo
+        expandAll = expandDelegate | expandClosure | expandPath
 )
 
 // Value represents a value of a type.
@@ -285,6 +286,14 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         return
 }
 
+func elementString(t Type, elem Value) (s string) {
+        switch v := elem.(type) {
+        case *Def: s = fmt.Sprintf(`$(%s)`, v.name)
+        default: s = elem.String()
+        }
+        return
+}
+
 type Argumented struct {
         Val Value
         Args []Value
@@ -336,7 +345,7 @@ func (p *Argumented) Float() (f float64, err error) {
 func (p *Argumented) String() (s string) {
         for i, a := range p.Args {
                 if i > 0 { s += "," }
-                s += a.String()
+                s += elementString(p.Type(), a)
         }
         s = fmt.Sprintf("%s(%s)", p.Val, s)
         return
@@ -373,8 +382,8 @@ type None struct { value }
 func (p *None) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *None) Type() Type { return NoneType }
 func (p *None) True() bool { return false }
-func (p *None) String() string {return "" }
-func (p *None) Strval() (string, error) { return "", nil }
+func (p *None) String() (s string) { return }
+func (p *None) Strval() (s string, err error) { return }
 func (p *None) compare(c *comparer) (err error) { return }
 func (p *None) filedependcompare(c *comparer, file *File) error { return nil }
 func (p *None) pathdependcompare(c *comparer, path *Path) error { return nil }
@@ -389,7 +398,7 @@ type Nil struct { None }
 type ModifierBar struct { None }
 func (p *ModifierBar) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *ModifierBar) Strval() (string, error) { return "|", nil }
-func (p *ModifierBar) String() string {return "|" }
+func (p *ModifierBar) String() string { return "|" }
 
 // Any is used to box an arbitrary value
 type Any struct { value interface{} }
@@ -785,22 +794,30 @@ func ParseURL(s string) *URL {
         }
 }
 
+type Raw struct { string }
+func (_ *Raw) refs(_ Value) bool { return false }
+func (_ *Raw) closured() bool { return false }
+func (p *Raw) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *Raw) Type() Type { return RawType }
+func (p *Raw) True() bool { return p.string != "" }
+func (p *Raw) String() string { return p.string }
+func (p *Raw) Strval() (string, error) { return p.string, nil }
+func (p *Raw) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
+func (p *Raw) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
+func (p *Raw) filedependcompare(c *comparer, d *File) error { return fmt.Errorf("comparing raw string") }
+func (p *Raw) pathdependcompare(c *comparer, d *Path) error { return fmt.Errorf("comparing raw string") }
+func (p *Raw) prepare(pc *preparer) error { return fmt.Errorf("preparing raw string") }
+
 type String struct { string }
 func (_ *String) refs(_ Value) bool { return false }
 func (_ *String) closured() bool { return false }
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *String) Type() Type { return StringType }
-func (p *String) True() (t bool) {
-        if t = p.string != ""; t {
-                // TODO: check for 'true', 'false'; 'yes', 'no'
-        }
-        return
-}
+func (p *String) True() bool { return p.string != "" }
 func (p *String) String() string { return fmt.Sprintf("'%s'", p.string) }
 func (p *String) Strval() (string, error) { return p.string, nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-
 func (p *String) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:String:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
@@ -813,7 +830,7 @@ func (p *String) filedependcompare(c *comparer, d *File) (err error) {
 
         ds, err := d.Strval()
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[ds]; ok {
+        if t, ok := c.globe.timestamps[ds]; ok {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
@@ -824,14 +841,13 @@ func (p *String) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[p.string] = dt // Or tt?
+                c.globe.timestamps[p.string] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated file '%s'", p)
         }
         return
 }
-
 func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:String:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
@@ -844,7 +860,7 @@ func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
 
         s, err := d.Strval()
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[s]; ok {
+        if t, ok := c.globe.timestamps[s]; ok {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
@@ -855,14 +871,13 @@ func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[p.string] = dt // Or tt?
+                c.globe.timestamps[p.string] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated directory '%s'", p)
         }
         return
 }
-
 func (p *String) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:String: %v\n", p)
@@ -870,7 +885,6 @@ func (p *String) prepare(pc *preparer) error {
         //pc.source = p.Value
         return pc.updateTarget(p.string)
 }
-
 func MakeString(s string) *String { return &String{s} }
 
 type Bareword struct { string }
@@ -886,11 +900,10 @@ func (p *Bareword) True() (t bool) {
         }
         return
 }
-func (p *Bareword) String() string { return p.string/*fmt.Sprintf("Bareword{%s}", p.string)*/ }
+func (p *Bareword) String() string { return p.string }
 func (p *Bareword) Strval() (string, error) { return p.string, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-
 func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Bareword:File: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
@@ -903,7 +916,7 @@ func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
 
         ds, err := d.Strval()
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[ds]; ok {
+        if t, ok := c.globe.timestamps[ds]; ok {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
@@ -914,14 +927,13 @@ func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[p.string] = dt // Or tt?
+                c.globe.timestamps[p.string] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated file '%s'", p)
         }
         return
 }
-
 func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
         if trace_compare {
                 fmt.Printf("compare:Bareword:Path: %v (depends: %v) (%v %T)\n", p, d, c.target, c.target)
@@ -934,7 +946,7 @@ func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
 
         s, err := d.Strval()
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[s]; ok {
+        if t, ok := c.globe.timestamps[s]; ok {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
@@ -945,14 +957,13 @@ func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[p.string] = dt // Or tt?
+                c.globe.timestamps[p.string] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated directory '%s'", p)
         }
         return
 }
-
 func (p *Bareword) prepare(pc *preparer) error {
         if trace_prepare {
                 fmt.Printf("prepare:Bareword: %v\n", p)
@@ -960,12 +971,11 @@ func (p *Bareword) prepare(pc *preparer) error {
         //pc.source = p.string
         return pc.updateTarget(p.string)
 }
-
 func MakeBareword(s string) *Bareword { return &Bareword{s} }
 
-type Elements struct { Elems []Value }
-func (p *Elements) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *Elements) Integer() (int64, error) {
+type elements struct { Elems []Value }
+func (p *elements) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *elements) Integer() (int64, error) {
         if n := len(p.Elems); n == 1 {
                 // If there's only one element, treat it as a scalar.
                 return p.Elems[0].Integer()
@@ -973,33 +983,33 @@ func (p *Elements) Integer() (int64, error) {
                 return int64(n), nil
         }
 }
-func (p *Elements) Len() int                    { return len(p.Elems) }
-func (p *Elements) Append(v... Value)           { p.Elems = append(p.Elems, v...) }
-func (p *Elements) Get(n int) (v Value)         { if n>=0 && n<len(p.Elems) { v = p.Elems[n] }; return }
-func (p *Elements) Slice(n int) (a []Value)     {
+func (p *elements) Len() int                    { return len(p.Elems) }
+func (p *elements) Append(v... Value)           { p.Elems = append(p.Elems, v...) }
+func (p *elements) Get(n int) (v Value)         { if n>=0 && n<len(p.Elems) { v = p.Elems[n] }; return }
+func (p *elements) Slice(n int) (a []Value)     {
         if n>=0 && n<len(p.Elems) {
                 a = p.Elems[n:]
         }
         return 
 }
-func (p *Elements) Take(n int) (v Value) {
+func (p *elements) Take(n int) (v Value) {
         if x := len(p.Elems); n>=0 && n<x {
                 v = p.Elems[n]
                 p.Elems = append(p.Elems[0:n], p.Elems[n+1:]...)
         }
         return 
 }
-func (p *Elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
-func (p *Elements) ToCompound() *Compound { return &Compound{*p} }
-func (p *Elements) ToList() *List { return &List{*p} }
-func (p *Elements) True() (t bool) {
+func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
+func (p *elements) ToCompound() *Compound { return &Compound{*p} }
+func (p *elements) ToList() *List { return &List{*p} }
+func (p *elements) True() (t bool) {
         for _, elem := range p.Elems {
                 if t = elem.True(); t { break }
         }
         return
 }
 
-func (p *Elements) refs(v Value) bool {
+func (p *elements) refs(v Value) bool {
         for _, elem := range p.Elems {
                 if elem != nil && (elem == v || elem.refs(v)) {
                         return true
@@ -1008,14 +1018,14 @@ func (p *Elements) refs(v Value) bool {
         return false 
 }
 
-func (p *Elements) closured() bool {
+func (p *elements) closured() bool {
         for _, elem := range p.Elems {
                 if elem.closured() { return true }
         }
         return false 
 }
 
-type Barecomp struct { Elements }
+type Barecomp struct { elements }
 func (p *Barecomp) Type() Type { return BarecompType }
 func (p *Barecomp) Strval() (s string, e error) {
         for _, elem := range p.Elems {
@@ -1030,7 +1040,7 @@ func (p *Barecomp) Strval() (s string, e error) {
 }
 func (p *Barecomp) String() (s string) {
         for _, elem := range p.Elems {
-                s += elem.String()
+                s += elementString(p.Type(), elem)
         }
         return
 }
@@ -1039,7 +1049,7 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &Barecomp{ Elements{ elems } }
+                        res = &Barecomp{ elements{ elems } }
                 } else {
                         res = p
                 }
@@ -1064,7 +1074,7 @@ func (p *Barecomp) filedependcompare(c *comparer, d *File) (err error) {
         var dt time.Time
         ds, err := d.Strval() // depend name
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[ds]; ok {
+        if t, ok := c.globe.timestamps[ds]; ok {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
@@ -1075,7 +1085,7 @@ func (p *Barecomp) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[ts] = dt // Or tt?
+                c.globe.timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated file '%s'", p)
@@ -1100,7 +1110,7 @@ func (p *Barecomp) pathdependcompare(c *comparer, d *Path) (err error) {
         var dt time.Time
         ds, err := d.Strval()
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[ds]; ok {
+        if t, ok := c.globe.timestamps[ds]; ok {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
@@ -1111,7 +1121,7 @@ func (p *Barecomp) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[ts] = dt // Or tt?
+                c.globe.timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated file '%s'", p)
@@ -1130,7 +1140,7 @@ func (p *Barecomp) prepare(pc *preparer) error {
 }
 
 func MakeBarecomp(elems... Value) *Barecomp {
-        return &Barecomp{Elements{elems}}
+        return &Barecomp{elements{elems}}
 }
 
 type Barefile struct {
@@ -1152,7 +1162,7 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Barefile) Type() Type { return BarefileType }
 func (p *Barefile) True() bool { return p.File != nil }
-func (p *Barefile) String() string { return p.Name.String() }
+func (p *Barefile) String() string { return elementString(p.Type(), p.Name) }
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
         var ( str string; fi os.FileInfo )
@@ -1220,22 +1230,20 @@ func MakeBarefile(name Value, file *File) *Barefile {
         return &Barefile{ name, file }
 }
 
-type GlobMeta struct {
-        Tok token.Token
-}
+type GlobMeta struct { token.Token }
 func (p *GlobMeta) refs(o Value) bool { return false }
 func (p *GlobMeta) closured() bool { return false }
 func (p *GlobMeta) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *GlobMeta) Type() Type { return GlobType }
 func (p *GlobMeta) True() bool { return false }
-func (p *GlobMeta) String() (s string) { return p.Tok.String() }
-func (p *GlobMeta) Strval() (string, error) { return p.Tok.String(), nil }
+func (p *GlobMeta) String() string { return p.Token.String() }
+func (p *GlobMeta) Strval() (string, error) { return p.Token.String(), nil }
 func (p *GlobMeta) Integer() (int64, error) { return 0, nil }
 func (p *GlobMeta) Float() (float64, error) { return 0, nil }
 
-type GlobRange struct { // `[a-b]`, `[abc]`, ...
-        Chars Value // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
-}
+// `[a-b]`, `[abc]`, ...
+// `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
+type GlobRange struct { Chars Value }
 func (p *GlobRange) refs(v Value) bool { return p.Chars.refs(v) }
 func (p *GlobRange) closured() bool { return p.Chars.closured() }
 func (p *GlobRange) expand(w expandwhat) (Value, error) {
@@ -1249,7 +1257,7 @@ func (p *GlobRange) expand(w expandwhat) (Value, error) {
 }
 func (p *GlobRange) Type() Type { return GlobType }
 func (p *GlobRange) True() bool { return false }
-func (p *GlobRange) String() (s string) { return fmt.Sprintf("[%s]", p.Chars) }
+func (p *GlobRange) String() (s string) { return fmt.Sprintf("[%s]", elementString(p.Type(), p.Chars)) }
 func (p *GlobRange) Strval() (s string, err error) {
         var chars string
         if chars, err = p.Chars.Strval(); err == nil {
@@ -1264,13 +1272,13 @@ func MakeGlobMeta(tok token.Token) *GlobMeta { return &GlobMeta{tok} }
 func MakeGlobRange(v Value) *GlobRange { return &GlobRange{v} }
 
 type Path struct {
-        Elements
+        elements
         File *File // if this path is pointed to a file, ie. the last element matched a FileMap
 }
 func (p *Path) String() (s string) {
         var segs []string
         for _, elem := range p.Elems {
-                segs = append(segs, elem.String())
+                segs = append(segs, elementString(p.Type(), elem))
         }
         return strings.Join(segs, PathSep)
 }
@@ -1305,13 +1313,25 @@ func (p *Path) True() (t bool) {
         return
 }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
-        var ( elems []Value; num int )
-        if elems, num, err = expandall(w, p.Elems...); err == nil {
-                if num > 0 {
-                        res = &Path{Elements{elems}, p.File}
-                } else {
-                        res = p
+        var (elems []Value; num int)
+        if elems, num, err = expandall(w, p.Elems...); err != nil { return }
+        if w&expandPath != 0 {
+                var vals []Value
+                for _, elem := range elems {
+                        switch v := elem.(type) {
+                        case *String:
+                                segs := MakePathStr(v.string).Elems
+                                vals = append(vals, segs...)
+                        default:
+                                vals = append(vals, elem)
+                        }
                 }
+                elems = vals
+        }
+        if num > 0 {
+                res = &Path{elements{elems}, p.File}
+        } else {
+                res = p
         }
         return
 }
@@ -1354,7 +1374,7 @@ func (p *Path) filedependcompare(c *comparer, d *File) (err error) {
         var dt time.Time
         ds, err := d.Strval()
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[ds]; ok {
+        if t, ok := c.globe.timestamps[ds]; ok {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
@@ -1365,7 +1385,7 @@ func (p *Path) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[ts] = dt // Or tt?
+                c.globe.timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated path '%s'", p)
@@ -1395,7 +1415,7 @@ func (p *Path) pathdependcompare(c *comparer, d *Path) (err error) {
         var dt time.Time
         ds, err := d.Strval()
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[ds]; ok {
+        if t, ok := c.globe.timestamps[ds]; ok {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
@@ -1406,7 +1426,7 @@ func (p *Path) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[ts] = dt // Or tt?
+                c.globe.timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated path '%s'", p)
@@ -1471,7 +1491,7 @@ func (p *Path) prepare(pc *preparer) (err error) {
 }
 
 func MakePath(segments... Value) (v *Path) {
-        return &Path{Elements{segments}, nil}
+        return &Path{elements{segments}, nil}
 }
 
 func MakePathStr(str string) (v *Path) {
@@ -1590,7 +1610,7 @@ func (p *File) filedependcompare(c *comparer, d *File) (err error) {
         var dt time.Time
         ds, err := d.Strval() // depend name
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[ds]; ok {
+        if t, ok := c.globe.timestamps[ds]; ok {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
@@ -1601,7 +1621,7 @@ func (p *File) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[ts] = dt // Or tt?
+                c.globe.timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated file '%s'", p)
@@ -1628,7 +1648,7 @@ func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
         var dt time.Time
         ds, err := d.Strval()
         if err != nil { return }
-        if t, ok := c.globe.Timestamps[ds]; ok {
+        if t, ok := c.globe.timestamps[ds]; ok {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
@@ -1639,7 +1659,7 @@ func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         if dt.After(tt) {
-                c.globe.Timestamps[ts] = dt // Or tt?
+                c.globe.timestamps[ts] = dt // Or tt?
                 err = nil // Returns nil to request update.
         } else {
                 err = break_good("updated file '%s'", p)
@@ -1803,7 +1823,7 @@ func (p *Flag) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Flag) Type() Type { return FlagType }
 func (p *Flag) True() bool { return p.Name.True() }
-func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", p.Name.String()) }
+func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", elementString(p.Type(), p.Name)) }
 func (p *Flag) Strval() (s string, e error) {
         if s, e = p.Name.Strval(); e == nil { 
                  s = "-" + s
@@ -1821,15 +1841,24 @@ func (p *Flag) is(r rune, s string) (result bool, err error) {
         }}
         return
 }
-
 func MakeFlag(name Value) (v *Flag) { return &Flag{name} }
         
-type Compound struct { // "compound string"
-        Elements
+type Compound struct { elements } // "compound string"
+func (p *Compound) expand(w expandwhat) (res Value, err error) {
+        var ( elems []Value; num int )
+        if elems, num, err = expandall(w, p.Elems...); err == nil {
+                if num > 0 {
+                        res = &Compound{ elements{ elems } }
+                } else {
+                        res = p
+                }
+        }
+        return
 }
+func (p *Compound) Type() Type { return CompoundType }
 func (p *Compound) String() (s string) {
         for _, elem := range p.Elems {
-                s += elem.String()
+                s += elementString(p.Type(), elem)
         }
         return fmt.Sprintf(`"%s"`, s)
 }
@@ -1844,32 +1873,16 @@ func (p *Compound) Strval() (s string, err error) {
         }
         return
 }
-func (p *Compound) Type() Type { return CompoundType }
 func (p *Compound) Integer() (int64, error) { return int64(len(p.Elems)), nil }
 func (p *Compound) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func MakeCompound(elems... Value) *Compound {return &Compound{elements{elems}}}
 
-func (p *Compound) expand(w expandwhat) (res Value, err error) {
-        var ( elems []Value; num int )
-        if elems, num, err = expandall(w, p.Elems...); err == nil {
-                if num > 0 {
-                        res = &Compound{ Elements{ elems } }
-                } else {
-                        res = p
-                }
-        }
-        return
-}
-
-func MakeCompound(elems... Value) (v *Compound) {
-        return &Compound{Elements{elems}}
-}
-
-type List struct { Elements }
+type List struct { elements }
 func (p *List) Type() Type { return ListType }
 func (p *List) String() (s string) {
         var strs []string
         for _, elem := range p.Elems {
-                strs = append(strs, elem.String())
+                strs = append(strs, elementString(p.Type(), elem))
         }
         return strings.Join(strs, " ")
 }
@@ -1894,7 +1907,7 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &List{ Elements{ elems } }
+                        res = &List{ elements{ elems } }
                 } else {
                         res = p
                 }
@@ -1950,14 +1963,14 @@ func (p *List) pathdependcompare(c *comparer, d *Path) (err error) {
         return
 }
 
-func MakeList(elems... Value) *List { return &List{Elements{elems}} }
+func MakeList(elems... Value) *List { return &List{elements{elems}} }
 
 type Group struct { List }
 func (p *Group) Type() Type { return GroupType }
 func (p *Group) String() string {
         var strs []string
         for _, elem := range p.Elems {
-                strs = append(strs, elem.String())
+                strs = append(strs, elementString(p.Type(), elem))
         }
         return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
@@ -1972,7 +1985,7 @@ func (p *Group) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {
                 if num > 0 {
-                        res = &Group{ List{ Elements{ elems } } }
+                        res = &Group{ List{ elements{ elems } } }
                 } else {
                         res = p
                 }
@@ -1981,7 +1994,7 @@ func (p *Group) expand(w expandwhat) (res Value, err error) {
 }
 
 func MakeGroup(elems... Value) (v *Group) {
-        return &Group{List{Elements{elems}}}
+        return &Group{List{elements{elems}}}
 }
 
 //type Map struct {
@@ -2018,7 +2031,7 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
 func (p *Pair) Type() Type { return PairType }
 func (p *Pair) True() bool { return p.Value.True() || p.Key.True() }
 func (p *Pair) String() string {
-        return fmt.Sprintf("%s=%s", p.Key.String(), p.Value.String())
+        return fmt.Sprintf("%s=%s", elementString(p.Type(), p.Key), elementString(p.Type(), p.Value))
 }
 func (p *Pair) Strval() (s string, err error) {
         var k, v string
@@ -2031,7 +2044,6 @@ func (p *Pair) Strval() (s string, err error) {
 }
 func (p *Pair) Integer() (int64, error) { return p.Value.Integer() }
 func (p *Pair) Float() (float64, error) { return p.Value.Float() }
-
 func (p *Pair) SetValue(v Value) { p.Value = v }
 func (p *Pair) SetKey(k Value) {
         switch o := k.(type) {
@@ -2043,12 +2055,10 @@ func (p *Pair) SetKey(k Value) {
                 panic(fmt.Errorf("'%T' is not key type", k))
         }
 }
-
 func (p *Pair) isFlag(r rune, s string) (result bool, err error) {
         if k, ok := p.Key.(*Flag); ok { result, err = k.is(r, s) }
         return
 }
-
 func MakePair(k, v Value) (p *Pair) {
         if k.Type().Bits()&IsKeyName != 0 {
                 p = &Pair{nil, nil}
@@ -2149,7 +2159,7 @@ func (p *delegate) reveal() (res Value, err error) {
                                 return
                         }
                 } else {
-                        res = &List{Elements{args}}
+                        res = &List{elements{args}}
                 }
         }
 
@@ -2464,7 +2474,9 @@ func (p *selection) True() (t bool) {
         return
 }
 func (p *selection) String() string {
-        return fmt.Sprintf("%v%s%v", p.o, p.t, p.s)
+        o := elementString(p.Type(), p.o)
+        s := elementString(p.Type(), p.s)
+        return fmt.Sprintf("%v%s%v", o, p.t, s)
 }
 
 func (p *selection) object() (o Object, err error) {
@@ -2600,7 +2612,11 @@ type PercPattern struct {
         Suffix Value
 }
 func (p *PercPattern) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *PercPattern) String() string { return fmt.Sprintf("%s%%%s", p.Prefix.String(), p.Suffix.String()) }
+func (p *PercPattern) String() string {
+        prefix := elementString(p.Type(), p.Prefix)
+        suffix := elementString(p.Type(), p.Suffix)
+        return fmt.Sprintf("%s%%%s", prefix, suffix)
+}
 func (p *PercPattern) Strval() (s string, err error) {
         if p.Prefix != nil {
                 var v string
@@ -2741,7 +2757,7 @@ type GlobPattern struct {
 func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *GlobPattern) String() (s string) {
         for _, comp := range p.Components {
-                s += comp.String()
+                s += elementString(p.Type(), comp)
         }
         return
 }
@@ -2851,13 +2867,9 @@ func MakeGlobPattern(components... Value) Pattern {
 type RegexpPattern struct {
         pattern
 }
-
-func NewRegexpPattern() Pattern {
-        return &RegexpPattern{}
-}
-
+func (p *RegexpPattern) refs(_ Value) bool { return false }
+func (p *RegexpPattern) closured() bool { return false }
 func (p *RegexpPattern) expand(_ expandwhat) (Value, error) { return p, nil }
-
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
 func (p *RegexpPattern) match(s string) (matched bool, stem string, err error) {
@@ -2868,9 +2880,9 @@ func (p *RegexpPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEnt
         panic("TODO: creating new match entry")
         return
 }
-
-func (p *RegexpPattern) closured() bool { return false }
-func (p *RegexpPattern) refs(_ Value) bool { return false }
+func NewRegexpPattern() Pattern {
+        return &RegexpPattern{}
+}
 
 type Valuer interface {
         Value() Value
@@ -3011,9 +3023,9 @@ func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) 
 }
 
 func ExpandAll(values ...Value) (res []Value, err error) {
-        if res, _, err = expandall(expandBoth, values...); err == nil {
+        if res, _, err = expandall(expandAll, values...); err == nil {
                 // second expand to ensure having real value
-                res, _, err = expandall(expandBoth, res...)
+                res, _, err = expandall(expandAll, res...)
         }
         return
 }
@@ -3031,7 +3043,7 @@ func Refs(a Value, v Value) bool { return a.refs(v) }
 
 func MakeListOrScalar(elems []Value) (res Value) {
         if x := len(elems); x > 1 {
-                res = &List{Elements{elems}}
+                res = &List{elements{elems}}
         } else if x == 1 {
                 res = elems[0]
         } else {
@@ -3082,6 +3094,7 @@ func ParseLiteral(tok token.Token, s string) (v Value) {
         case token.BAREWORD: v = MakeBareword(s)
         case token.STRING:   v = MakeString(s)
         case token.ESCAPE:   v = MakeString(EscapeChar(s))
+        case token.RAW:      v = &Raw{s}
         }
         return
 }

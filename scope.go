@@ -180,16 +180,14 @@ func (s *Scope) String() string {
 }
 
 func (s *Scope) FindDef(name string) (def *Def) {
-        _, sym := s.Find(name)
-        if sym != nil {
-                def = sym.(*Def)
+        if _, sym := s.Find(name); sym != nil {
+                def, _ = sym.(*Def)
         }
         return
 }
 
 func (s *Scope) FindEntry(name string) (entry *RuleEntry) {
-        _, sym := s.Find(name)
-        if sym != nil {
+        if _, sym := s.Find(name); sym != nil {
                 entry, _ = sym.(*RuleEntry)
         }
         return

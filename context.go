@@ -7,7 +7,6 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
 	"path/filepath"
         "strings"
@@ -15,6 +14,15 @@ import (
         "fmt"
         "os"
 )
+
+var (
+        optionConfigures = false
+        usageConfigures = ``
+)
+
+func init() {
+        flag.BoolVar(&optionConfigures, "configure", optionConfigures, usageConfigures)
+}
 
 type Context struct {
         workdir string
@@ -243,17 +251,6 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
 }
 
 func CommandLine() {
-        defer func() {
-		if e := recover(); e != nil {
-			// resume same panic if it's not a Failure
-			if failure, ok := e.(*Failure); !ok {
-				panic(e)
-			} else {
-                                scanner.PrintError(os.Stderr, failure)
-                        }
-		}
-        } ()
-
         if s, err := os.Getwd(); err == nil {
                 context.workdir = s
         } else {
@@ -270,20 +267,21 @@ func CommandLine() {
         packagePaths = append(packagePaths, filepath.Join(context.prefix, "user", "lib", "smart", "packages"))
         modulesPaths = append(modulesPaths, filepath.Join(context.prefix, "user", "lib", "smart", "modules"))
 
-        if !flag.Parsed() {
-                flag.Parse()
-        }
+        if !flag.Parsed() { flag.Parse() }
 
         // make sure that .smart dirs have higher priority.
         globalPaths = append(modulesPaths, globalPaths...)
 
         defer func(globe *Globe) { context.globe = globe } (context.globe)
         context.globe = NewGlobe("smart")
-        init_configuration(packagePaths)
-        if works, err := context.loadwork(); err != nil {
-                scanner.PrintError(os.Stderr, err)
+        if err := init_configuration(packagePaths); err != nil {
+                report(err)
+        } else if works, err := context.loadwork(); err != nil {
+                report(err)
+        } else if optionConfigures {
+                report(do_configuration())
         } else if result, err := context.run(works...); err != nil {
-                scanner.PrintError(os.Stderr, err)
+                report(err)
         } else if result != nil {
                 for _, v := range result {
                         var s string

@@ -498,7 +498,7 @@ func builtinSplitString(pos token.Position, args... Value) (res Value, err error
                         if s != "" { fields = append(fields, &String{s}) }
                 }
 
-                res = &List{Elements{fields}}
+                res = &List{elements{fields}}
         } else {
                 res = universalnone
         }
@@ -2161,7 +2161,7 @@ func builtinReturn(pos token.Position, args... Value) (res Value, err error) {
         if x := len(args); x == 0 {
                 value = args[x]
         } else {
-                value = &List{Elements{args}}
+                value = &List{elements{args}}
         }
         return nil, &Returner{ value }
 }

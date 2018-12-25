@@ -11,9 +11,9 @@ package scanner
 import (
         "extbit.io/smart/token"
         "errors"
+	"sort"
 	"fmt"
 	"io"
-	"sort"
 )
 
 // In an Errors, an error is represented by an *Error.
@@ -27,11 +27,19 @@ type Error struct {
 }
 
 // Error implements the error interface.
-func (e *Error) Error() string {
+func (e *Error) Error() (s string) {
 	if e.Pos.Filename != "" || e.Pos.IsValid() {
-		return e.Pos.String() + ": " + e.Err.Error()
-	}
-	return e.Err.Error()
+                switch t := e.Err.(type) {
+                case *Error:
+                        //s = fmt.Sprintf("%s: …\n%s", e.Pos, t)
+                        s = fmt.Sprintf("%s\n%s: …", t, e.Pos)
+                default:
+                        s = fmt.Sprintf("%s: %s", e.Pos, e.Err)
+                }
+	} else {
+                s = e.Err.Error()
+        }
+	return
 }
 
 // Errors is a list of *Errors.
@@ -46,13 +54,9 @@ func (p *Errors) Add(pos token.Position, err error) {
                 *p = append(*p, t)
                 *p = append(*p, &Error{pos, errors.New("from here")})
         case *Errors:
-                for _, e := range *t {
-                        *p = append(*p, e)
-                }
+                for _, e := range *t { *p = append(*p, e) }
         case Errors:
-                for _, e := range t {
-                        *p = append(*p, e)
-                }
+                for _, e := range t { *p = append(*p, e) }
         default:
                 *p = append(*p, &Error{pos, err})
         }
@@ -87,9 +91,7 @@ func (p Errors) Less(i, j int) bool {
 // other errors are sorted by error message, and before any *Error
 // entry.
 //
-func (p Errors) Sort() {
-	sort.Sort(p)
-}
+func (p Errors) Sort() { sort.Sort(p) }
 
 // RemoveMultiples sorts an Errors and removes all but the first error per line.
 func (p *Errors) RemoveMultiples() {
@@ -131,11 +133,43 @@ func (p Errors) Err() error {
 // it prints the err string.
 //
 func PrintError(w io.Writer, err error) {
-	if list, ok := err.(Errors); ok {
-		for _, e := range list {
-			fmt.Fprintf(w, "%s\n", e)
-		}
-	} else if err != nil {
+        switch e := err.(type) {
+        case Errors: for _, i := range e { PrintError(w, i) }
+        /*case *Error:
+                if _, ok := e.Err.(*Error); ok {
+                        fmt.Fprintf(w, "%s: …\n", e.Pos)
+                        PrintError(w, e.Err)
+                } else {
+                        fmt.Fprintf(w, "%s\n", err)
+                }*/
+        default:
 		fmt.Fprintf(w, "%s\n", err)
 	}
+}
+
+func Errorf(pos token.Position, s string, args... interface{}) (err error) {
+        var errs Errors
+        for i, a := range args {
+                switch e := a.(type) {
+                case *Error:
+                        /*p := Errorf(e.Pos, "\n%s", e.Err)
+                        switch t := e.Err.(type) {
+                        case Errors: errs = append(errs, t...)
+                        case *Error: errs = append(errs, t)
+                        }
+                        args[i] = p*/
+                        args[i] = e
+                        errs = append(errs, e)
+                case Errors:
+                        args[i] = fmt.Sprintf("(%d more errors)…\n", len(e))
+                        errs = append(errs, e...)
+                }
+        }
+        var e = fmt.Errorf(s, args...)
+        if len(errs) > 0 {
+                err = append(Errors{&Error{pos, e}}, errs...)
+        } else {
+                err = &Error{pos, e}
+        }
+        return
 }

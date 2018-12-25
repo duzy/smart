@@ -107,14 +107,14 @@ func (prog *Program) Position() token.Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
 
-func (prog *Program) auto(name string, value Value) (auto *Def) {
+func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
         var alt Object
         if auto, alt = prog.scope.Def(prog.project, name, value); alt != nil {
                 var found = false
                 if auto, found = alt.(*Def); found {
                         auto.Assign(value)
                 } else {
-                        Fail("Name '%v' already taken, not auto (%T)", name, alt)
+                        err = fmt.Errorf("`%v` name already taken (%T)", name, alt)
                 }
         }
         return
@@ -337,7 +337,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         // modifier buffer
-        var modifyBuf = prog.auto("-", universalnone)
+        var modifyBuf *Def
+        if modifyBuf, err = prog.auto("-", universalnone); err != nil { return }
         defer func() {
                 for i := 0; i < argn; i += 1 { prog.auto(strconv.Itoa(i+1), universalnone) }
                 for _, param := range prog.params { prog.auto(param, universalnone) }
@@ -373,9 +374,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                                 // default interpreter being called.
                                 err, preInterpreted = nil, "--"
                         }
-                        if err != nil {
+                        /*if err != nil {
                                 fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
-                        }
+                        }*/
                         break PrePipe
                 }
         }
@@ -452,9 +453,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                                 // called.
                                 err, postInterpreted = nil, "--"
                         }
-                        if err != nil {
+                        /*if err != nil {
                                 fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
-                        }
+                        }*/
                         break PostPipe
                 }
         }
@@ -469,19 +470,18 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         return
 }
 
-func (prog *Program) pipe(position token.Position, operation Value) (err error) {
+func (prog *Program) pipe(position token.Position, operation Value) (m *modifier, err error) {
         switch g := operation.(type) {
         case *Group:
-                prog.pipline = append(prog.pipline, &modifier{
-                        position, g.Get(0), g.Slice(1),
-                })
+                m = &modifier{ position, g.Get(0), g.Slice(1) }
         case *ModifierBar:
-                prog.pipline = append(prog.pipline, &modifier{
-                        position, g, nil,
-                })
+                m = &modifier{ position, g, nil }
         default:
                 err = fmt.Errorf("unknown modifier (%T `%v`)", operation, operation)
-                fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
+                //fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
+        }
+        if m != nil && err == nil {
+                prog.pipline = append(prog.pipline, m)
         }
         return
 }

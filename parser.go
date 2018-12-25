@@ -467,6 +467,12 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
 // ----------------------------------------------------------------------------
 // Common productions
 
+func (p *parser) isEndOfLine() bool {
+        // If there's a comment right after the parsed expression, we break
+        // the expression list to treat the end-of-line comment like a LINEND.
+        return p.lineComment != nil || p.tok == token.LINEND || p.tok == token.EOF
+}
+
 func (p *parser) isEndOfList(lhs bool) bool {
         // If there's a comment right after the parsed expression, we break
         // the expression list to treat the end-of-line comment like a LINEND.
@@ -781,7 +787,7 @@ func (p *parser) parsePathExpr(lhs bool, start ast.Expr) ast.Expr {
 	if p.tracing.enabled {
 		defer un(trace(p, "Path"))
 	}
-        
+
         defer p.setbits(p.setbit(composingPCON))
 
         var path *ast.PathExpr
@@ -959,16 +965,16 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) ast.Expr {
 }
 
 func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
-	if p.tracing.enabled {
-		// defer un(trace(p, "Unary"))
-	}
+	/*if p.tracing.enabled {
+                defer un(trace(p, "Unary"))
+	}*/
         switch p.tok {
         case token.BAREWORD, token.AT:
                 return p.parseBareword(lhs)
-                
+
         case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
-             token.DATETIME, token.DATE, token.TIME, 
-             token.URI, token.STRING, token.ESCAPE:
+             token.DATETIME, token.DATE, token.TIME, token.URI,
+             token.RAW, token.STRING, token.ESCAPE:
                 return p.parseBasicLit(lhs)
                 
         case token.COMPOUND:
@@ -1433,7 +1439,7 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
         case "", "eval":
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE or SEMICOLON and parse in list mode
-                if p.tok != token.LINEND && p.tok != token.EOF {
+                if !p.isEndOfLine() {
                         x := p.parseExpr(true) // parse first expr of recipe
                         if v, e := p.eval(x, KeepClosures|KeepDelegates); e != nil {
                                 p.error(x.Pos(), "%v (%T)", e, x)
@@ -1473,7 +1479,7 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
 
         default:
                 p.next() // skip RECIPE or SEMICOLON and parse in line-string mode
-                for p.tok != token.LINEND && p.tok != token.EOF {
+                for !p.isEndOfLine() {
                         elems = append(elems, p.parseExpr(false))
                 }
         }
@@ -1588,9 +1594,7 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                 p.error(pos, "multi-dialect unsupported, already defined '%s'", dialect)
                                 goto next
                         }
-                } else if _, ok = modifiers[name]; ok {
-                        goto addModifier
-                } else {
+                } else if _, ok = modifiers[name]; !ok {
                         p.error(pos, "`%s` no such dialect or modifier", name)
                         goto next
                 }
@@ -1928,15 +1932,13 @@ func (p *parser) parseFile() *ast.File {
 
                 // Don't bother parsing the rest if we had errors parsing the package clause.
                 // Likely not a Go source file at all.
-                if p.errors.Len() != 0 {
-                        return nil
-                }
+                if p.errors.Len() != 0 { return nil }
 
                 if p.mode&Flat == 0 {
                         if err := p.declare(keyword, ident, params); err != nil {
                                 p.error(ident.Pos(), err)
                         } else {
-                                defer p.closecurrent(ident)
+                                defer p.closeCurrent(ident)
                         }
                 }
         default:if p.mode&Flat == 0 {

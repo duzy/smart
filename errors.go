@@ -7,9 +7,11 @@
 package smart
 
 import (
+        "extbit.io/smart/scanner"
+        "runtime"
         "errors"
         "fmt"
-        "runtime"
+        "os"
 )
 
 var (
@@ -47,19 +49,6 @@ type Returner struct {
 
 func (p *Returner) Error() string {
         return "evaluation returned"
-}
-
-type Failure struct {
-        msg string
-}
-
-func (f *Failure) Error() string { return f.msg }
-
-func Fail(s string, a... interface{}) {
-        if len(a) > 0 {
-                s = fmt.Sprintf(s, a...)
-        }
-        panic(&Failure{s})
 }
 
 type RuntimeError struct {
@@ -105,4 +94,11 @@ func (e pathNotFoundError) Error() string {
 
 func (e fileNotFoundError) Error() string {
         return fmt.Sprintf("unknown file `%v` (%v)", e.file.Name, e.file)
+}
+
+func report(err error) error {
+        if err != nil {
+                scanner.PrintError(os.Stderr, err)
+        }
+        return err
 }

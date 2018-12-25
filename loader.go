@@ -122,7 +122,7 @@ type loader struct {
         scope    *Scope   // the current scope
         ruleParseFunc func(p *parser, tok token.Token, special ruleSpecial, targets []ast.Expr) *ast.RuleClause
         usefunc  func(l *loader, pos token.Pos, usee *Project, params []Value) error
-        includeFunc func(l *loader, spec *ast.IncludeSpec)
+        includeFunc func(l *loader, pos token.Pos, val Value)
 }
 
 func (l *loader) errat(pos token.Pos, err interface{}, a... interface{}) {
@@ -790,7 +790,7 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                         def.Assign(value)
                 }
         case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
-                if v, err := value.expand(expandBoth); err == nil {
+                if v, err := value.expand(expandAll); err == nil {
                         def.origin = ImmediateDef
                         def.Assign(v)
                 }
@@ -925,6 +925,7 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                 }*/
         }
 
+        var configure = false
         var prog = &Program{
                 globe:    l.globe,
                 project:  l.project,
@@ -936,9 +937,16 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
         }
         for i, m := range modifiers {
                 position := l.parser.file.Position(clause.Modifier.Elems[i].Pos())
-                if err := prog.pipe(position, m); err != nil {
+                if p, err := prog.pipe(position, m); err != nil {
                         l.parser.error(clause.Program.Pos(), "%v: %v", m, err)
                         return
+                } else if !configure {
+                        if s, err := p.name.Strval(); err != nil {
+                                l.parser.error(clause.Program.Pos(), "%v: %v", m, err)
+                                return
+                        } else if s == "configure" {
+                                configure = true
+                        }
                 }
         }
         
@@ -959,12 +967,16 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                         case *PercPattern:
                         }
                 }
-                if entry, err := l.project.entry(special, target, prog); err != nil {
+                var entry, err = l.project.entry(special, target, prog)
+                if err != nil {
                         l.parser.error(clause.Targets[n].Pos(), "%v", err)
                         return
                 } else /*if entry != nil*/ {
                         entry.Position = l.parser.file.Position(clause.Targets[n].Pos())
                         entries = append(entries, entry)
+                }
+                if configure {
+                        configuration.entires = append(configuration.entires, entry)
                 }
         }
         return
@@ -973,53 +985,60 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
 func (l *loader) include(spec *ast.IncludeSpec) {
         if l.includeFunc == nil {
                 l.parser.error(spec.Pos(), "`include` is forbiden")
-        } else {
-                l.includeFunc(l, spec)
+        } else if len(spec.Props) > 0 {
+                prop := spec.Props[0]
+                l.includeFunc(l, prop.Pos(), l.expr(prop))
         }
 }
 
-func includespec(l *loader, spec *ast.IncludeSpec) {
+func includespec(l *loader, pos token.Pos, spec Value) {
         var linfo = l.loads[len(l.loads)-1]
-        var specVal = l.expr(spec.Props[0])
         var specName, fullname string
         var err error
 
         // Execute the rule entry to update include source.
-        if entry, ok := specVal.(*RuleEntry); ok && entry != nil {
+        if entry, ok := spec.(*RuleEntry); ok && entry != nil {
                 var result []Value
                 if result, err = entry.Execute(entry.Position); err != nil {
-                        l.parser.error(spec.Props[0].Pos(), "%v: %v", specVal, err)
+                        l.parser.error(pos, "%v: %v", spec, err)
                         return
                 } else if result != nil {
                         // result ignored
                 }
-                specVal = entry.target
+                spec = entry.target
         }
 
-        if file, ok := specVal.(*File); ok && file != nil {
-                if file.Info == nil {
-                        l.parser.error(spec.Props[0].Pos(), "`%v` no source file", file)
+        switch t := spec.(type) {
+        /*case *Path:
+                panic(fmt.Sprintf("include not implemented (%T)", t))*/
+        case *File:
+                if t.Info == nil {
+                        l.parser.error(pos, "`%v` no source file", t)
                         return
                 }
-                fullname = filepath.Join(file.Dir, file.Name)
-                specName = file.Name
-        } else {
-                if specName, err = specVal.Strval(); err != nil {
-                        l.parser.error(spec.Props[0].Pos(), "%v: %v", specVal, err)
+                fullname = filepath.Join(t.Dir, t.Name)
+                specName = t.Name
+        default:
+                if specName, err = spec.Strval(); err != nil {
+                        l.parser.error(pos, "%v: %v", spec, err)
                         return
                 }
-                fullname = filepath.Join(linfo.absDir, specName)
+                if filepath.IsAbs(specName) {
+                        fullname = specName
+                } else {
+                        fullname = filepath.Join(linfo.absDir, specName)
+                }
         }
 
         if specName == "" {
-                l.parser.error(spec.Props[0].Pos(), "`%v` is empty string", spec.Props[0])
+                l.parser.error(pos, "`%v` is empty string", spec)
                 return
         }
 
         var absDir, baseName = filepath.Split(fullname)
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
         if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
-                l.parser.error(spec.Pos(), "include: %v", err)
+                l.parser.error(pos, "include: %v", err)
         }
         return
 }
@@ -1076,10 +1095,8 @@ func (l *loader) loadProjectBases(linfo *loadinfo, params []Value) (err error) {
 }
 
 func (l *loader) declare(keyword token.Token, ident *ast.Bareword, params []Value) (err error) {
-        var (
-                optFinal, optNoDock bool
-                bases []Value
-        )
+        var optFinal, optNoDock bool
+        var bases []Value
         for _, param := range params {
                 switch t := param.(type) {
                 case *Flag:
@@ -1114,9 +1131,9 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, params []Valu
         var (
                 name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
-                dec, ok = linfo.declares[name]
+                dec, declared = linfo.declares[name]
         )
-        if !ok {
+        if !declared {
                 var (
                         outer = l.scope
                         absDir = linfo.absDir
@@ -1167,6 +1184,18 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, params []Valu
                 }
         }
 
+        if declared || l.includeFunc == nil || optionConfigures {
+                // Does nothing!
+        } else if ctd := l.project.scope.FindDef("CTD"); ctd == nil {
+                unreachable()
+        } else if s, err := ctd.Strval(); err != nil {
+                return err
+        } else if s = filepath.Join(s, "configuration.sm"); s == "" {
+                unreachable()
+        } else if fi, er := os.Stat(s); er == nil && fi != nil {
+                l.includeFunc(l, ident.Pos(), &String{s})
+        }
+
         if optNoDock || l.project.name == "dock" { return }
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
                 var dir = filepath.Join(s, ".smart", "dock")
@@ -1187,7 +1216,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, params []Valu
         return
 }
 
-func (l *loader) closecurrent(ident *ast.Bareword) (err error) {
+func (l *loader) closeCurrent(ident *ast.Bareword) (err error) {
         if ident.Value == "@" {
                 if dec, ok := l.loads[0].declares[ident.Value]; ok {
                         l.project = dec.backproj
@@ -1294,9 +1323,7 @@ func (l *loader) resolve(value Value) (obj Object, err error) {
 
 func (l *loader) find(target Value) (obj Object, err error) {
         var name string
-        if name, err = target.Strval(); err != nil {
-                return
-        }
+        if name, err = target.Strval(); err != nil { return }
         
         var entry *RuleEntry
         if entry, err = l.project.resolveEntry(name); err != nil {
@@ -1308,7 +1335,13 @@ func (l *loader) find(target Value) (obj Object, err error) {
 }
 
 func (l *loader) def(name string) (def *Def, alt Object) {
-        return l.scope.Def(l.project, name, universalnone)
+        var scope = l.scope
+        if strings.HasPrefix(scope.comment, "file ") && l.mode&Flat != 0 {
+                // use project scope if defining in flat file (aka. include)
+                // to ensure that the symbol is valid in the project
+                scope = l.project.scope
+        }
+        return scope.Def(l.project, name, universalnone)
 }
 
 // If src != nil, readSource converts src to a []byte if possible;
@@ -1345,9 +1378,7 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.File, err error) {
 	// get source
         var text []byte
-	if text, err = readSource(filename, src); err != nil {
-		return
-	}
+	if text, err = readSource(filename, src); err != nil { return }
 
 	l.mode = mode //| Trace
 	l.tracing.enabled = l.mode&Trace != 0 // for convenience (l.trace is used frequently)
@@ -1394,25 +1425,19 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 	defer fd.Close()
 
         var list []os.FileInfo
-	if list, err = fd.Readdir(-1); err != nil || len(list) == 0 {
-                return 
-        }
+	if list, err = fd.Readdir(-1); err != nil || len(list) == 0 { return }
 
-        var (
-                def *Def
-                ident = filepath.Base(pathname)
-        )
+        var ident = filepath.Base(pathname)
         if ident == "_" {
-                return fmt.Errorf("invalid package name %s", ident)
-        }
-
-        scope, err := l.OpenNamedScope(ident, fmt.Sprintf("config %s", pathname))
-        if err != nil {
+                err = fmt.Errorf("invalid package name %s", ident)
                 return
         }
 
+        scope, err := l.OpenNamedScope(ident, fmt.Sprintf("config %s", pathname))
+        if err != nil { return }
         defer l.closeScope(scope)
 
+        var def *Def
 	ListLoop: for _, d := range list {
                 var name = d.Name()
                 if strings.HasPrefix(name, ".#") || 
@@ -1432,9 +1457,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
                 }
 
                 if d.IsDir() {
-                        if err = l.ParseConfigDir(filepath.Join(pathname, name), fullname); err != nil {
-                                break ListLoop
-                        }
+                        if err = l.ParseConfigDir(filepath.Join(pathname, name), fullname); err != nil { break ListLoop }
                 } else if s, a := l.def(name); a != nil {
                         err = fmt.Errorf("declare project: %v", err)
                         break ListLoop

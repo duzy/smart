@@ -30,6 +30,7 @@ const (
         DATE     // 1979-05-27 (internet date format - RFC3339)
         TIME     // 07:32:00.999999 (internet time format - RFC3339)
         URI      // 'mailto:duzy.chan@example.com' (uniform resource identifier - RFC3986)
+        RAW      // raw strings
 	STRING   // 'abc'
         ESCAPE   // \", \\n, etc. (see value.EscapeChar)
         COMPOUND // "abc $(foo) 123"
@@ -155,6 +156,7 @@ var tokens = [...]string{
         DATE:     "DATE",
         TIME:     "TIME",
         URI:      "URI",
+        RAW:      "RAW",
         STRING:   "STRING",
         ESCAPE:   "\\",
         COMPOUND: "COMPOUND",

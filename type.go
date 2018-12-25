@@ -44,6 +44,7 @@ const (
         DateKind
         TimeKind
         URLKind
+        RawKind
         StringKind
         BarewordKind
         BarefileKind
@@ -110,6 +111,7 @@ var (
                 DateKind:       "Date",
                 TimeKind:       "Time",
                 URLKind:        "URL",
+                RawKind:        "Raw",
                 StringKind:     "String",
                 BarewordKind:   "Bareword",
                 BarefileKind:   "Barefile",
@@ -176,6 +178,7 @@ const (
 	IsHex
 	IsUnsigned
 	IsFloat
+	IsRaw
 	IsString
         IsDate     // Time type with date component
         IsTime     // Time type with time component

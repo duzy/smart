@@ -61,6 +61,7 @@ var (
                 DateKind:     {DateKind, IsDate, "date"},
                 TimeKind:     {TimeKind, IsTime, "time"},
                 URLKind:      {URLKind, IsURL, "url"},
+                RawKind:      {RawKind, IsRaw, "raw"},
                 StringKind:   {StringKind, IsString, "string"},
                 BarewordKind: {BarewordKind, IsBareword, "bareword"},
                 BarefileKind: {BarefileKind, IsBarefile, "barefile"},
@@ -119,6 +120,7 @@ var (
         DateType     = BasicTypes[DateKind]
         TimeType     = BasicTypes[TimeKind]
         URLType      = BasicTypes[URLKind]
+        RawType      = BasicTypes[RawKind]
         StringType   = BasicTypes[StringKind]
         BarewordType = BasicTypes[BarewordKind]
         BarefileType = BasicTypes[BarefileKind]
@@ -176,7 +178,7 @@ type Globe struct {
         scope  *Scope
 	unsafe *Project
         main   *Project
-        Timestamps map[string]time.Time
+        timestamps map[string]time.Time
 }
 
 // Scope returns the globe scope.
@@ -227,6 +229,6 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
 func NewGlobe(name string) *Globe {
         return &Globe{
                 scope: NewScope(universe, nil, fmt.Sprintf("globe %q", name)),
-                Timestamps: make(map[string]time.Time),
+                timestamps: make(map[string]time.Time),
         }
 }

@@ -35,10 +35,11 @@ type Object interface {
 }
 
 type unknownobject struct { // generally unnamed objects
-        value
         scope *Scope
         owner *Project
 }
+func (p *unknownobject) refs(_ Value) bool { return false }
+func (p *unknownobject) closured() bool { return false }
 func (p *unknownobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unknownobject) Type() Type { return UnknownObjectType }
 func (p *unknownobject) True() bool { return false }
@@ -47,6 +48,8 @@ func (p *unknownobject) DeclScope() *Scope { return p.scope }
 func (p *unknownobject) OwnerProject() *Project { return p.owner }
 func (p *unknownobject) Strval() (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
 func (p *unknownobject) String() string { return fmt.Sprintf("{unknown %p}", p) }
+func (p *unknownobject) Integer() (int64, error) { return 0, nil }
+func (p *unknownobject) Float() (float64, error) { return 0, nil }
 func (p *unknownobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *unknownobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
 
@@ -228,7 +231,7 @@ func (d *Def) String() (s string) {
         case ImmediateDef: s += ":="
         case DefaultDef: s += "="
         case ExecDef: s += "!="
-        default: s += " => "
+        default: s += " = "
         }
         if d.Value != nil {
                 s += d.Value.String()
@@ -274,10 +277,10 @@ func (d *Def) Append(va... Value) (Value, error) {
                 } else if num > 0 {
                         elems := []Value{ value }
                         elems = append(elems, merge(va...)...)
-                        value = &List{Elements{ elems }}
+                        value = &List{elements{ elems }}
                 }
         } else if num > 0 {
-                value = &List{Elements{ merge(va...) }}
+                value = &List{elements{ merge(va...) }}
         }
         if value != nil {
                 return d.Assign(value)
@@ -287,10 +290,7 @@ func (d *Def) Append(va... Value) (Value, error) {
 }
 
 func (d *Def) AssignExec(a... Value) (res Value, err error) {
-        var (
-                stdout bytes.Buffer
-                stderr bytes.Buffer
-        )
+        var stdout, stderr bytes.Buffer
         for _, v := range a {
                 var s string
                 if s, err = v.Strval(); err == nil {

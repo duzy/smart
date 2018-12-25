@@ -37,7 +37,7 @@ func (t *dialectEval) Evaluate(prog *Program, args []Value) (result Value, err e
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
-                                                v = &List{Elements{a}}
+                                                v = &List{elements{a}}
                                         }
                                 }
 

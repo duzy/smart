@@ -325,7 +325,7 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                 if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
                         s.next() //! The first & or $
                         s.next() //! The second & or $
-                        tok, lit = token.STRING, string(s.src[offs:s.offset])
+                        tok, lit = token.RAW, string(s.src[offs:s.offset])
                 } else if s.ch == '$' {
                         tok = token.DELEGATE // escape to do token.DELEGATE
                 } else {
@@ -342,7 +342,7 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                         s.next()
                 }
         }
-        tok, lit = token.STRING, string(s.src[offs:s.offset])
+        tok, lit = token.RAW, string(s.src[offs:s.offset])
 	return 
 }
 
@@ -374,7 +374,7 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                 if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
                         s.next() //! The first & or $
                         s.next() //! The second & or $
-                        tok, lit = token.STRING, string(s.src[offs:s.offset])
+                        tok, lit = token.RAW, string(s.src[offs:s.offset])
                 } else if s.ch == '$' {
                         tok = token.DELEGATE // escape to do token.DELEGATE
                 } else {
@@ -392,7 +392,7 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                 }
         }
         //fmt.Printf("line: %v\n", string(s.src[offs:s.offset]))
-	return token.STRING, string(s.src[offs:s.offset])
+	return token.RAW, string(s.src[offs:s.offset])
 }
 
 func digitVal(ch rune) int {
@@ -1074,12 +1074,6 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case '[':
                         tok = token.LBRACK
                 case ']':
-                        /* if s.ch == ':' {
-                                tok = token.COLON_RBK
-                                s.next() // consume ':'
-                        } else {
-                                tok = token.RBRACK
-                        } */
                         tok = token.RBRACK
                 case '{':
                         tok = token.LBRACE

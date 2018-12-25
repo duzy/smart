@@ -77,7 +77,7 @@ func DecodeJSON(source string) (result Value, err error) {
                 case json.Delim:
                         switch d {
                         case '[':
-                                nn := &Group{List{Elements{[]Value{&Bareword{JsonArray}}}}}
+                                nn := &Group{List{elements{[]Value{&Bareword{JsonArray}}}}}
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -86,7 +86,7 @@ func DecodeJSON(source string) (result Value, err error) {
                                 stack = append(stack, nn) // APPEND
                                 break SwitchNodeType
                         case '{':
-                                nn := &Group{List{Elements{[]Value{&Bareword{JsonObject}}}}}
+                                nn := &Group{List{elements{[]Value{&Bareword{JsonObject}}}}}
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -147,8 +147,8 @@ func DecodeJSON(source string) (result Value, err error) {
                         case json.Delim:
                                 var vn *Group
                                 switch vd {
-                                case '[': vn = &Group{List{Elements{[]Value{&Bareword{JsonArray}}}}}
-                                case '{': vn = &Group{List{Elements{[]Value{&Bareword{JsonObject}}}}}
+                                case '[': vn = &Group{List{elements{[]Value{&Bareword{JsonArray}}}}}
+                                case '{': vn = &Group{List{elements{[]Value{&Bareword{JsonObject}}}}}
                                 default: err = ErrorIllJson; break LoopJSON
                                 }
                                 stack = append(stack, vn)
