@@ -315,7 +315,7 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         var target = prog.scope.Lookup("@").(*Def)
         if nargs := len(args); nargs == 1 {
-                target.Assign(args[0])
+                target.set(DefDefault, args[0])
         } else if nargs > 1 {
                 s := fmt.Sprintf("accepts only one optional argument (%v)", args)
                 return nil, break_bad(s)
@@ -338,10 +338,9 @@ func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (resu
                 err = e; return
         } else if v != nil {
                 def := prog.scope.Lookup("^").(*Def)
-                old := def.Value
-                def.Assign(v)
+                defer def.set(def.origin, def.Value)
+                if err = def.set(DefDefault, v); err != nil { return }
                 result, err = modifierCompare(pos, prog, args...)
-                def.Assign(old)
         }
         return
 }

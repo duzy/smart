@@ -15,9 +15,10 @@ import (
 )
 
 var (
+        optionHelp = false
+        optionClean = false
         optionReconfig = false
-        optionConfigures = false
-        usageConfigures = ``
+        optionConfigure = false
 )
 
 type Context struct {
@@ -129,11 +130,14 @@ func joinTmpPath(base, rel string) string {
 
 func processCommandOption(flag *Flag, args... Value) (err error) {
         var opt bool
+        if opt, err = flag.is('h', "help"); err != nil { return } else if opt {
+                optionHelp = true; return
+        }
         if opt, err = flag.is('c', "configure"); err != nil { return } else if opt {
-                optionConfigures = true; return
+                optionConfigure = true; return
         }
         if opt, err = flag.is('r', "reconfigure"); err != nil { return } else if opt {
-                optionConfigures, optionReconfig = true, true; return
+                optionConfigure, optionReconfig = true, true; return
         }
         err = fmt.Errorf("`%v` unknown command option", flag.Name)
         return
@@ -164,11 +168,11 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                 as = at.Scope()
         )
 
-        if _, obj := as.Find("SMART"); obj != nil {
-                def := obj.(*Def)
+        if def := as.FindDef("SMART"); def != nil {
+                def.set(DefSimple, nil)
                 for _, s := range globalPaths {
-                        def.Append(MakeString("-search"))
-                        def.Append(MakeString(s))
+                        def.append(MakeString("-search"))
+                        def.append(MakeString(s))
                 }
         }
 
@@ -196,8 +200,8 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                 var s2 = filepath.Join(ab, "@")
                 if fi, _ := os.Stat(s1); fi != nil {
                         if m := fi.Mode(); m.IsRegular() {
-                                defS.Assign(MakeString(ab))
-                                defD.Assign(MakeString(ab))
+                                defS.set(DefExpand, MakeString(ab))
+                                defD.set(DefExpand, MakeString(ab))
                                 if err = ctx.loader.loadFile(s1, nil); err != nil {
                                         return
                                 } else {
@@ -208,8 +212,8 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                         }
                 } else if fi, _ = os.Stat(s2); fi != nil {
                         if m := fi.Mode(); m.IsDir() {
-                                defS.Assign(MakeString(ab))
-                                defD.Assign(MakeString(ab))
+                                defS.set(DefExpand, MakeString(ab))
+                                defD.set(DefExpand, MakeString(ab))
                                 if err = ctx.loader.loadPath(s2, nil); err != nil {
                                         return
                                 } else {
@@ -292,7 +296,9 @@ func CommandLine() {
                 report(err)
         } else if works, err := context.loadwork(); err != nil {
                 report(err)
-        } else if optionConfigures {
+        } else if optionHelp {
+                do_helpscreen()
+        } else if optionConfigure {
                 report(do_configuration())
         } else if result, err := context.run(works...); err != nil {
                 report(err)

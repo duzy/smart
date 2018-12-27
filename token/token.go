@@ -138,7 +138,14 @@ const (
         IMPORT     // import a.smart
         INSTANCE   // instance
         FILES      // files
-	keyword_end
+
+        constant_beg
+        TRUE    // boolean `true`
+        FALSE   // boolean `false`
+        YES     // answer `yes`
+        NO      // answer `no`
+        constant_end
+	keyword_end = constant_end
 )
 
 var tokens = [...]string{
@@ -250,6 +257,11 @@ var tokens = [...]string{
         IMPORT:     "import",
         INSTANCE:   "instance",
         FILES:      "files",
+
+        TRUE:   "true",
+        FALSE:  "false",
+        YES:    "yes",
+        NO:     "no",
 }
 
 func (tok Token) String() (s string) {
@@ -262,10 +274,9 @@ func (tok Token) String() (s string) {
 	return
 }
 
-var keywords map[string]Token
+var keywords = make(map[string]Token)
 
 func init() {
-	keywords = make(map[string]Token)
 	for i := keyword_beg + 1; i < keyword_end; i++ {
 		keywords[tokens[i]] = i
 	}
@@ -283,6 +294,7 @@ func Lookup(ident string) Token {
 func (tok Token) IsLiteral() bool { return literal_beg < tok && tok < literal_end }
 func (tok Token) IsOperator() bool { return operator_beg < tok && tok < operator_end }
 func (tok Token) IsKeyword() bool { return keyword_beg < tok && tok < keyword_end }
+func (tok Token) IsConstant() bool { return constant_beg < tok && tok < constant_end }
 func (tok Token) IsClosure() bool { return closure_beg < tok && tok < closure_end }
 func (tok Token) IsDelegate() bool { return delegate_beg < tok && tok < delegate_end }
 func (tok Token) IsAssign() bool { return assign_beg < tok && tok < assign_end }

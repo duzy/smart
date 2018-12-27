@@ -391,6 +391,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
         case *ast.ArgumentedExpr:
 	case *ast.BadExpr:
 	case *ast.Bareword:
+        case *ast.Constant:
 	case *ast.BasicLit:
 	case *ast.ClosureExpr:
 	case *ast.CompoundLit:
@@ -424,7 +425,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
 
-func (p *parser) parseBareword(lhs bool) (x ast.Expr) {
+func (p *parser) parseBarewordOrConstant(lhs bool) (x ast.Expr) {
 	var pos, value = p.pos, ""
         switch p.tok {
 	case token.BAREWORD:
@@ -439,7 +440,11 @@ func (p *parser) parseBareword(lhs bool) (x ast.Expr) {
                 }
 	}
 
-        x = &ast.Bareword{ ValuePos: pos, Value:value }
+        if p.tok.IsConstant() {
+                x = &ast.Constant{ TokPos:pos, Tok:p.tok }
+        } else {
+                x = &ast.Bareword{ ValuePos:pos, Value:value }
+        }
 
         p.next() // skip bareword
         return
@@ -970,7 +975,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
 	}*/
         switch p.tok {
         case token.BAREWORD, token.AT:
-                return p.parseBareword(lhs)
+                return p.parseBarewordOrConstant(lhs)
 
         case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
              token.DATETIME, token.DATE, token.TIME, token.URI,
@@ -1025,7 +1030,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
                 if p.tok.IsClosure() || p.tok.IsDelegate() {
                         return p.parseSpecialClosureDelegate(lhs)
                 } else if p.tok.IsKeyword() { // keywords here are barewords
-                        return p.parseBareword(lhs)
+                        return p.parseBarewordOrConstant(lhs)
                 }
         }
 
@@ -1531,13 +1536,12 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                 if e == nil {
                                         var name string
                                         if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
-                                        if sym, alt := p.def(name); alt != nil {
+                                        if def, alt := p.def(name); alt != nil {
                                                 p.error(p.pos, "Name `%s' already taken (%T).", name, alt)
-                                        } else if sym == nil {
+                                        } else if def != nil {
+                                                def.set(DefDefault, v) // KeepClosures|KeepDelegates
+                                        } else {
                                                 // TODO: errors
-                                        } else if v, e = p.eval(kv.Value, KeepClosures|KeepDelegates); e == nil {
-                                                sym.Assign(v)
-                                                //fmt.Printf("var: %v\n", sym)
                                         }
                                 }
                                 if e != nil {
@@ -1554,12 +1558,12 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         if s, err = v.Strval(); err != nil {
                                                 p.error(p.pos, "%s", err)
                                         }
-                                        if sym, alt := p.def(s); alt != nil {
+                                        if def, alt := p.def(s); alt != nil {
                                                 p.error(p.pos, "Name `%s' already taken, not parameter (%T).", name, alt)
-                                        } else if sym == nil {
-                                                // TODO: errors
+                                        } else if def != nil {
+                                                //def.set(DefDefault, nil)
                                         } else {
-                                                //sym.(*Def).Assign(MakeString("xxxxxxxxxx"))
+                                                // TODO: errors
                                         }
                                         params = append(params, s)
                                 default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
@@ -1855,16 +1859,16 @@ func (p *parser) parseFile() *ast.File {
                 var (def *Def; s = scope.(*Scope))
                 if p.mode&Flat == 0 {
                         def, _ = p.def("/")
-                        def.Assign(MakePathStr(abs))
+                        def.set(DefExpand, MakePathStr(abs))
 
                         def, _ = p.def(".")
-                        def.Assign(MakePathStr(rel))
+                        def.set(DefExpand, MakePathStr(rel))
 
                         def, _ = p.def("CTD") // Current Temp Directory
-                        def.Assign(MakePathStr(tmp))
+                        def.set(DefExpand, MakePathStr(tmp))
 
                         def, _ = p.def("CWD") // Current Work Directory
-                        def.Assign(MakePathStr(abs))
+                        def.set(DefExpand, MakePathStr(abs))
                 } else if def = s.FindDef("/"); def == nil {
                         p.error(p.pos, "/ not in the scope (%v)", s.comment)
                 } else if def = s.FindDef("."); def == nil {
@@ -1922,7 +1926,7 @@ func (p *parser) parseFile() *ast.File {
                         }
                         p.next() // skip tilde
                 } else {
-                        x := p.parseBareword(false)
+                        x := p.parseBarewordOrConstant(false)
                         if ident, _ = x.(*ast.Bareword); ident == nil {
                                 p.error(p.pos, "invalid package name %T", x)
                         }

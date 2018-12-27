@@ -315,10 +315,12 @@ func (p *Argumented) closured() bool {
 func (p *Argumented) expand(w expandwhat) (res Value, err error) {
         var (v Value; args []Value)
         if v, err = p.Val.expand(w); err == nil {
-                var num int
-                args, num, err = expandall(w, p.Args...)
-                if err == nil && (num > 0 || v != p.Val) {
-                        res = &Argumented{ v, args }
+                if v != p.Val {
+                        var num int
+                        args, num, err = expandall(w, p.Args...)
+                        if err == nil && (num > 0 || v != p.Val) {
+                                res = &Argumented{ v, args }
+                        }
                 }
         }
         if err == nil && res == nil {
@@ -627,11 +629,6 @@ type Oct struct { integer }
 func (p *Oct) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Oct) Type() Type { return OctType }
 func (p *Oct) String() string {
-        /*if s, e := p.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{Oct '%s' !(%+v)}", s, e)
-        }*/
         return fmt.Sprintf("0%s", strconv.FormatInt(int64(p.int64),8))
 }
 func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),8), nil }
@@ -1152,7 +1149,7 @@ func (p *Barefile) closured() bool { return p.Name.closured() }
 func (p *Barefile) expand(w expandwhat) (res Value, err error) {
         var name Value
         if name, err = p.Name.expand(w); err == nil {
-                if name != nil {
+                if name != p.Name {
                         res = &Barefile{ name, p.File }
                 } else {
                         res = p
@@ -1813,7 +1810,7 @@ func (p *Flag) closured() bool { return p.Name.closured() }
 func (p *Flag) expand(w expandwhat) (res Value, err error) {
         var name Value
         if name, err = p.Name.expand(w); err == nil {
-                if name != nil {
+                if name != p.Name {
                         res = &Flag{ name }
                 } else {
                         res = p
@@ -2015,14 +2012,13 @@ func (p *Pair) refs(v Value) bool { return p.Key.refs(v) || p.Value.refs(v) }
 func (p *Pair) closured() bool { return p.Key.closured() || p.Value.closured() }
 func (p *Pair) expand(x expandwhat) (res Value, err error) {
         var k, v Value
+        res = p // set the original value
         if k, err = p.Key.expand(x); err == nil {
                 if v, err = p.Value.expand(x); err == nil {
-                        if k != nil || v != nil {
+                        if k != p.Key || v != p.Value {
                                 if k == nil { k = p.Key }
                                 if v == nil { v = p.Value }
                                 res = &Pair{ k, v }
-                        } else {
-                                res = p
                         }
                 }
         }
@@ -3095,6 +3091,16 @@ func ParseLiteral(tok token.Token, s string) (v Value) {
         case token.STRING:   v = MakeString(s)
         case token.ESCAPE:   v = MakeString(EscapeChar(s))
         case token.RAW:      v = &Raw{s}
+        }
+        return
+}
+
+func MakeConstant(tok token.Token) (res Value) {
+        switch tok {
+        case token.TRUE:  res = &boolean{ true }
+        case token.FALSE: res = &boolean{ false }
+        case token.YES:   res = &answer{ true }
+        case token.NO:    res = &answer{ false }
         }
         return
 }

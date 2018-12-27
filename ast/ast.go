@@ -132,6 +132,12 @@ type (
 		Value    string    // bareword value
 	}
 
+	// A Constant represents a word without decorations or an identifier.
+	Constant struct {
+		TokPos token.Pos // position
+		Tok token.Token // constant token
+	}
+
 	// A BasicLit node represents a literal of basic type.
 	BasicLit struct {
 		ValuePos token.Pos   // literal position
@@ -288,6 +294,7 @@ type (
 
 func (d *BadExpr) Pos() token.Pos         { return d.From }
 func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
+func (d *Constant) Pos() token.Pos        { return d.TokPos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
 func (d *NegExpr) Pos() token.Pos         { return d.NegPos }
@@ -312,6 +319,7 @@ func (d *ProgramExpr) Pos() token.Pos     { return d.Recipes[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
+func (d *Constant) End() token.Pos        { return token.Pos(int(d.TokPos) + len(d.Tok.String())) }
 func (d *BasicLit) End() token.Pos        { return d.EndPos /*token.Pos(int(d.ValuePos) + len(d.Value))*/ }
 func (d *FlagExpr) End() token.Pos        { return d.Name.End() }
 func (d *NegExpr) End() token.Pos         { return d.Val.End() }
@@ -360,6 +368,7 @@ func (x *EvaluatedExpr) String() string {
         return fmt.Sprintf("%v", x.Expr)
 }
 func (x *Bareword) String() string        { return fmt.Sprintf("%s", x.Value) }
+func (x *Constant) String() string        { return fmt.Sprintf("%s", x.Tok) }
 func (x *BasicLit) String() string        { return fmt.Sprintf("%s", x.Value) }
 func (x *FlagExpr) String() string        { return fmt.Sprintf("-%v", x.Name) }
 func (x *NegExpr) String() string         { return fmt.Sprintf("!%v", x.Val) }
@@ -403,6 +412,7 @@ func (x *ProgramExpr) String() string     { return fmt.Sprintf("Program(%v){%v}"
 
 func (*BadExpr) expr()         {}
 func (*Bareword) expr()        {}
+func (*Constant) expr()        {}
 func (*BasicLit) expr()        {}
 func (*FlagExpr) expr()        {}
 func (*NegExpr) expr()         {}

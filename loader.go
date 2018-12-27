@@ -604,6 +604,8 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
                 v = ParseLiteral(x.Kind, x.Value)
         case *ast.Bareword:
                 v = MakeBareword(x.Value)
+        case *ast.Constant:
+                v = MakeConstant(x.Tok)
         case *ast.Barecomp:
                 v = MakeBarecomp(l.exprs(x.Elems)...)
         case *ast.Barefile:
@@ -767,11 +769,9 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                         }
                 }
                 if tok == token.ASSIGN {
-                        def.origin = DefaultDef
-                        def.Assign(value)
+                        def.set(DefDefault, value)
                 } else {
-                        def.origin = ExecDef
-                        def.AssignExec(value)
+                        def.set(DefExecute, value)
                 }
         case token.ADD_ASSIGN: // +=
                 if derived != nil && derived != def {
@@ -779,22 +779,20 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                         if d, _ := derived.(*Def); d != nil && !def.Value.refs(d) {
                                 // Unshift the delegation to derive value.
                                 position := l.parser.file.Position(pos)
-                                def.Append(MakeDelegate(position, token.LPAREN, d)) // Delegation?
+                                def.append(MakeDelegate(position, token.LPAREN, d)) // Delegation?
                         }
                 }
                 if !def.Value.refs(value) {
-                        def.Append(value)
+                        def.append(value)
                 }
         case token.QUE_ASSIGN: // ?=
                 if alt == nil {
-                        def.origin = DefaultDef
-                        def.Assign(value)
+                        def.set(DefDefault, value)
                 }
-        case token.SCO_ASSIGN, token.DCO_ASSIGN: // :=, ::=
-                if v, err := value.expand(expandAll); err == nil {
-                        def.origin = ImmediateDef
-                        def.Assign(v)
-                }
+        case token.SCO_ASSIGN: // :=
+                def.set(DefSimple, value)
+        case token.DCO_ASSIGN: // ::=
+                def.set(DefExpand, value)
         }
         return
 }
@@ -1185,7 +1183,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, params []Valu
                 }
         }
 
-        if declared || l.includeFunc == nil || optionConfigures {
+        if declared || l.includeFunc == nil || optionConfigure {
                 // Does nothing!
         } else if ctd := l.project.scope.FindDef("CTD"); ctd == nil {
                 unreachable()
@@ -1469,8 +1467,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
                                 err = fmt.Errorf("%s: invalid UTF8 content", fullname)
                                 break ListLoop
                         }
-                        def.origin = ImmediateDef
-                        def.Assign(MakeString(s))
+                        def.set(DefExpand, MakeString(s))
                 } else if s != nil {
                         err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
                         break ListLoop

@@ -1973,43 +1973,48 @@ func (scope *Scope) expand(s string) (res string) {
                 case m[4] > m[0] && m[5] > m[4]: // @VAR@
                         name = s[m[4]:m[5]]
                 }
-                if _, obj := scope.Find(name); obj == nil {
-                        // empty
-                } else if def, _ := obj.(*Def); def != nil {
-                        if v, err := def.Value.Strval(); err == nil {
-                                res += v
+
+                if def := scope.FindDef(name); def != nil && def.Value != nil {
+                        switch t := def.Value.(type) {
+                        case *answer, *boolean:
+                                if v, e := t.Integer(); e == nil {
+                                        res += fmt.Sprintf("%d", v)
+                                }
+                        default:
+                                if v, e := def.Value.Strval(); e == nil {
+                                        res += v
+                                }
                         }
                 }
 
                 index = m[1]
         }
-        if index < len(s) {
-                res += s[index:]
-        }
+        if index < len(s) { res += s[index:] }
         return
 }
 
 func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error) {
         var index = 0
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
-                if _, err = out.WriteString(str[index:m[0]]); err != nil {
-                        return
-                }
+                if _, err = out.WriteString(str[index:m[0]]); err != nil { return }
 
                 var s string
                 var verb = str[m[2]:m[3]]
                 var name = str[m[4]:m[5]]
                 var hasv = m[6] > m[0] && m[7] > m[6]
-                switch _, obj := scope.Find(name); verb {
+                switch def := scope.FindDef(name); verb {
                 case "define":
-                        if hasv {
+                        //if def == nil || def.Value == nil {
+                        //        s = fmt.Sprintf("/* #undef %s */", name)
+                        //} else
+                        if hasv && !(def == nil || def.Value == nil) {
                                 v := scope.expand(str[m[6]:m[7]])
                                 s = fmt.Sprintf("#define %s %s", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine", "cmakedefine":
-                        if obj == nil {
+                        if def == nil || def.Value == nil {
                                 s = fmt.Sprintf("/* #undef %s */", name)
                         } else if hasv {
                                 v := scope.expand(str[m[6]:m[7]])
@@ -2018,7 +2023,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine01", "cmakedefine01":
-                        if obj == nil {
+                        if def == nil || def.Value == nil {
                                 s = fmt.Sprintf("#define %s 0", name)
                         } else if hasv {
                                 v := scope.expand(str[m[6]:m[7]])
@@ -2028,10 +2033,8 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
                         }
                 }
 
-                if _, err = out.WriteString(s); err == nil {
+                if _, err = out.WriteString(s); err != nil { return } else {
                         index = m[1]
-                } else {
-                        return
                 }
         }
         if index < len(str) {
@@ -2077,9 +2080,6 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                 return
         }
 
-        var srcname string
-        // FIXME: source filename
-
         var scope *Scope
         switch {
         case len(execstack) > 0: scope = execstack[0].scope
@@ -2089,15 +2089,15 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                 err = fmt.Errorf("unknown configure scope")
                 return
         }
-        
+
+        var srcname string
+        // FIXME: source filename
+
         var data bytes.Buffer
         for _, arg := range args[1:] {
                 var str string
-                if str, err = arg.Strval(); err != nil {
-                        return
-                } else if str == "" {
-                        continue
-                }
+                if str, err = arg.Strval(); err != nil { return }
+                if str == "" { continue }
                 if err = configure(&data, scope, srcname, str); err != nil {
                         return
                 }

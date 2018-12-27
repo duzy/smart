@@ -112,7 +112,7 @@ func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
         if auto, alt = prog.scope.Def(prog.project, name, value); alt != nil {
                 var found = false
                 if auto, found = alt.(*Def); found {
-                        auto.Assign(value)
+                        auto.set(DefDefault, value)
                 } else {
                         err = fmt.Errorf("`%v` name already taken (%T)", name, alt)
                 }
@@ -134,7 +134,7 @@ func (prog *Program) interpret(i interpreter, out *Def, params []Value) (err err
         var target, value Value
         if value, err = i.Evaluate(prog, params); err == nil {
                 if value != nil {
-                        out.Assign(value)
+                        out.set(DefDefault, value)
                 }
                 def := prog.scope.Lookup("@").(*Def)
                 if target, err = def.Call(prog.position); err == nil {
@@ -176,7 +176,7 @@ func (prog *Program) modify(m *modifier, post bool, interpreted *string, out *De
                 if err == nil {
                         var value Value
                         if value, err = f(prog.position, prog, v...); err == nil && value != nil {
-                                out.Assign(value)
+                                out.set(DefDefault, value)
                         }
                 }
         } else if i, _ := dialects[name]; i != nil {

@@ -189,17 +189,17 @@ func (n *ScopeName) Get(name string) (Value, error) {
 
 type DefOrigin int
 const (
-        // Never assigned a value
-        TrivialDef DefOrigin = iota
-
-        // =, !=
-        DefaultDef
+        // =
+        DefDefault DefOrigin = iota // normal value
         
-        // :=, ::=
-        ImmediateDef
+        // :=
+        DefSimple // expand delegates
+
+        // ::=
+        DefExpand // expand all (delegates, closures, paths)
 
         // !=
-        ExecDef
+        DefExecute // executed result
 )
 
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
@@ -210,27 +210,27 @@ type Def struct {
 }
 
 func (d *Def) expand(w expandwhat) (res Value, err error) {
-        var v Value
-        if v, err = d.Value.expand(w); err == nil {
-                if v != nil {
-                        res = &Def{ d.knownobject, d.origin, v }
-                } else {
-                        res = d
+        if res = d; d.Value != nil {
+                var value Value
+                if value, err = d.Value.expand(w); err == nil {
+                        if value != d.Value {
+                                res = &Def{ d.knownobject, d.origin, value }
+                        }
                 }
         }
         return
 }
 
-func (d *Def) refs(v Value) bool { return d == v || d.Value.refs(v) }
+func (d *Def) refs(v Value) bool { return d == v || (d.Value != nil && d.Value.refs(v)) }
 func (d *Def) closured() bool { return d.Value.closured() }
 
 func (d *Def) True() bool { return d.Value.True() }
 func (d *Def) String() (s string) {
-        s = d.name
-        switch d.origin {
-        case ImmediateDef: s += ":="
-        case DefaultDef: s += "="
-        case ExecDef: s += "!="
+        switch s = d.name; d.origin {
+        case DefDefault: s += "="
+        case DefSimple:  s += ":="
+        case DefExpand:  s += "::="
+        case DefExecute: s += "!="
         default: s += " = "
         }
         if d.Value != nil {
@@ -247,26 +247,46 @@ func (d *Def) Strval() (s string, e error) {
         return
 }
 
-func (d *Def) Assign(v Value) (res Value, err error) {
-        if v == nil {
-                v = universalnone
-        } else if v.refs(d) {
-                err = fmt.Errorf("Recursive variable `%s' references itself.", d.name)
+func (d *Def) set(origin DefOrigin, value Value) (err error) {
+        if value != nil && value.refs(d) {
+                err = fmt.Errorf("self recursive variable `%s`", d.name)
                 return
         }
-        
-        switch d.origin {
-        case TrivialDef, DefaultDef:
-                d.Value = v // Keeps delegates and closures.
-        case ImmediateDef:
-                // Eval expands delegates in the value.
-                if d.Value, err = v.expand(expandDelegate); err != nil { return }
+
+        d.origin = origin
+
+        if origin != DefExecute && value == nil {
+                value = universalnone
         }
-        res = d.Value
+
+        switch origin {
+        case DefDefault: // Keeps delegates and closures.
+                d.Value = value
+        case DefSimple: // Eval expands delegates in the value.
+                if d.Value, err = value.expand(expandDelegate); err != nil { return }
+        case DefExpand:
+                if d.Value, err = value.expand(expandAll); err != nil { return }
+        case DefExecute:
+                var ( stdout, stderr bytes.Buffer; s string )
+                if value == nil || value.Type() == NoneType {
+                        d.Value = nil // undef
+                } else if s, err = value.Strval(); err == nil {
+                        sh := exec.Command("sh", "-c", s)
+                        sh.Stdout, sh.Stderr = &stdout, &stderr
+                        if err = sh.Run(); err != nil { value = universalnone } else {
+                                value = MakeString(strings.TrimSpace(stdout.String()))
+                        }
+                        d.Value = value
+                } else {
+                        d.Value = universalnone
+                }
+        default:
+                unreachable()
+        }
         return
 }
 
-func (d *Def) Append(va... Value) (Value, error) {
+func (d *Def) append(va... Value) error {
         var value Value // new value
         if num := len(va); num == 0 {
                 // Does nothing...
@@ -283,37 +303,22 @@ func (d *Def) Append(va... Value) (Value, error) {
                 value = &List{elements{ merge(va...) }}
         }
         if value != nil {
-                return d.Assign(value)
-        } else {
-                return d.Value, nil
+                var origin = d.origin
+                if d.origin == DefExecute { origin = DefDefault }
+                return d.set(origin, value)
         }
-}
-
-func (d *Def) AssignExec(a... Value) (res Value, err error) {
-        var stdout, stderr bytes.Buffer
-        for _, v := range a {
-                var s string
-                if s, err = v.Strval(); err == nil {
-                        sh := exec.Command("sh", "-c", s)
-                        sh.Stdout, sh.Stderr = &stdout, &stderr
-                        if err = sh.Run(); err != nil {
-                                res, err = d.Assign(universalnone)
-                                return
-                        }
-                } else {
-                        res, err = d.Assign(universalnone)
-                        return
-                }
-        }
-        return d.Assign(MakeString(strings.TrimSpace(stdout.String())))
+        return nil
 }
 
 func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
-        // TODO: parameterization, e.g. $1, $2, $3, $4, $5
-        if d.origin != ImmediateDef {
+        switch d.origin {
+        case DefSimple, DefExpand, DefExecute:
                 res = d.Value
-        } else if res, err = d.Value.expand(expandDelegate); err != nil {
-                //fmt.Printf("%v: %v\n", d.position, err)
+        case DefDefault:
+                // TODO: parameterization, e.g. $1, $2, $3, $4, $5
+                res, err = d.Value.expand(expandDelegate)
+        default:
+                unreachable()
         }
         return
 }
@@ -382,9 +387,12 @@ func (p *undetermined) closured() bool {
 
 func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         var i, v Value
+        res = p // set the original value
         if i, err = p.identifier.expand(w); err == nil {
                 if v, err = p.value.expand(w); err == nil {
-                        res = &undetermined{ p.tok, i, v }
+                        if i != p.identifier || v != p.value {
+                                res = &undetermined{ p.tok, i, v }
+                        }
                 }
         }
         return
@@ -414,13 +422,9 @@ type Builtin struct {
         knownobject
         f BuiltinFunc
 }
-
 func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
-
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
-func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) {
-        return p.f(pos, a...)
-}
+func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) { return p.f(pos, a...) }
 
 type RuleEntryClass int
 
@@ -592,7 +596,7 @@ func (entry *RuleEntry) closured() bool {
 func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         var target Value
         if target, err = entry.target.expand(w); err != nil { return }
-        if target != nil {
+        if target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
                 res = &RuleEntry{
                         entry.class, target, entry.programs, entry.Position,

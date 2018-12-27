@@ -44,11 +44,13 @@ var configuration = &struct{
         fset *token.FileSet
         libraries map[string]*libraryinfo
         packages map[string]*packageinfo
+        done map[*Def]bool
         entires []*RuleEntry // order list
 }{
         fset: token.NewFileSet(),
         libraries: make(map[string]*libraryinfo),
         packages: make(map[string]*packageinfo),
+        done: make(map[*Def]bool),
 }
 
 var configurationOps = map[string] func(pos token.Position, prog *Program, args... Value) (result Value, err error) {
@@ -99,14 +101,14 @@ func init_configuration(paths searchlist) (err error) {
 }
 
 func do_configuration() error {
-        var (errs scanner.Errors; project *Project; num int)
+        var ( errs scanner.Errors; project *Project; num int )
         var reportConfiguredNum = func() {
                 if project != nil {
                         fmt.Printf("configure: Project %v configured %v items.\n", project.name, num)
                 }
         }
 
-        var (file *os.File; writer *bufio.Writer)
+        var ( file *os.File; writer *bufio.Writer )
         defer func() {
                 reportConfiguredNum()
                 if writer != nil { if err := writer.Flush(); err != nil {}}
@@ -143,7 +145,12 @@ func do_configuration() error {
                         e := scanner.Errorf(pos, "%v (%v)", err, entry.target)
                         errs = append(errs, e.(*scanner.Error))
                 } else if def := project.scope.FindDef(s); def != nil {
-                        fmt.Fprintf(writer, "%v = %v\n", def.name, def.Value)
+                        if def.Value == nil {
+                                // set <nil> by exec-assigning ('!=') a None
+                                fmt.Fprintf(writer, "%v !=\n", def.name)
+                        } else {
+                                fmt.Fprintf(writer, "%v = %v\n", def.name, def.Value)
+                        }
                         num += 1
                 } else {
                         e := scanner.Errorf(pos, "`%s` not configured", s)
@@ -231,11 +238,9 @@ func configurePair(pos token.Position, prog *Program, key, val Value) (result Va
                 if alt != nil {
                         if p, _ := alt.(*Def); p != nil && p != def { def = p }
                 }
-                if val, err = val.expand(expandDelegate); err == nil {
-                        def.Assign(val)
-                }
+                err = def.set(DefSimple, val)
         default:
-                err = scanner.Errorf(pos, "unknown configuration `%v` (%T)\n", key, key)
+                err = scanner.Errorf(pos, "unknown configuration `%v = %v` (%T %T)\n", key, key, val)
         }
         return
 }
@@ -257,7 +262,7 @@ func configureInclude(pos token.Position, prog *Program, params... Value) (resul
                 } else {
                         return
                 }
-                includes.Append(value)
+                if err = includes.append(value); err != nil { return }
         }
         _, result, err = configureEntry(pos, prog, "include", params[:2]...)
         return
@@ -369,7 +374,7 @@ func configureEntry(pos token.Position, prog *Program, s string, params... Value
         if entry, err = configuration.project.resolveEntry("-"+s); err != nil {
                 err = scanner.Errorf(pos, "resolve %v: %v", s, err)
         } else if entry == nil {
-                err = scanner.Errorf(pos, "unknown configuration `%v`", s)
+                err = scanner.Errorf(pos, "unknown configuration `%v` (no such entry)", s)
         } else if res, err = prog.passExecution(pos, entry, params...); err != nil {
                 err = scanner.Errorf(pos, "execute %v: %v", s, err)
         } else {
@@ -388,14 +393,13 @@ func configureArgumented(pos token.Position, prog *Program, target Value, arged 
                 return
         }
 
-        var fields = map[string]Value{ "name": name }
-
-        var s string
-        if s, err = name.Strval(); err != nil { return } else if s == "" {
+        var strName string
+        if strName, err = name.Strval(); err != nil { return } else if strName == "" {
                 err = fmt.Errorf("`%v` empty configuration (%T)", name, name)
                 return
         }
 
+        var fields = map[string]Value{ "name": name }
         var params = []Value{ target, prog.scope.Lookup("-").(*Def).Value }
         ForArgs: for _, arg := range arged.Args {
                 if list := arg.(*List); list != nil && list.Len() > 0 {
@@ -410,7 +414,7 @@ func configureArgumented(pos token.Position, prog *Program, target Value, arged 
                                         fields[key] = t.Value
                                 }
                                 continue ForArgs
-                        case *String:if s == "option" {
+                        case *String:if strName == "option" {
                                 key = "info"
                                 if v, ok := fields[key]; ok {
                                         fields[key] = &List{elements{merge(v, t)}}
@@ -424,21 +428,34 @@ func configureArgumented(pos token.Position, prog *Program, target Value, arged 
         }
 
         var includes = configuration.project.scope.Lookup("INCLUDES").(*Def)
+        if err = includes.set(DefSimple, universalnone); err != nil { return }
         if value, ok := fields["include"]; ok {
-                var s string
-                if list, ok := value.(*List); ok {
-                        for i, elem := range list.Elems {
-                                if s, err = elem.Strval(); err != nil { return }
-                                list.Elems[i] = &String{fmt.Sprintf("#include %s\n", s)}
-                        }
-                } else if s, err = value.Strval(); err == nil {
-                        value = &String{fmt.Sprintf("#include %s\n", s)}
-                } else {
-                        return
+                var ( elems []Value; lines []string )
+                switch v := value.(type) {
+                default: elems = []Value{ v }
+                case *Group: elems = v.Elems
+                case *List:  elems = v.Elems
                 }
-                includes.Assign(value)
-        } else {
-                includes.Assign(universalnone)
+                for _, elem := range merge(elems...) {
+                        var s string
+                        switch v := elem.(type) {
+                        case *String: s = v.string
+                        case *Bareword: s = v.string
+                        case *Compound:
+                                if s, err = elem.Strval(); err != nil { return }
+                                if !strings.HasPrefix(s, `<`) { s = `"`+s+`"` }
+                        default:
+                                if s, err = elem.Strval(); err != nil { return }
+                        }
+                        if strings.HasPrefix(s, `<`) || strings.HasPrefix(s, `"`) {
+                                s = fmt.Sprintf(`#include %s`, s)
+                        } else {
+                                s = fmt.Sprintf(`#include "%s"`, s)
+                        }
+                        lines = append(lines, s)
+                }
+                value = &String{strings.Join(lines, "\n")}
+                if err = includes.set(DefExpand, value); err != nil { return }
         }
 
         defer func() {
@@ -451,16 +468,16 @@ func configureArgumented(pos token.Position, prog *Program, target Value, arged 
                 }
         } ()
 
-        configmessage(pos, s, fields, arged.Args...)
+        configmessage(pos, strName, fields, arged.Args...)
 
-        if config, ok := configurationOps[s]; ok {
+        if config, ok := configurationOps[strName]; ok {
                 result, err = config(pos, prog, params...)
                 if err == nil { configured = true }
                 return
         }
 
         var vals = append([]Value{params[0]}, params[1:]...)
-        return configureEntry(pos, prog, s, vals...)
+        return configureEntry(pos, prog, strName, vals...)
 }
 
 type filewalkFunc func(file *File, err error) error
@@ -724,42 +741,58 @@ func modifierExtractConfiguration(pos token.Position, prog *Program, args... Val
 
 // configure - configures a variable, example usage:
 func modifierConfigure(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        var (target Value; name string)
+        var ( target Value; name string )
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
         if name, err = target.Strval(); err != nil { return }
 
-        var def, alt = prog.project.scope.Def(prog.project, name, universalnone)
+        var def, alt = prog.project.scope.Def(prog.project, name, nil)
         if alt != nil {
-                if d, _ := alt.(*Def); d != nil {
-                        result = d // use the existed Def
-                        if d.Value != nil { // if it's already configured
+                if def, _ = alt.(*Def); def != nil {
+                        if def.Value != nil { // if it's already configured
+                                // reconfigure the def or return it
                                 if optionReconfig {
-                                        def = d // reconfigure the def
+                                        def.set(DefSimple, universalnone)
                                 } else {
-                                        return
+                                        return def, nil
                                 }
                         }
                 }
-        } else {
-                result = def
+        }
+        if def != nil { result = def } else {
+                err = fmt.Errorf("`%s` configuration undefined", name)
+                return
         }
 
+        if done, found := configuration.done[def]; done && found { return }
         if err == nil && len(args) == 0 {
                 var value Value
                 if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err == nil && value != nil {
-                        if value, err = value.expand(expandAll); err == nil && value != nil {
-                                def.Append(value)
+                        if value.Type() == NoneType {
+                                err = def.set(DefExecute, nil)
+                        } else {
+                                err = def.set(DefExpand, value)
                         }
                 }
                 return
         }
 
+        if err = def.set(DefExecute, nil); err != nil { return }
+
         ForConfig: for _, arg := range args {
                 switch a := arg.(type) {
                 case *Argumented:
-                        var (value Value; configured bool)
+                        var ( value Value; configured bool )
                         if configured, value, err = configureArgumented(pos, prog, target, a); err != nil { break ForConfig }
-                        if configured /*&& value != universalnone*/ && value != nil { def.Append(value) }
+                        if configured {
+                                // marking done (needed for reconfiguring)
+                                configuration.done[def] = true
+                                if value == nil {
+                                        // FIXME: should use `append`, rather then `set`
+                                        if err = def.set(DefExecute, nil); err != nil { return }
+                                } else {
+                                        if err = def.append(value); err != nil { return }
+                                }
+                        }
                 case *Pair:
                         var value Value
                         if value, err = configurePair(pos, prog, a.Key, a.Value); err != nil { break ForConfig } else if value != nil {
@@ -772,11 +805,11 @@ func modifierConfigure(pos token.Position, prog *Program, args... Value) (result
                         case "check":
                                 
                         default:
-                                err = scanner.Errorf(pos, "unknown configuration `%v` (%T)\n", s, a)
+                                err = scanner.Errorf(pos, "unknown configuration `-%v`\n", a.Name)
                                 break ForConfig
                         }
                 default:
-                        err = scanner.Errorf(pos, "unknown configuration `%v` (%T)\n", a, a)
+                        err = scanner.Errorf(pos, ") unknown configuration `%v` (%T)\n", a, a)
                         break ForConfig
                 }
         }

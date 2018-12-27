@@ -244,7 +244,7 @@ func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt
                                         owner: owner,
                                 }, name,
                         },
-                        TrivialDef, value,
+                        DefDefault, value,
                 }
                 scope.replace(name, def)
         }
