@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "path/filepath"
         "os/exec"
         "strings"
         "unicode"
@@ -15,6 +16,24 @@ import (
         "fmt"
         "os"
         "io"
+)
+
+var (
+        errNotTTYDevice = `the input device is not a TTY`
+        errNoContainer = `Error.*: No such container: (.*)`
+        errNoNetwork = `Error.*: network (.*) not found\.`
+
+        errCompilation = `(.+?):(\d+):(\d+): error: (.+)`
+        errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
+        rxCompilation = regexp.MustCompile(errCompilation)
+        rxFileNotFound = regexp.MustCompile(errFileNotFound)
+        rxKnownErrors = regexp.MustCompile(strings.Join([]string{
+                errNotTTYDevice,
+                errNoContainer,
+                errNoNetwork,
+                errCompilation,
+                errFileNotFound,
+        }, "|"))
 )
 
 type ExecBuffer struct {
@@ -232,25 +251,39 @@ func (s *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                 }
 
                 exeres.Stderr.filter("bash: no job control in this shell\n")
-                //exeres.Stderr.Line = rxKnownErrors
-                //exeres.Stderr.Subm = nil
+                exeres.Stderr.Line = rxKnownErrors
+                exeres.Stderr.Subm = nil
 
                 if err = sh.Run(); err == nil {
                         exeres.Status, source = 0, ""
-                } else {
-                        var s = err.Error()
-                        if n, e := fmt.Sscanf(s, "exit status %v", &exeres.Status); n == 1 && e == nil {
-                                if silent {
-                                        err = nil
-                                } else {
-                                        err = fmt.Errorf("%v", err) // , source
-                                }
-                        } else {
-                                exeres.Status = -1
-                        }
-                        source = ""
-                        break
+                        continue
                 }
+
+                // Parse errors.
+                if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
+                        if exeres.Stderr.Subm != nil {
+                                var errstr = string(exeres.Stderr.Subm[0][0][0])
+                                if errstr == errNotTTYDevice {
+                                        // TODO: ...
+                                } else if m := rxCompilation.FindAllStringSubmatch(errstr, -1); m != nil {
+                                        err = fmt.Errorf("%s", m[0][4])
+                                } else if m := rxFileNotFound.FindAllStringSubmatch(errstr, -1); m != nil {
+                                        err = fmt.Errorf("`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
+                                } else if matched, _ := regexp.MatchString(errNoNetwork, errstr); matched {
+                                        // TODO: dealing with network not found error
+                                }
+                        }
+                        if silent {
+                                err = nil
+                        } else {
+                                err = fmt.Errorf("%v", err) // , source
+                        }
+                } else {
+                        exeres.Status = -1
+                }
+
+                source = ""
+                break
         }
 
         result = exeres

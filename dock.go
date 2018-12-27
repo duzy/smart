@@ -26,26 +26,6 @@ const (
         DockDefaultContainer = "smart-dock-container"
 )
 
-var (
-        errNotTTYDevice = `the input device is not a TTY`
-        errNoContainer = `Error.*: No such container: (.*)`
-        errNoNetwork = `Error.*: network (.*) not found\.`
-
-        errCompilation = `(.+?):(\d+):(\d+): error: (.+)`
-        errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
-        rxCompilation = regexp.MustCompile(errCompilation)
-        rxFileNotFound = regexp.MustCompile(errFileNotFound)
-        rxKnownErrors = regexp.MustCompile(strings.Join([]string{
-                errNotTTYDevice,
-                errNoContainer,
-                errNoNetwork,
-                errCompilation,
-                errFileNotFound,
-        }, "|"))
-
-        ensureSkips = make(map[string]bool)
-)
-
 type dock struct {}
 
 func docksFindObj(docks []*Project, name string) (obj Object) {
@@ -306,6 +286,7 @@ func (s *dock) Evaluate(prog *Program, args []Value) (result Value, err error) {
                         cmd, a = "docker", append(a, container, shi, "-c", src)
                 }
 
+                var ensureSkips = make(map[string]bool)
                 var sh = exec.Command(cmd, a...)
                 if stdin { sh.Stdin = os.Stdin }
                 sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
@@ -318,6 +299,7 @@ func (s *dock) Evaluate(prog *Program, args []Value) (result Value, err error) {
                                 return
                         }
                 }
+
                 exeres.Stderr.Line = rxKnownErrors
 
         RunCommand:
@@ -328,7 +310,7 @@ func (s *dock) Evaluate(prog *Program, args []Value) (result Value, err error) {
                         continue ForRecipes
                 }
 
-                // Parsing errors.
+                // Parse errors.
                 if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
                         if exeres.Stderr.Subm != nil {
                                 var errstr = string(exeres.Stderr.Subm[0][0][0])
