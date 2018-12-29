@@ -1016,6 +1016,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         if s.ch == '>' {
                                 tok = token.SELECT_PROG
                                 s.next() // concume the '>'
+                        } else if s.ch == '+' {
+                                tok = token.SHI_ASSIGN
+                                s.next()
                         } else {
                                 tok = token.ASSIGN
                         }

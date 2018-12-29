@@ -112,6 +112,7 @@ const (
         assign_beg
         ASSIGN     //   =       define a new symbol (don't override, neither !=)
         ADD_ASSIGN //  +=       append
+        SHI_ASSIGN //  =+       shift (insert to the front)
         QUE_ASSIGN //  ?=       set if absent (defined, including empty)
         EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
         // TODO: more assigns like !?=  !:=  !+=
@@ -235,6 +236,7 @@ var tokens = [...]string{
 
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",
+        SHI_ASSIGN: "=+",
         QUE_ASSIGN: "?=",
         EXC_ASSIGN: "!=",
         SCO_ASSIGN: ":=",

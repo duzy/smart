@@ -340,7 +340,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                         l.parser.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
                         return
                 }
-                l.useProject(spec.Props[0].Pos(), loaded, params)
+                err = l.useProject(spec.Props[0].Pos(), loaded, params)
         }
         return
 }
@@ -1360,6 +1360,13 @@ func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, va
                 err = def.set(DefExecute, value)
         case token.ADD_ASSIGN: // +=
                 if !def.Value.refs(value) { err = def.append(value) }
+        case token.SHI_ASSIGN: // =+
+                if !def.Value.refs(value) {
+                        var tail = def.Value
+                        if err = def.set(DefDefault, value); err == nil {
+                                err = def.append(tail)
+                        }
+                }
         case token.QUE_ASSIGN: // ?=
                 if alt == nil { err = def.set(DefDefault, value) }
         case token.SCO_ASSIGN: // :=
