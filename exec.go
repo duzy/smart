@@ -223,12 +223,12 @@ func (s *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                                         }
                                 case *Flag:
                                         if str, err = t.Name.Strval(); err != nil { return }
-                                        if verbout = strings.ContainsRune(str, 'v'); verbout { exeres.Stdout.Tie = os.Stdout }
-                                        if verberr = strings.ContainsRune(str, 'w'); verberr { exeres.Stderr.Tie = os.Stderr }
-                                        if silent  = strings.ContainsRune(str, 's'); silent  { }
                                         if saveout = strings.ContainsRune(str, 'o'); saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
                                         if saveerr = strings.ContainsRune(str, 'e'); saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
+                                        if verbout = strings.ContainsRune(str, 'v'); verbout { exeres.Stdout.Tie = os.Stdout }
+                                        if verberr = strings.ContainsRune(str, 'w'); verberr { exeres.Stderr.Tie = os.Stderr }
                                         if stdin   = strings.ContainsRune(str, 'i'); stdin   { a = append(a, "-ti") }
+                                        if silent  = strings.ContainsRune(str, 's'); silent  { }
                                         continue ForArgs
                                 }
                                 if str, err = v.Strval(); err != nil { return } else {

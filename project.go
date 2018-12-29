@@ -76,6 +76,8 @@ type Project struct {
         filescopes []*Scope
 }
 
+func (p *Project) String() string { return fmt.Sprintf("<project %s>", p.name) }
+
 func (p *Project) AbsPath() string { return p.absPath }
 func (p *Project) RelPath() string { return p.relPath }
 func (p *Project) Spec() string { return p.spec }
@@ -211,12 +213,13 @@ func (p *Project) resolveObject(s string) (obj Object, err error) {
 
 func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
         for _, rec := range p.concrete {
-                var sv string
-                if sv, err = rec.Strval(); err != nil {
-                        return
-                } else if sv == s {
-                        entry = rec
-                        return
+                switch target := rec.target.(type) {
+                case *File:
+                        if target.Name == s { return rec, nil }
+                default:
+                        var sv string
+                        if sv, err = target.Strval(); err != nil { return }
+                        if sv == s { return rec, nil }
                 }
         }
         for _, base := range p.bases {

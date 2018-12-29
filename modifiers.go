@@ -196,7 +196,7 @@ func modifierCD(pos token.Position, prog *Program, args... Value) (result Value,
                 if trace_prepare {
                         fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
                 }
-                if optPath && dir != "." && dir != PathSep {// mkdir -p
+                if optPath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
                 if err = prog.cd(dir, optPrint, false); err == nil {
@@ -313,18 +313,41 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
 }
 
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        var target = prog.scope.Lookup("@").(*Def)
-        if nargs := len(args); nargs == 1 {
-                target.set(DefDefault, args[0])
-        } else if nargs > 1 {
-                s := fmt.Sprintf("accepts only one optional argument (%v)", args)
-                return nil, break_bad(s)
+        var ( optPath bool; nargs = len(args) )
+        if nargs > 0 {
+                var v []Value
+                for _, arg := range args {
+                        switch a := arg.(type) {
+                        default: v = append(v, arg)
+                        case *Flag:
+                                var opt bool
+                                if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
+                        }
+                }
+                args, nargs = v, len(v) // Reset args
         }
 
-        if c, e := NewComparer(prog.globe, target); e != nil {
-                err = e
-        } else if err = c.Compare(prog.scope.Lookup("^")); err == nil {
-                result = MakeListOrScalar(c.result)
+        var target = prog.scope.Lookup("@").(*Def)
+        if nargs == 1 {
+                target.set(DefDefault, args[0])
+        } else if nargs > 1 {
+                err = break_bad("two many targets to compare (%v)", args)
+                return
+        }
+
+        if optPath && target.Value != nil {
+                var s string
+                if s, err = target.Value.Strval(); err != nil { return }
+                if s = filepath.Dir(s); s != "." && s != ".." && s != PathSep {
+                        if err = os.MkdirAll(s, os.FileMode(0755)); err != nil { return }
+                }
+        }
+
+        var c *comparer
+        if c, err = NewComparer(prog.globe, target); err == nil {
+                if err = c.Compare(prog.scope.Lookup("^")); err == nil {
+                        result = MakeListOrScalar(c.result)
+                }
         }
         return
 }

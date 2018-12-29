@@ -416,16 +416,22 @@ func builtinMinus(pos token.Position, args... Value) (result Value, err error) {
 
 func builtinUnique(pos token.Position, args... Value) (res Value, err error) {
         var list []Value
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         ForArgs: for _, a := range args {
+                for _, v := range list { if a == v { continue ForArgs } }
+
                 var s1, s2 string
                 if s1, err = a.Strval(); err != nil { return }
                 for _, v := range list {
                         if s2, err = v.Strval(); err != nil { return }
                         if s1 == s2 { continue ForArgs }
                 }
+
                 list = append(list, a)
         }
         res = MakeListOrScalar(list)
@@ -433,7 +439,11 @@ func builtinUnique(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
         if l := len(args); l >= 2 {
                 var (
                         fields []string
@@ -450,7 +460,12 @@ func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
+
         if l := len(args); l > 0 {
                 var fields []string
                 var v string
@@ -466,6 +481,12 @@ func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) {
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
+
         var sep string
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(); err != nil {
@@ -473,7 +494,6 @@ func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) 
                 }
                 args = args[:l-1]
         }
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         if l := len(args); l > 0 {
                 var fields []string
                 var v string
@@ -489,7 +509,12 @@ func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinSplitString(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
+
         if l := len(args); l > 0 {
                 var fields []Value
                 for _, a := range args {
@@ -823,9 +848,12 @@ func builtinTrimSpace(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         var (
                 list []Value
                 s string
@@ -844,9 +872,12 @@ func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         var (
                 list []Value
                 cutset, s string
@@ -871,9 +902,12 @@ func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         var (
                 list []Value
                 cutset, s string
@@ -898,9 +932,12 @@ func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         var (
                 list []Value
                 cutset, s string
@@ -925,9 +962,12 @@ func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         var (
                 list []Value
                 cutset, s string
@@ -952,9 +992,12 @@ func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         var (
                 list []Value
                 cutset, s string
@@ -979,9 +1022,12 @@ func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinTrimExt(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         var (
                 list []Value
                 ext, s string
@@ -1526,9 +1572,12 @@ func builtinRename(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         var (
                 names []string
                 str string
@@ -1553,9 +1602,12 @@ func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemoveAll(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
         }
+
         /*for _, a := range args {
                 if err = os.RemoveAll(a.Strval()); err != nil {
                         break
@@ -1715,16 +1767,18 @@ func builtinSymlink(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinFileExists(pos token.Position, args... Value) (res Value, err error) {
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
+
         // TODO: $(file-exists -f filename)
         // TODO: $(file-exists -d dirname)
 
         var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown current context")
-                return
-        }
-
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
 
@@ -1745,13 +1799,15 @@ func builtinFileExists(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinFileSource(pos token.Position, args... Value) (res Value, err error) {
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
+
         var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown current context")
-                return
-        }
-
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
 
@@ -1770,13 +1826,15 @@ func builtinFileSource(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinFile(pos token.Position, args... Value) (res Value, err error) {
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
+
         var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown current context")
-                return
-        }
-
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
 
@@ -1799,13 +1857,15 @@ func builtinFile(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
+
         var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown current context")
-                return
-        }
-
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
 
@@ -2014,7 +2074,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine", "cmakedefine":
-                        if def == nil || def.Value == nil {
+                        if def == nil || def.Value == nil || !def.Value.True() {
                                 s = fmt.Sprintf("/* #undef %s */", name)
                         } else if hasv {
                                 v := scope.expand(str[m[6]:m[7]])
@@ -2023,7 +2083,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine01", "cmakedefine01":
-                        if def == nil || def.Value == nil {
+                        if def == nil || def.Value == nil || !def.Value.True() {
                                 s = fmt.Sprintf("#define %s 0", name)
                         } else if hasv {
                                 v := scope.expand(str[m[6]:m[7]])
@@ -2049,7 +2109,11 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
 //      	configure-file -p -m=0600 $@ $(read-file $<)
 //     
 func builtinConfigureFile(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if false {
+                if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        } else {
+                args = merge(args...)
+        }
 
         var optVerb = true
         var optPath = false
@@ -2122,17 +2186,6 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                 return
         }
 
-        var status string
-        if optVerb {
-                fmt.Printf("configure file %v …", file)
-                defer func() {
-                        if err != nil { status = "error!" } else {
-                                if status == "" { status = "done." }
-                        }
-                        fmt.Printf("… %s\n", status)
-                } ()
-        }
-
         if file.Info != nil {
                 var f *os.File
                 if f, err = os.Open(filename); err == nil && f != nil {
@@ -2145,12 +2198,23 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                         if _, err = io.Copy(w1, f); err != nil { return }
                         if _, err = w2.Write(data.Bytes()); err != nil { return }
                         if s1, s2 := w1.Sum64(), w2.Sum64(); s1 == s2 {
-                                res, status = file, fmt.Sprintf("unchanged (crc=%v).", s1)
+                                res = file
                                 return
                         }
                 }
         } else if dir = filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
                 if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
+        }
+
+        var status string
+        if optVerb {
+                fmt.Printf("configure file %v …", file)
+                defer func() {
+                        if err != nil { status = "error!" } else {
+                                if status == "" { status = "done." }
+                        }
+                        fmt.Printf("… %s\n", status)
+                } ()
         }
 
         if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err == nil {

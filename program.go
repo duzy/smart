@@ -44,9 +44,7 @@ func (xs executestack) projects(first *Project) (res []*Project) {
         }
         ForXS: for _, x := range xs {
                 for _, p := range res {
-                        if x.project == p || p == first {
-                                continue ForXS
-                        }
+                        if x.project == p { continue ForXS }
                 }
                 res = append(res, x.project)
         }

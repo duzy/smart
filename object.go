@@ -286,28 +286,27 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
         return
 }
 
-func (d *Def) append(va... Value) error {
-        var value Value // new value
+func (d *Def) append(va... Value) (err error) {
+        var list *List
         if num := len(va); num == 0 {
                 // Does nothing...
         } else if d.Value != nil && d.Value.Type() != NoneType {
-                value = d.Value
-                if l, ok := value.(*List); ok && l != nil {
-                        l.Append(merge(va...)...)
-                } else if num > 0 {
-                        elems := []Value{ value }
+                if list, _ = d.Value.(*List); list != nil {
+                        list.Append(merge(va...)...)
+                } else {
+                        elems := []Value{ d.Value }
                         elems = append(elems, merge(va...)...)
-                        value = &List{elements{ elems }}
+                        list = &List{elements{ elems }}
                 }
-        } else if num > 0 {
-                value = &List{elements{ merge(va...) }}
+        } else {
+                list = &List{elements{ merge(va...) }}
         }
-        if value != nil {
+        if list != nil {
                 var origin = d.origin
-                if d.origin == DefExecute { origin = DefDefault }
-                return d.set(origin, value)
+                if origin == DefExecute { origin = DefDefault }
+                err = d.set(origin, list)
         }
-        return nil
+        return
 }
 
 func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {

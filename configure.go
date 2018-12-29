@@ -399,8 +399,8 @@ func configureArgumented(pos token.Position, prog *Program, target Value, arged 
                 return
         }
 
+        var params = []Value{ target }
         var fields = map[string]Value{ "name": name }
-        var params = []Value{ target, prog.scope.Lookup("-").(*Def).Value }
         ForArgs: for _, arg := range arged.Args {
                 if list := arg.(*List); list != nil && list.Len() > 0 {
                         var key string
@@ -427,14 +427,27 @@ func configureArgumented(pos token.Position, prog *Program, target Value, arged 
                 params = append(params, arg)
         }
 
+        var pipe = prog.scope.Lookup("-").(*Def)
+        var value = configuration.project.scope.Lookup("VALUE").(*Def)
+        if err = value.set(DefSimple, universalnone); err != nil { return }
+        if pipe.Value != nil && pipe.Value.Type() != NoneType {
+                value.Value = pipe.Value
+        }
+
         var includes = configuration.project.scope.Lookup("INCLUDES").(*Def)
         if err = includes.set(DefSimple, universalnone); err != nil { return }
-        if value, ok := fields["include"]; ok {
+        if value, ok := fields["include"]; ok || strName == "include" {
                 var ( elems []Value; lines []string )
-                switch v := value.(type) {
-                default: elems = []Value{ v }
-                case *Group: elems = v.Elems
-                case *List:  elems = v.Elems
+                if strName == "include" && len(params) > 1 {
+                        // -include('<xxx.h>')
+                        elems = append(elems, params[1])
+                }
+                if value != nil {
+                        switch v := value.(type) {
+                        default: elems = []Value{ v }
+                        case *Group: elems = v.Elems
+                        case *List:  elems = v.Elems
+                        }
                 }
                 for _, elem := range merge(elems...) {
                         var s string
@@ -471,13 +484,15 @@ func configureArgumented(pos token.Position, prog *Program, target Value, arged 
         configmessage(pos, strName, fields, arged.Args...)
 
         if config, ok := configurationOps[strName]; ok {
-                result, err = config(pos, prog, params...)
-                if err == nil { configured = true }
-                return
+                if result, err = config(pos, prog, params...); err == nil { configured = true }
+        } else {
+                configured, result, err = configureEntry(pos, prog, strName, params...)
         }
 
-        var vals = append([]Value{params[0]}, params[1:]...)
-        return configureEntry(pos, prog, strName, vals...)
+        if configured && err == nil && result != nil && result.True() && strName != "compiles" {
+                if v := pipe.Value; v != nil && v.Type() != NoneType { result = v }
+        }
+        return 
 }
 
 type filewalkFunc func(file *File, err error) error
@@ -782,8 +797,7 @@ func modifierConfigure(pos token.Position, prog *Program, args... Value) (result
                 switch a := arg.(type) {
                 case *Argumented:
                         var ( value Value; configured bool )
-                        if configured, value, err = configureArgumented(pos, prog, target, a); err != nil { break ForConfig }
-                        if configured {
+                        if configured, value, err = configureArgumented(pos, prog, target, a); err != nil { break ForConfig } else if configured {
                                 // marking done (needed for reconfiguring)
                                 configuration.done[def] = true
                                 if value == nil {
@@ -825,22 +839,23 @@ LOADLIBES :=
 LIBS :=
 LANG := c++
 INCLUDES :=
--include:[((TARGET VALUE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG).include($(VALUE))
+VALUE :=
+-include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG).include
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--symbol:[((TARGET VALUE SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).symbol($(VALUE),$(SYMBOL))
+-symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).symbol($(SYMBOL))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--function:[((TARGET VALUE FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(VALUE),$(FUNCTION))
+-function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(FUNCTION))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--library:[((TARGET VALUE LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(VALUE),$(FUNCTION))
+-library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(FUNCTION))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -l$(LIBRARY) -o &(CTD)/check.out
--struct-member:[((TARGET VALUE STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).structmember($(VALUE),$(STRUCT),$(MEMBER))
+-struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).structmember($(STRUCT),$(MEMBER))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--sizeof:[((TARGET VALUE TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).sizeof($(VALUE),$(TYPE))
+-sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).sizeof($(TYPE))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--compiles:[((TARGET VALUE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG)($(VALUE))
+-compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG)
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
 
-%.c.include:[((VALUE)) (unclose) (cd -s &/) | (plain c) (update-file -sp)]
+%.c.include:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	$(INCLUDES)
 	#ifdef __CLASSIC_C__
 	int main() { return 0; }
@@ -848,11 +863,11 @@ INCLUDES :=
 	int main(void) { return 0; }
 	#endif
 	
-%.c++.include:[((VALUE)) (unclose) (cd -s &/) | (plain c++) (update-file -sp)]
+%.c++.include:[(unclose) (cd -s &/) | (plain c++) (update-file -sp)]
 	$(INCLUDES)
 	int main() { return 0; }
 	
-%.symbol:[((VALUE SYMBOL)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.symbol:[((SYMBOL)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	$(INCLUDES)
 	int main(int argc, char** argv)
 	{
@@ -865,7 +880,7 @@ INCLUDES :=
 	#endif
 	}
 	
-%.variable:[((VALUE VARIABLE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.variable:[((VARIABLE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	$(INCLUDES)
 	extern int $(VARIABLE)
 	#ifdef __CLASSIC_C__
@@ -875,7 +890,7 @@ INCLUDES :=
 	#endif
 	{ (void)argv; return $(VARIABLE); }
 	
-%.function:[((VALUE FUNCTION)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.function:[((FUNCTION)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	$(INCLUDES)
 	#ifdef __cplusplus
 	extern "C"
@@ -888,11 +903,11 @@ INCLUDES :=
 	#endif
 	{ $(FUNCTION)(); return 0; }
 	
-%.structmember:[((VALUE STRUCT MEMBER)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.structmember:[((STRUCT MEMBER)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	$(INCLUDES)
 	int main() { (void)sizeof((($(STRUCT) *)0)->$(MEMBER)); return 0; }
 	
-%.sizeof:[((VALUE TYPE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
+%.sizeof:[((TYPE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
 	#undef ARCH
 	#if defined(__i386)
 	#   define ARCH "__i386"
@@ -917,7 +932,7 @@ INCLUDES :=
 	#endif
 	{ (void)argv; return SIZE; }
 	
-&(CTD)/check/pthreads.c:[((VALUE)) (unclose) (cd -s &/) | (plain c) (update-file -sp)]
+&(CTD)/check/pthreads.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	#include <pthread.h>
 	void* routine(void* args) { return args; }
 	int main(void) {
@@ -927,10 +942,10 @@ INCLUDES :=
 	  return 0;
 	}
 	
-%.c:[((VALUE)) (unclose) (cd -s &/) | (plain c) (update-file -sp)]
+%.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	$(VALUE)
 	
-%.c++:[((VALUE)) (unclose) (cd -s &/) | (plain c++) (update-file -sp)]
+%.c++:[(unclose) (cd -s &/) | (plain c++) (update-file -sp)]
 	$(VALUE)
 	
 `

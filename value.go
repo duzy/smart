@@ -249,38 +249,41 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         prog.stem = pc.stem
 
         // Execute the updating program.
-        if res, err = prog.Execute(entry, pc.arguments); err == nil {
-                dd, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
+        if res, err = prog.Execute(entry, pc.arguments); err != nil {
+                fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
                 if trace_prepare {
-                        fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v)\n",
-                                entry.target, entry.class, dd, dd, entry.target)
+                        fmt.Printf("prepare:Execute: %v (%v) (error: %v)\n", entry.target, prog.depends, err)
                 }
-                switch t := dd.(type) {
-                case *File: pc.targets.Append(t)
-                case *Path:
-                        if t.File != nil {
-                                pc.targets.Append(t.File)
-                        } else {
-                                pc.targets.Append(t)
-                        }
-                default:
-                        var s string
-                        if s, err = dd.Strval(); err != nil {
-                                return
-                        }
-                        pc.targets.Append(prog.project.SearchFile(s))
+                return
+        }
+
+        dd, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
+        if trace_prepare {
+                fmt.Printf("prepare:Execute: %v (%v) (append %s (%T)) (%v)\n",
+                        entry.target, entry.class, dd, dd, entry.target)
+        }
+
+        switch t := dd.(type) {
+        case *File: pc.targets.Append(t)
+        case *Path:
+                if t.File != nil {
+                        pc.targets.Append(t.File)
+                } else {
+                        pc.targets.Append(t)
                 }
-                if res != nil && res.Type() != NoneType {
-                        for _, elem := range merge(res) {
-                                switch elem.(type) {
-                                case *File: pc.targets.Append(elem)
-                                }
-                        }
+        default:
+                var s string
+                if s, err = dd.Strval(); err != nil {
+                        return
                 }
-        } else {
-                fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                if trace_prepare {
-                        fmt.Printf("prepare:Execute: %v (%v) (error)\n", entry.target, prog.depends)
+                pc.targets.Append(prog.project.SearchFile(s))
+        }
+
+        if res != nil && res.Type() != NoneType {
+                for _, elem := range merge(res) {
+                        switch elem.(type) {
+                        case *File: pc.targets.Append(elem)
+                        }
                 }
         }
         return
@@ -1664,7 +1667,7 @@ func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
         return
 }
 
-func (p *File) prepare(pc *preparer) error {
+func (p *File) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v (%v) (%v)\n", p.Name, p.Dir, pc.program.project.name)
         }
@@ -1677,42 +1680,44 @@ func (p *File) prepare(pc *preparer) error {
                 }
         }
 
-        if err, brk := p.explicitly(pc); err != nil || brk {
-                return err
-        }
-        if err, brk := p.implicitly(pc); err != nil || brk {
-                return err
-        }
+        var brk bool
+        if err, brk = p.explicitly(pc); err != nil || brk { return }
+        if err, brk = p.implicitly(pc); err != nil || brk { return }
 
         if p.exists() {
                 if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: exists %v)\n", p.Name, p)
+                        fmt.Printf("prepare:File: %v (%v exists in %v)\n", p.Name, p, p.Dir)
                 }
                 pc.targets.Append(p)
-        } else if pc.program.project.search(p) {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: known as %v but missing) (%v)\n",
-                                p.Name, p, pc.program.project.name)
-                }
-                pc.targets.Append(p)
-        } else {
-                if trace_prepare {
-                        fmt.Printf("prepare:File: %v (search: unknown %v) (%v)\n",
-                                p.Name, p.Dir, pc.program.project.name)
-                }
-                return fileNotFoundError{ p }
+                return
         }
-        return nil
+
+        for _, proj := range execstack.projects(pc.program.project) {
+                if proj.search(p) {
+                        if trace_prepare {
+                                fmt.Printf("prepare:File: %v (known as %v but missing) (%v)\n",
+                                        p.Name, p, pc.program.project.name)
+                        }
+                        pc.targets.Append(p)
+                        return
+                }
+        }
+
+        if trace_prepare {
+                fmt.Printf("prepare:File: %v (unknown %v) (%v)\n",
+                        p.Name, p.Dir, pc.program.project.name)
+        }
+        return fileNotFoundError{p}
 }
 
 func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v (explicitly: %v in %v)\n", p.Name, p, pc.program.project.name)
         }
-        // Find concrete entry (by file represented name)
+        var entry *RuleEntry
+        // Find concrete entry (by file's represented name)
         // Search into the upper projects for matched a rule.
         for _, proj := range execstack.projects(pc.program.project) {
-                var entry *RuleEntry
                 if entry, err = proj.resolveEntry(p.Name); err != nil {
                         break
                 } else if entry != nil {

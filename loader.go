@@ -310,10 +310,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                 return
         }
 
-        var (
-                absPath string
-                isDir bool
-        )
+        var ( absPath string; isDir bool )
         if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
                 l.parser.error(spec.Pos(), "no such package `%v`", specName)
                 return
@@ -338,7 +335,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
 
         if nouse { return }
         if loaded, _ := l.loaded[absPath]; loaded != nil {
-                name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
+                name, _ := l.project.scope.Lookup(loaded.name).(*ProjectName)
                 if name == nil {
                         l.parser.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
                         return
@@ -666,23 +663,23 @@ func (l *loader) exprs(exprs []ast.Expr) (values []Value) {
         return
 }
 
-func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) {
+func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) (err error) {
         if l.usefunc == nil {
                 l.parser.error(pos, "`%v` use clause forbiden", usee.name)
-        } else if err := l.usefunc(l, pos, usee, params); err != nil {
+        } else if err = l.usefunc(l, pos, usee, params); err != nil {
                 if p, ok := err.(*scanner.Error); ok {
                         l.parser.error(pos, "%v", p.Err)
                 } else {
                         l.parser.error(pos, "%v", err)
                 }
         }
+        return
 }
 
 func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err error) {
-        if usee.userule == nil {
-                return
-        } else if usee == l.project {
-                err = fmt.Errorf("using itself: `%v`", usee.name)
+        if usee.userule == nil { return }
+        if usee == l.project {
+                err = fmt.Errorf("`%v` using itself", usee.name)
                 return
         }
 
@@ -691,14 +688,10 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
         }
 
         for _, base := range usee.bases {
-                if err = useProject(l, pos, base, params); err != nil {
-                        return
-                }
+                if err = useProject(l, pos, base, params); err != nil { return }
         }
         for _, using := range usee.usings.list {
-                if err = useProject(l, pos, using.project, params); err != nil {
-                        return
-                }
+                if err = useProject(l, pos, using.project, params); err != nil { return }
         }
 
         l.project.usings.append(usee, params)
@@ -708,21 +701,49 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
         }
 
         defer func(v bool) { printcd = v } (printcd)
-        printcd = false // turn off `entering directory`
+        printcd = false // turn off printing 'Entering/Leaving'
 
         position := l.parser.file.Position(pos)
         results, err := mergeresult(usee.userule.Execute(position, params...))
-        if err != nil {
-                return
-        }
+        if err != nil { return }
 
         for _, elem := range results {
                 switch t := elem.(type) {
                 case *None: // does nothing
                 case *undetermined:
-                        l.determine(pos, t.tok, t.identifier, t.value)
+                        /*if def := l.determine(pos, t.tok, t.identifier, t.value); def != nil {
+                                // ...
+                        }*/
+                        if sel, ok := t.identifier.(*selection); ok && sel != nil {
+                                var ( val Value; def *Def )
+                                if val, err = sel.value(); err != nil { return }
+                                if def, ok = val.(*Def); !ok && def == nil {
+                                        err = scanner.Errorf(position, "`%v` not a def", t.identifier)
+                                        return
+                                }
+
+                                var alt Object
+                                
+                                // FIXES: 'user->xxx' is selecting 'xxx'
+                                // from the base if the current project has
+                                // no 'xxx' defined. So we have to fix it by
+                                // having it defined in the current project.
+                                if def.OwnerProject() != l.project {
+                                        if def, alt = l.def(def.name); alt != nil && t.tok != token.QUE_ASSIGN {
+                                                err = scanner.Errorf(position, "`%s` already defined", alt.Name())
+                                                return
+                                        }
+                                }
+
+                                if err = l.assign(pos, t.tok, def, alt, t.value); err != nil {
+                                        return
+                                }
+                        } else {
+                                err = scanner.Errorf(position, "unsupported using def `%v` (%T)", t.identifier, t.identifier)
+                                return
+                        }
                 default:
-                        err = fmt.Errorf("todo: use: `%T`", elem)
+                        err = scanner.Errorf(position, "todo: using def `%T`", elem)
                         return
                 }
         }
@@ -757,42 +778,30 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 }
         }
 
-        switch tok {
-        case token.ASSIGN, token.EXC_ASSIGN: // = !=
-                if alt != nil {
-                        if alt.OwnerProject() == l.project {
-                                l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
-                                return
-                        } else if def, alt = l.def(alt.Name()); alt != nil {
-                                l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
+        if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
+                if alt.OwnerProject() == l.project {
+                        l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
+                        return
+                } else if def, alt = l.def(alt.Name()); alt != nil {
+                        l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
+                        return
+                }
+        }
+
+        if derived != nil && derived != def && tok == token.ADD_ASSIGN {
+                // If it's the first time this name was determined.
+                if d, _ := derived.(*Def); d != nil && !def.Value.refs(d) {
+                        // Unshift the delegation to derive value.
+                        position := l.parser.file.Position(pos)
+                        if err := def.append(MakeDelegate(position, token.LPAREN, d)); err != nil {
+                                l.parser.error(pos, "%v", err)
                                 return
                         }
                 }
-                if tok == token.ASSIGN {
-                        def.set(DefDefault, value)
-                } else {
-                        def.set(DefExecute, value)
-                }
-        case token.ADD_ASSIGN: // +=
-                if derived != nil && derived != def {
-                        // If it's the first time this name was determined.
-                        if d, _ := derived.(*Def); d != nil && !def.Value.refs(d) {
-                                // Unshift the delegation to derive value.
-                                position := l.parser.file.Position(pos)
-                                def.append(MakeDelegate(position, token.LPAREN, d)) // Delegation?
-                        }
-                }
-                if !def.Value.refs(value) {
-                        def.append(value)
-                }
-        case token.QUE_ASSIGN: // ?=
-                if alt == nil {
-                        def.set(DefDefault, value)
-                }
-        case token.SCO_ASSIGN: // :=
-                def.set(DefSimple, value)
-        case token.DCO_ASSIGN: // ::=
-                def.set(DefExpand, value)
+        }
+
+        if err := l.assign(pos, tok, def, alt, value); err != nil {
+                l.parser.error(pos, "%v", err)
         }
         return
 }
@@ -1341,6 +1350,24 @@ func (l *loader) def(name string) (def *Def, alt Object) {
                 scope = l.project.scope
         }
         return scope.Def(l.project, name, universalnone)
+}
+
+func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, value Value) (err error) {
+        switch tok {
+        case token.ASSIGN: // =
+                err = def.set(DefDefault, value)
+        case token.EXC_ASSIGN: // !=
+                err = def.set(DefExecute, value)
+        case token.ADD_ASSIGN: // +=
+                if !def.Value.refs(value) { err = def.append(value) }
+        case token.QUE_ASSIGN: // ?=
+                if alt == nil { err = def.set(DefDefault, value) }
+        case token.SCO_ASSIGN: // :=
+                err = def.set(DefSimple, value)
+        case token.DCO_ASSIGN: // ::=
+                err = def.set(DefExpand, value)
+        }
+        return
 }
 
 // If src != nil, readSource converts src to a []byte if possible;
