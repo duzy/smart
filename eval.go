@@ -11,17 +11,29 @@ import (
         "os"
 )
 
-// dialectEval evaluates smart statements
-type dialectEval struct {
+// evaluer evaluates smart statements
+type evaluer struct {
+        accumulation bool
 }
 
-func (t *dialectEval) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *evaluer) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var list []Value
-        ForRecipes: for _, recipe := range prog.recipes {
+ForRecipes:
+        for _, recipe := range prog.recipes {
+                if t.accumulation {
+                        var v Value
+                        // Expand both closures and delegates to ensure that
+                        // the right recipe value is returned.
+                        if v, err = recipe.expand(expandAll); err != nil { return } else {
+                                list = append(list, v)
+                        }
+                        continue ForRecipes
+                }
+                
                 switch stmt := recipe.(type) {
                 case *None:
                 case *List:
-                        if stmt.Len() == 0 { continue }
+                        if stmt.Len() == 0 { continue ForRecipes }
 
                         var v = stmt.Get(0)
                         switch t := v.(type) {
@@ -75,15 +87,9 @@ func (t *dialectEval) Evaluate(prog *Program, args []Value) (result Value, err e
 
                 default:
                         fmt.Fprintf(os.Stderr, "fatal: unsupported recipe: %v (%T)\n", recipe, recipe)
-                        panic("unreachable")
+                        unreachable()
                 }
         }
         result = MakeListOrScalar(list)
         return
-}
-
-func init() {
-        var p = new(dialectEval)
-        RegisterDialect("eval", p)
-        RegisterDialect("", p)
 }

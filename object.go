@@ -234,7 +234,7 @@ func (d *Def) String() (s string) {
         default: s += " = "
         }
         if d.Value != nil {
-                s += d.Value.String()
+                s += elementString(d, d.Value)
         } else {
                 s += "<nil>"
         }
@@ -274,7 +274,7 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                         sh := exec.Command("sh", "-c", s)
                         sh.Stdout, sh.Stderr = &stdout, &stderr
                         if err = sh.Run(); err != nil { value = universalnone } else {
-                                value = MakeString(strings.TrimSpace(stdout.String()))
+                                value = &String{strings.TrimSpace(stdout.String())}
                         }
                         d.Value = value
                 } else {
@@ -332,7 +332,7 @@ func (d *Def) DiscloseValue() (res Value, err error) {
 
 func (d *Def) Get(name string) (Value, error) {
         switch name {
-        case "name": return MakeString(d.name), nil
+        case "name": return &String{d.name}, nil
         case "value": return d.Value, nil
         }
         //fmt.Printf("%v %v\n", d.name, d.parent)
@@ -527,7 +527,6 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
         }
         for _, program := range entry.programs {
                 if v, e := program.Execute(entry, a); e != nil {
-                        //fmt.Printf("failed: %v: %v\n", entry.Name(), e)
                         err = e; return
                 } else {
                         result = append(result, v)
@@ -538,8 +537,8 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
 
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
-        case "class": return MakeString(entry.class.String()), nil
-        case "name": return MakeString(entry.Name()), nil
+        case "class": return &String{entry.class.String()}, nil
+        case "name": return &String{entry.Name()}, nil
         // case "prerequisites": ...
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)

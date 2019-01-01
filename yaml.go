@@ -13,9 +13,7 @@ import (
         "fmt"
 )
 
-type YAML struct {
-        Value Value
-}
+type YAML struct { Value Value }
 func (p *YAML) refs(_ Value) bool { return false }
 func (p *YAML) closured() bool { return p.Value.closured() }
 func (p *YAML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
@@ -44,8 +42,4 @@ func (t *_yaml) Evaluate(prog *Program, args []Value) (result Value, err error) 
                 result = &YAML{ universalnone }
         }
         return
-}
-
-func init() {
-        RegisterDialect("yaml", &_yaml{})
 }

@@ -289,10 +289,16 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         return
 }
 
-func elementString(t Type, elem Value) (s string) {
-        switch v := elem.(type) {
-        case *Def: s = fmt.Sprintf(`$(%s)`, v.name)
-        default: s = elem.String()
+func elementString(o Object, elem Value) (s string) {
+        if d, ok := elem.(*Def); ok {
+                if o != nil {
+                        if p := d.OwnerProject(); p != o.OwnerProject() {
+                                return fmt.Sprintf("$(%s->%s)", p.name, d.name)
+                        }
+                }
+                s = fmt.Sprintf(`$(%s)`, d.name)
+        } else {
+                s = elem.String()
         }
         return
 }
@@ -350,7 +356,7 @@ func (p *Argumented) Float() (f float64, err error) {
 func (p *Argumented) String() (s string) {
         for i, a := range p.Args {
                 if i > 0 { s += "," }
-                s += elementString(p.Type(), a)
+                s += elementString(nil, a)
         }
         s = fmt.Sprintf("%s(%s)", p.Val, s)
         return
@@ -375,12 +381,14 @@ func (p *Argumented) Strval() (s string, err error) {
         return
 }
 
-func (p *Argumented) prepare(pc *preparer) error {
+func (p *Argumented) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:Argumented: %v\n", p)
         }
-        pc.arguments = p.Args // TODO: merge args with p.Args ??
-        return pc.update(p.Val)
+        // TODO: merge args with p.Args ??
+        pc.arguments, err = Disclose(p.Args...)
+        if err == nil { err = pc.update(p.Val) }
+        return
 }
 
 type None struct { value }
@@ -720,11 +728,10 @@ func (p *DateTime) Strval() (string, error) { return time.Time(p.Value).Format("
 func (p *DateTime) Integer() (int64, error) { return p.Value.Unix(), nil }
 func (p *DateTime) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
-func MakeDateTime(s time.Time) *DateTime { return &DateTime{s} }
 func ParseDateTime(s string) *DateTime {
         // time.RFC3339Nano
         if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
-                return MakeDateTime(t)
+                return &DateTime{t}
         } else {
                 panic(e)
         }
@@ -885,7 +892,6 @@ func (p *String) prepare(pc *preparer) error {
         //pc.source = p.Value
         return pc.updateTarget(p.string)
 }
-func MakeString(s string) *String { return &String{s} }
 
 type Bareword struct { string }
 func (_ *Bareword) refs(_ Value) bool { return false }
@@ -971,7 +977,6 @@ func (p *Bareword) prepare(pc *preparer) error {
         //pc.source = p.string
         return pc.updateTarget(p.string)
 }
-func MakeBareword(s string) *Bareword { return &Bareword{s} }
 
 type elements struct { Elems []Value }
 func (p *elements) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
@@ -1040,7 +1045,7 @@ func (p *Barecomp) Strval() (s string, e error) {
 }
 func (p *Barecomp) String() (s string) {
         for _, elem := range p.Elems {
-                s += elementString(p.Type(), elem)
+                s += elementString(nil, elem)
         }
         return
 }
@@ -1162,7 +1167,7 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Barefile) Type() Type { return BarefileType }
 func (p *Barefile) True() bool { return p.File != nil }
-func (p *Barefile) String() string { return elementString(p.Type(), p.Name) }
+func (p *Barefile) String() string { return elementString(nil, p.Name) }
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
         var ( str string; fi os.FileInfo )
@@ -1257,7 +1262,7 @@ func (p *GlobRange) expand(w expandwhat) (Value, error) {
 }
 func (p *GlobRange) Type() Type { return GlobType }
 func (p *GlobRange) True() bool { return false }
-func (p *GlobRange) String() (s string) { return fmt.Sprintf("[%s]", elementString(p.Type(), p.Chars)) }
+func (p *GlobRange) String() (s string) { return fmt.Sprintf("[%s]", elementString(nil, p.Chars)) }
 func (p *GlobRange) Strval() (s string, err error) {
         var chars string
         if chars, err = p.Chars.Strval(); err == nil {
@@ -1278,7 +1283,7 @@ type Path struct {
 func (p *Path) String() (s string) {
         var segs []string
         for _, elem := range p.Elems {
-                segs = append(segs, elementString(p.Type(), elem))
+                segs = append(segs, elementString(nil, elem))
         }
         return strings.Join(segs, PathSep)
 }
@@ -1536,6 +1541,7 @@ func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
 
 type File struct {
         value            // satisify Value interface
+        //Project *Project // the project to which this file belongs
         Name string      // constant represented name (e.g. relative filename)
         Match *FileMap   // matched pattern (see 'files' directive)
         Sub Value        // matched sub path (in Project.SearchFile), may be absolete 
@@ -1667,12 +1673,19 @@ func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
         return
 }
 
+func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
+        if p.Match != nil {
+                res = p.Match.statFile(proj.absPath, p)
+        }
+        return
+}
+
 func (p *File) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 fmt.Printf("prepare:File: %v (%v) (%v)\n", p.Name, p.Dir, pc.program.project.name)
         }
 
-        if p.Dir != "" {
+        if p.Info == nil && p.Dir != "" {
                 if info, err := os.Stat(p.Dir); err != nil || info == nil {
                         if err = os.MkdirAll(p.Dir, 0755); err != nil {
                                 return err
@@ -1691,8 +1704,17 @@ func (p *File) prepare(pc *preparer) (err error) {
                 pc.targets.Append(p)
                 return
         }
-
+        
         for _, proj := range execstack.projects(pc.program.project) {
+                if p.Match != nil {
+                        if p.searchInMatchedPaths(proj) {
+                                if trace_prepare {
+                                        fmt.Printf("prepare:File: %v (matched %v in %v)\n", p.Name, p.Match, p.Sub)
+                                }
+                                pc.targets.Append(p)
+                                return
+                        }
+                }
                 if proj.search(p) {
                         if trace_prepare {
                                 fmt.Printf("prepare:File: %v (known as %v but missing) (%v)\n",
@@ -1825,7 +1847,7 @@ func (p *Flag) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Flag) Type() Type { return FlagType }
 func (p *Flag) True() bool { return p.Name.True() }
-func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", elementString(p.Type(), p.Name)) }
+func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", elementString(nil, p.Name)) }
 func (p *Flag) Strval() (s string, e error) {
         if s, e = p.Name.Strval(); e == nil { 
                  s = "-" + s
@@ -1860,7 +1882,7 @@ func (p *Compound) expand(w expandwhat) (res Value, err error) {
 func (p *Compound) Type() Type { return CompoundType }
 func (p *Compound) String() (s string) {
         for _, elem := range p.Elems {
-                s += elementString(p.Type(), elem)
+                s += elementString(nil, elem)
         }
         return fmt.Sprintf(`"%s"`, s)
 }
@@ -1884,7 +1906,7 @@ func (p *List) Type() Type { return ListType }
 func (p *List) String() (s string) {
         var strs []string
         for _, elem := range p.Elems {
-                strs = append(strs, elementString(p.Type(), elem))
+                strs = append(strs, elementString(nil, elem))
         }
         return strings.Join(strs, " ")
 }
@@ -1972,7 +1994,7 @@ func (p *Group) Type() Type { return GroupType }
 func (p *Group) String() string {
         var strs []string
         for _, elem := range p.Elems {
-                strs = append(strs, elementString(p.Type(), elem))
+                strs = append(strs, elementString(nil, elem))
         }
         return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
@@ -2032,11 +2054,11 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
 func (p *Pair) Type() Type { return PairType }
 func (p *Pair) True() bool { return p.Value.True() || p.Key.True() }
 func (p *Pair) String() string {
-        return fmt.Sprintf("%s=%s", elementString(p.Type(), p.Key), elementString(p.Type(), p.Value))
+        return fmt.Sprintf("%s=%s", elementString(nil, p.Key), elementString(nil, p.Value))
 }
 func (p *Pair) Strval() (s string, err error) {
         var k, v string
-        if k, err = p.Key.Strval(); err != nil {
+        if k, err = p.Key.Strval(); err == nil {
                 if v, err = p.Value.Strval(); err == nil {
                         s = k + "=" + v
                 }
@@ -2475,8 +2497,8 @@ func (p *selection) True() (t bool) {
         return
 }
 func (p *selection) String() string {
-        o := elementString(p.Type(), p.o)
-        s := elementString(p.Type(), p.s)
+        o := elementString(nil, p.o)
+        s := elementString(nil, p.s)
         return fmt.Sprintf("%v%s%v", o, p.t, s)
 }
 
@@ -2586,7 +2608,7 @@ func (p *selection) prepare(pc *preparer) (err error) {
 type Pattern interface {
         Value
         concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error)
-        match(s string) (matched bool, stem string, err error)
+        match(i interface{}) (matched bool, stem string, err error)
 }
 
 type pattern struct {}
@@ -2614,8 +2636,8 @@ type PercPattern struct {
 }
 func (p *PercPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *PercPattern) String() string {
-        prefix := elementString(p.Type(), p.Prefix)
-        suffix := elementString(p.Type(), p.Suffix)
+        prefix := elementString(nil, p.Prefix)
+        suffix := elementString(nil, p.Suffix)
         return fmt.Sprintf("%s%%%s", prefix, suffix)
 }
 func (p *PercPattern) Strval() (s string, err error) {
@@ -2638,8 +2660,14 @@ func (p *PercPattern) Strval() (s string, err error) {
         }
         return
 }
-func (p *PercPattern) match(s string) (matched bool, stem string, err error) {
-        var prefix, suffix string
+func (p *PercPattern) match(i interface{}) (matched bool, stem string, err error) {
+        var prefix, suffix, s string
+        switch t := i.(type) {
+        case string: s = t
+        case *File: s = t.Name
+        default: if v, ok := i.(Value); ok {
+                if s, err = v.Strval(); err != nil { return }
+        }}
         if prefix, err = p.Prefix.Strval(); err == nil && strings.HasPrefix(s, prefix) {
                 if suffix, err = p.Suffix.Strval(); err == nil && strings.HasSuffix(s, suffix) {
                         if a, b := len(prefix), len(s)-len(suffix); a < b {
@@ -2758,7 +2786,7 @@ type GlobPattern struct {
 func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *GlobPattern) String() (s string) {
         for _, comp := range p.Components {
-                s += elementString(p.Type(), comp)
+                s += elementString(nil, comp)
         }
         return
 }
@@ -2772,8 +2800,14 @@ func (p *GlobPattern) Strval() (s string, err error) {
         }
         return
 }
-func (p *GlobPattern) match(s string) (matched bool, stem string, err error) {
-        var pat string
+func (p *GlobPattern) match(i interface{}) (matched bool, stem string, err error) {
+        var pat, s string
+        switch t := i.(type) {
+        case string: s = t
+        case *File: s = t.Name
+        default: if v, ok := i.(Value); ok {
+                if s, err = v.Strval(); err != nil { return }
+        }}
         if pat, err = p.Strval(); err == nil {
                 matched, err = filepath.Match(pat, s)
         }
@@ -2873,7 +2907,7 @@ func (p *RegexpPattern) closured() bool { return false }
 func (p *RegexpPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
-func (p *RegexpPattern) match(s string) (matched bool, stem string, err error) {
+func (p *RegexpPattern) match(i interface{}) (matched bool, stem string, err error) {
         panic("TODO: regexp matching...")
         return
 }
@@ -2943,16 +2977,7 @@ func NameScope(name string, scope *Scope) NameScoper {
 }
 
 // Reveal reveals delegated component and Valuer recursively.
-/*func Reveal(value Value) (res Value, err error) {
-        if value == nil {
-                err = fmt.Errorf("reveal nil value")
-        } else if res, err = value.expand(expandDelegate); res == nil && err == nil {
-                res = value
-        }
-        return
-}*/
-
-func RevealAll(values ...Value) (res []Value, err error) {
+func Reveal(values ...Value) (res []Value, err error) {
         for _, v := range values {
                 //if v, err = Reveal(v); err != nil { break }
                 if v, err = v.expand(expandDelegate); err != nil { break }
@@ -2962,23 +2987,21 @@ func RevealAll(values ...Value) (res []Value, err error) {
 }
 
 // Disclose expands closures to normal value recursively.
-/*func Disclose(value Value) (res Value, err error) {
-        if false {
-                fmt.Printf("Disclose: %T %v\n", value, value)
-        }
-        if value == nil {
-                err = fmt.Errorf("disclose nil value")
-        } else if res, err = value.expand(expandClosure); res == nil && err == nil {
-                res = value
-        }
-        return
-}*/
-
-func DiscloseAll(values ...Value) (res []Value, err error) {
+func Disclose(values ...Value) (res []Value, err error) {
         for _, v := range values {
-                //if v, err = Disclose(v); err != nil { break }
                 if v, err = v.expand(expandClosure); err != nil { break }
                 if v != nil { res = append(res, v) }
+        }
+        return
+}
+
+func values(args... interface{}) (elems []Value) {
+        for _, a := range args {
+                if v, ok := a.(Value); ok {
+                        elems = append(elems, v)
+                } else {
+                        unreachable()
+                }
         }
         return
 }
@@ -2999,15 +3022,6 @@ func mergeresult(res []Value, err error) ([]Value, error) {
         if err == nil { res = merge(res...) }
         return res, err
 }
-
-/*func Expand(value Value) (res Value, err error) {
-        // Performs: &(...) -> $(...)
-        if value, err = value.expand(expandClosure); err == nil {
-                // Performs: $(...) -> ...
-                value, err = value.expand(expandDelegate)
-        }
-        return
-}*/
 
 func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) {
         var v Value
@@ -3079,37 +3093,6 @@ func EscapeChar(s string) string {
         return s
 }
 
-func ParseLiteral(tok token.Token, s string) (v Value) {
-        switch tok {
-        default:             v = universalnone
-        case token.BAR:      v = modifierbar
-        case token.BIN:      v = ParseBin(s)
-        case token.OCT:      v = ParseOct(s)
-        case token.INT:      v = ParseInt(s)
-        case token.HEX:      v = ParseHex(s)
-        case token.FLOAT:    v = ParseFloat(s)
-        case token.DATETIME: v = ParseDateTime(s)
-        case token.DATE:     v = ParseDate(s)
-        case token.TIME:     v = ParseTime(s)
-        case token.URI:      v = ParseURL(s)
-        case token.BAREWORD: v = MakeBareword(s)
-        case token.STRING:   v = MakeString(s)
-        case token.ESCAPE:   v = MakeString(EscapeChar(s))
-        case token.RAW:      v = &Raw{s}
-        }
-        return
-}
-
-func MakeConstant(tok token.Token) (res Value) {
-        switch tok {
-        case token.TRUE:  res = &boolean{ true }
-        case token.FALSE: res = &boolean{ false }
-        case token.YES:   res = &answer{ true }
-        case token.NO:    res = &answer{ false }
-        }
-        return
-}
-
 func Make(in interface{}) (out Value) {
         switch v := in.(type) {
         case int:       out = MakeInt(int64(v))
@@ -3117,10 +3100,10 @@ func Make(in interface{}) (out Value) {
         case int64:     out = MakeInt(v)
         case float32:   out = MakeFloat(float64(v))
         case float64:   out = MakeFloat(v)
-        case string:    out = MakeString(v)
-        case time.Time: out = MakeDateTime(v) // FIXME: NewDate, NewTime
+        case string:    out = &String{v}
+        case time.Time: out = &DateTime{v} // FIXME: NewDate, NewTime
         case Value:     out = v
-        default:        out = universalnone
+        default:        out = &Any{in}
         }
         return
 }

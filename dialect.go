@@ -10,17 +10,16 @@ type interpreter interface {
         Evaluate(prog *Program, args []Value) (Value, error)
 }
 
-type dialect struct {
-        interpreter
-        s string
-}
-
-func (d dialect) name() string { return d.s }
-
-var (
-        dialects = make(map[string]*dialect)
-)
-
-func RegisterDialect(name string, int interpreter) {
-        dialects[name] = &dialect{ int, name }
+var dialects = map[string]interpreter{
+        "":       &evaluer{ accumulation:false },
+        "eval":   &evaluer{ accumulation:false },
+        "value":  &evaluer{ accumulation:true },
+        "shell":  &executor{ "bash", "-c" },
+        "python": &executor{ "python", "-c" },
+        "perl":   &executor{ "perl", "-e" },
+        "dock":   &docker{},
+        "plain":  &_plain{},
+        "json":   &_json{},
+        "xml":    &_xml{ whitespace:false },
+        "yaml":   &_yaml{ whitespace:false },
 }

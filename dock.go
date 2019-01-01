@@ -26,7 +26,7 @@ const (
         DockDefaultContainer = "smart-dock-container"
 )
 
-type dock struct {}
+type docker struct {}
 
 func docksFindObj(docks []*Project, name string) (obj Object) {
         for _, dock := range docks {
@@ -46,7 +46,7 @@ func docksFindEnt(docks []*Project, name string) (entry *RuleEntry) {
         return
 }
 
-func (s *dock) runContainer(prog *Program, docks []*Project) (err error) {
+func (s *docker) runContainer(prog *Program, docks []*Project) (err error) {
         if run := docksFindEnt(docks, "run"); run != nil {
                 _, err = run.Execute(prog.Position()/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
         } else {
@@ -55,7 +55,7 @@ func (s *dock) runContainer(prog *Program, docks []*Project) (err error) {
         return
 }
 
-func (s *dock) ensureContainerRunning(prog *Program, docks []*Project, container string) (err error) {
+func (s *docker) ensureContainerRunning(prog *Program, docks []*Project, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -108,9 +108,11 @@ func (s *dock) ensureContainerRunning(prog *Program, docks []*Project, container
         return
 }
 
-func (s *dock) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error) {
+        if args, err = Disclose(args...); err != nil { return }
+
         var recipes []Value
-        if recipes, err = DiscloseAll(prog.recipes...); err != nil { return }
+        if recipes, err = Disclose(prog.recipes...); err != nil { return }
 
         var docks []*Project
         if prog.Project().Name() == "dock" {
@@ -358,8 +360,4 @@ func (s *dock) Evaluate(prog *Program, args []Value) (result Value, err error) {
         
         result = exeres
         return
-}
-
-func init() {
-        RegisterDialect("dock", new(dock))
 }

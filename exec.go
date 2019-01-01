@@ -132,15 +132,11 @@ type executor struct {
 }
 
 func (s *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
-        var recipes []Value
-        if recipes, err = DiscloseAll(prog.recipes...); err != nil {
-                return
-        }
+        //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = Disclose(args...); err != nil { return }
 
-        //if args, err = ExpandAll(Merge(args...)...); err != nil {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        }
+        var recipes []Value
+        if recipes, err = Disclose(prog.recipes...); err != nil { return }
 
         var (
                 // TODO: parsing envars and status flags from `args'
@@ -288,10 +284,4 @@ func (s *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
 
         result = exeres
         return
-}
-
-func init() {
-        RegisterDialect("shell", &executor{ "bash", "-c" })
-        RegisterDialect("python", &executor{ "python", "-c" })
-        RegisterDialect("perl", &executor{ "perl", "-e" })
 }

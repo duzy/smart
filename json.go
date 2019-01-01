@@ -14,9 +14,7 @@ import (
         "io"
 )
 
-type JSON struct {
-        Value Value
-}
+type JSON struct { Value Value }
 func (p *JSON) refs(_ Value) bool { return false }
 func (p *JSON) closured() bool { return p.Value.closured() }
 func (p *JSON) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
@@ -214,8 +212,4 @@ func (t *_json) Evaluate(prog *Program, args []Value) (result Value, err error) 
                 result = &JSON{ universalnone }
         }
         return
-}
-
-func init() {
-        RegisterDialect("json", new(_json))
 }

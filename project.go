@@ -26,8 +26,36 @@ type FileMap struct {
 }
 
 // Match split filename into list and match each part with the pattern correspondingly.
-func (filemap *FileMap) Match(filename string) (matched bool) {
-        pattern, err := filemap.Pattern.Strval()
+func (filemap *FileMap) Match(filename string) bool {
+        return globMatch(filemap.Pattern, filename)
+}
+
+func (filemap *FileMap) statFile(base string, file *File) (found bool) {
+        for _, v := range filemap.Paths {
+                var err error
+                var dir, path string // fullpath
+                if path, err = v.Strval(); err != nil { return }
+
+                if filepath.IsAbs(path) {
+                        dir = path
+                } else {
+                        dir = filepath.Join(base, path)
+                }
+
+                // Check file in the filesystem.
+                info, err := os.Stat(filepath.Join(dir, file.Name))
+                if err == nil && info != nil {
+                        file.Sub, file.Dir, file.Info = v, dir, info
+                        found = true; break //ForFileMaps
+                } else if file.Dir == "" {
+                        file.Sub, file.Dir = v, dir
+                }
+        }
+        return
+}
+
+func globMatch(patval Value, filename string) (matched bool) {
+        pattern, err := patval.Strval()
         if err != nil { return false }
 
         list0 := strings.Split(pattern, PathSep)
@@ -64,7 +92,7 @@ type Project struct {
         bases   []*Project
 
         // List order is significant, duplication is acceptable.
-        filemap []FileMap
+        filemap []*FileMap
 
         usings  *usinglist
 
@@ -85,7 +113,14 @@ func (p *Project) Name() string { return p.name }
 func (p *Project) Scope() *Scope { return p.scope }
 func (p *Project) Bases() []*Project { return p.bases }
 
-func (p *Project) Chain(bases... *Project) {
+func (p *Project) isa(proj *Project) (res bool) {
+        for _, base := range p.bases {
+                if base == proj { res = true; break }
+        }
+        return
+}
+
+func (p *Project) Chain(bases ...*Project) {
         for _, base := range bases {
                 p.bases = append(p.bases, base)
                 p.scope.chain = append(p.scope.chain, base.scope)
@@ -94,10 +129,10 @@ func (p *Project) Chain(bases... *Project) {
 
 func (p *Project) mapfile(pat Value, paths []Value) {
         // List order is significant, duplication is acceptable.
-        p.filemap = append(p.filemap, FileMap{ pat, paths })
+        p.filemap = append(p.filemap, &FileMap{ pat, paths })
 }
 
-func (p *Project) filemaps() (filemaps []FileMap) {
+func (p *Project) filemaps() (filemaps []*FileMap) {
         filemaps = append(filemaps, p.filemap...)
         for _, base := range p.bases {
                 filemaps = append(filemaps, base.filemaps()...)
@@ -105,43 +140,100 @@ func (p *Project) filemaps() (filemaps []FileMap) {
         return
 }
 
-func (p *Project) search(file *File) bool {
-        var projDir = p.AbsPath()
+func (p *Project) wildcard(patterns ...Value) (files []*File, err error) {
+        var filemaps = p.filemaps()
+ForPats:
+        for _, pat := range patterns {
+                var ( str string; matched, breakAbsRel bool )
+                if str, err = pat.Strval(); err != nil { break ForPats }
+                // The 'str' value could be GlobPattern or just
+                // regular file/path names. PercPattern is not
+                // supported yet.
+        ForFilemaps:
+                for _, fm := range filemaps {
+                        if matched = globMatch(fm.Pattern, str); !matched {
+                                // Flip glob matching order.
+                                if _, yes := pat.(*GlobPattern); !yes {
+                                        continue ForFilemaps
+                                } else if str, err = fm.Pattern.Strval(); err != nil {
+                                        break ForPats
+                                } else if matched = globMatch(pat, str); !matched {
+                                        continue ForFilemaps
+                                } else {
+                                        // using the arg glob
+                                        breakAbsRel = true
+                                }
+                        }
 
-        ForFileMaps: for _, filemap := range p.filemaps() {
+                        /*if p.name == "..." {
+                                fmt.Printf("wildcard: (%v %T %v) -> %v\n", pat, fm.Pattern, fm.Pattern, str)
+                        }*/
+
+                        var names []string
+
+                        // Absolute or relative files are not related to the
+                        // paths.
+                        if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
+                                if names, err = filepath.Glob(str); err != nil { break ForPats }
+                                for _, s := range names {
+                                        files = append(files, &File{
+                                                Name: s,
+                                                Dir: filepath.Dir(s),
+                                        })
+                                }
+                                if breakAbsRel {
+                                        continue ForPats
+                                } else {
+                                        continue ForFilemaps
+                                }
+                        }
+
+                        // Check against paths for non-abs/rel patterns.
+                ForPaths:
+                        for _, sub := range fm.Paths {
+                                var s string
+                                if s, err = sub.Strval(); err != nil { break ForPats }
+
+                                subfile := filepath.Join(s, str)
+                                if names, err = filepath.Glob(subfile); err != nil { break ForPats }
+                                if len(names) == 0 { continue ForPaths }
+
+                                dir := filepath.Dir(subfile)
+                                if !isAbsOrRel(dir) {
+                                        // FIXME: using Getwd()?
+                                        dir = filepath.Join(p.absPath, dir)
+                                }
+
+                                // Chop off path 'sub' prefix to have shorter names
+                                // Aka. trim prefix 'file.Sub+PathSep'
+                                prefix := strings.TrimSuffix(subfile, str)
+                                for _, s := range names {
+                                        files = append(files, &File{
+                                                Name: strings.TrimPrefix(s, prefix),
+                                                Sub: sub,
+                                                Dir: dir,
+                                        })
+                                }
+                        }
+                }
+        }
+        return
+}
+
+func (p *Project) search(file *File) bool {
+        for _, filemap := range p.filemaps() {
                 // Match the represented file name.
                 if filemap.Match(file.Name) {
-                        file.Match = &filemap
-                } else {
-                        continue ForFileMaps
-                }
-                for _, v := range filemap.Paths {
-                        var err error
-                        var dir, path string // fullpath
-                        if path, err = v.Strval(); err != nil {
-                                return false
-                        }
-
-                        if filepath.IsAbs(path) {
-                                dir = path
-                        } else {
-                                dir = filepath.Join(projDir, path)
-                        }
-
-                        // Check file in the filesystem.
-                        fi, err := os.Stat(filepath.Join(dir, file.Name))
-                        if err == nil && fi != nil {
-                                file.Sub, file.Dir, file.Info = v, dir, fi
-                                break ForFileMaps
-                        } else if file.Dir == "" {
-                                file.Sub, file.Dir = v, dir
+                        file.Match = filemap
+                        if filemap.statFile(p.absPath, file) {
+                                break
                         }
                 }
         }
 
         if file.Info == nil && file.Dir == "" {
-                if file.Info, _ = os.Stat(filepath.Join(projDir, file.Name)); file.Info != nil {
-                        file.Dir = projDir
+                if file.Info, _ = os.Stat(filepath.Join(p.absPath, file.Name)); file.Info != nil {
+                        file.Dir = p.absPath
                 }
         }
 

@@ -130,8 +130,8 @@ func do_configuration() error {
                                 return err
                         }
                         reportConfiguredNum()
-                        fmt.Printf("configure: Project %v ……\n", p.name)
-                        project = p
+                        fmt.Printf("configure: Project %v …… (%v)\n", p.name, p.relPath)
+                        project, num = p, 0
                 }
 
                 var pos = entry.Position
@@ -146,10 +146,21 @@ func do_configuration() error {
                         errs = append(errs, e.(*scanner.Error))
                 } else if def := project.scope.FindDef(s); def != nil {
                         if def.Value == nil {
-                                // set <nil> by exec-assigning ('!=') a None
+                                // Set <nil> value with exec-assigning ('!=')
+                                // to a None value.
                                 fmt.Fprintf(writer, "%v !=\n", def.name)
+                                /*
+                        } else if d, ok := def.Value.(*Def); ok {
+                                if p := d.OwnerProject(); p == def.OwnerProject() {
+                                        fmt.Fprintf(writer, "%s = $(%s)\n", def.name, d.name)
+                                } else {
+                                        fmt.Fprintf(writer, "%s = $(%s->%s)\n", def.name, p.name, d.name)
+                                }
+                        } else if true {
+                                fmt.Fprintf(writer, "%s = %s\n", def.name, def.Value)
+                                */
                         } else {
-                                fmt.Fprintf(writer, "%v = %v\n", def.name, def.Value)
+                                fmt.Fprintf(writer, "%v = %v\n", def.name, elementString(def, def.Value))
                         }
                         num += 1
                 } else {
@@ -500,31 +511,24 @@ type filewalkFunc func(file *File, err error) error
 func walkFileInfos(root string, pats []Value, fn filepath.WalkFunc) (err error) {
         return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
                 if err != nil { return err }
-                ForPats: for _, p := range pats {
+        ForPats:
+                for _, p := range pats {
                         var matched bool
                         switch pat := p.(type) {
                         case Pattern: //*PercPattern, *GlobPattern, *RegexpPattern
-                                if matched, _, err = pat.match(path); err != nil {
-                                        break ForPats
-                                } else if !matched {
+                                if matched, _, err = pat.match(path); err != nil { break ForPats }
+                                if !matched {
                                         var s = filepath.Base(path)
-                                        if matched, _, err = pat.match(s); err != nil {
-                                                break ForPats
-                                        }
+                                        if matched, _, err = pat.match(s); err != nil { break ForPats }
                                 }
                                 if matched {
-                                        if err = fn(path, info, err); err != nil {
-                                                break ForPats
-                                        }
+                                        if err = fn(path, info, err); err != nil { break ForPats }
                                 }
                         default:
                                 var s string
-                                if s, err = p.Strval(); err != nil {
-                                        break ForPats
-                                } else if path == s || filepath.Base(path) == s {
-                                        if err = fn(path, info, err); err != nil {
-                                                break ForPats
-                                        }
+                                if s, err = p.Strval(); err != nil { break ForPats }
+                                if path == s || filepath.Base(path) == s {
+                                        if err = fn(path, info, err); err != nil { break ForPats }
                                 }
                         }
                 }
@@ -553,7 +557,7 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
 //     config.h:[(compare) (configure-file)]: config.h.in
 //     
 func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if args, err = Disclose(args...); err != nil { return }
 
         var target Value
         for _, arg := range args {
@@ -593,6 +597,8 @@ func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (re
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
 func modifierExtractConfiguration(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        if args, err = Disclose(args...); err != nil { return }
+
         var target Value
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
 
@@ -756,6 +762,8 @@ func modifierExtractConfiguration(pos token.Position, prog *Program, args... Val
 
 // configure - configures a variable, example usage:
 func modifierConfigure(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        if args, err = Disclose(args...); err != nil { return }
+
         var ( target Value; name string )
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
         if name, err = target.Strval(); err != nil { return }

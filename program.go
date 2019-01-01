@@ -304,9 +304,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         case *File: prog.auto("@", t)
         default:
                 var s string
-                if s, err = entry.target.Strval(); err != nil {
-                        return
-                } else if file := prog.project.file(s); file == nil {
+                if s, err = entry.target.Strval(); err != nil { return }
+                if file := prog.project.file(s); file == nil {
                         prog.auto("@", entry.target)
                 } else {
                         prog.auto("@", file)
@@ -315,11 +314,13 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         var argn = 0
 
+        /*
         // clear last argument set
-        /*for i, param := range prog.params {
+        for i, param := range prog.params {
                 prog.auto(strconv.Itoa(i+1), universalnone)
                 prog.auto(param, universalnone)
-        }*/
+        }
+        */
 
         // set up arguments ($1, $2, ..., $9, etc.)
         for _, a := range args {
@@ -337,7 +338,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        // modifier buffer
+        // Modifier buffer.
         var modifyBuf *Def
         if modifyBuf, err = prog.auto("-", universalnone); err != nil { return }
         defer func() {
@@ -346,13 +347,16 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 result = modifyBuf.Value
         } ()
 
+        // Pre-interpreted & post-interpreted dialect name.
+        var preInterpreted, postInterpreted string
+
         // Split modifiers by '|', if no '|', all goes postModifiers.
         var preModifiers, postModifiers []*modifier
         for i, m := range prog.pipline {
                 if m.name == modifierbar {
                         preModifiers = prog.pipline[:i]
                         postModifiers = prog.pipline[i+1:]
-                        break
+                        goto PrePipe // Process the pipeline immediately
                 }
         }
         if len(postModifiers) == 0 {
@@ -365,39 +369,34 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         // Pre-modifiers
-        var preInterpreted string
-        PrePipe: for _, m := range preModifiers {
-                if m.name == modifierbar {
-                        continue
-                } else if err = prog.modify(m, false, &preInterpreted, modifyBuf); err != nil {
+PrePipe:
+        for _, m := range preModifiers {
+                if m.name == modifierbar { continue }
+                if err = prog.modify(m, false, &preInterpreted, modifyBuf); err != nil {
                         if p, ok := err.(*breaker); ok && p != nil && p.good {
                                 // Discard err and change dialect to avoid
                                 // default interpreter being called.
                                 err, preInterpreted = nil, "--"
                         }
-                        /*if err != nil {
-                                fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
-                        }*/
                         break PrePipe
                 }
         }
 
         // Expanding all dependencies after pre-modifiers.
         var depends []Value
-        if depends, err = mergeresult(ExpandAll(prog.depends...)); err != nil {
-                return
-        }
+        if depends, err = mergeresult(ExpandAll(prog.depends...)); err != nil { return }
         for i, depend := range depends {
-                switch depend.(type) {
-                case *PercPattern, *RegexpPattern: // break
+                switch d := depend.(type) {
                 case *usinglist: // break
+                case *PercPattern: // break
+                case *RegexpPattern: // break
                 case *Group: // break
                 case *File: // break
+                case *Argumented: // FIXME: d.Val is file?
                 default:
                         var s string
-                        if s, err = depend.Strval(); err != nil {
-                                return
-                        } else if file := prog.project.file(s); file != nil {
+                        if s, err = d.Strval(); err != nil { return }
+                        if file := prog.project.file(s); file != nil {
                                 depends[i] = file
                         }
                 }
@@ -443,23 +442,20 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         //      some-modifier : - :
         //              smart statments going here...
         //              
-        var postInterpreted string
-        PostPipe: for _, m := range postModifiers {
-                if m.name == modifierbar {
-                        continue
-                } else if err = prog.modify(m, true, &postInterpreted, modifyBuf); err != nil {
+PostPipe:
+        for _, m := range postModifiers {
+                if m.name == modifierbar { continue }
+                if err = prog.modify(m, true, &postInterpreted, modifyBuf); err != nil {
                         if p, ok := err.(*breaker); ok && p != nil && p.good {
                                 // Discard err and change dialect to
                                 // avoid default interpreter being
                                 // called.
                                 err, postInterpreted = nil, "--"
                         }
-                        /*if err != nil {
-                                fmt.Fprintf(os.Stdout, "%s: %v\n", m.position, err)
-                        }*/
                         break PostPipe
                 }
         }
+
         if err == nil && preInterpreted == "" && postInterpreted == "" {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {

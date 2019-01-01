@@ -345,7 +345,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
         return
 }
 
-func (l *loader) evaluated(x *ast.EvaluatedExpr) (v Value) {
+func (l *loader) exprEvaluated(x *ast.EvaluatedExpr) (v Value) {
         var ok bool
         if x.Data == nil {
                 l.parser.error(x.Pos(), "evaluated data is nil `%T`", x.Expr)
@@ -355,14 +355,14 @@ func (l *loader) evaluated(x *ast.EvaluatedExpr) (v Value) {
         return v
 }
 
-func (l *loader) argumented(x *ast.ArgumentedExpr) Value {
+func (l *loader) exprArgumented(x *ast.ArgumentedExpr) Value {
         return &Argumented{
                 Val: l.expr(x.X),
                 Args: l.exprs(x.Arguments),
         }
 }
 
-func (l *loader) closuredelegate(x *ast.ClosureDelegate) (name Value, obj Object, args []Value) {
+func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Object, args []Value) {
         if name = l.expr(x.Name); name == nil {
                 l.parser.error(x.Name.Pos(), "invalid name `%T`", x.Name)
                 return
@@ -470,8 +470,8 @@ func (l *loader) closuredelegate(x *ast.ClosureDelegate) (name Value, obj Object
         return
 }
 
-func (l *loader) closure(x *ast.ClosureExpr) (v Value) {
-        if name, obj, args := l.closuredelegate(&x.ClosureDelegate); name == nil {
+func (l *loader) exprClosure(x *ast.ClosureExpr) (v Value) {
+        if name, obj, args := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
                 l.parser.error(x.Name.Pos(), "invalid closure name `%T`", x.Name)
         } else if obj != nil {
                 v = MakeClosure(x.Position, x.TokLp, obj, args...)
@@ -484,8 +484,8 @@ func (l *loader) closure(x *ast.ClosureExpr) (v Value) {
         return
 }
 
-func (l *loader) delegate(x *ast.DelegateExpr) (v Value) {
-        if name, obj, args := l.closuredelegate(&x.ClosureDelegate); name == nil {
+func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
+        if name, obj, args := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
                 l.parser.error(x.Name.Pos(), "invalid delegate name `%T`", x.Name)
         } else if obj != nil {
                 v = MakeDelegate(x.Position, x.TokLp, obj, args...)
@@ -493,21 +493,27 @@ func (l *loader) delegate(x *ast.DelegateExpr) (v Value) {
                 if o, err := sel.object(); err == nil && o.DeclScope().comment == usecomment {
                         obj = unresolved(l.project, name)
                         v = MakeDelegate(x.Position, x.TokLp, obj, args...)
-                } else {
-                        l.parser.error(x.Name.Pos(), "%v: %v", name, err)
+                } else if err != nil {
+                        l.parser.error(x.Name.Pos(), "delegate selection `%v`: %v", name, err)
+                } else if o == nil {
+                        l.parser.error(x.Name.Pos(), "delegate selection `%v`: nil object", name)
+                } else if v, err = sel.value(); err != nil {
+                        l.parser.error(x.Name.Pos(), "delegate selection `%v`: %v", name, err)
+                } else if v == nil {
+                        l.parser.error(x.Name.Pos(), "delegate selection `%v`: nil value", name)
                 }
         } else {
-                l.parser.error(x.Name.Pos(), "delegate nil object (name `%v`, `%v`)", name, l.scope.comment)
+                l.parser.error(x.Name.Pos(), "delegate expression `%v`: nil object (in %v)", name, l.scope.comment)
         }
         return
 }
 
-func (l *loader) selection(x *ast.SelectionExpr) (v Value) {
+func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
         if lhs := l.expr(x.Lhs); lhs != nil {
                 if lhs.Type() != SelectionType {
                         // Resolve the first left-hand-side.
                         if o, err := l.resolve(lhs); err != nil {
-                                l.parser.error(x.Lhs.Pos(), "`%v`: %v", lhs, err)
+                                l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", lhs, err)
                         } else if o == nil {
                                 l.parser.error(x.Lhs.Pos(), "`%v` is undefined", lhs)
                         } else {
@@ -525,18 +531,48 @@ func (l *loader) selection(x *ast.SelectionExpr) (v Value) {
         return
 }
 
-func (l *loader) pair(x *ast.KeyValueExpr) (res Value) {
-        if k := l.expr(x.Key); l.parser.bits&specialKeyValue != 0 {
-                res = &Pair{k, l.expr(x.Value)}
-        } else if k.Type().Bits()&IsKeyName != 0 {
-                res = MakePair(k, l.expr(x.Value))
-        } else {
-                l.parser.error(x.Key.Pos(), "not valid key `%T`", k)
+func (l *loader) exprBasicLit(x *ast.BasicLit) (v Value) {
+        switch x.Kind {
+        case token.BAR:      v = modifierbar
+        case token.BIN:      v = ParseBin(x.Value)
+        case token.OCT:      v = ParseOct(x.Value)
+        case token.INT:      v = ParseInt(x.Value)
+        case token.HEX:      v = ParseHex(x.Value)
+        case token.FLOAT:    v = ParseFloat(x.Value)
+        case token.DATETIME: v = ParseDateTime(x.Value)
+        case token.DATE:     v = ParseDate(x.Value)
+        case token.TIME:     v = ParseTime(x.Value)
+        case token.URI:      v = ParseURL(x.Value)
+        case token.BAREWORD: v = &Bareword{x.Value}
+        case token.STRING:   v = &String{x.Value}
+        case token.ESCAPE:   v = &String{EscapeChar(x.Value)}
+        case token.RAW:      v = &Raw{x.Value}
+        default: unreachable()
         }
         return
 }
 
-func (l *loader) barefile(x *ast.Barefile) (v Value) {
+func (l *loader) exprBareword(x *ast.Bareword) (res Value) {
+        res = &Bareword{x.Value}
+        return
+}
+
+func (l *loader) exprConstant(x *ast.Constant) (res Value) {
+        switch x.Tok {
+        case token.TRUE:  res = &boolean{ true }
+        case token.FALSE: res = &boolean{ false }
+        case token.YES:   res = &answer{ true }
+        case token.NO:    res = &answer{ false }
+        }
+        return
+}
+
+func (l *loader) exprBarecomp(x *ast.Barecomp) (res Value) {
+        res = MakeBarecomp(l.exprs(x.Elems)...)
+        return
+}
+
+func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
         if file, _ := x.File.(*File); file != nil {
                 if x.Val != nil {
                         v = MakeBarefile(x.Val.(Value), file)
@@ -550,7 +586,12 @@ func (l *loader) barefile(x *ast.Barefile) (v Value) {
         return
 }
 
-func (l *loader) pathseg(x *ast.PathSegExpr) (v Value) {
+func (l *loader) exprPath(x *ast.PathExpr) (res Value) {
+        res = MakePath(l.exprs(x.Segments)...)
+        return
+}
+
+func (l *loader) exprPathSeg(x *ast.PathSegExpr) (v Value) {
         switch x.Tok {
         case token.PCON:   v = MakePathSeg('/')
         case token.TILDE:  v = MakePathSeg('~')
@@ -561,22 +602,87 @@ func (l *loader) pathseg(x *ast.PathSegExpr) (v Value) {
         return
 }
 
-func (l *loader) recipe(x *ast.RecipeExpr) (v Value) {
-        if len(x.Elems) == 0 {
-                v = universalnone
+func (l *loader) exprFlag(x *ast.FlagExpr) (v Value) {
+        v = MakeFlag(l.expr(x.Name))
+        return
+}
+
+func (l *loader) exprNeg(x *ast.NegExpr) (v Value) {
+        v = Negative(l.expr(x.Val))
+        return
+}
+
+func (l *loader) exprCompoundLit(x *ast.CompoundLit) (v Value) {
+        v = MakeCompound(l.exprs(x.Elems)...)
+        return
+}
+
+func (l *loader) exprGroup(x *ast.GroupExpr) (v Value) {
+        v = MakeGroup(l.exprs(x.Elems)...)
+        return
+}
+
+func (l *loader) exprList(x *ast.ListExpr) (v Value) {
+        v = MakeList(l.exprs(x.Elems)...)
+        return
+}
+
+func (l *loader) exprKeyValue(x *ast.KeyValueExpr) (res Value) {
+        if k := l.expr(x.Key); l.parser.bits&specialKeyValue != 0 {
+                res = &Pair{k, l.expr(x.Value)}
+        } else if k.Type().Bits()&IsKeyName != 0 {
+                res = MakePair(k, l.expr(x.Value))
         } else {
-                switch x.Dialect {
-                case "", "eval":
-                        v = MakeList(l.exprs(x.Elems)...)
-                default:
-                        v = MakeCompound(l.exprs(x.Elems)...)
-                }
+                l.parser.error(x.Key.Pos(), "not valid key `%T`", k)
         }
         return
 }
 
-func (l *loader) recipedefine(clause *ast.RecipeDefineClause) (v Value) {
-        return &undetermined{ clause.Tok, l.expr(clause.Name), l.expr(clause.Value) }
+func (l *loader) exprPerc(x *ast.PercExpr) (v Value) {
+        v = MakePercPattern(l.expr(x.X), l.expr(x.Y))
+        return
+}
+
+func (l *loader) exprGlob(x *ast.GlobExpr) (v Value) {
+        v = MakeGlobPattern(l.exprs(x.Components)...)
+        return
+}
+
+func (l *loader) exprGlobMeta(x *ast.GlobMeta) (v Value) {
+        v = MakeGlobMeta(x.Tok)
+        return
+}
+
+func (l *loader) exprGlobRange(x *ast.GlobRange) (v Value) {
+        v = MakeGlobRange(l.expr(x.Chars))
+        return
+}
+
+func (l *loader) exprRecipe(x *ast.RecipeExpr) (v Value) {
+        if len(x.Elems) == 0 {
+                v = universalnone
+        } else if x.Dialect == "" || x.Dialect == "eval" {
+                v = MakeList(l.exprs(x.Elems)...)
+        } else {
+                v = MakeCompound(l.exprs(x.Elems)...)
+        }
+        return
+}
+
+func (l *loader) exprRecipeDefineClause(x *ast.RecipeDefineClause) (v Value) {
+        return &undetermined{ x.Tok, l.expr(x.Name), l.expr(x.Value) }
+}
+
+func (l *loader) exprIncludeRuleClause(x *ast.IncludeRuleClause) (v Value) {
+        entries := l.rule(x.RuleClause, ruleSpecialNor)
+        if n := len(entries); n == 1 {
+                v = entries[0]
+        } else if n > 1 {
+                l.parser.error(x.Pos(), "including multiple target `%v`", x)
+        } else {
+                l.parser.error(x.Pos(), "invalid rule `%v`", x)
+        }
+        return
 }
 
 func (l *loader) expr(expr ast.Expr) (v Value) {
@@ -588,69 +694,62 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
 
         switch x := expr.(type) {
         case *ast.EvaluatedExpr:
-                v = l.evaluated(x)
+                v = l.exprEvaluated(x)
         case *ast.ArgumentedExpr:
-                v = l.argumented(x)
+                v = l.exprArgumented(x)
         case *ast.ClosureExpr:
-                v = l.closure(x)
+                v = l.exprClosure(x)
         case *ast.DelegateExpr:
-                v = l.delegate(x)
+                v = l.exprDelegate(x)
         case *ast.SelectionExpr:
-                v = l.selection(x)
+                v = l.exprSelection(x)
         case *ast.BasicLit:
-                v = ParseLiteral(x.Kind, x.Value)
+                v = l.exprBasicLit(x)
         case *ast.Bareword:
-                v = MakeBareword(x.Value)
+                v = l.exprBareword(x)
         case *ast.Constant:
-                v = MakeConstant(x.Tok)
+                v = l.exprConstant(x)
         case *ast.Barecomp:
-                v = MakeBarecomp(l.exprs(x.Elems)...)
+                v = l.exprBarecomp(x)
         case *ast.Barefile:
-                v = l.barefile(x)
+                v = l.exprBarefile(x)
         case *ast.PathExpr:
-                v = MakePath(l.exprs(x.Segments)...)
+                v = l.exprPath(x)
         case *ast.PathSegExpr:
-                v = l.pathseg(x)
+                v = l.exprPathSeg(x)
         case *ast.FlagExpr:
-                v = MakeFlag(l.expr(x.Name))
+                v = l.exprFlag(x)
         case *ast.NegExpr:
-                v = Negative(l.expr(x.Val))
+                v = l.exprNeg(x)
         case *ast.CompoundLit:
-                v = MakeCompound(l.exprs(x.Elems)...)
+                v = l.exprCompoundLit(x)
         case *ast.GroupExpr:
-                v = MakeGroup(l.exprs(x.Elems)...)
+                v = l.exprGroup(x)
         case *ast.ListExpr:
-                v = MakeList(l.exprs(x.Elems)...)
+                v = l.exprList(x)
         case *ast.KeyValueExpr:
-                v = l.pair(x)
+                v = l.exprKeyValue(x)
         case *ast.PercExpr:
-                v = MakePercPattern(l.expr(x.X), l.expr(x.Y))
+                v = l.exprPerc(x)
         case *ast.GlobExpr:
-                v = MakeGlobPattern(l.exprs(x.Components)...)
+                v = l.exprGlob(x)
         case *ast.GlobMeta: // "*", "?"
-                v = MakeGlobMeta(x.Tok)
+                v = l.exprGlobMeta(x)
         case *ast.GlobRange: // "[a-z]", "[abc]", `[a\-b]`, `[a\]b]`
-                v = MakeGlobRange(l.expr(x.Chars))
+                v = l.exprGlobRange(x)
         case *ast.RecipeExpr:
-                v = l.recipe(x)
+                v = l.exprRecipe(x)
         case *ast.RecipeDefineClause:
-                v = l.recipedefine(x)
+                v = l.exprRecipeDefineClause(x)
         case *ast.IncludeRuleClause:
-                entries := l.rule(x.RuleClause, ruleSpecialNor)
-                if n := len(entries); n == 1 {
-                        v = entries[0]
-                } else if n > 1 {
-                        l.parser.error(x.Pos(), "including multiple target `%v`", x)
-                } else {
-                        l.parser.error(x.Pos(), "invalid rule `%v`", x)
-                }
+                v = l.exprIncludeRuleClause(x)
         case *ast.BadExpr:
                 l.parser.error(x.Pos(), "bad expr")
                 return
         }
 
         if v == nil {
-                l.parser.error(expr.Pos(), "expr `%v` is nil (%T)", expr, expr)
+                l.parser.error(expr.Pos(), "`%v` nil expression (%T)", expr, expr)
                 v = new(Nil)
         }
         return
@@ -755,7 +854,7 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
         switch t := identifier.(type) {
         case *selection:
                 if v, err := t.value(); err != nil {
-                        l.parser.error(pos, "%v: %v", t, err)
+                        l.parser.error(pos, "determine `%v`: %v", t, err)
                         return
                 } else if d, ok := v.(*Def); ok {
                         def = d
@@ -765,7 +864,7 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 }
         case *Bareword, *Barecomp:
                 if name, err := t.Strval(); err != nil {
-                        l.parser.error(pos, "%v: %v", t, err)
+                        l.parser.error(pos, "determine `%v`: %v", t, err)
                         return
                 } else if _, ok := builtins[name]; ok {
                         l.parser.error(pos, "`%v` (%v) is builtin name", identifier, name)
@@ -946,11 +1045,11 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
         for i, m := range modifiers {
                 position := l.parser.file.Position(clause.Modifier.Elems[i].Pos())
                 if p, err := prog.pipe(position, m); err != nil {
-                        l.parser.error(clause.Program.Pos(), "%v: %v", m, err)
+                        l.parser.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
                         return
                 } else if !configure {
                         if s, err := p.name.Strval(); err != nil {
-                                l.parser.error(clause.Program.Pos(), "%v: %v", m, err)
+                                l.parser.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
                                 return
                         } else if s == "configure" {
                                 configure = true
@@ -1008,7 +1107,7 @@ func includespec(l *loader, pos token.Pos, spec Value) {
         if entry, ok := spec.(*RuleEntry); ok && entry != nil {
                 var result []Value
                 if result, err = entry.Execute(entry.Position); err != nil {
-                        l.parser.error(pos, "%v: %v", spec, err)
+                        l.parser.error(pos, "include `%v`: %v", spec, err)
                         return
                 } else if result != nil {
                         // result ignored
@@ -1028,7 +1127,7 @@ func includespec(l *loader, pos token.Pos, spec Value) {
                 specName = t.Name
         default:
                 if specName, err = spec.Strval(); err != nil {
-                        l.parser.error(pos, "%v: %v", spec, err)
+                        l.parser.error(pos, "include `%v`: %v", spec, err)
                         return
                 }
                 if filepath.IsAbs(specName) {
@@ -1043,10 +1142,15 @@ func includespec(l *loader, pos token.Pos, spec Value) {
                 return
         }
 
+        var mode = l.mode
         var absDir, baseName = filepath.Split(fullname)
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
         if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
                 l.parser.error(pos, "include: %v", err)
+        } else {
+                // The parse mode could still be 'Flat' here as ParseFile
+                // changed it, so we have to restore the previous parse mode.
+                l.mode = mode
         }
         return
 }
@@ -1501,7 +1605,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
                                 err = fmt.Errorf("%s: invalid UTF8 content", fullname)
                                 break ListLoop
                         }
-                        def.set(DefExpand, MakeString(s))
+                        def.set(DefExpand, &String{s})
                 } else if s != nil {
                         err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
                         break ListLoop

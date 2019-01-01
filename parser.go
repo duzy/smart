@@ -1114,6 +1114,11 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                         // Compose nothing at this point!
 
                 default:if p.tok != token.EOF && x.End() == p.pos {
+                        if p.tok == token.BAR {
+                                // in case of: [(var)|...]
+                                if _, ok := x.(*ast.GroupExpr); ok { break }
+                        }
+
                         // further composing
                         var y = p.parseComposedExpr(lhs)
                         if comp, _ := x.(*ast.Barecomp); comp == nil {
@@ -1230,16 +1235,14 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast
 
 func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
         spec := &ast.EvalSpec{ p.parseDirectiveSpec(), nil }
-        if name, e := p.eval(spec.Props[0], StringValue); e != nil {
-                p.error(spec.Props[0].Pos(), "illegal (%s)", e)
-        } else if name == nil {
-                p.error(spec.Props[0].Pos(), "invalid eval symbol (%T).", spec.Props[0])
-        } else if s, err := name.Strval(); err != nil {
+        if prop0 := p.expr(spec.Props[0]); prop0 == nil {
+                p.error(spec.Props[0].Pos(), "`%v` illegal", spec.Props[0])
+        } else if name, err := prop0.Strval(); err != nil {
                 p.error(spec.Props[0].Pos(), err)
-        } else if spec.Resolved, err = p.resolve(&Bareword{s}); err != nil {
+        } else if spec.Resolved, err = p.resolve(&Bareword{name}); err != nil {
                 p.error(spec.Pos(), err)
         } else if spec.Resolved == nil {
-                p.error(spec.Props[0].Pos(), "undefined eval symbol `%s' (%v).", s, name)
+                p.error(spec.Props[0].Pos(), "undefined eval symbol `%s' (%v).", name, prop0)
         } else {
                 p.evalspec(spec)
         }
@@ -1402,32 +1405,6 @@ func (p *parser) parseRecipeRuleClause(elems []ast.Expr) (x ast.Expr) {
         return &ast.RecipeRuleClause{ d }
 }
 
-func (p *parser) parseRecipeBuiltin(elems []ast.Expr) (x ast.Expr) {
-        if elem, ok := elems[0].(*ast.EvaluatedExpr); ok {
-                // Resolve builtin names.
-                switch t := elem.Data.(type) {
-                case *Bareword:
-                        if sym, err := p.resolve(/*&Bareword{t.Value}*/t); err != nil {
-                                p.error(elem.Pos(), "%v", err)
-                        } else if sym == nil {
-                                p.error(elem.Pos(), "undefined builtin %v", t.string)
-                        } else {
-                                elem.Data = sym
-                        }
-                }
-        }
-        
-        x = p.parseExpr(true) // Do left-hand-side parsing if in use rule
-        if v, e := p.eval(x, KeepClosures|KeepDelegates); e != nil {
-                p.error(x.Pos(), "%v (%T)", e, x)
-        } else if v != nil {
-                x = &ast.EvaluatedExpr{ x, v }
-        } else {
-                p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
-        }
-        return
-}
-
 func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
 	if p.tracing.enabled {
 		defer un(trace(p, "Recipe"))
@@ -1440,16 +1417,24 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
                 pos = p.pos
         )
 
-        SwitchDialect: switch dialect {
-        case "", "eval":
+SwitchDialect:
+        switch dialect {
+        case "", "eval", "value":
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE or SEMICOLON and parse in list mode
                 if !p.isEndOfLine() {
-                        x := p.parseExpr(true) // parse first expr of recipe
-                        if v, e := p.eval(x, KeepClosures|KeepDelegates); e != nil {
-                                p.error(x.Pos(), "%v (%T)", e, x)
-                        } else if v == nil {
-                                p.error(x.Pos(), "Recipe `%T' eval to nil.", x)
+                        var isval = dialect == "value"
+                        var x = p.parseExpr(!isval) // parse first expr of recipe
+                        if v := p.expr(x); v == nil {
+                                p.error(x.Pos(), "`%v` is nil (%T)", x, x)
+                        } else if t, ok := v.(*Bareword); ok && !isval {
+                                if sym, err := p.resolve(t); err != nil {
+                                        p.error(x.Pos(), "resolve builtin: %v", err)
+                                } else if sym == nil {
+                                        p.error(x.Pos(), "undefined builtin %v", t.string)
+                                } else {
+                                        x = &ast.EvaluatedExpr{ x, sym }
+                                }
                         } else {
                                 x = &ast.EvaluatedExpr{ x, v }
                         }
@@ -1465,7 +1450,7 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
                                 if p.tok.IsRuleDelim() {
                                         x = p.parseRecipeRuleClause(elems)
                                 } else {
-                                        x = p.parseRecipeBuiltin(elems)
+                                        x = p.parseExpr(true)
                                 }
 
                                 cmdarg.Elems = append(cmdarg.Elems, x)
@@ -1488,9 +1473,7 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
                         elems = append(elems, p.parseExpr(false))
                 }
         }
-        if p.tok != token.EOF {
-                p.expectLinend()
-        }
+        if p.tok != token.EOF { p.expectLinend() }
         return &ast.RecipeExpr{
                 Dialect: dialect,
                 Doc:     doc,
@@ -1523,9 +1506,8 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
 
                 switch n := group.Elems[0].(type) {
                 case *ast.Bareword:
-                        if name, pos = n.Value, n.Pos(); name != "var" {
-                                goto checkName
-                        }
+                        if name, pos = n.Value, n.Pos(); name != "var" { goto checkName }
+                        // Parsing (var a=xxx,b=yyy) definitions
                         for _, elem := range group.Elems[1:] {
                                 kv, _ := elem.(*ast.KeyValueExpr)
                                 if  kv == nil {
@@ -1591,11 +1573,10 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
 
                 goto addModifier
 
-                checkName: if _, ok = dialects[name]; ok {
-                        if dialect == "" {
-                                dialect = name
-                        } else {
-                                p.error(pos, "multi-dialect unsupported, already defined '%s'", dialect)
+        checkName:
+                if _, ok = dialects[name]; ok {
+                        if dialect == "" { dialect = name } else {
+                                p.error(pos, "multi-dialects unsupported, already defined '%s'", dialect)
                                 goto next
                         }
                 } else if _, ok = modifiers[name]; !ok {
@@ -1603,8 +1584,11 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                         goto next
                 }
                 
-                addModifier: elems = append(elems, x)
-                next: switch p.tok {
+        addModifier:
+                elems = append(elems, x)
+
+        next:
+                switch p.tok {
                 case token.COMMA:
                         p.next() // TODO: grouping modifiers
                 case token.BAR:

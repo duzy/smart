@@ -14,8 +14,7 @@ import (
 
 // Value returned by (plain) modifier.
 type Plain struct {
-        Value string
-        Name string
+        Name, Value string
 }
 func (p *Plain) refs(_ Value) bool { return false }
 func (p *Plain) closured() bool { return false }
@@ -45,8 +44,4 @@ func (t *_plain) Evaluate(prog *Program, args []Value) (result Value, err error)
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{ str, name, }
         return
-}
-
-func init() {
-        RegisterDialect("plain", new(_plain))
 }

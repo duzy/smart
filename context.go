@@ -40,6 +40,26 @@ func current() (proj *Project) {
         return
 }
 
+func mostDerived() (proj *Project) {
+        if l := len(execstack); l == 1 {
+                proj = execstack[0].project
+        } else if l > 1 {
+                var p = execstack[0].project
+                for i, prog := range execstack[1:] {
+                        // If the next (n=i+1) project is derived from 'p'...
+                        if n := i+1; n < l {
+                                if p == prog.project { continue } else {
+                                        var next = execstack[n].project
+                                        if next.isa(p) { p = next; continue }
+                                }
+                        }
+                        break
+                }
+                proj = p
+        }
+        return
+}
+
 func (ctx *Context) run(targets... Value) (result []Value, err error) {
         if ctx.globe.main == nil {
                 err = fmt.Errorf("no targets to update `%v`", targets)
@@ -64,7 +84,7 @@ func (ctx *Context) run(targets... Value) (result []Value, err error) {
 
                         var v []Value
                         /*for _, a := range args {
-                                v = append(v, MakeString(a))
+                                v = append(v, &String{a})
                         }*/
 
                         // The the base project scope as execution context. For
@@ -171,8 +191,8 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
         if def := as.FindDef("SMART"); def != nil {
                 def.set(DefSimple, nil)
                 for _, s := range globalPaths {
-                        def.append(MakeString("-search"))
-                        def.append(MakeString(s))
+                        def.append(&String{"-search"})
+                        def.append(&String{s})
                 }
         }
 
@@ -188,9 +208,9 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
 
         var (
                 ab = base
-                defCTD, _ = as.Def(at, "CTD", MakeString(tmp))
-                defCWD, _ = as.Def(at, "CWD", MakeString(at.absPath))
-                defS, _ = as.Def(at, "/", MakeString(at.absPath))
+                defCTD, _ = as.Def(at, "CTD", &String{tmp})
+                defCWD, _ = as.Def(at, "CWD", &String{at.absPath})
+                defS, _ = as.Def(at, "/", &String{at.absPath})
                 defD, _ = as.Def(at, ".", universalnone)
         )
         if defCTD == nil { /* ... */ }
@@ -200,8 +220,8 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                 var s2 = filepath.Join(ab, "@")
                 if fi, _ := os.Stat(s1); fi != nil {
                         if m := fi.Mode(); m.IsRegular() {
-                                defS.set(DefExpand, MakeString(ab))
-                                defD.set(DefExpand, MakeString(ab))
+                                defS.set(DefExpand, &String{ab})
+                                defD.set(DefExpand, &String{ab})
                                 if err = ctx.loader.loadFile(s1, nil); err != nil {
                                         return
                                 } else {
@@ -212,8 +232,8 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                         }
                 } else if fi, _ = os.Stat(s2); fi != nil {
                         if m := fi.Mode(); m.IsDir() {
-                                defS.set(DefExpand, MakeString(ab))
-                                defD.set(DefExpand, MakeString(ab))
+                                defS.set(DefExpand, &String{ab})
+                                defD.set(DefExpand, &String{ab})
                                 if err = ctx.loader.loadPath(s2, nil); err != nil {
                                         return
                                 } else {

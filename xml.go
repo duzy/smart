@@ -91,10 +91,10 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
-                                        node.Append(MakeString(s))
+                                        node.Append(&String{s})
                                 } else {
                                         if s = strings.TrimSpace(s); s != "" {
-                                                node.Append(MakeString(s))
+                                                node.Append(&String{s})
                                         }
                                 }
                         }
@@ -132,10 +132,4 @@ func (t *_xml) Evaluate(prog *Program, args []Value) (result Value, err error) {
                 result = &XML{ universalnone }
         }
         return
-}
-
-func init() {
-        RegisterDialect("xml", &_xml{
-                whitespace: false,
-        })
 }
