@@ -803,8 +803,8 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
                 defer prog.setUser(prog.setUser(l.project))
         }
 
-        defer func(v bool) { printcd = v } (printcd)
-        printcd = false // turn off printing 'Entering/Leaving'
+        //defer func(v bool) { printcd = v } (printcd)
+        //printcd = false // turn off printing 'Entering/Leaving'
 
         position := l.parser.file.Position(pos)
         results, err := mergeresult(usee.userule.Execute(position, params...))

@@ -113,7 +113,7 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
         return
 }
 
-func (prog *Program) interpret(i interpreter, out *Def, params []Value) (err error) {
+func (prog *Program) interpret(i interpreter, print bool, out *Def, params []Value) (err error) {
         var target, value Value
         if value, err = i.Evaluate(prog, params); err == nil {
                 if value != nil {
@@ -133,7 +133,7 @@ func (prog *Program) interpret(i interpreter, out *Def, params []Value) (err err
         return
 }
 
-func (prog *Program) modify(m *modifier, post bool, interpreted *string, out *Def) (err error) {
+func (prog *Program) modify(m *modifier, post, print bool, interpreted *string, out *Def) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -152,7 +152,7 @@ func (prog *Program) modify(m *modifier, post bool, interpreted *string, out *De
                 switch name {
                 case "configure": if post && *interpreted == "" {
                         if i, ok := dialects["eval"]; ok && i != nil {
-                                err = prog.interpret(i, out, v)
+                                err = prog.interpret(i, print, out, v)
                                 *interpreted = "eval"
                         }
                 }}
@@ -163,7 +163,7 @@ func (prog *Program) modify(m *modifier, post bool, interpreted *string, out *De
                         }
                 }
         } else if i, _ := dialects[name]; i != nil {
-                err = prog.interpret(i, out, v)
+                err = prog.interpret(i, print, out, v)
                 *interpreted = name // return dialect name
         } else {
                 err = fmt.Errorf("no modifier or dialect '%s'", name)
@@ -206,19 +206,29 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         // Flag targets (-foo) turn off printing
         if _, ok := entry.target.(*Flag); ok { print = false }
-        if print && prog.getModifier("cd") != nil { print = false }
+        if print {
+                if t, ok := entry.target.(*Bareword); ok {
+                        if t.string == "use" { print = false }
+                }
+        }
+        //if print && prog.getModifier("cd") != nil { print = false }
         if print && prog.getModifier("configure") != nil { print = false }
 
         // cd before setting execstack, because cd reads execstack
         // before changes.
-        if err = prog.project.enter(prog, prog.project.absPath, print, true); err != nil { return }
+        var lenEnters = len(cd.stack)
+        if err = enter(prog, prog.project.absPath); err != nil { return }
+        cd.stack[0].silent = !print
 
-        // Have to set execstack after cd.
+        // must set execstack after entering project
         defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
         defer setclosure(setclosure(cloctx.unshift(prog.scope))) // entry.DeclScope()
-
-        // leaving after setting execstack to meet the FIFO order of execstack
-        defer func() { if err == nil { err = prog.project.leave(prog) } } ()
+        defer func() { // leaving after setting execstack to meet the FIFO order of execstack
+                e := leave(prog, lenEnters)
+                if err == nil { err = e } else if e != nil {
+                        fmt.Fprintf(os.Stderr, "%s: leaving: %s\n", entry.Position, e)
+                }
+        } ()
 
         // set $@ before pre-modifiers.
         switch t := entry.target.(type) {
@@ -293,7 +303,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 PrePipe:
         for _, m := range preModifiers {
                 if m.name == modifierbar { continue }
-                if err = prog.modify(m, false, &preInterpreted, modifyBuf); err != nil {
+                if err = prog.modify(m, false, print, &preInterpreted, modifyBuf); err != nil {
                         if p, ok := err.(*breaker); ok && p != nil && p.good {
                                 // Discard err and change dialect to avoid
                                 // default interpreter being called.
@@ -353,7 +363,7 @@ PrePipe:
 PostPipe:
         for _, m := range postModifiers {
                 if m.name == modifierbar { continue }
-                if err = prog.modify(m, true, &postInterpreted, modifyBuf); err != nil {
+                if err = prog.modify(m, true, print, &postInterpreted, modifyBuf); err != nil {
                         if p, ok := err.(*breaker); ok && p != nil && p.good {
                                 // Discard err and change dialect to
                                 // avoid default interpreter being
@@ -367,7 +377,7 @@ PostPipe:
         if err == nil && preInterpreted == "" && postInterpreted == "" {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
-                        err = prog.interpret(i, modifyBuf, nil)
+                        err = prog.interpret(i, print, modifyBuf, nil)
                 } else {
                         err = fmt.Errorf("no default dialect")
                 }

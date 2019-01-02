@@ -109,10 +109,12 @@ func (s *docker) ensureContainerRunning(prog *Program, docks []*Project, contain
 }
 
 func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error) {
-        if args, err = Disclose(args...); err != nil { return }
+        //if args, err = Disclose(args...); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var recipes []Value
-        if recipes, err = Disclose(prog.recipes...); err != nil { return }
+        //if recipes, err = Disclose(prog.recipes...); err != nil { return }
+        if recipes, err = mergeresult(ExpandAll(prog.recipes...)); err != nil { return }
 
         var docks []*Project
         if prog.Project().Name() == "dock" {
@@ -176,6 +178,9 @@ func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error)
                 source, str string
                 shi = "sh" // interpreter
         )
+
+        printEnteringDirectory()
+
         ForRecipes: for _, recipe := range recipes {
                 if str, err = recipe.Strval(); err != nil { return }
                 if source += str; strings.HasSuffix(source, "\\") {

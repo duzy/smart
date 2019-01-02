@@ -81,12 +81,19 @@ func globMatch(patval Value, filename string) (matched bool) {
         return
 }
 
-var printstack []string
-var printcd = true
+type enterec struct {
+        wd, dir string
+        print, silent bool
+        num int
+}
 
-type cdinfo struct {
-        workdir, chdir string
-        print bool
+func (rec *enterec) String() string { return rec.dir }
+
+var cd = &struct{
+        stack []*enterec // entered directories
+        enters map[string]*enterec // enters
+}{
+        enters: make(map[string]*enterec),
 }
 
 type Project struct {
@@ -114,7 +121,6 @@ type Project struct {
 
         // TODO: printEntering() ...
         // TODO: printLeaving() ...
-        cdinfos []*cdinfo
 }
 
 func (p *Project) String() string { return fmt.Sprintf("<project %s>", p.name) }
@@ -590,80 +596,77 @@ func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes,
         return
 }
 
-func (p *Project) enter(prog *Program, chdir string, print, exec bool) (err error) {
-        var main = prog.globe.Main()
+func enter(prog *Program, dir string) (err error) {
         if trace_entering {
-                fmt.Printf("entering: %v (init: %v)\n", chdir, main.absPath)
+                fmt.Printf("entering: %v (%v)\n", dir, prog.project.name)
         }
 
-        var caller *Program
-        if len(execstack) > 1 {
-                caller = execstack[1]
+        var wd string
+        if wd, err = os.Getwd(); err != nil { return }
+        if err = os.Chdir(dir); err == nil {
+                prog.auto("CWD", &String{dir})
         }
 
-        var cd = &cdinfo{ "", chdir, false }
-        if cd.workdir, err = os.Getwd(); err == nil {
-                if cd.workdir == cd.chdir || context.workdir == cd.chdir {
-                        cd.print = false
-                } else if err = os.Chdir(cd.chdir); err != nil {
-                        return
-                } else if cd.print = true; cd.print && exec {
-                        if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
-                                var s string
-                                if s, err = m.args[0].Strval(); err != nil {
-                                        return
-                                } else if s == "-" {
-                                        cd.print = false
-                                } else /*if s != ""*/ {
-                                        cd.print = false
-                                }
-                        }
+        var ( enter *enterec ; ok bool )
+        if enter, ok = cd.enters[dir]; !ok {
+                enter = &enterec{ wd:wd, dir:dir }
+                cd.enters[dir] = enter
+        }
+        enter.num += 1
+        cd.stack = append([]*enterec{enter}, cd.stack...)
+        return
+}
+
+func leave(prog *Program, top int) (err error) {
+        if trace_entering {
+                fmt.Printf("leaving: %v (%v)\n", top, prog.project.name)
+        }
+
+        if enable_assertions {
+                assert(len(cd.stack) > top, "wrong cd stack")
+        }
+
+        var stop = len(cd.stack) - top
+        for i, enter := range cd.stack {
+                /* if enter.print {
+                        fmt.Printf("smart:  Leaving directory '%s'\n", enter.dir)
+                        enter.print = false
+                } */
+                enter.num -= 1
+                if i == stop {
+                        err = os.Chdir(enter.wd)
+                        cd.stack = cd.stack[i:]
+                        break
                 }
-                if cd.print && !(print && printcd) { cd.print = false }
-                if cd.print && len(printstack) > 0 && printstack[0] == cd.chdir {
-                        cd.print = false
-                }
-                if cd.print && caller != nil {
-                        // check the caller program's subcdrs
-                        /*if len(caller.subcdrs) > 0 && caller.subcdrs[0] == cd.chdir {
-                                cd.print = false
-                        } else {
-                                caller.subcdrs = append([]string{cd.chdir}, caller.subcdrs...)
-                        }*/
-                }
-                if cd.print {
-                        fmt.Printf("smart: Entering directory '%s'\n", cd.chdir)
-                        printstack = append([]string{cd.chdir}, printstack...)
-                }
-                prog.auto("CWD", &String{cd.chdir})
-                p.cdinfos = append([]*cdinfo{ cd }, p.cdinfos...)
         }
         return
 }
 
-func (p *Project) leave(prog *Program) (err error) {
-        /*for _, rec := range prog.subcdrs {
-                fmt.Printf("smart:  Leaving directory '%s'\n", rec)
-                if len(printstack) > 0 && printstack[0] == rec {
-                        printstack = printstack[1:]
+func printEnteringDirectory() {
+        if l := len(cd.stack); l > 0 {
+                var enter = cd.stack[0]
+                if enter.silent { return }
+                for _, p := range cd.stack {
+                        if p.print && p != enter {
+                                fmt.Printf("smart:  Leaving directory '%s'\n", p.dir)
+                                p.print = false
+                        }
                 }
-        }*/
-        if s := prog.project.absPath; len(printstack) > 0 && printstack[0] == s {
-                fmt.Printf("smart:  Leaving directory '%s'\n", s)
-                printstack = printstack[1:]
+                if !enter.print {
+                        fmt.Printf("smart: Entering directory '%s'\n", enter.dir)
+                        //fmt.Printf("smart: %d %v\n", l, cd.stack)
+                        enter.print = true
+                }
         }
-        /*if len(prog.subcdrs) > 0 {
-                prog.subcdrs = prog.subcdrs[:0] // clear subcdrs
-        }*/
+}
 
-        for _, cd := range p.cdinfos {
-                if cd.print && false {
-                        fmt.Printf("smart:  Leaving directory '%s'\n", cd.chdir)
-                }
-                if err = os.Chdir(cd.workdir); err != nil {
-                        break
+func printLeavingDirectory() {
+        if l := len(cd.stack); l > 0 {
+                for _, p := range cd.stack {
+                        if p.print {
+                                fmt.Printf("smart:  Leaving directory '%s'\n", p.dir)
+                                p.print = false
+                        }
                 }
         }
-        p.cdinfos = p.cdinfos[:0] // clear all
-        return
 }

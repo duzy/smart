@@ -2203,6 +2203,7 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
 
         var status string
         if optVerb {
+                printEnteringDirectory()
                 fmt.Printf("configure file %v …", file)
                 defer func() {
                         if err != nil { status = "error!" } else {

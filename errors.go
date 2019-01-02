@@ -27,9 +27,14 @@ var (
         ErrorIllJson   = errors.New("illegal json format")
 )
 
-func assert(cond bool, a ...interface{}) {
+type AssertionFailed string
+
+func (s AssertionFailed) Error() string { return string(s) }
+
+func assert(cond bool, f string, a ...interface{}) {
 	if !cond {
-		panic(ErrorAssertion)
+                s := fmt.Sprintf(f, a...)
+		panic(AssertionFailed(s))
 	}
 }
 

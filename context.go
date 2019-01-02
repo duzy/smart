@@ -310,7 +310,11 @@ func CommandLine() {
         // make sure that .smart dirs have higher priority.
         globalPaths = append(modulesPaths, globalPaths...)
 
-        defer func(globe *Globe) { context.globe = globe } (context.globe)
+        defer func(globe *Globe) {
+                printLeavingDirectory()
+                context.globe = globe
+        } (context.globe)
+
         context.globe = NewGlobe("smart")
         if err := init_configuration(packagePaths); err != nil {
                 report(err)

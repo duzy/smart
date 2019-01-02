@@ -170,9 +170,9 @@ func findBacktrackDir() (dir string) {
 func modifierCD(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = Disclose(args...); err != nil { return }
 
-        var (optPrint, optPath bool; n = len(args))
-        var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
-        if _, ok := target.(*Flag); ok { optPrint = false }
+        var (optPath bool; n = len(args))
+        //var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
+        //if _, ok := target.(*Flag); ok { optPrint = false }
         if n > 0 {
                 var v []Value
                 for _, arg := range args {
@@ -181,7 +181,7 @@ func modifierCD(pos token.Position, prog *Program, args... Value) (result Value,
                         case *Flag:
                                 var opt bool
                                 if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
-                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optPrint = false }
+                                //if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optPrint = false }
                                 if opt, err = a.is(0, ""); err != nil { return } else if opt {
                                         var dir = findBacktrackDir()
                                         // Back to main project if no backtracks.
@@ -208,9 +208,7 @@ func modifierCD(pos token.Position, prog *Program, args... Value) (result Value,
                 if optPath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
-                if err = prog.project.enter(prog, dir, optPrint, false); err == nil {
-                        //for _, cd := range prog.cdinfos[1:] { cd.print = false }
-                }
+                err = enter(prog, dir)
         } else {
                 err = fmt.Errorf("wrong number of args (%v)", n)
         }
@@ -783,6 +781,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, args... Value) (resul
         }
 
         if !optSilent {
+                printEnteringDirectory()
                 fmt.Printf("update file '%v' …", filename)
         }
 

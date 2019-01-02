@@ -132,8 +132,8 @@ type executor struct {
 }
 
 func (s *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
-        //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        if args, err = Disclose(args...); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        //if args, err = Disclose(args...); err != nil { return }
 
         var recipes []Value
         if recipes, err = Disclose(prog.recipes...); err != nil { return }
@@ -157,6 +157,9 @@ func (s *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                         }
                 }
         }
+
+        printEnteringDirectory()
+
         for _, recipe := range recipes {
                 if str, err = recipe.Strval(); err != nil { return }
                 source += str // trimRightSpaces(str)
