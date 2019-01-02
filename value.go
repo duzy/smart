@@ -20,6 +20,7 @@ import (
 )
 
 const (
+        runtime_assertion = true
         trace_compare = false
         trace_prepare = false
         trace_workdir = true && trace_prepare
@@ -1849,8 +1850,10 @@ func (p *Flag) Type() Type { return FlagType }
 func (p *Flag) True() bool { return p.Name.True() }
 func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", elementString(nil, p.Name)) }
 func (p *Flag) Strval() (s string, e error) {
-        if s, e = p.Name.Strval(); e == nil { 
-                 s = "-" + s
+        if p.Name == nil || p.Name.Type() == NoneType {
+                s = "-"
+        } else if s, e = p.Name.Strval(); e == nil {
+                s = "-" + s
         }
         return
 }
@@ -1865,7 +1868,6 @@ func (p *Flag) is(r rune, s string) (result bool, err error) {
         }}
         return
 }
-func MakeFlag(name Value) (v *Flag) { return &Flag{name} }
         
 type Compound struct { elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {

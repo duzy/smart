@@ -603,7 +603,11 @@ func (l *loader) exprPathSeg(x *ast.PathSegExpr) (v Value) {
 }
 
 func (l *loader) exprFlag(x *ast.FlagExpr) (v Value) {
-        v = MakeFlag(l.expr(x.Name))
+        if x.Name == nil {
+                v = &Flag{ universalnone }
+        } else {
+                v = &Flag{ l.expr(x.Name) }
+        }
         return
 }
 

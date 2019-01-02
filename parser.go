@@ -692,10 +692,12 @@ func (p *parser) parseFlagExpr(lhs bool) ast.Expr {
                 pos = p.pos
                 x ast.Expr
         )
-        // Flag expressions, excluding "-)" "-]" "-}" "-\n"
-        if p.next(); p.tok == token.RPAREN || p.tok == token.RBRACK || p.tok == token.RBRACE ||
-                p.tok == token.LINEND || p.lineComment != nil {
-                x = &ast.Bareword{ ValuePos: p.pos }
+
+        p.next() // skip dash '-'
+
+        // Flag expressions, excluding "-)" "-]" "-}" "-\n", "-=", etc.
+        if p.isEndOfLine() || p.isEndOfList(false) {
+                x = nil
         } else if false {
                 x = p.checkExpr(p.parseExpr(false))
         } else {

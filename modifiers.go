@@ -444,11 +444,17 @@ ForScan:
                 for _, x := range rxs {
                         if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
                                 var ( name = sm[1] ; file = &File{ Name:name } )
-                                var isAbsRel = isAbsOrRel(name)
-                                if isAbsRel && strings.HasPrefix(name, "..") {
-                                        s := filepath.Join(targetDir, name)
-                                        if fi, e := os.Stat(s); e == nil {
-                                                file.Info = fi // found
+                                var colnum = strings.Index(s, name) //strings.IndexFunc(s, isNotSpace)
+                                var isAbs, isRel bool
+                                if isAbs = filepath.IsAbs(name); isAbs {
+                                        if file.Info, _ = os.Stat(name); file.Info != nil {
+                                                file.Dir = filepath.Dir(name)
+                                                list = append(list, file)
+                                                continue ForScan
+                                        }
+                                } else if isRel = isRelPath(name); isRel {
+                                        var s = filepath.Join(targetDir, name)
+                                        if file.Info, _ = os.Stat(s); file.Info != nil {
                                                 file.Dir = filepath.Dir(s)
                                                 list = append(list, file)
                                                 continue ForScan
@@ -456,40 +462,45 @@ ForScan:
                                 } else if project.search(file) {
                                         list = append(list, file)
                                         continue ForScan
-                                }
-
-                                // Check for bare sub-path (e.g. foo/bar/name.xxx)
-                                if !isAbsRel && file.Info == nil {
-                                        if dir := filepath.Dir(name); dir != "." || strings.HasPrefix(name, "."+PathSep) {
-                                                file.Name = filepath.Base(name)
-                                                var found = project.search(file)
-                                                //fmt.Printf("%s: %s %s %s %v\n", project.name, dir, file.Name, file.Dir, found)
-                                                if found && strings.HasSuffix(file.Dir, dir) {
-                                                        list = append(list, file)
-                                                        continue ForScan
-                                                }
-                                        }
-                                }
-
-                                var colnum = strings.IndexFunc(s, isNotSpace)
-                                if optDiscardMissing && !isAbsRel {
-                                        // Only continue if it's not matched.
-                                        if file.Match == nil || file.Sub == nil {
-                                                continue ForScan
-                                        }
+                                } else {
                                         // System files defined by `sys=xxx` arguments
                                         if yes, ok := sys[x]; yes && ok {
                                                 continue ForScan
                                         }
-                                        // System files defined by `(foo.xxx) => -` files
-                                        if file.Match != nil && len(file.Match.Paths) == 1 {
-                                                if f, ok := file.Match.Paths[0].(*Flag); ok {
-                                                        if s, _ := f.Name.Strval(); s == "" {
-                                                                continue ForScan
-                                                        }
+
+                                        // Check for bare non-system sub-path (e.g. foo/bar/name.xxx)
+                                        if dir := filepath.Dir(name); /*dir != "."*/true {
+                                                var ( savDir = file.Dir ; savSub = file.Sub )
+                                                file.Dir, file.Sub = "", nil
+                                                file.Name = filepath.Base(name)
+                                                if project.search(file) && strings.HasSuffix(file.Dir, dir) {
+                                                        file.Name = name
+                                                        file.Dir = strings.TrimSuffix(file.Dir, dir)
+                                                        file.Dir = strings.TrimSuffix(file.Dir, PathSep)
+                                                        list = append(list, file)
+                                                        continue ForScan
+                                                } else {
+                                                        file.Name, file.Dir, file.Sub = name, savDir, savSub
                                                 }
                                         }
-                                        //fmt.Printf("%s:%d:%d: %s %v %v %v\n", targetFileName, linum, colnum, file.Name, file.Match, file.Sub, file.Dir)
+
+                                        // System files defined by `files ((foo.xxx) => -)`
+                                        if file.Match != nil && len(file.Match.Paths) == 1 {
+                                                if f, ok := file.Match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
+                                                        continue ForScan
+                                                }
+                                        }
+
+                                        // If it's not found in files database.
+                                        if file.Match == nil || file.Sub == nil {
+                                                //continue ForScan
+                                        }
+
+                                        if optDiscardMissing {
+                                                //continue ForScan
+                                        }
+
+                                        //fmt.Printf("%s:%d:%d: %s: %s %v %v %v\n", targetFileName, linum, colnum, project.name, file.Name, file.Match, file.Sub, file.Dir)
                                 }
 
                                 if false {

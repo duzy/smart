@@ -31,10 +31,10 @@ func (filemap *FileMap) Match(filename string) bool {
 }
 
 func (filemap *FileMap) statFile(base string, file *File) (found bool) {
-        for _, v := range filemap.Paths {
+        for _, sub := range filemap.Paths {
                 var err error
                 var dir, path string // fullpath
-                if path, err = v.Strval(); err != nil { return }
+                if path, err = sub.Strval(); err != nil { return }
 
                 if filepath.IsAbs(path) {
                         dir = path
@@ -45,10 +45,11 @@ func (filemap *FileMap) statFile(base string, file *File) (found bool) {
                 // Check file in the filesystem.
                 info, err := os.Stat(filepath.Join(dir, file.Name))
                 if err == nil && info != nil {
-                        file.Sub, file.Dir, file.Info = v, dir, info
-                        found = true; break //ForFileMaps
-                } else if file.Dir == "" {
-                        file.Sub, file.Dir = v, dir
+                        file.Sub, file.Dir, file.Info = sub, dir, info
+                        found = true; break
+                } else {
+                        if file.Dir == "" { file.Dir = dir }
+                        if file.Sub == nil { file.Sub = sub }
                 }
         }
         return
@@ -220,13 +221,13 @@ ForPats:
         return
 }
 
-func (p *Project) search(file *File) bool {
+func (p *Project) search(file *File) (res bool) {
         for _, filemap := range p.filemaps() {
                 // Match the represented file name.
                 if filemap.Match(file.Name) {
                         file.Match = filemap
                         if filemap.statFile(p.absPath, file) {
-                                break
+                                return true
                         }
                 }
         }
@@ -245,7 +246,11 @@ func (p *Project) search(file *File) bool {
                 }
         }
 
-        return file.Info != nil
+        if res = file.Info != nil; !res {
+                //file.Sub = nil
+                //file.Dir = ""
+        }
+        return
 }
 
 func (p *Project) SearchFile(name string) (file *File) {

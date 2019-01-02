@@ -174,8 +174,23 @@ func isNotSpace(r rune) bool {
         return !unicode.IsSpace(r)
 }
 
+func isRelPath(filename string) (res bool) {
+        // This implementation replaces:
+        //      strings.HasPrefix(filename, "."+PathSep)
+        //      strings.HasPrefix(filename, ".."+PathSep)
+        var ( s = "."+PathSep ; n = len(filename) )
+        if n > 1 && filename[0] == s[0] {
+                if filename[1] == s[0] && n > 2 {
+                        res = filename[2] == s[1]
+                } else if filename[1] == s[1] {
+                        res = true
+                }
+        }
+        return
+}
+
 func isAbsOrRel(filename string) bool {
-        return filepath.IsAbs(filename) || strings.HasPrefix(filename, "."+PathSep) || strings.HasPrefix(filename, ".."+PathSep)
+        return filepath.IsAbs(filename) || isRelPath(filename)
 }
 
 func builtinTypeOf(pos token.Position, args... Value) (res Value, err error) {

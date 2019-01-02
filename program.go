@@ -39,10 +39,9 @@ func (xs executestack) unshift(progs... *Program) executestack {
 }
 
 func (xs executestack) projects(first *Project) (res []*Project) {
-        if first != nil {
-                res = append(res, first)
-        }
-        ForXS: for _, x := range xs {
+        if first != nil { res = append(res, first) }
+ForXS:
+        for _, x := range xs {
                 for _, p := range res {
                         if x.project == p { continue ForXS }
                 }
