@@ -27,8 +27,8 @@ var (
         ErrorIllJson   = errors.New("illegal json format")
 )
 
-func assert(p bool) {
-	if !p {
+func assert(cond bool, a ...interface{}) {
+	if !cond {
 		panic(ErrorAssertion)
 	}
 }

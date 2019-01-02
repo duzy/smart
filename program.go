@@ -58,19 +58,6 @@ func (xs executestack) String() (s string) {
         return fmt.Sprintf("[%s]", s)
 }
 
-var printstack []string
-var printcd = true
-
-type cdinfo struct {
-        workdir, chdir string
-        print bool
-}
-
-type cdrecord struct {
-        chdir string
-        n int
-}
-
 type modifier struct {
         position token.Position
         name Value
@@ -95,8 +82,7 @@ type Program struct {
         depends []Value
         recipes []Value
         pipline []*modifier
-        cdinfos []*cdinfo
-        subcdrs []string // sub-program cd print records
+        //subcdrs []string // sub-program cd print records
         position token.Position
 }
 
@@ -211,70 +197,6 @@ func (prog *Program) hasCDDash() (res bool) {
         return
 }
 
-func (prog *Program) cd(chdir string, print, exec bool) (err error) {
-        var main = prog.globe.Main()
-        if trace_workdir {
-                fmt.Printf("entering: %v (init: %v)\n", chdir, main.absPath)
-        }
-
-        var caller *Program
-        if len(execstack) > 1 {
-                caller = execstack[1]
-        }
-
-        var cd = &cdinfo{ "", chdir, false }
-        if cd.workdir, err = os.Getwd(); err == nil {
-                if cd.workdir == cd.chdir || context.workdir == cd.chdir {
-                        cd.print = false
-                } else if err = os.Chdir(cd.chdir); err != nil {
-                        return
-                } else if cd.print = true; cd.print && exec {
-                        if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
-                                var s string
-                                if s, err = m.args[0].Strval(); err != nil {
-                                        return
-                                } else if s == "-" {
-                                        cd.print = false
-                                } else /*if s != ""*/ {
-                                        cd.print = false
-                                }
-                        }
-                }
-                if cd.print && !(print && printcd) { cd.print = false }
-                if cd.print && len(printstack) > 0 && printstack[0] == cd.chdir {
-                        cd.print = false
-                }
-                if cd.print && caller != nil {
-                        // check the caller program's subcdrs
-                        if len(caller.subcdrs) > 0 && caller.subcdrs[0] == cd.chdir {
-                                cd.print = false
-                        } else {
-                                caller.subcdrs = append([]string{cd.chdir}, caller.subcdrs...)
-                        }
-                }
-                if cd.print {
-                        fmt.Printf("smart: Entering directory '%s'\n", cd.chdir)
-                        printstack = append([]string{cd.chdir}, printstack...)
-                }
-                prog.auto("CWD", &String{cd.chdir})
-                prog.cdinfos = append([]*cdinfo{ cd }, prog.cdinfos...)
-        }
-        return
-}
-
-func (prog *Program) uncd() (err error) {
-        for _, cd := range prog.cdinfos {
-                if cd.print && false {
-                        fmt.Printf("smart:  Leaving directory '%s'\n", cd.chdir)
-                }
-                if err = os.Chdir(cd.workdir); err != nil {
-                        break
-                }
-        }
-        prog.cdinfos = prog.cdinfos[:0] // clear all
-        return
-}
-
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
         if trace_prepare {
                 fmt.Printf("program.Execute: %v (%v) (%v) (%v)\n", entry.target, prog.depends, entry.class, prog.project.absPath)
@@ -289,14 +211,14 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         // cd before setting execstack, because cd reads execstack
         // before changes.
-        if err = prog.cd(prog.project.absPath, print, true); err != nil { return }
+        if err = prog.project.enter(prog, prog.project.absPath, print, true); err != nil { return }
 
         // Have to set execstack after cd.
         defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
         defer setclosure(setclosure(cloctx.unshift(prog.scope))) // entry.DeclScope()
 
-        // uncd after setting execstack to meet the FIFO order of execstack
-        defer func() { if err == nil { err = prog.uncd() } } ()
+        // leaving after setting execstack to meet the FIFO order of execstack
+        defer func() { if err == nil { err = prog.project.leave(prog) } } ()
 
         // set $@ before pre-modifiers.
         switch t := entry.target.(type) {
@@ -421,19 +343,6 @@ PrePipe:
                 pc.targets.Elems = elems
                 prog.auto("<", pc.targets.Elems[0])
                 prog.auto("^", pc.targets)
-        }
-        for _, rec := range prog.subcdrs {
-                fmt.Printf("smart:  Leaving directory '%s'\n", rec)
-                if len(printstack) > 0 && printstack[0] == rec {
-                        printstack = printstack[1:]
-                }
-        }
-        if s := prog.project.absPath; len(printstack) > 0 && printstack[0] == s {
-                fmt.Printf("smart:  Leaving directory '%s'\n", s)
-                printstack = printstack[1:]
-        }
-        if len(prog.subcdrs) > 0 {
-                prog.subcdrs = prog.subcdrs[:0] // clear subcdrs
         }
 
         // TODO: define modifiers in a project, e.g.

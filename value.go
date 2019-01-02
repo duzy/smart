@@ -20,10 +20,10 @@ import (
 )
 
 const (
-        runtime_assertion = true
+        enable_assertions = true
         trace_compare = false
         trace_prepare = false
-        trace_workdir = true && trace_prepare
+        trace_entering = true && trace_prepare
 )
 
 type expandwhat int
@@ -277,7 +277,8 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                 if s, err = dd.Strval(); err != nil {
                         return
                 }
-                pc.targets.Append(prog.project.SearchFile(s))
+                file, _ := prog.project.searchFile(s)
+                pc.targets.Append(file)
         }
 
         if res != nil && res.Type() != NoneType {
@@ -1455,10 +1456,15 @@ func (p *Path) prepare(pc *preparer) (err error) {
         }
 
         if p.File == nil {
-                if pc.program.project.isFile(filepath.Base(s)) || pc.program.project.isFile(s) {
-                        if p.File = pc.program.project.SearchFile(s); p.File != nil {
+                if pc.program.project.isFileName(filepath.Base(s)) || pc.program.project.isFileName(s) {
+                        var found bool
+                        if p.File, found = pc.program.project.searchFile(s); p.File != nil {
                                 if trace_prepare {
                                         fmt.Printf("prepare:Path: %v (found file '%v' in %v)\n", p, p.File, pc.program.project.name)
+                                }
+                                if found {
+                                        pc.targets.Append(p)
+                                        return
                                 }
                         }
                 }
@@ -1483,7 +1489,7 @@ func (p *Path) prepare(pc *preparer) (err error) {
                         err = nil
                 } else {
                         // Search this path target as a file.
-                        p.File = pc.program.project.SearchFile(e.target)
+                        p.File, _ = pc.program.project.searchFile(e.target)
                         if p.File != nil {
                                 if trace_prepare {
                                         fmt.Printf("prepare:Path: %v (found unknown target: %v) (file: %v)\n", p, e.target, p.File.Fullname())
@@ -2619,9 +2625,14 @@ func (p *pattern) True() bool { return false }
 func (p *pattern) Integer() (int64, error) { return 0, nil }
 func (p *pattern) Float() (float64, error) { return 0, nil }
 func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
-        entry = new(RuleEntry); *entry = *patent
-        if proj := patent.OwnerProject(); proj.isFile(/*filepath.Base(target)*/target) {
-                if file := proj.SearchFile(target); file != nil {
+        entry = new(RuleEntry)
+
+        // Per-bit copying the entry object
+        *entry = *patent
+        
+        var proj = mostDerived() //patent.OwnerProject()
+        if proj.isFileName(/*filepath.Base(target)*/target) {
+                if file, _ := proj.searchFile(target); file != nil {
                         entry.target = file
                 }
         } else {

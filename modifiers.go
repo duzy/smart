@@ -56,8 +56,10 @@ var (
                 `cd`:           modifierCD,
                 `sudo`:         modifierSudo,
 
-                `compare`:         modifierCompare,
-                `grep-compare`:    modifierGrepCompare,
+                `compare`:           modifierCompare,
+                `grep`:              modifierGrep,
+                `grep-files`:        modifierGrepFiles,
+                `grep-compare`:      modifierGrepCompare,
                 `grep-dependencies`: modifierGrepDependencies,
 
                 `check`:        modifierCheck,
@@ -206,7 +208,7 @@ func modifierCD(pos token.Position, prog *Program, args... Value) (result Value,
                 if optPath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
-                if err = prog.cd(dir, optPrint, false); err == nil {
+                if err = prog.project.enter(prog, dir, optPrint, false); err == nil {
                         //for _, cd := range prog.cdinfos[1:] { cd.print = false }
                 }
         } else {
@@ -361,36 +363,56 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
         return
 }
 
-// grep-compare - grep dependencies and compare, example usag:
+// grep-compare - grep dependencies and compare, example usage:
 //
 //      (grep-compare '\s*#\s*include\s*<(.*)>')
 //      
 func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        if v, e := modifierGrepDependencies(pos, prog, args...); e != nil {
+        //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if v, e := /*modifierGrepFiles*/modifierGrepDependencies(pos, prog, args...); e != nil {
                 err = e
         } else if v != nil {
-                //var target, _ = prog.scope.Lookup("@").(Caller).Call(pos)
-                //fmt.Printf("grep-compare: %v -> %T %v\n", target, v, v)
-
+                /*
                 var def = prog.scope.Lookup("^").(*Def)
                 defer def.set(def.origin, def.Value)
                 if err = def.set(DefDefault, v); err == nil {
                         result, err = modifierCompare(pos, prog)
                 }
+                */
+                result, err = modifierCompare(pos, prog)
         }
         return
 }
 
-// https://github.com/google/re2/wiki/Syntax
+// grep-dependencies - grep dependencies, example usage:
+//
+//      (grep-dependencies '\s*#\s*include\s*<(.*)>')
+//      
 func modifierGrepDependencies(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if v, e := modifierGrepFiles(pos, prog, args...); e != nil {
+                err = e
+        } else if v != nil {
+                var def = prog.scope.Lookup("^").(*Def)
+                err = def.set(DefDefault, v)
+        }
+        return
+}
+
+// grep-files - grep files from target, example usage:
+//
+//      (grep-files '\s*#\s*include\s*<(.*)>')
+//      
+// https://github.com/google/re2/wiki/Syntax
+func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
-                target, _ = prog.scope.Lookup("@").(Caller).Call(pos)
-                rxs []*regexp.Regexp
-                sys = make(map[*regexp.Regexp]bool)
                 optDiscardMissing = false
+
+                target, _ = prog.scope.Lookup("@").(Caller).Call(pos)
+                sys = make(map[*regexp.Regexp]bool)
+                rxs []*regexp.Regexp
         )
 
         for _, arg := range args {
@@ -419,7 +441,11 @@ func modifierGrepDependencies(pos token.Position, prog *Program, args... Value) 
                         sys[x] = false
                 }
         }
-        if len(rxs) == 0 { return }
+
+        if len(rxs) == 0 {
+                err = scanner.Errorf(pos, "no grep expressions")
+                return
+        }
 
         var ( targetFileName, targetDir string ; targetFile *os.File )
         if targetFileName, err = target.Strval(); err != nil {
@@ -445,45 +471,15 @@ ForScan:
                         if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
                                 var ( name = sm[1] ; file = &File{ Name:name } )
                                 var colnum = strings.Index(s, name) //strings.IndexFunc(s, isNotSpace)
-                                var isAbs, isRel bool
-                                if isAbs = filepath.IsAbs(name); isAbs {
-                                        if file.Info, _ = os.Stat(name); file.Info != nil {
-                                                file.Dir = filepath.Dir(name)
-                                                list = append(list, file)
-                                                continue ForScan
-                                        }
-                                } else if isRel = isRelPath(name); isRel {
-                                        var s = filepath.Join(targetDir, name)
-                                        if file.Info, _ = os.Stat(s); file.Info != nil {
-                                                file.Dir = filepath.Dir(s)
-                                                list = append(list, file)
-                                                continue ForScan
-                                        }
-                                } else if project.search(file) {
+                                var yes, ok = sys[x] // System files defined by `sys=xxx` arguments
+                                if project.searchInDir(file, targetDir, name, ok && yes) {
+                                        if file.Info == nil { unreachable() }
                                         list = append(list, file)
                                         continue ForScan
-                                } else {
-                                        // System files defined by `sys=xxx` arguments
-                                        if yes, ok := sys[x]; yes && ok {
-                                                continue ForScan
-                                        }
-
-                                        // Check for bare non-system sub-path (e.g. foo/bar/name.xxx)
-                                        if dir := filepath.Dir(name); /*dir != "."*/true {
-                                                var ( savDir = file.Dir ; savSub = file.Sub )
-                                                file.Dir, file.Sub = "", nil
-                                                file.Name = filepath.Base(name)
-                                                if project.search(file) && strings.HasSuffix(file.Dir, dir) {
-                                                        file.Name = name
-                                                        file.Dir = strings.TrimSuffix(file.Dir, dir)
-                                                        file.Dir = strings.TrimSuffix(file.Dir, PathSep)
-                                                        list = append(list, file)
-                                                        continue ForScan
-                                                } else {
-                                                        file.Name, file.Dir, file.Sub = name, savDir, savSub
-                                                }
-                                        }
-
+                                } else if ok && yes {
+                                        // Missing system files is okay.
+                                        continue ForScan
+                                } else if !(filepath.IsAbs(name) || isRelPath(name)) {
                                         // System files defined by `files ((foo.xxx) => -)`
                                         if file.Match != nil && len(file.Match.Paths) == 1 {
                                                 if f, ok := file.Match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
@@ -499,20 +495,34 @@ ForScan:
                                         if optDiscardMissing {
                                                 //continue ForScan
                                         }
-
-                                        //fmt.Printf("%s:%d:%d: %s: %s %v %v %v\n", targetFileName, linum, colnum, project.name, file.Name, file.Match, file.Sub, file.Dir)
                                 }
 
-                                if false {
-                                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s)\n", targetFileName, linum, colnum, sm[1], project.name)
+                                if true {
+                                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s)\n", targetFileName, linum, colnum, name, project.name)
                                 } else {
-                                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s) (%v)\n", targetFileName, linum, colnum, sm[1], project.name, file.Match)
+                                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s) (%v)\n", targetFileName, linum, colnum, name, project.name, file.Match)
                                 }
                                 continue ForScan // break ForScan
                         }
                 }
         }
         result = MakeListOrScalar(list)
+        return
+}
+
+// grep - grep  from target file, flags:
+//
+//    -files            grep files with stats, set $-
+//    -dependencies     grep dependencies values (or files), set $^, $<, etc.
+//    -compare          grep values and compare target with them
+//
+// Example usage:
+//
+//      (grep -files '\s*#\s*include\s*<(.*)>')
+//      
+// https://github.com/google/re2/wiki/Syntax
+func modifierGrep(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        panic("TODO: grep values from target file")
         return
 }
 

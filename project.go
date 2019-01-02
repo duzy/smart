@@ -81,6 +81,14 @@ func globMatch(patval Value, filename string) (matched bool) {
         return
 }
 
+var printstack []string
+var printcd = true
+
+type cdinfo struct {
+        workdir, chdir string
+        print bool
+}
+
 type Project struct {
         keyword  token.Token // project, package, module
         
@@ -103,6 +111,10 @@ type Project struct {
         patterns []*PatternEntry
 
         filescopes []*Scope
+
+        // TODO: printEntering() ...
+        // TODO: printLeaving() ...
+        cdinfos []*cdinfo
 }
 
 func (p *Project) String() string { return fmt.Sprintf("<project %s>", p.name) }
@@ -253,40 +265,73 @@ func (p *Project) search(file *File) (res bool) {
         return
 }
 
-func (p *Project) SearchFile(name string) (file *File) {
-        file = &File{ Name: name }
-        if !p.search(file) {
-            // It's okay if file not found.
-            // It may only matched a filemap!
+func (p *Project) searchInDir(file *File, dir, name string, sys bool) (res bool) {
+        var isAbs, isRel bool
+        if isAbs = filepath.IsAbs(name); isAbs {
+                if file.Info, _ = os.Stat(name); file.Info != nil {
+                        file.Dir = filepath.Dir(name)
+                        return true //continue ForScan
+                }
+        } else if isRel = isRelPath(name); isRel {
+                var s = filepath.Join(dir, name)
+                if file.Info, _ = os.Stat(s); file.Info != nil {
+                        file.Dir = filepath.Dir(s)
+                        return true //continue ForScan
+                }
+        } else if p.search(file) {
+                return true //continue ForScan
+        } else if !sys {
+                // Check for bare non-system sub-path (e.g. foo/bar/name.xxx)
+                if dir := filepath.Dir(name); /*dir != "."*/true {
+                        var ( savDir = file.Dir ; savSub = file.Sub )
+                        file.Dir, file.Sub = "", nil
+                        file.Name = filepath.Base(name)
+                        if p.search(file) && strings.HasSuffix(file.Dir, dir) {
+                                file.Name = name
+                                file.Dir = strings.TrimSuffix(file.Dir, dir)
+                                file.Dir = strings.TrimSuffix(file.Dir, PathSep)
+                                return true //continue ForScan
+                        } else {
+                                file.Name, file.Dir, file.Sub = name, savDir, savSub
+                        }
+                }
         }
         return
 }
 
-func (p *Project) isFile(s string) (v bool) {
+func (p *Project) searchFile(name string) (file *File, res bool) {
+        file = &File{ Name: name }
+        res = p.search(file)
+        return
+}
+
+func (p *Project) isFileName(s string) (res bool) {
         if len(s) > 0 {
                 for _, filemap := range p.filemap {
-                        if false {
-                                fmt.Printf("IsFile: %v %v (%v) (%s)\n", filemap, s, filemap.Match(s), p.name)
-                        }
-                        if filemap.Match(s) {
-                                return true
-                        }
+                        if filemap.Match(s) { return true }
                 }
                 for _, base := range p.bases {
-                        if base == p {
-                                panic(fmt.Sprintf("recursive base (%v)", p.name))
-                        }
-                        if v = base.isFile(s); v {
-                                return
-                        }
+                        if res = base.isFileName(s); res { break }
                 }
         }
         return
 }
 
 func (p *Project) file(s string) (file *File) {
-        if p.isFile(s) { file = p.SearchFile(s) }
-        return
+        if okay := p.isFileName(s); okay {
+                if file, okay = p.searchFile(s); enable_assertions {
+                        assert(file != nil, "`%s` nil file", s)
+                        assert(file.Name == s, "file name differs '%s' != '%s'", file.Name, s)
+                        assert(file.Match != nil, "`%s` not matched file", s)
+                        if okay {
+                                assert(file.Info != nil, "`%v` found nil file info", s)
+                                assert(file.Dir != "", "`%v` found empty file dir", s)
+                        } else {
+                                assert(file.Info == nil, "`%v` non-nil info", s)
+                        }
+                }
+        }
+        return // FIXME: return searchFile bool result
 }
 
 func (p *Project) DefaultEntry() (entry *RuleEntry) {
@@ -542,5 +587,83 @@ func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes,
         } else {
                 err = e
         }
+        return
+}
+
+func (p *Project) enter(prog *Program, chdir string, print, exec bool) (err error) {
+        var main = prog.globe.Main()
+        if trace_entering {
+                fmt.Printf("entering: %v (init: %v)\n", chdir, main.absPath)
+        }
+
+        var caller *Program
+        if len(execstack) > 1 {
+                caller = execstack[1]
+        }
+
+        var cd = &cdinfo{ "", chdir, false }
+        if cd.workdir, err = os.Getwd(); err == nil {
+                if cd.workdir == cd.chdir || context.workdir == cd.chdir {
+                        cd.print = false
+                } else if err = os.Chdir(cd.chdir); err != nil {
+                        return
+                } else if cd.print = true; cd.print && exec {
+                        if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
+                                var s string
+                                if s, err = m.args[0].Strval(); err != nil {
+                                        return
+                                } else if s == "-" {
+                                        cd.print = false
+                                } else /*if s != ""*/ {
+                                        cd.print = false
+                                }
+                        }
+                }
+                if cd.print && !(print && printcd) { cd.print = false }
+                if cd.print && len(printstack) > 0 && printstack[0] == cd.chdir {
+                        cd.print = false
+                }
+                if cd.print && caller != nil {
+                        // check the caller program's subcdrs
+                        /*if len(caller.subcdrs) > 0 && caller.subcdrs[0] == cd.chdir {
+                                cd.print = false
+                        } else {
+                                caller.subcdrs = append([]string{cd.chdir}, caller.subcdrs...)
+                        }*/
+                }
+                if cd.print {
+                        fmt.Printf("smart: Entering directory '%s'\n", cd.chdir)
+                        printstack = append([]string{cd.chdir}, printstack...)
+                }
+                prog.auto("CWD", &String{cd.chdir})
+                p.cdinfos = append([]*cdinfo{ cd }, p.cdinfos...)
+        }
+        return
+}
+
+func (p *Project) leave(prog *Program) (err error) {
+        /*for _, rec := range prog.subcdrs {
+                fmt.Printf("smart:  Leaving directory '%s'\n", rec)
+                if len(printstack) > 0 && printstack[0] == rec {
+                        printstack = printstack[1:]
+                }
+        }*/
+        if s := prog.project.absPath; len(printstack) > 0 && printstack[0] == s {
+                fmt.Printf("smart:  Leaving directory '%s'\n", s)
+                printstack = printstack[1:]
+        }
+        /*if len(prog.subcdrs) > 0 {
+                prog.subcdrs = prog.subcdrs[:0] // clear subcdrs
+        }*/
+
+        for _, cd := range p.cdinfos {
+                if cd.print && false {
+                        fmt.Printf("smart:  Leaving directory '%s'\n", cd.chdir)
+                }
+                if err = os.Chdir(cd.workdir); err != nil {
+                        break
+                }
+        }
+        p.cdinfos = p.cdinfos[:0] // clear all
         return
 }
