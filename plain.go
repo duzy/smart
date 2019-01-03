@@ -42,6 +42,6 @@ func (t *_plain) Evaluate(prog *Program, args []Value) (result Value, err error)
         }
         if str, err = joinRecipesString(prog.recipes...); err != nil { return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{ str, name, }
+        result = &Plain{ name, str }
         return
 }

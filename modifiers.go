@@ -756,6 +756,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, args... Value) (resul
         var value Value
         if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
         if content, err = value.Strval(); err != nil { return }
+
         if f, err = os.Open(filename); err == nil && f != nil {
                 defer f.Close()
                 if st, _ := f.Stat(); st.Mode().Perm() != perm {

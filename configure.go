@@ -412,7 +412,8 @@ func configureArgumented(pos token.Position, prog *Program, target Value, arged 
 
         var params = []Value{ target }
         var fields = map[string]Value{ "name": name }
-        ForArgs: for _, arg := range arged.Args {
+ForArgs:
+        for _, arg := range arged.Args {
                 if list := arg.(*List); list != nil && list.Len() > 0 {
                         var key string
                         switch t := list.Elems[0].(type) {
