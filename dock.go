@@ -26,7 +26,10 @@ const (
         DockDefaultContainer = "smart-dock-container"
 )
 
-type docker struct {}
+type executor struct {
+        cmd, opt string
+        bare bool
+}
 
 func docksFindObj(docks []*Project, name string) (obj Object) {
         for _, dock := range docks {
@@ -46,7 +49,7 @@ func docksFindEnt(docks []*Project, name string) (entry *RuleEntry) {
         return
 }
 
-func (s *docker) runContainer(prog *Program, docks []*Project) (err error) {
+func (p *executor) runContainer(prog *Program, docks []*Project) (err error) {
         if run := docksFindEnt(docks, "run"); run != nil {
                 _, err = run.Execute(prog.Position()/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
         } else {
@@ -55,7 +58,7 @@ func (s *docker) runContainer(prog *Program, docks []*Project) (err error) {
         return
 }
 
-func (s *docker) ensureContainerRunning(prog *Program, docks []*Project, container string) (err error) {
+func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -100,7 +103,7 @@ func (s *docker) ensureContainerRunning(prog *Program, docks []*Project, contain
 
         if err = cmd.Run(); err == nil {
                 if foundID == "" {
-                        if err = s.runContainer(prog, docks); err == nil {
+                        if err = p.runContainer(prog, docks); err == nil {
                                 time.Sleep(time.Second)
                         }
                 }
@@ -108,79 +111,193 @@ func (s *docker) ensureContainerRunning(prog *Program, docks []*Project, contain
         return
 }
 
-func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error) {
-        //if args, err = Disclose(args...); err != nil { return }
+func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        var prompt, verbout, verberr, saveout, saveerr, stdin, silent, nocd bool
+        var cmd, promstr = p.cmd, ""
+        var aa []string
+        var opts = []string{
+                "o,stdout",
+                "e,stderr",
+                "v,verbout",
+                "w,verberr",
+                "p,prompt", // --verbose-shell
+                "i,stdin",
+                "s,silent",
+                "d,dump", // verbout, verberr
+                "nocd",
+        }
+ForArgs:
+        for i, v := range args {
+                if !p.bare && i == 0 {
+                        var s string
+                        if s, err = v.Strval(); err != nil { return }
+                        if s == "shell" { cmd = defaultShell }
+                        continue ForArgs
+                }
+
+                var ( runes []rune ; names []string ; s string )
+                switch t := v.(type) {
+                case *Pair:
+                        if flag, _ := t.Key.(*Flag); flag != nil {
+                                if runes, names, err = flag.opts(opts...); err != nil { return } else {
+                                        v = t.Value
+                                }
+                        } else {
+                                err = fmt.Errorf("`%v` unsupported", t)
+                                return
+                        }
+                case *Flag:
+                        if runes, names, err = t.opts(opts...); err != nil { return }
+                        v = nil // no flag value
+                default:
+                        if s, err = v.Strval(); err != nil { return } else {
+                                aa = append(aa, s)
+                        }
+                        continue ForArgs
+                }
+
+                for i, ru := range runes {
+                        switch ru {
+                        case 'i': stdin   = true
+                        case 'o': saveout = true
+                        case 'e': saveerr = true
+                        case 'v': verbout = true
+                        case 'w': verberr = true
+                        case 's': silent  = true
+                        case 'p':
+                                if v == nil {
+                                        prompt = true
+                                } else if s, err = v.Strval(); err == nil {
+                                        prompt, promstr = true, s
+                                } else {
+                                        return
+                                }
+                        case 'd': // -dump=xxx or -d=xxx
+                                if v == nil {
+                                        verbout, verberr = true, true
+                                } else if s, err = v.Strval(); err == nil {
+                                        switch s {
+                                        case "stdout": verbout = true
+                                        case "stderr": verberr = true
+                                        case "all":
+                                                verbout = true
+                                                verberr = true
+                                        }
+                                } else {
+                                        return
+                                }
+                        case 0:
+                                switch names[i] {
+                                case "nocd": nocd = true
+                                }
+                        }
+                }
+        }
 
         var recipes []Value
-        //if recipes, err = Disclose(prog.recipes...); err != nil { return }
         if recipes, err = mergeresult(ExpandAll(prog.recipes...)); err != nil { return }
 
         var docks []*Project
-        if prog.Project().Name() == "dock" {
-                docks = append(docks, prog.Project())
-        } else {
-                for _, scope := range cloctx {
-                        if _, sym := scope.Find("dock"); sym != nil {
-                                if p, ok := sym.(*ProjectName); ok && p != nil {
-                                        docks = append(docks, p.NamedProject())
+        if !p.bare {
+                if prog.Project().Name() == "dock" {
+                        docks = append(docks, prog.Project())
+                } else {
+                        for _, scope := range cloctx {
+                                if _, sym := scope.Find("dock"); sym != nil {
+                                        if p, ok := sym.(*ProjectName); ok && p != nil {
+                                                docks = append(docks, p.NamedProject())
+                                        }
                                 }
                         }
-                }
-                if docks == nil {
-                        if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
-                                if pn, _ := dockSym.(*ProjectName); pn != nil {
-                                        docks = append(docks, pn.NamedProject())
-                                }
-                        }
-                }
-        }
-
-        if docks == nil {
-                err = fmt.Errorf("docking unavailable (in %s)", prog.Project().Name())
-                return
-        }
-
-        defer setclosure(scoping(docks...))
-
-        var strval = func(name string) (str string, err error) {
-                if obj := docksFindObj(docks, name); obj != nil {
-                        if def, _ := obj.(*Def); def != nil {
-                                var v Value
-                                if v, err = def.DiscloseValue(); err == nil && v != nil {
-                                        if str, err = v.Strval(); str == "-" {
-                                                /*if v, err = def.DiscloseValue(docks); err == nil && v != nil {
-                                                        if str, err = v.Strval(); str == "" { str = "-" }
-                                                        fmt.Printf("%v: %v (%v)\n", name, str, def)
-                                                }*/
+                        if docks == nil {
+                                if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
+                                        if pn, _ := dockSym.(*ProjectName); pn != nil {
+                                                docks = append(docks, pn.NamedProject())
                                         }
                                 }
                         }
                 }
-                return
-        }
 
-        var container, image string
-        if container, err = strval("dock-container"); err != nil { return }
-        if container == "" { err = fmt.Errorf("dock-container undefined"); return }
-        if image, err = strval("dock-image"); err != nil { return }
-        if image == "" { err = fmt.Errorf("dock-image undefined"); return }
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
-        if false {
-                if err = s.ensureContainerRunning(prog, docks, container); err != nil {
+                if docks == nil {
+                        err = fmt.Errorf("docking unavailable (in %s)", prog.Project().Name())
                         return
+                }
+
+                defer setclosure(scoping(docks...))
+
+                var strval = func(name string) (str string, err error) {
+                        if obj := docksFindObj(docks, name); obj != nil {
+                                if def, _ := obj.(*Def); def != nil {
+                                        var v Value
+                                        if v, err = def.DiscloseValue(); err == nil && v != nil {
+                                                if str, err = v.Strval(); str == "-" {
+                                                        /*if v, err = def.DiscloseValue(docks); err == nil && v != nil {
+                                                        if str, err = v.Strval(); str == "" { str = "-" }
+                                                        fmt.Printf("%v: %v (%v)\n", name, str, def)
+                                                }*/
+                                                }
+                                        }
+                                }
+                        }
+                        return
+                }
+
+                var container, image string
+                if container, err = strval("dock-container"); err != nil { return }
+                if container == "" { err = fmt.Errorf("dock-container undefined"); return }
+                if image, err = strval("dock-image"); err != nil { return }
+                if image == "" { err = fmt.Errorf("dock-image undefined"); return }
+                if container != "-" && image != "-" {
+                        aa = append(aa, "exec", container, cmd)
+                        cmd = "docker"
+                }
+
+                if false {
+                        if err = p.ensureContainerRunning(prog, docks, container); err != nil {
+                                return
+                        }
                 }
         }
 
-        var (
-                exeres = new(ExecResult)
-                source, str string
-                shi = "sh" // interpreter
-        )
+        var source, str string
+        var exeres = new(ExecResult)
+        if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
+        if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
+        if verbout { exeres.Stdout.Tie = os.Stdout }
+        if verberr { exeres.Stderr.Tie = os.Stderr }
+        exeres.Stderr.Line = rxKnownErrors
 
         printEnteringDirectory()
+        if prompt {
+                var target = prog.scope.Lookup("@").(*Def).Value
+                var targetName string
+                if targetName, err = target.Strval(); err != nil {
+                        return
+                }
 
+                var proj = mostDerived()
+                var trims = []Value{
+                        prog.scope.FindDef("CWD").Value,
+                        prog.scope.FindDef("CTD").Value,
+                        proj.scope.FindDef("CWD").Value,
+                        proj.scope.FindDef("CTD").Value,
+                }
+                for _, v := range trims {
+                        var s string
+                        if s, err = v.Strval(); err != nil { return }
+                        if strings.HasPrefix(targetName, s) {
+                                targetName = strings.TrimPrefix(targetName, s)
+                                targetName = strings.TrimPrefix(targetName, PathSep)
+                        }
+                }
+                
+                if promstr == "" {
+                        fmt.Printf("smart: gen %s\n", targetName)
+                } else {
+                        fmt.Printf("%s: %s\n", promstr, targetName)
+                }
+        }
         ForRecipes: for _, recipe := range recipes {
                 if str, err = recipe.Strval(); err != nil { return }
                 if source += str; strings.HasSuffix(source, "\\") {
@@ -199,12 +316,11 @@ func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error)
 
                 if strings.HasPrefix(source, "@") {
                         source = source[1:]
-                } else {
-                        // TODO: using `--verbose-shell` to control this
+                } else if !prompt {
                         var s = source
                         s = strings.Replace(s, "\n", "\\n", -1)
                         s = strings.Replace(s, "\\\\n", "\\\n", -1)
-                        fmt.Printf("%v\n", s)
+                        fmt.Printf("%s\n", s)
                 }
 
                 var src = source
@@ -221,44 +337,7 @@ func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error)
                         }
                 }
 
-                var cmd, str string
-                var a = []string{ "exec" }
-                var verbout, verberr, saveout, saveerr, stdin, silent, nocd bool
-                ForArgs: for _, v := range args {
-                        switch t := v.(type) {
-                        case *Pair:
-                                if f, _ := t.Key.(*Flag); f != nil {
-                                        var name, value string
-                                        if name, err = f.Name.Strval(); err != nil { return }
-                                        switch name {
-                                        case "dump": // -dump=xxx
-                                                if value, err = t.Value.Strval(); err != nil { return }
-                                                switch value {
-                                                case "stdout": verbout = true
-                                                case "stderr": verberr = true
-                                                }
-                                                continue ForArgs
-                                        }
-                                }
-                        case *Flag:
-                                if str, err = t.Name.Strval(); err != nil { return }
-                                if saveout = strings.ContainsRune(str, 'o'); saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
-                                if saveerr = strings.ContainsRune(str, 'e'); saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
-                                if verbout = strings.ContainsRune(str, 'v'); verbout { exeres.Stdout.Tie = os.Stdout }
-                                if verberr = strings.ContainsRune(str, 'w'); verberr { exeres.Stderr.Tie = os.Stderr }
-                                if stdin   = strings.ContainsRune(str, 'i'); stdin   { a = append(a, "-ti") }
-                                if silent  = strings.ContainsRune(str, 's'); silent  { }
-                                if nocd = str == "nocd"; nocd {}
-                                continue ForArgs
-                        default:
-                                if shi, err = args[0].Strval(); err != nil { return }
-                                continue ForArgs
-                        }
-                        if str, err = v.Strval(); err != nil { return } else {
-                                a = append(a, str)
-                        }
-                }
-
+                var str string
                 var wd = prog.scope.Lookup("CWD").(*Def).Value //Call(pos)
                 if str, err = wd.Strval(); err != nil { return }
                 if str != "" || nocd {
@@ -286,17 +365,16 @@ func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error)
                                 src = fmt.Sprintf("%s && %s", str, src)
                         }
                 }
-                if shi == "shell" { shi = "bash" } //defaultShellInterpreter
-                if container == "-" && image == "-" {
-                        cmd, a = shi, []string{ "-c", src }
-                } else {
-                        cmd, a = "docker", append(a, container, shi, "-c", src)
-                }
 
-                var ensureSkips = make(map[string]bool)
-                var sh = exec.Command(cmd, a...)
-                if stdin { sh.Stdin = os.Stdin }
-                sh.Stdout, sh.Stderr, sh.Env = &exeres.Stdout, &exeres.Stderr, os.Environ()
+                var skips = make(map[string]bool)
+                var sh = exec.Command(cmd, aa...)
+                sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
+                if stdin {
+                        sh.Stdin = os.Stdin
+                        sh.Args = append(sh.Args, "-ti")
+                }
+                sh.Args = append(sh.Args, p.opt, src)
+                sh.Env = os.Environ()
                 for _, v := range envars {
                         if v, err = v.expand(expandClosure); err != nil {
                                 return
@@ -307,8 +385,6 @@ func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error)
                         }
                 }
 
-                exeres.Stderr.Line = rxKnownErrors
-
         RunCommand:
                 var num = 0
                 exeres.Stderr.Subm = nil
@@ -317,15 +393,15 @@ func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error)
                         continue ForRecipes
                 }
 
-                // Parse errors.
+                // Parse errors of execution
                 if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
                         if exeres.Stderr.Subm != nil {
                                 var errstr = string(exeres.Stderr.Subm[0][0][0])
                                 if errstr == errNotTTYDevice {
                                         if num > 2 { break } // only retry once
                                         fmt.Printf("smart: good to retry (%s)\n", source)
-                                        c := exec.Command(cmd, a...)
-                                        c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
+                                        c := exec.Command(sh.Path, sh.Args...)
+                                        c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                                         sh = c; goto RunCommand // retry the command
                                 } else if m := rxCompilation.FindAllStringSubmatch(errstr, -1); m != nil {
                                         err = fmt.Errorf("%s", m[0][4])
@@ -333,18 +409,16 @@ func (s *docker) Evaluate(prog *Program, args []Value) (result Value, err error)
                                         err = fmt.Errorf("`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
                                 } else if matched, _ := regexp.MatchString(errNoNetwork, errstr); matched {
                                         // TODO: dealing with network not found error
-                                } else if false {
+                                } else if false && docks != nil {
                                         // retry the command
-                                        var (
-                                                name = string(exeres.Stderr.Subm[0][0][1])
-                                                skip, _ = ensureSkips[name]
-                                        )
-                                        if !skip {
-                                                ensureSkips[name] = true
-                                                if err = s.runContainer(prog, docks); err == nil {
-                                                        fmt.Printf("smart: started %s (name=%s)\n", container, name) // name
-                                                        c := exec.Command(cmd, a...)
-                                                        c.Stdout, c.Stderr, c.Env = sh.Stdout, sh.Stderr, sh.Env
+                                        var name = string(exeres.Stderr.Subm[0][0][1])
+                                        if v, ok := skips[name]; !ok && !v {
+                                                skips[name] = true
+                                                if err = p.runContainer(prog, docks); err == nil {
+                                                        //fmt.Printf("smart: started %s (name=%s)\n", container, name) // name
+                                                        fmt.Printf("smart: started %s\n", name) // name
+                                                        c := exec.Command(sh.Path, sh.Args...)
+                                                        c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                                                         sh = c; goto RunCommand
                                                 }
                                         }

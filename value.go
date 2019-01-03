@@ -1874,6 +1874,40 @@ func (p *Flag) is(r rune, s string) (result bool, err error) {
         }}
         return
 }
+func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
+        switch t := p.Name.(type) {
+        case *Flag:
+                runes, names, err = t.opts(opts...)
+        case *String:
+                for _, opt := range opts {
+                        if t.string == opt {
+                                if len(opt) > 0 {
+                                        names = append(names, opt)
+                                }
+                        }
+                }
+        case *Bareword:
+                for _, opt := range opts {
+                        if i := strings.IndexRune(opt, ','); i == 0 {
+                                if t.string == opt[1:] {
+                                        names = append(names, opt)
+                                }
+                        } else if i > 0 {
+                                if t.string == opt[i+1:] {
+                                        runes = append(runes, rune(opt[0]))
+                                        names = append(names, opt[1:])
+                                } else if strings.ContainsAny(t.string, opt[0:i]) {
+                                        runes = append(runes, rune(opt[0]))
+                                        names = append(names, opt[i+1:])
+                                }
+                        }
+                }
+        }
+        if enable_assertions {
+                assert(len(runes) == len(names), "unmatched opts lengths")
+        }
+        return
+}
         
 type Compound struct { elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {

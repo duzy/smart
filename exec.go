@@ -19,6 +19,8 @@ import (
 )
 
 var (
+        defaultShell = "bash"
+
         errNotTTYDevice = `the input device is not a TTY`
         errNoContainer = `Error.*: No such container: (.*)`
         errNoNetwork = `Error.*: network (.*) not found\.`
@@ -126,12 +128,12 @@ func trimRightSpaces(s string) string {
         return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
-type executor struct {
+type _executor struct {
         cmd string // shell command
         opt string // execute option: -c (sh, python), -e (perl)
 }
 
-func (s *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (s *_executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         //if args, err = Disclose(args...); err != nil { return }
 
