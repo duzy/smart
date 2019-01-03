@@ -11,7 +11,6 @@ import (
         "os/exec"
         "strings"
         "strconv"
-        "unicode"
         "regexp"
         "bytes"
         "bufio"
@@ -121,14 +120,6 @@ func (p *ExecResult) String() string {
         }
         fmt.Fprintf(&s, ")")
         return s.String()
-}
-
-func trimLeftSpaces(s string) string {
-        return strings.TrimLeftFunc(s, unicode.IsSpace)
-}
-
-func trimRightSpaces(s string) string {
-        return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
 type executor struct {

@@ -193,6 +193,14 @@ func isAbsOrRel(filename string) bool {
         return filepath.IsAbs(filename) || isRelPath(filename)
 }
 
+func trimLeftSpaces(s string) string {
+        return strings.TrimLeftFunc(s, unicode.IsSpace)
+}
+
+func trimRightSpaces(s string) string {
+        return strings.TrimRightFunc(s, unicode.IsSpace)
+}
+
 func builtinTypeOf(pos token.Position, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
