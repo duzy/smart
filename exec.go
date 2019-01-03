@@ -91,6 +91,29 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
         return
 }
 
+func (p *ExecBuffer) parseKnownErrors(report bool) (err error, tag string, retry bool) {
+        if p.Subm == nil {
+                return
+        } else if str := string(p.Subm[0][0][0]); str == errNotTTYDevice {
+                retry = true
+        } else if m := rxCompilation.FindAllStringSubmatch(str, -1); m != nil {
+                err = fmt.Errorf("%s", m[0][4])
+        } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
+                err = fmt.Errorf("`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
+                if report {
+                        fmt.Fprintf(os.Stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4])
+                }
+        } else if matched, _ := regexp.MatchString(errNoNetwork, str); matched {
+                // TODO: dealing with network not found error
+        } else if false {
+                // retry the command
+                tag, retry = string(p.Subm[0][0][1]), true
+        } else {
+                err = fmt.Errorf(str)
+        }
+        return
+}
+
 type ExecResult struct {
         Stdout ExecBuffer
         Stderr ExecBuffer
@@ -491,42 +514,33 @@ ForArgs:
 
                 // Parse errors of execution
                 if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
-                        if exeres.Stderr.Subm != nil {
-                                var errstr = string(exeres.Stderr.Subm[0][0][0])
-                                if errstr == errNotTTYDevice {
-                                        if num > 2 { break } // only retry once
-                                        fmt.Printf("smart: good to retry (%s)\n", source)
+                        var ( tag string ; retry bool ; e = err )
+                        err, tag, retry = exeres.Stderr.parseKnownErrors(!verberr && !silent)
+                        if err == nil && retry {
+                                if num > 2 { break } // only retry once
+                                fmt.Printf("smart: good to retry (%s)\n", source)
+                                c := exec.Command(sh.Path, sh.Args...)
+                                c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
+                                sh = c
+                                goto RunCommand // retry the command
+                        } else if err != nil && silent {
+                                err = nil
+                        } else if err == nil {
+                                err = fmt.Errorf("%v", e)
+                        } else if tag == "" {
+                                if promstr == "" {
+                                        err = fmt.Errorf("command execution failed")
+                                } else {
+                                        err = fmt.Errorf("%s: execution failed", promstr)
+                                }
+                        } else if v, ok := skips[tag]; false && !v && !ok && docks != nil {
+                                skips[tag] = true // save it to skip next time
+                                if err = p.runContainer(prog, docks); err == nil {
+                                        fmt.Printf("smart: started %s\n", tag) // name
                                         c := exec.Command(sh.Path, sh.Args...)
                                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                                        sh = c; goto RunCommand // retry the command
-                                } else if m := rxCompilation.FindAllStringSubmatch(errstr, -1); m != nil {
-                                        err = fmt.Errorf("%s", m[0][4])
-                                } else if m := rxFileNotFound.FindAllStringSubmatch(errstr, -1); m != nil {
-                                        err = fmt.Errorf("`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
-                                        if !verberr && !silent {
-                                                fmt.Fprintf(os.Stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4])
-                                        }
-                                } else if matched, _ := regexp.MatchString(errNoNetwork, errstr); matched {
-                                        // TODO: dealing with network not found error
-                                } else if false && docks != nil {
-                                        // retry the command
-                                        var name = string(exeres.Stderr.Subm[0][0][1])
-                                        if v, ok := skips[name]; !ok && !v {
-                                                skips[name] = true
-                                                if err = p.runContainer(prog, docks); err == nil {
-                                                        //fmt.Printf("smart: started %s (name=%s)\n", container, name) // name
-                                                        fmt.Printf("smart: started %s\n", name) // name
-                                                        c := exec.Command(sh.Path, sh.Args...)
-                                                        c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                                                        sh = c; goto RunCommand
-                                                }
-                                        }
+                                        sh = c; goto RunCommand
                                 }
-                        }
-                        if silent {
-                                err = nil
-                        } else {
-                                err = fmt.Errorf("%v", err) // , source
                         }
                 } else {
                         exeres.Status = -1 //values.String(s)
