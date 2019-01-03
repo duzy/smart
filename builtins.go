@@ -151,9 +151,25 @@ var builtins = map[string]BuiltinFunc {
         `return`:     builtinReturn,
 }
 
-func GetBuiltinNames() (a []string) {
-        for s, _ := range builtins {
-                a = append(a, s)
+var statcache = make(map[string]os.FileInfo)
+
+func stat(s string) (info os.FileInfo, err error) {
+        var ok bool
+        if info, ok = statcache[s]; !ok {
+                if info, err = os.Stat(s); err == nil {
+                        statcache[s] = info
+                } else {
+                        delete(statcache, s)
+                }
+        }
+        return
+}
+
+func cachestat(s string) (okay bool) {
+        if info, err := os.Stat(s); err == nil {
+                statcache[s], okay = info, true
+        } else {
+                delete(statcache, s)
         }
         return
 }
@@ -2188,7 +2204,7 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
                 return
         }
 
-        if file.Info == nil { file.Info, _ = os.Stat(filename) }
+        if file.Info == nil { file.Info, _ = stat(filename) }
         if file.Info != nil {
                 var f *os.File
                 if f, err = os.Open(filename); err == nil && f != nil {

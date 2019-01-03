@@ -284,7 +284,7 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
                 if t, ok := prog.globe.timestamps[str]; ok && t.After(tt) {
                         outdated = true; return // target is outdated
                 } else if dependFile.Info == nil {
-                        dependFile.Info, _ = os.Stat(str)
+                        dependFile.Info, _ = stat(str)
                 }
                 if dependFile.Info == nil {
                         err = break_bad("no file or directory '%v'", dependFile)
@@ -445,20 +445,103 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                 return
         }
 
-        var ( targetFileName, targetDir string ; targetFile *os.File )
+        var project = mostDerived() // prog.project
+
+        var ( targetFileName string ; targetFile *os.File )
         if targetFileName, err = target.Strval(); err != nil {
                 return
-        } else if targetFile, err = os.Open(targetFileName); err != nil {
+        }
+
+        var list []Value
+        var targetDir = filepath.Dir(targetFileName)
+        var searchName = func(issys bool, linum, colnum int, name string) (file *File, found bool) {
+                file = &File{ Name:name }
+                if project.searchInDir(file, targetDir, name, issys) {
+                        if file.Info == nil { unreachable() }
+                        list = append(list, file)
+                        found = true; return //continue ForScan
+                } else if issys {
+                        // Missing system files is okay.
+                        found = true; return //continue ForScan
+                } else if !(filepath.IsAbs(name) || isRelPath(name)) {
+                        // System files defined by `files ((foo.xxx) => -)`
+                        if file.Match != nil && len(file.Match.Paths) == 1 {
+                                if f, ok := file.Match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
+                                        found = true; return //continue ForScan
+                                }
+                        }
+
+                        // If it's not found in files database.
+                        if file.Match == nil || file.Sub == nil {
+                                //found = true; return //continue ForScan
+                        }
+
+                        if optDiscardMissing {
+                                //found = true; return //continue ForScan
+                        }
+                }
+
+                if true {
+                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s)\n", targetFileName, linum, colnum, name, project.name)
+                } else {
+                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s) (%v)\n", targetFileName, linum, colnum, name, project.name, file.Match)
+                }
+                return
+        }
+
+        var savedGrepFile *os.File
+        var savedGrepFileName = joinTmpPath(project.absPath, filepath.Base(targetFileName)+".grep")
+        if fi1, e := stat(savedGrepFileName); e == nil && fi1 != nil {
+                if fi2, e := stat(targetFileName); e == nil && fi2 != nil {
+                        if fi2.ModTime().After(fi1.ModTime()) {
+                                goto GrepTargetFile
+                        }
+                }
+                if savedGrepFile, e = os.Open(savedGrepFileName); e == nil {
+                        defer savedGrepFile.Close()
+                        scanner := bufio.NewScanner(savedGrepFile)
+                        scanner.Split(bufio.ScanLines)
+                        for scanner.Scan() {
+                                var s = scanner.Text()
+                                var issys, linum, colnum int
+                                var name string
+                                if n, e := fmt.Sscanf(s, "%d %d %d %s", &issys, &linum, &colnum, &name); e == nil && n == 4 {
+                                        file, found := searchName(issys == 1, linum, colnum, name)
+                                        if file != nil && found { /*...*/ }
+                                }
+                        }
+                        result = MakeListOrScalar(list)
+                        if false {
+                                cachestat(savedGrepFileName)
+                        }
+                        return
+                }
+        }
+
+GrepTargetFile:
+        if targetFile, err = os.Open(targetFileName); err != nil {
                 if optDiscardMissing { err = nil }
                 return
         } else {
                 defer func() { err = targetFile.Close() } ()
         }
+        if dir := filepath.Dir(savedGrepFileName); dir != "." && dir != ".." {
+                if _, e := stat(dir); e == nil {
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                                return
+                        }
+                }
+        }
+        if savedGrepFile, err = os.Create(savedGrepFileName); err != nil {
+                return
+        } else {
+                defer savedGrepFile.Close()
+        }
 
-        targetDir = filepath.Dir(targetFileName)
+        var save = bufio.NewWriter(savedGrepFile)
+        defer save.Flush()
 
-        var ( list []Value ; linum int )
-        project := mostDerived() // prog.project
+        var linum int
         scanner := bufio.NewScanner(targetFile)
         scanner.Split(bufio.ScanLines)
 ForScan:
@@ -467,44 +550,26 @@ ForScan:
                 var s = scanner.Text()
                 for _, x := range rxs {
                         if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
-                                var ( name = sm[1] ; file = &File{ Name:name } )
+                                var name = sm[1]
                                 var colnum = strings.Index(s, name) //strings.IndexFunc(s, isNotSpace)
                                 var yes, ok = sys[x] // System files defined by `sys=xxx` arguments
-                                if project.searchInDir(file, targetDir, name, ok && yes) {
-                                        if file.Info == nil { unreachable() }
-                                        list = append(list, file)
+                                var issys = ok && yes
+         
+                                var d = 0 ; if issys { d = 1 }
+                                fmt.Fprintf(save, "%d %d %d %s\n", d, linum, colnum, name)
+
+                                file, found := searchName(issys, linum, colnum, name)
+                                if file != nil && found {
                                         continue ForScan
-                                } else if ok && yes {
-                                        // Missing system files is okay.
-                                        continue ForScan
-                                } else if !(filepath.IsAbs(name) || isRelPath(name)) {
-                                        // System files defined by `files ((foo.xxx) => -)`
-                                        if file.Match != nil && len(file.Match.Paths) == 1 {
-                                                if f, ok := file.Match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
-                                                        continue ForScan
-                                                }
-                                        }
-
-                                        // If it's not found in files database.
-                                        if file.Match == nil || file.Sub == nil {
-                                                //continue ForScan
-                                        }
-
-                                        if optDiscardMissing {
-                                                //continue ForScan
-                                        }
                                 }
-
-                                if true {
-                                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s)\n", targetFileName, linum, colnum, name, project.name)
-                                } else {
-                                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s) (%v)\n", targetFileName, linum, colnum, name, project.name, file.Match)
-                                }
-                                continue ForScan // break ForScan
                         }
                 }
         }
         result = MakeListOrScalar(list)
+        if false {
+                cachestat(savedGrepFileName)
+                cachestat(targetFileName)
+        }
         return
 }
 
@@ -604,7 +669,7 @@ func modifierCheck(pos token.Position, prog *Program, args... Value) (result Val
                 case "file", "dir":
                         var fi os.FileInfo
                         if str, err = t.Value.Strval(); err != nil { return }
-                        if fi, err = os.Stat(str); err != nil || fi == nil {
+                        if fi, err = stat(str); err != nil || fi == nil {
                                 err = &breaker{ optGood, fmt.Sprintf("`%v` no such file or directory", t.Value) }
                                 break ForPairs
                         }

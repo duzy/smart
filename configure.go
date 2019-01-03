@@ -290,7 +290,7 @@ func loadPackageSmartInfo(pos token.Position, name string) (info *packageinfo, e
         var found string
         for _, path := range configuration.paths {
                 s := filepath.Join(path, name + ".smart")
-                if fi, er := os.Stat(s); er == nil && fi != nil {
+                if fi, er := stat(s); er == nil && fi != nil {
                         found = s; break
                 }
         }
@@ -699,7 +699,7 @@ func modifierExtractConfiguration(pos token.Position, prog *Program, args... Val
                         var (s string; fi os.FileInfo)
                         if s, err = d.Strval(); err != nil {
                                 return
-                        } else if fi, err = os.Stat(s); err != nil {
+                        } else if fi, err = stat(s); err != nil {
                                 return
                         } else if fi.IsDir() {
                                 err = walkFiles(s, pats, func(file *File, err error) error {

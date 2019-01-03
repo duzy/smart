@@ -138,7 +138,7 @@ func (i *loader) AddSearchPaths(paths... string) (err error) {
                 if s, err = filepath.Abs(s); err != nil {
                         break
                 }
-                if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+                if fi, _ := stat(s); fi != nil && fi.IsDir() {
                         i.paths = append(i.paths, s)
                 } else {
                         return errors.New(fmt.Sprintf("path '%s' is not dir", s))
@@ -206,14 +206,14 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
                                 return
                         }
                 }
-                if fi, err = os.Stat(s); err != nil {
+                if fi, err = stat(s); err != nil {
                         sx = s + ".smart"
-                        if fi, er := os.Stat(sx); fi != nil {
+                        if fi, er := stat(sx); fi != nil {
                                 isDir, absPath, err = fi.IsDir(), sx, er
                                 return
                         }
                         sx = s + ".sm"
-                        if fi, er := os.Stat(sx); fi != nil {
+                        if fi, er := stat(sx); fi != nil {
                                 isDir, absPath, err = fi.IsDir(), sx, er
                                 return
                         }
@@ -228,7 +228,7 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
                         } else {
                                 s = filepath.Join(l.workdir, base, specName)
                         }
-                        if fi, err = os.Stat(s); err == nil && fi != nil {
+                        if fi, err = stat(s); err == nil && fi != nil {
                                 isDir, absPath = fi.IsDir(), s
                                 return
                         }
@@ -1308,14 +1308,14 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, params []Valu
                 return err
         } else if s = filepath.Join(s, "configuration.sm"); s == "" {
                 unreachable()
-        } else if fi, er := os.Stat(s); er == nil && fi != nil {
+        } else if fi, er := stat(s); er == nil && fi != nil {
                 l.includeFunc(l, ident.Pos(), &String{s})
         }
 
         if optNoDock || l.project.name == "dock" { return }
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
                 var dir = filepath.Join(s, ".smart", "dock")
-                if fi, err := os.Stat(dir); err != nil || fi == nil {
+                if fi, err := stat(dir); err != nil || fi == nil {
                         // no docking enabled
                 } else if err = l.loadDir("dock", dir, nil); err != nil {
                         l.parser.error(ident.Pos(), "dock: %v", err)
@@ -1593,7 +1593,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
                         var ( l string; t os.FileInfo )
                         if l, err = os.Readlink(fullname); err != nil { continue ListLoop }
                         if !filepath.IsAbs(l) { l = filepath.Join(linked, l) }
-                        if t, err = os.Stat(l); err != nil { continue ListLoop }
+                        if t, err = stat(l); err != nil { continue ListLoop }
                         if t.IsDir() { continue ListLoop }
                 }
 
@@ -1825,7 +1825,7 @@ func AddSearchPaths(paths... string) (err error) {
                 if s, err = filepath.Abs(s); err != nil {
                         break
                 }
-                if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+                if fi, _ := stat(s); fi != nil && fi.IsDir() {
                         globalPaths = append(globalPaths, s)
                 }
         }

@@ -43,7 +43,7 @@ func (filemap *FileMap) statFile(base string, file *File) (found bool) {
                 }
 
                 // Check file in the filesystem.
-                info, err := os.Stat(filepath.Join(dir, file.Name))
+                info, err := stat(filepath.Join(dir, file.Name))
                 if err == nil && info != nil {
                         file.Sub, file.Dir, file.Info = sub, dir, info
                         found = true; break
@@ -251,7 +251,7 @@ func (p *Project) search(file *File) (res bool) {
         }
 
         if file.Info == nil && file.Dir == "" {
-                if file.Info, _ = os.Stat(filepath.Join(p.absPath, file.Name)); file.Info != nil {
+                if file.Info, _ = stat(filepath.Join(p.absPath, file.Name)); file.Info != nil {
                         file.Dir = p.absPath
                 }
         }
@@ -274,13 +274,13 @@ func (p *Project) search(file *File) (res bool) {
 func (p *Project) searchInDir(file *File, dir, name string, sys bool) (res bool) {
         var isAbs, isRel bool
         if isAbs = filepath.IsAbs(name); isAbs {
-                if file.Info, _ = os.Stat(name); file.Info != nil {
+                if file.Info, _ = stat(name); file.Info != nil {
                         file.Dir = filepath.Dir(name)
                         return true //continue ForScan
                 }
         } else if isRel = isRelPath(name); isRel {
                 var s = filepath.Join(dir, name)
-                if file.Info, _ = os.Stat(s); file.Info != nil {
+                if file.Info, _ = stat(s); file.Info != nil {
                         file.Dir = filepath.Dir(s)
                         return true //continue ForScan
                 }

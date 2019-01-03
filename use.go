@@ -42,7 +42,8 @@ func (p *using) prepare(pc *preparer) (err error) {
         }
         if entry := p.project.DefaultEntry(); entry != nil {
                 if err = entry.prepare(pc); err != nil {
-                        fmt.Printf("%v: using default entry `%s=>%s`: %v\n", entry.Position, p.project.name, entry, err)
+                        s := entry.target.String()
+                        fmt.Printf("%v: using default entry `%s=>%s`: %v\n", entry.Position, p.project.name, s, err)
                 }
         }
         return

@@ -103,7 +103,7 @@ func (ctx *Context) run(targets... Value) (result []Value, err error) {
 func walkSmartBaseDirs(cwd string, vis func(string)bool) (s string) {
         s = cwd
         for s != "" {
-                if fi, err := os.Stat(filepath.Join(s, ".smart")); err == nil && fi != nil && !vis(s) {
+                if fi, err := stat(filepath.Join(s, ".smart")); err == nil && fi != nil && !vis(s) {
                         break
                 }
                 if up := filepath.Dir(s); up == s {
@@ -196,7 +196,7 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                 }
         }
 
-        if _, e := os.Stat(sp); e == nil {
+        if _, e := stat(sp); e == nil {
                 ctx.loader.AddSearchPaths(sp)
         }
 
@@ -218,7 +218,7 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
         AtLookupLoop: for {
                 var s1 = filepath.Join(ab, "@.smart")
                 var s2 = filepath.Join(ab, "@")
-                if fi, _ := os.Stat(s1); fi != nil {
+                if fi, _ := stat(s1); fi != nil {
                         if m := fi.Mode(); m.IsRegular() {
                                 defS.set(DefExpand, &String{ab})
                                 defD.set(DefExpand, &String{ab})
@@ -230,7 +230,7 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                         } else {
                                 fmt.Fprintf(os.Stderr, "@.smart is not a regular")
                         }
-                } else if fi, _ = os.Stat(s2); fi != nil {
+                } else if fi, _ = stat(s2); fi != nil {
                         if m := fi.Mode(); m.IsDir() {
                                 defS.set(DefExpand, &String{ab})
                                 defD.set(DefExpand, &String{ab})

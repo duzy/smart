@@ -833,7 +833,7 @@ func (p *String) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         var tt, dt time.Time
-        if info, _ := os.Stat(p.string); info != nil {
+        if info, _ := stat(p.string); info != nil {
                 tt = info.ModTime()
         }
 
@@ -843,7 +843,7 @@ func (p *String) filedependcompare(c *comparer, d *File) (err error) {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
-        } else if info, _ := os.Stat(ds); info != nil {
+        } else if info, _ := stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such file '%v'", ds)
@@ -863,7 +863,7 @@ func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         var tt, dt time.Time
-        if info, _ := os.Stat(p.string); info != nil {
+        if info, _ := stat(p.string); info != nil {
                 tt = info.ModTime()
         }
 
@@ -873,7 +873,7 @@ func (p *String) pathdependcompare(c *comparer, d *Path) (err error) {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
-        } else if info, _ := os.Stat(s); info != nil {
+        } else if info, _ := stat(s); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such directory '%v'", s)
@@ -918,7 +918,7 @@ func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
         }
 
         var tt, dt time.Time
-        if info, _ := os.Stat(p.string); info != nil {
+        if info, _ := stat(p.string); info != nil {
                 tt = info.ModTime()
         }
 
@@ -928,7 +928,7 @@ func (p *Bareword) filedependcompare(c *comparer, d *File) (err error) {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
-        } else if info, _ := os.Stat(ds); info != nil {
+        } else if info, _ := stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such file '%v'", ds)
@@ -948,7 +948,7 @@ func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
         }
 
         var tt, dt time.Time
-        if info, _ := os.Stat(p.string); info != nil {
+        if info, _ := stat(p.string); info != nil {
                 tt = info.ModTime()
         }
 
@@ -958,7 +958,7 @@ func (p *Bareword) pathdependcompare(c *comparer, d *Path) (err error) {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
-        } else if info, _ := os.Stat(s); info != nil {
+        } else if info, _ := stat(s); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such directory '%v'", s)
@@ -1072,7 +1072,7 @@ func (p *Barecomp) filedependcompare(c *comparer, d *File) (err error) {
         var tt time.Time
         ts, err := p.Strval() // target name
         if err != nil { return }
-        if info, _ := os.Stat(ts); info != nil {
+        if info, _ := stat(ts); info != nil {
                 tt = info.ModTime()
         } else {
                 return // Returns nil to request update.
@@ -1085,7 +1085,7 @@ func (p *Barecomp) filedependcompare(c *comparer, d *File) (err error) {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
-        } else if info, _ := os.Stat(ds); info != nil {
+        } else if info, _ := stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such file '%v'", ds)
@@ -1108,7 +1108,7 @@ func (p *Barecomp) pathdependcompare(c *comparer, d *Path) (err error) {
         var tt time.Time
         ts, err := p.Strval()
         if err != nil { return }
-        if info, _ := os.Stat(ts); info != nil {
+        if info, _ := stat(ts); info != nil {
                 tt = info.ModTime()
         } else {
                 return // Returns nil to request update.
@@ -1121,7 +1121,7 @@ func (p *Barecomp) pathdependcompare(c *comparer, d *Path) (err error) {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
-        } else if info, _ := os.Stat(ds); info != nil {
+        } else if info, _ := stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such file '%v'", ds)
@@ -1174,7 +1174,7 @@ func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
         var ( str string; fi os.FileInfo )
         if str, err = p.Name.Strval(); err != nil { return }
-        if fi, err = os.Stat(str); err == nil {
+        if fi, err = stat(str); err == nil {
                 res = fi.Size()
         }
         return
@@ -1372,7 +1372,7 @@ func (p *Path) filedependcompare(c *comparer, d *File) (err error) {
         if err != nil { return }
         if p.File != nil && p.File.Info != nil {
                 tt = p.File.Info.ModTime()
-        } else if info, _ := os.Stat(ts); info != nil {
+        } else if info, _ := stat(ts); info != nil {
                 tt = info.ModTime()
         } else {
                 return // Returns nil to request update.
@@ -1385,7 +1385,7 @@ func (p *Path) filedependcompare(c *comparer, d *File) (err error) {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
-        } else if info, _ := os.Stat(ds); info != nil {
+        } else if info, _ := stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such directory '%v'", ds)
@@ -1413,7 +1413,7 @@ func (p *Path) pathdependcompare(c *comparer, d *Path) (err error) {
         if err != nil { return }
         if p.File != nil && p.File.Info != nil {
                 tt = p.File.Info.ModTime()
-        } else if info, _ := os.Stat(ts); info != nil {
+        } else if info, _ := stat(ts); info != nil {
                 tt = info.ModTime()
         } else {
                 return // Returns nil to request update.
@@ -1426,7 +1426,7 @@ func (p *Path) pathdependcompare(c *comparer, d *Path) (err error) {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
-        } else if info, _ := os.Stat(ds); info != nil {
+        } else if info, _ := stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such directory '%v'", ds)
@@ -1475,7 +1475,7 @@ func (p *Path) prepare(pc *preparer) (err error) {
         } else if err = pc.updateTarget(s); err == nil {
                 // Good!
         } else if e, ok := err.(targetNotFoundError); ok {
-                if info, _ := os.Stat(e.target); info == nil {
+                if info, _ := stat(e.target); info == nil {
                         if trace_prepare {
                                 fmt.Printf("prepare:Path: %v (unknown path: %v)\n", p, e.target)
                         }
@@ -1614,7 +1614,7 @@ func (p *File) filedependcompare(c *comparer, d *File) (err error) {
         if err != nil { return }
         if p.Info != nil {
                 tt = p.Info.ModTime()
-        } else if p.Info, _ = os.Stat(ts); p.Info != nil {
+        } else if p.Info, _ = stat(ts); p.Info != nil {
                 tt = p.Info.ModTime()
         } else {
                 return // Returns nil to request update.
@@ -1627,7 +1627,7 @@ func (p *File) filedependcompare(c *comparer, d *File) (err error) {
                 dt = t
         } else if d.Info != nil {
                 dt = d.Info.ModTime()
-        } else if info, _ := os.Stat(ds); info != nil {
+        } else if info, _ := stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such file '%v'", ds)
@@ -1652,7 +1652,7 @@ func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
         if err != nil { return }
         if p.Info != nil {
                 tt = p.Info.ModTime()
-        } else if p.Info, _ = os.Stat(ts); p.Info != nil {
+        } else if p.Info, _ = stat(ts); p.Info != nil {
                 tt = p.Info.ModTime()
         } else {
                 return // Returns nil to request update.
@@ -1665,7 +1665,7 @@ func (p *File) pathdependcompare(c *comparer, d *Path) (err error) {
                 dt = t
         } else if d.File != nil && d.File.Info != nil {
                 dt = d.File.Info.ModTime()
-        } else if info, _ := os.Stat(ds); info != nil {
+        } else if info, _ := stat(ds); info != nil {
                 dt = info.ModTime()
         } else {
                 return break_bad("no such file '%v'", ds)
@@ -1693,7 +1693,7 @@ func (p *File) prepare(pc *preparer) (err error) {
         }
 
         if p.Info == nil && p.Dir != "" {
-                if info, err := os.Stat(p.Dir); err != nil || info == nil {
+                if info, err := stat(p.Dir); err != nil || info == nil {
                         if err = os.MkdirAll(p.Dir, 0755); err != nil {
                                 return err
                         }
