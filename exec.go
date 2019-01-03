@@ -503,6 +503,9 @@ ForArgs:
                                         err = fmt.Errorf("%s", m[0][4])
                                 } else if m := rxFileNotFound.FindAllStringSubmatch(errstr, -1); m != nil {
                                         err = fmt.Errorf("`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
+                                        if !verberr && !silent {
+                                                fmt.Fprintf(os.Stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4])
+                                        }
                                 } else if matched, _ := regexp.MatchString(errNoNetwork, errstr); matched {
                                         // TODO: dealing with network not found error
                                 } else if false && docks != nil {
