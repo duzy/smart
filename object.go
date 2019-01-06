@@ -153,10 +153,9 @@ func (p *ProjectName) Call(pos token.Position, a... Value) (value Value, err err
 }
 
 func (p *ProjectName) prepare(pc *preparer) (err error) {
+        if trace_prepare { defer prepun(preptrace(pc, "ProjectName", p.project.name)) }
+
         var defent = p.project.DefaultEntry()
-        if trace_prepare {
-                fmt.Printf("prepare:ProjectName: project %v (default %v)\n", p.name, defent)
-        }
         if defent != nil && defent.class != UseRuleEntry {
                 err = defent.prepare(pc)
         }
@@ -209,6 +208,8 @@ type Def struct {
         Value Value
 }
 
+func (d *Def) refs(v Value) bool { return d == v || (d.Value != nil && d.Value.refs(v)) }
+func (d *Def) closured() bool { return d.Value.closured() }
 func (d *Def) expand(w expandwhat) (res Value, err error) {
         if res = d; d.Value != nil {
                 var value Value
@@ -220,9 +221,6 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-
-func (d *Def) refs(v Value) bool { return d == v || (d.Value != nil && d.Value.refs(v)) }
-func (d *Def) closured() bool { return d.Value.closured() }
 
 func (d *Def) True() bool { return d.Value.True() }
 func (d *Def) String() (s string) {
@@ -339,33 +337,19 @@ func (d *Def) Get(name string) (Value, error) {
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
 }
 
-func (d *Def) compare(c *comparer) error {
-        if trace_compare {
-                fmt.Printf("compare:Def: %v (%v %T)\n", d.Value, c.target, c.target)
-        }
+func (d *Def) dependcompare(c *comparer) error {
+        if trace_compare { defer compun(comptrace(c, d, "Def"))}
+        if enable_assertions { assert(c.target != d, "self comparation") }
         return c.compare(d.Value)
 }
 
-func (d *Def) filedependcompare(c *comparer, file *File) (err error) {
-        if trace_compare {
-                fmt.Printf("compare:Def:File: %v (depends: %v) (%v %T)\n", d.Value, file, c.target, c.target)
-        }
-        if comp, _ := d.Value.(filedepend); comp != nil {
-                err = comp.filedependcompare(c, file)
-        } else {
-                err = break_bad("def: incomparable target (%T %v)", d.Value, d.Value)
-        }
-        return
-}
-
-func (d *Def) pathdependcompare(c *comparer, path *Path) (err error) {
-        if trace_compare {
-                fmt.Printf("compare:Def:Path: %v (depends: %v) (%v %T)\n", d.Value, path, c.target, c.target)
-        }
-        if comp, _ := d.Value.(pathdepend); comp != nil {
-                err = comp.pathdependcompare(c, path)
-        } else {
-                err = break_bad("def: incomparable target (%T %v)", d.Value, d.Value)
+func (d *Def) prepare(pc *preparer) (err error) {
+        if d.Value != nil {
+                if p, ok := d.Value.(prerequisite); ok {
+                        err = p.prepare(pc)
+                } else {
+                        err = fmt.Errorf("%s: non-prerequisite %T: %v", d.name, d.Value, d.Value)
+                }
         }
         return
 }
@@ -605,69 +589,22 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         return
 }
 
-func (entry *RuleEntry) compare(c *comparer) (err error) {
-        if trace_compare {
-                fmt.Printf("compare:RuleEntry: %v (%v) (%v %T)\n", entry.target, entry.class, c.target, c.target)
-        }
-        switch target := entry.target.(type) {
-        case *File:
-                if dep, ok := c.target.(filedepend); ok {
-                        err = dep.filedependcompare(c, target)
-                } else {
-                        err = fmt.Errorf("entry: not file depend (%T %v)", c.target, c.target)
-                }
-        case *Path:
-                if dep, ok := c.target.(pathdepend); ok {
-                        err = dep.pathdependcompare(c, target)
-                } else {
-                        err = fmt.Errorf("entry: not path depend (%T %v)", c.target, c.target)
-                }
-        default:
-                err = break_bad("incomparable entry target (%T %v)", target, target)
-        }
-        return
-}
-
-func (entry *RuleEntry) filedependcompare(c *comparer, file *File) (err error) {
-        if trace_compare {
-                fmt.Printf("compare:RuleEntry:File: %v (%v) (depends: %v) (%v %T)\n", entry.target, entry.class, file, c.target, c.target)
-        }
-        switch target := entry.target.(type) {
-        case *File: err = target.filedependcompare(c, file)
-        case *Path: err = target.filedependcompare(c, file)
-        default: err = break_bad("incomparable entry (%v)", target)
-        }
-        return
-}
-
-func (entry *RuleEntry) pathdependcompare(c *comparer, path *Path) (err error) {
-        if trace_compare {
-                fmt.Printf("compare:RuleEntry:Path: %v (%v) (depends: %v) (%v %T)\n", entry.target, entry.class, path, c.target, c.target)
-        }
-        switch target := entry.target.(type) {
-        case *File: err = target.pathdependcompare(c, path)
-        case *Path: err = target.pathdependcompare(c, path)
-        default: err = break_bad("incomparable entry (%v)", target)
-        }
-        return
+func (entry *RuleEntry) dependcompare(c *comparer) (err error) {
+        if trace_compare { defer compun(comptrace(c, entry, "RuleEntry")) }
+        if enable_assertions { assert(c.target != entry, "self comparation") }
+        return c.compare(entry.target)
 }
 
 func (entry *RuleEntry) prepare(pc *preparer) (err error) {
-        if trace_prepare {
-                fmt.Printf("prepare:RuleEntry: %v (%v) (%v)\n", entry.target, entry.Depends(), entry.class)
-                for i, prog := range entry.programs {
-                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v)\n", entry.target, i, prog.depends)
-                }
-        }
+        if trace_prepare { defer prepun(preptrace(pc, "RuleEntry", entry.target)) }
 
-        ForPrograms: for i, prog := range entry.programs {
-                if trace_prepare {
-                        fmt.Printf("prepare:RuleEntry: %v (program[%v]:%v) (%s)\n", entry.target, i, prog.depends, entry.class)
-                }
-                if prog == pc.program {
-                        err = fmt.Errorf("depended on itself")
-                        fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                        break ForPrograms
+ForPrograms:
+        for _, prog := range entry.programs {
+                if false && prog == pc.program {
+                        //err = fmt.Errorf("%v: depended on itself", entry.target)
+                        //fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
+                        fmt.Fprintf(os.Stderr, "%s: %v: depended on itself\n", prog.position, entry.target)
+                        //continue //break ForPrograms
                 }
                 if err = pc.execute(entry, prog); err == nil {
                         break ForPrograms
@@ -707,27 +644,18 @@ func (ps *StemmedEntry) concrete() (*RuleEntry, error) {
 }
 
 func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
-        if trace_prepare {
-                if ps.file != nil {
-                        fmt.Printf("prepare:StemmedEntry: %v (%v) (file: %v)\n", ps, ps.Patent.class, ps.file)
-                } else if ps.target != "" {
-                        fmt.Printf("prepare:StemmedEntry: %v (%v) (target: %v)\n", ps, ps.Patent.class, ps.target)
-                } else {
-                        fmt.Printf("prepare:StemmedEntry: %v (%v)\n", ps, ps.Patent.class)
-                }
-        }
-        
-        var (
-                stems = []string{ ps.Stem }
-                sources = []string{ ps.target }
-                entry *RuleEntry
-        )
+        if trace_prepare { defer prepun(preptrace(pc, "StemmedEntry", ps.Patent)) }
+
+        var stems = []string{ ps.Stem }
+        var sources = []string{ ps.target }
+        var entry *RuleEntry
         if ps.file != nil {
                 sources = append(sources, ps.file.Name)
         }
 
         // Find all useful stems.
-        ForSources: for _, source := range sources {
+ForSources:
+        for _, source := range sources {
                 var ( stem string; ok bool )
                 if source == "" { continue }
                 if ok, stem, err = ps.Patent.Pattern.match(source); ok && stem != "" {
@@ -740,13 +668,10 @@ func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
         defer func(s string) { pc.stem = s } (pc.stem)
 
         // Try preparing target with all stems.
-        ForStems: for i, stem := range stems {
+ForStems:
+        for _, stem := range stems {
                 if entry, err = ps.Patent.concrete(stem); err != nil {
                         return
-                }
-
-                if trace_prepare {
-                        fmt.Printf("prepare:StemmedEntry: %v (%v) ([%d/%d]: %v %v) (file: %v)\n", ps, entry.class, i, len(stems), entry.Depends(), stem, ps.file)
                 }
 
                 pc.stem = stem // set for the current stem.

@@ -54,18 +54,22 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
         p.errors.Add(pos, errors.New(s))
 }
 
-func (p *tracing) traceAt(pos token.Position, a ...interface{}) {
+func printIndentDots(indent int, a ...interface{}) {
 	const dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
 	const n = len(dots)
-	fmt.Printf("%7d:%3d: ", pos.Line, pos.Column)
-	i := 2 * p.indent
+	i := 2 * indent
 	for i > n {
 		fmt.Print(dots)
 		i -= n
 	}
 	// i <= n
 	fmt.Print(dots[0:i])
-	fmt.Println(a...)
+	if len(a) > 0 { fmt.Println(a...) }
+}
+
+func (p *tracing) traceAt(pos token.Position, a ...interface{}) {
+	fmt.Printf("%7d:%3d: ", pos.Line, pos.Column)
+        printIndentDots(p.indent, a...)
 }
 
 func (p *tracing) level(n int) {

@@ -154,22 +154,27 @@ var builtins = map[string]BuiltinFunc {
 var statcache = make(map[string]os.FileInfo)
 
 func stat(s string) (info os.FileInfo, err error) {
-        var ok bool
-        if info, ok = statcache[s]; !ok {
-                if info, err = os.Stat(s); err == nil {
-                        statcache[s] = info
-                } else {
-                        delete(statcache, s)
+        if ok := enable_statcache; ok {
+                if info, ok = statcache[s]; !ok {
+                        if info, err = os.Stat(s); err == nil {
+                                statcache[s] = info
+                        } else {
+                                delete(statcache, s)
+                        }
                 }
+        } else {
+                info, err = os.Stat(s)
         }
         return
 }
 
 func cachestat(s string) (okay bool) {
-        if info, err := os.Stat(s); err == nil {
-                statcache[s], okay = info, true
-        } else {
-                delete(statcache, s)
+        if enable_statcache {
+                if info, err := os.Stat(s); err == nil {
+                        statcache[s], okay = info, true
+                } else {
+                        delete(statcache, s)
+                }
         }
         return
 }

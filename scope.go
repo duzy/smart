@@ -236,7 +236,12 @@ func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeN
 }
 
 func (scope *Scope) Def(owner *Project, name string, value Value) (def *Def, alt Object) {
-        if alt = scope.elems[name]; alt == nil {
+        var okay bool
+        if alt, okay = scope.elems[name]; okay && alt == nil {
+                delete(scope.elems, name)
+                okay = false
+        }
+        if !okay {
                 def = &Def{
                         knownobject{
                                 unknownobject{

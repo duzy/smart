@@ -271,7 +271,7 @@ func (p *Project) search(file *File) (res bool) {
         return
 }
 
-func (p *Project) searchInDir(file *File, dir, name string, sys bool) (res bool) {
+func (p *Project) searchInDir(file *File, dir, name string, ignoreMissing bool) (res bool) {
         var isAbs, isRel bool
         if isAbs = filepath.IsAbs(name); isAbs {
                 if file.Info, _ = stat(name); file.Info != nil {
@@ -286,20 +286,20 @@ func (p *Project) searchInDir(file *File, dir, name string, sys bool) (res bool)
                 }
         } else if p.search(file) {
                 return true //continue ForScan
-        } else if !sys {
+        } else if ignoreMissing {
+                // ignore missing
+        } else if dir := filepath.Dir(name); /*dir != "."*/true {
                 // Check for bare non-system sub-path (e.g. foo/bar/name.xxx)
-                if dir := filepath.Dir(name); /*dir != "."*/true {
-                        var ( savDir = file.Dir ; savSub = file.Sub )
-                        file.Dir, file.Sub = "", nil
-                        file.Name = filepath.Base(name)
-                        if p.search(file) && strings.HasSuffix(file.Dir, dir) {
-                                file.Name = name
-                                file.Dir = strings.TrimSuffix(file.Dir, dir)
-                                file.Dir = strings.TrimSuffix(file.Dir, PathSep)
-                                return true //continue ForScan
-                        } else {
-                                file.Name, file.Dir, file.Sub = name, savDir, savSub
-                        }
+                var ( savDir = file.Dir ; savSub = file.Sub )
+                file.Dir, file.Sub = "", nil
+                file.Name = filepath.Base(name)
+                if p.search(file) && strings.HasSuffix(file.Dir, dir) {
+                        file.Dir = strings.TrimSuffix(file.Dir, dir)
+                        file.Dir = strings.TrimSuffix(file.Dir, PathSep)
+                        file.Name = name
+                        return true //continue ForScan
+                } else {
+                        file.Name, file.Dir, file.Sub = name, savDir, savSub
                 }
         }
         return
@@ -398,15 +398,8 @@ func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
 }
 
 func (p *Project) updateTarget(pc *preparer, target string) (err error) {
-        if trace_prepare {
-                fmt.Printf("prepare:Target: %v (project %s)\n", target, p.name)
-        }
-
         var entry *RuleEntry
         if entry, err = p.resolveEntry(target); entry != nil {
-                if trace_prepare {
-                        fmt.Printf("prepare:Target: %v (found %v) (%v)\n", target, entry, p.name)
-                }
                 err = pc.update(entry)
                 return
         }
@@ -414,16 +407,10 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
         var pss []*StemmedEntry
         if pss, err = p.resolvePatterns(target); err == nil {
                 for _, ps := range pss {
-                        if trace_prepare {
-                                fmt.Printf("prepare:Target: %v (stemmed %v) (%v)\n", target, ps, p.name)
-                        }
                         ps.target = target // Bounds StemmedEntry with the source.
                         if err = ps.prepare(pc); err == nil {
                                 return // Updated successfully!
                         } else if _, ok := err.(patternPrepareError); ok {
-                                if trace_prepare {
-                                        fmt.Printf("prepare:Target: %v (error: %s)\n", target, err)
-                                }
                                 // Discard pattern unfit errors and caller stack.
                                 err = nil
                         } else {
@@ -433,10 +420,6 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
         }
 
         err = targetNotFoundError{ target }
-
-        if trace_prepare {
-                fmt.Printf("prepare: %v %+v\n", err, pc.program.depends)
-        }
         return
 }
 

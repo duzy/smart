@@ -25,6 +25,7 @@ import (
 type breaker struct {
         good bool // it's good to continue
         message string
+        //values []Value
 }
 
 func (p *breaker) Error() string { return p.message }
@@ -157,9 +158,6 @@ func findBacktrackDir() (dir string) {
                 for _, p := range execstack[1:] {
                         if p.project != top.project {
                                 dir = p.project.AbsPath()
-                                if trace_prepare {
-                                        fmt.Printf("prepare:CD: %s (%s)\n", dir, p.project.name)
-                                }
                                 break
                         }
                 }
@@ -201,9 +199,6 @@ func modifierCD(pos token.Position, prog *Program, args... Value) (result Value,
                 } else if dir == "" {
                         err = fmt.Errorf("no trackback (tracks=%v)", len(execstack))
                         return
-                }
-                if trace_prepare {
-                        fmt.Printf("prepare: cd %s (%s)\n", dir, prog.project.name)
                 }
                 if optPath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
@@ -320,26 +315,53 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
 }
 
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if args, err = Disclose(args...); err != nil { return }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var ( optPath bool; nargs = len(args) )
-        if nargs > 0 {
-                var v []Value
-                for _, arg := range args {
-                        switch a := arg.(type) {
-                        default: v = append(v, arg)
+        var optPath, optNoUpdate, optDisMiss bool
+        var opts = []string{
+                "p,path",
+                "i,ignore",
+                "n,no-update",
+        }
+        if len(args) > 0 {
+                var va []Value
+        ForArgs:
+                for _, v := range args {
+                        var ( runes []rune ; names []string )
+                        switch a := v.(type) {
                         case *Flag:
-                                var opt bool
-                                if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
+                                if runes, names, err = a.opts(opts...); err != nil { return }
+                                v = nil // no flag value
+                        case *Pair:
+                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                        if runes, names, err = flag.opts(opts...); err != nil { return }
+                                        v = a.Value // use flag value
+                                } else {
+                                        err = fmt.Errorf("`%v` unknown argument", a)
+                                        return
+                                }
+                        default:
+                                va = append(va, a)
+                                continue ForArgs
+                        }
+                        if enable_assertions {
+                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'p': optPath = true
+                                case 'i': optDisMiss = true
+                                case 'n': optNoUpdate = true
+                                }
                         }
                 }
-                args, nargs = v, len(v) // Reset args
+                args = va // reset args
         }
 
         var target = prog.scope.Lookup("@").(*Def)
-        if nargs == 1 {
+        if n := len(args); n == 1 {
                 target.set(DefDefault, args[0])
-        } else if nargs > 1 {
+        } else if n > 1 {
                 err = break_bad("two many targets (%v)", args)
                 return
         }
@@ -353,7 +375,9 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
         }
 
         var c *comparer
-        if c, err = NewComparer(prog.globe, target); err == nil {
+        if c, err = newcompariation(prog.globe, target); err == nil {
+                c.nomiss = optDisMiss
+                c.noexec = optNoUpdate
                 if err = c.Compare(prog.scope.Lookup("^")); err == nil {
                         result = MakeListOrScalar(c.result)
                 }
@@ -366,18 +390,79 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
 //      (grep-compare '\s*#\s*include\s*<(.*)>')
 //      
 func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        if v, e := /*modifierGrepFiles*/modifierGrepDependencies(pos, prog, args...); e != nil {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+
+        var optPath, optNoUpdate, optDisMiss bool
+        var optTarget Value
+        var opts = []string{
+                "p,path",
+                "i,ignore",
+                "n,no-update",
+                "t,target",
+        }
+        if len(args) > 0 {
+                var va []Value
+        ForArgs:
+                for _, v := range args {
+                        var ( runes []rune ; names []string )
+                        switch a := v.(type) {
+                        case *Flag:
+                                if runes, names, err = a.opts(opts...); err != nil { return }
+                                v = nil // no flag value
+                        case *Pair:
+                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                        if runes, names, err = flag.opts(opts...); err != nil { return }
+                                        v = a.Value // use flag value
+                                } else {
+                                        va = append(va, a)
+                                        continue ForArgs
+                                }
+                        default:
+                                va = append(va, a)
+                                continue ForArgs
+                        }
+                        if enable_assertions {
+                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'p': optPath = true
+                                case 'i': optDisMiss = true
+                                case 'n': optNoUpdate = true
+                                case 't': optTarget = v
+                                }
+                        }
+                }
+                args = va // reset args
+        }
+
+        var target = prog.scope.Lookup("@").(*Def)
+        if optTarget != nil { target.set(DefDefault, optTarget) }
+        if optPath && target.Value != nil {
+                var s string
+                if s, err = target.Value.Strval(); err != nil { return }
+                if s = filepath.Dir(s); s != "." && s != ".." && s != PathSep {
+                        if err = os.MkdirAll(s, os.FileMode(0755)); err != nil { return }
+                }
+        }
+
+        if v, e := modifierGrepFiles(pos, prog, args...); e != nil {
                 err = e
-        } else if v != nil {
-                /*
+        } else if /*v != nil*/false {
                 var def = prog.scope.Lookup("^").(*Def)
                 defer def.set(def.origin, def.Value)
                 if err = def.set(DefDefault, v); err == nil {
                         result, err = modifierCompare(pos, prog)
                 }
-                */
-                result, err = modifierCompare(pos, prog)
+        } else if v != nil {
+                var c *comparer
+                if c, err = newcompariation(prog.globe, target); err == nil {
+                        c.nomiss = optDisMiss
+                        c.noexec = optNoUpdate
+                        if err = c.Compare(v); err == nil {
+                                result = MakeListOrScalar(c.result)
+                        }
+                }
         }
         return
 }
@@ -387,12 +472,11 @@ func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (resu
 //      (grep-dependencies '\s*#\s*include\s*<(.*)>')
 //      
 func modifierGrepDependencies(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         if v, e := modifierGrepFiles(pos, prog, args...); e != nil {
                 err = e
         } else if v != nil {
-                var def = prog.scope.Lookup("^").(*Def)
-                err = def.set(DefDefault, v)
+                //err = prog.scope.Lookup("^").(*Def).set(DefDefault, v)
+                err = prog.scope.Lookup("^").(*Def).append(v)
         }
         return
 }
@@ -405,16 +489,13 @@ func modifierGrepDependencies(pos token.Position, prog *Program, args... Value) 
 func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var (
-                optDiscardMissing = false
+        var optReportMissing = true
+        var optDiscardMissing = false
 
-                target, _ = prog.scope.Lookup("@").(Caller).Call(pos)
-                sys = make(map[*regexp.Regexp]bool)
-                rxs []*regexp.Regexp
-        )
-
+        type rxty struct{ string ; bool ; *regexp.Regexp }
+        var rxs []*rxty
         for _, arg := range args {
-                var ( x *regexp.Regexp ; s string )
+                var s string
                 switch a := arg.(type) {
                 case *Flag:
                         var opt bool
@@ -425,124 +506,149 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                         case "sys", "system":
                                 // FIXME: if a.Value.(*Group) ...
                                 if s, err = a.Value.Strval(); err != nil { return }
-                                if x, err = regexp.Compile(s); err != nil { return }
-                                rxs = append(rxs, x)
-                                sys[x] = true
+                                rxs = append(rxs, &rxty{s, true, nil})
                         default:
                                 err = scanner.Errorf(pos, "`%v` unsupported argument (%s)", a, s)
                                 return
                         }
                 default:
                         if s, err = a.Strval(); err != nil { return }
-                        if x, err = regexp.Compile(s); err != nil { return }
-                        rxs = append(rxs, x)
-                        sys[x] = false
+                        rxs = append(rxs, &rxty{s, false, nil})
                 }
         }
-
         if len(rxs) == 0 {
                 err = scanner.Errorf(pos, "no grep expressions")
                 return
         }
 
         var project = mostDerived() // prog.project
+        var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
+        var targetName, targetFileName string
+        switch t := target.(type) {
+        case *File:
+                targetName = t.Name
+                targetFileName, err = t.Strval()
+        default:
+                targetName, err = t.Strval()
+                targetFileName = targetName
+        }
+        if err != nil { return }
 
-        var ( targetFileName string ; targetFile *os.File )
-        if targetFileName, err = target.Strval(); err != nil {
+        var isSameAsTarget = func(file *File) (res bool) {
+                if s, _ := file.Strval(); s == targetFileName {
+                        res = true
+                } else if t, ok := target.(*File); ok && t.Name == file.Name {
+                        res = true
+                }
                 return
         }
 
         var list []Value
         var targetDir = filepath.Dir(targetFileName)
-        var searchName = func(issys bool, linum, colnum int, name string) (file *File, found bool) {
+        var searchName = func(sys bool, linum, colnum int, name string) (file *File, found bool) {
                 file = &File{ Name:name }
-                if project.searchInDir(file, targetDir, name, issys) {
+                if project.searchInDir(file, targetDir, name, sys) {
                         if file.Info == nil { unreachable() }
+                        if !isSameAsTarget(file) {
+                                list = append(list, file)
+                        }
+                        found = true; return
+                } else if sys {
+                        found = true; return // system files are not missing
+                } else if file.Match != nil && len(file.Match.Paths) == 1 {
+                        // system files defined by `files ((foo.xxx) => -)`
+                        if f, ok := file.Match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
+                                found = true; return
+                        }
+                }
+
+                if optReportMissing {
+                        fmt.Fprintf(os.Stderr, "%s:%d:%d: grep: `%s` not found (project %s)\n", targetFileName, linum, colnum, name, project.name)
+                }
+
+                // Add missing files
+                if !optDiscardMissing && !isSameAsTarget(file) {
                         list = append(list, file)
-                        found = true; return //continue ForScan
-                } else if issys {
-                        // Missing system files is okay.
-                        found = true; return //continue ForScan
-                } else if !(filepath.IsAbs(name) || isRelPath(name)) {
-                        // System files defined by `files ((foo.xxx) => -)`
-                        if file.Match != nil && len(file.Match.Paths) == 1 {
-                                if f, ok := file.Match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
-                                        found = true; return //continue ForScan
-                                }
-                        }
+                }
 
+                if filepath.IsAbs(name) || isRelPath(name) {
+                        // If it's absolute or relative.
+                } else if file.Match == nil {
                         // If it's not found in files database.
-                        if file.Match == nil || file.Sub == nil {
-                                //found = true; return //continue ForScan
-                        }
-
-                        if optDiscardMissing {
-                                //found = true; return //continue ForScan
-                        }
                 }
 
-                if true {
-                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s)\n", targetFileName, linum, colnum, name, project.name)
-                } else {
-                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s) (%v)\n", targetFileName, linum, colnum, name, project.name, file.Match)
-                }
                 return
         }
 
-        var savedGrepFile *os.File
-        var savedGrepFileName = joinTmpPath(project.absPath, filepath.Base(targetFileName)+".grep")
+        var targetOSFile *os.File
+        var savedGrepOSFile *os.File
+        var savedGrepFileName string
+        if s := targetName+".d"; filepath.IsAbs(s) {
+                dir := filepath.Dir(s)
+                s = filepath.Join("_", filepath.Base(s))
+                savedGrepFileName = joinTmpPath(dir, s)
+        } else {
+                if strings.HasPrefix(s, "..") { s = filepath.Join("_", s) }
+                // TODO: deal with foo/bar/name.xxx
+                savedGrepFileName = joinTmpPath(project.absPath, s)
+        }
         if fi1, e := stat(savedGrepFileName); e == nil && fi1 != nil {
                 if fi2, e := stat(targetFileName); e == nil && fi2 != nil {
                         if fi2.ModTime().After(fi1.ModTime()) {
                                 goto GrepTargetFile
                         }
                 }
-                if savedGrepFile, e = os.Open(savedGrepFileName); e == nil {
-                        defer savedGrepFile.Close()
-                        scanner := bufio.NewScanner(savedGrepFile)
+                if savedGrepOSFile, e = os.Open(savedGrepFileName); e == nil {
+                        defer savedGrepOSFile.Close()
+                        scanner := bufio.NewScanner(savedGrepOSFile)
                         scanner.Split(bufio.ScanLines)
                         for scanner.Scan() {
                                 var s = scanner.Text()
-                                var issys, linum, colnum int
+                                var sys, linum, colnum int
                                 var name string
-                                if n, e := fmt.Sscanf(s, "%d %d %d %s", &issys, &linum, &colnum, &name); e == nil && n == 4 {
-                                        file, found := searchName(issys == 1, linum, colnum, name)
-                                        if file != nil && found { /*...*/ }
+                                if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
+                                        file, found := searchName(sys == 1, linum, colnum, name)
+                                        if file != nil && found {
+                                                if isSameAsTarget(file) {
+                                                        unreachable()
+                                                }
+                                        }
                                 }
                         }
                         result = MakeListOrScalar(list)
-                        if false {
-                                cachestat(savedGrepFileName)
-                        }
+                        if false { cachestat(savedGrepFileName) }
                         return
                 }
         }
 
 GrepTargetFile:
-        if targetFile, err = os.Open(targetFileName); err != nil {
+        if targetOSFile, err = os.Open(targetFileName); err != nil {
                 if optDiscardMissing { err = nil }
                 return
         } else {
-                defer func() { err = targetFile.Close() } ()
+                defer func() { err = targetOSFile.Close() } ()
         }
         if dir := filepath.Dir(savedGrepFileName); dir != "." && dir != ".." {
-                if _, e := stat(dir); e == nil {
-                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                                return
-                        }
+                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                        return
                 }
         }
-        if savedGrepFile, err = os.Create(savedGrepFileName); err != nil {
+        if savedGrepOSFile, err = os.Create(savedGrepFileName); err != nil {
                 return
         } else {
-                defer savedGrepFile.Close()
+                defer savedGrepOSFile.Close()
         }
 
-        var save = bufio.NewWriter(savedGrepFile)
+        var save = bufio.NewWriter(savedGrepOSFile)
         defer save.Flush()
 
+        for _, x := range rxs {
+                x.Regexp, err = regexp.Compile(x.string)
+                if err != nil { return }
+        }
+
         var linum int
-        scanner := bufio.NewScanner(targetFile)
+        scanner := bufio.NewScanner(targetOSFile)
         scanner.Split(bufio.ScanLines)
 ForScan:
         for scanner.Scan() {
@@ -552,14 +658,14 @@ ForScan:
                         if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
                                 var name = sm[1]
                                 var colnum = strings.Index(s, name) //strings.IndexFunc(s, isNotSpace)
-                                var yes, ok = sys[x] // System files defined by `sys=xxx` arguments
-                                var issys = ok && yes
+                                var sys = x.bool // System files defined by `sys=xxx` arguments
          
-                                var d = 0 ; if issys { d = 1 }
+                                var d = 0 ; if sys { d = 1 }
                                 fmt.Fprintf(save, "%d %d %d %s\n", d, linum, colnum, name)
 
-                                file, found := searchName(issys, linum, colnum, name)
+                                file, found := searchName(sys, linum, colnum, name)
                                 if file != nil && found {
+                                        if isSameAsTarget(file) { unreachable() }
                                         continue ForScan
                                 }
                         }

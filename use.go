@@ -37,9 +37,7 @@ func (p *using) expand(w expandwhat) (Value, error) {
         return p, nil
 }
 func (p *using) prepare(pc *preparer) (err error) {
-        if trace_prepare {
-                fmt.Printf("prepare:using\n")
-        }
+        if trace_prepare { defer prepun(preptrace(pc, "using", p.project.name)) }
         if entry := p.project.DefaultEntry(); entry != nil {
                 if err = entry.prepare(pc); err != nil {
                         s := entry.target.String()
@@ -99,9 +97,7 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         return p, nil
 }
 func (p *usinglist) prepare(pc *preparer) error {
-        if trace_prepare {
-                fmt.Printf("prepare:usinglist\n")
-        }
+        if trace_prepare { defer prepun(preptrace(pc, "usinglist", p.list)) }
         for _, elem := range p.list {
                 if err := elem.prepare(pc); err != nil {
                         return err
@@ -128,10 +124,10 @@ func (p *usinglist) Strval() (s string, err error) {
 func (p *usinglist) String() string {
         var s string
         for i, elem := range p.list {
-                if i > 0 { s += ", " }
+                if i > 0 { s += "," }
                 s += elem.project.name
         }
-        return fmt.Sprintf("{%s uses %v}", p.name, s)
+        return fmt.Sprintf("using{%s}", s)
 }
 
 func (p *usinglist) append(proj *Project, params []Value) {
