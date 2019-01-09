@@ -83,15 +83,15 @@ type pathNotFoundError struct { path *Path }
 type fileNotFoundError struct { file *File }
 
 func (e targetNotFoundError) Error() string {
-        return fmt.Sprintf("unknown target `%v`", e.target) 
+        return fmt.Sprintf("`%v` target not found", e.target) 
 }
 
 func (e pathNotFoundError) Error() string {
-        return fmt.Sprintf("unknown path `%v`", e.path)
+        return fmt.Sprintf("`%v` path not found", e.path)
 }
 
 func (e fileNotFoundError) Error() string {
-        return fmt.Sprintf("`%v` unknown file (%v)", e.file.name, e.file)
+        return fmt.Sprintf("`%v` file not found (%v)", e.file.name, e.file)
 }
 
 func report(err error) error {
