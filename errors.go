@@ -78,20 +78,20 @@ func ParseStack(all bool) (s string) {
 
 // patternPrepareError indicates an error occurred in preparing a pattern.
 type patternPrepareError error
-type targetNotFoundError struct { target string }
-type pathNotFoundError struct { path *Path }
-type fileNotFoundError struct { file *File }
+type targetNotFoundError struct { project *Project; target string }
+type pathNotFoundError struct { project *Project; path *Path }
+type fileNotFoundError struct { project *Project; file *File }
 
 func (e targetNotFoundError) Error() string {
-        return fmt.Sprintf("`%v` target not found", e.target) 
+        return fmt.Sprintf("%s: `%v` target not found", e.project.name, e.target)
 }
 
 func (e pathNotFoundError) Error() string {
-        return fmt.Sprintf("`%v` path not found", e.path)
+        return fmt.Sprintf("%s: `%v` path not found", e.project.name, e.path)
 }
 
 func (e fileNotFoundError) Error() string {
-        return fmt.Sprintf("`%v` file not found (%v)", e.file.name, e.file)
+        return fmt.Sprintf("%s: `%v` file not found (%v)", e.project.name, e.file.name, e.file)
 }
 
 func report(err error) error {

@@ -359,7 +359,10 @@ func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
 
 func (p *Project) updateTarget(pc *preparer, target string) (err error) {
         var entry *RuleEntry
-        if entry, err = p.resolveEntry(target); entry != nil {
+        if entry, err = p.resolveEntry(target); err != nil {
+                //if trace_prepare { pc.tracef("%s", err) }
+                return
+        } else if entry != nil {
                 err = pc.update(entry)
                 return
         }
@@ -379,7 +382,14 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 }
         }
 
-        err = targetNotFoundError{ target }
+        if file := p.file(target); file != nil {
+                if trace_prepare { pc.tracef("file: %s", file) }
+                pc.addTarget(file)
+                return
+        }
+
+        err = targetNotFoundError{ p, target }
+        //if trace_prepare { pc.tracef("%s", err) }
         return
 }
 

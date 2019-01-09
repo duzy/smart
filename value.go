@@ -333,7 +333,23 @@ func (pc *preparer) update(value interface{}) (err error) {
 }
 
 func (pc *preparer) updateTarget(target string) (err error) {
-        err = pc.program.project.updateTarget(pc, target)
+        if false {
+                err = pc.program.project.updateTarget(pc, target)
+        } else if false {
+                var project = mostDerived()
+                err = project.updateTarget(pc, target)
+        } else {
+                for _, project := range execstack.projects(pc.program.project) {
+                        err = project.updateTarget(pc, target)
+                        if err == nil { break }
+                        if trace_prepare { pc.tracef("%s", err) }
+                        if _, ok := err.(targetNotFoundError); ok {
+                                continue
+                        } else {
+                                break
+                        }
+                }
+        }
         return
 }
 
@@ -355,7 +371,7 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err != nil {
-                if trace_prepare { pc.tracef("error: %s", err) }
+                if trace_prepare { pc.tracef("execute: %s", err) }
                 fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
                 return
         }
@@ -1482,13 +1498,25 @@ func (p *Path) prepare(pc *preparer) (err error) {
         } else if e, ok := err.(targetNotFoundError); ok {
                 if p.File = stat(e.target, "", ""); p.File == nil {
                         pc.addTarget(p) // Append unknown path anyway.
-                        err = pathNotFoundError{ p }
+                        err = pathNotFoundError{ e.project, p }
+                        if trace_prepare {
+                                //pc.tracef("execstack: %s", execstack)
+                                //pc.tracef("%s: %s", e.project.name, err)
+                                pc.tracef("%s", err)
+                        }
                 } else if p.File.info.IsDir() {
                         pc.addTarget(p)
                         err = nil
-                } else {
+                } else if false {
                         // Search this path target as a file.
                         p.File = pc.program.project.search(e.target)
+                        if p.File != nil {
+                                pc.addTarget(p.File)
+                                err = nil
+                        }
+                } else {
+                        // Search this path target as a file.
+                        p.File = e.project.search(e.target)
                         if p.File != nil {
                                 pc.addTarget(p.File)
                                 err = nil
@@ -1814,13 +1842,18 @@ func (p *File) prepare(pc *preparer) (err error) {
                                 return
                         }
                 }
-                if f := proj.search(p.name); f != nil && f.exists() {
-                        pc.addTarget(f)
+                if file := proj.search(p.name); file != nil {
+                        pc.addTarget(file)
                         return
                 }
         }
 
-        return fileNotFoundError{p}
+        err = fileNotFoundError{pc.program.project, p}
+        if trace_prepare {
+                //pc.tracef("execstack: %s", execstack)
+                pc.tracef("%s: %s", pc.program.project.name, err)
+        }
+        return
 }
 
 func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
