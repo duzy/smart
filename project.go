@@ -30,27 +30,19 @@ func (filemap *FileMap) Match(filename string) bool {
         return globMatch(filemap.Pattern, filename)
 }
 
-func (filemap *FileMap) statFile(base string, file *File) (found bool) {
-        for _, sub := range filemap.Paths {
-                var err error
-                var dir, path string // fullpath
-                if path, err = sub.Strval(); err != nil { return }
-
-                if filepath.IsAbs(path) {
-                        dir = path
+func (filemap *FileMap) stat(base, name string) (file *File) {
+        for _, path := range filemap.Paths {
+                var ( dir, sub string ; err error )
+                if sub, err = path.Strval(); err != nil { return }
+                if filepath.IsAbs(sub) {
+                        dir = sub
+                        sub = ""
                 } else {
-                        dir = filepath.Join(base, path)
+                        dir = base //filepath.Join(base, sub)
                 }
 
                 // Check file in the filesystem.
-                info, err := stat(filepath.Join(dir, file.Name))
-                if err == nil && info != nil {
-                        file.Sub, file.Dir, file.Info = sub, dir, info
-                        found = true; break
-                } else {
-                        if file.Dir == "" { file.Dir = dir }
-                        if file.Sub == nil { file.Sub = sub }
-                }
+                if file = stat(name, sub, dir); file != nil { break }
         }
         return
 }
@@ -195,10 +187,9 @@ ForPats:
                         if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
                                 if names, err = filepath.Glob(str); err != nil { break ForPats }
                                 for _, s := range names {
-                                        files = append(files, &File{
-                                                Name: s,
-                                                Dir: filepath.Dir(s),
-                                        })
+                                        file := stat(filepath.Base(s), "", filepath.Dir(s))
+                                        assert(file != nil, "`%s` missing", s)
+                                        files = append(files, file)
                                 }
                                 if breakAbsRel {
                                         continue ForPats
@@ -209,11 +200,11 @@ ForPats:
 
                         // Check against paths for non-abs/rel patterns.
                 ForPaths:
-                        for _, sub := range fm.Paths {
-                                var s string
-                                if s, err = sub.Strval(); err != nil { break ForPats }
+                        for _, path := range fm.Paths {
+                                var sub string
+                                if sub, err = path.Strval(); err != nil { break ForPats }
 
-                                subfile := filepath.Join(s, str)
+                                subfile := filepath.Join(sub, str)
                                 if names, err = filepath.Glob(subfile); err != nil { break ForPats }
                                 if len(names) == 0 { continue ForPaths }
 
@@ -227,11 +218,10 @@ ForPats:
                                 // Aka. trim prefix 'file.Sub+PathSep'
                                 prefix := strings.TrimSuffix(subfile, str)
                                 for _, s := range names {
-                                        files = append(files, &File{
-                                                Name: strings.TrimPrefix(s, prefix),
-                                                Sub: sub,
-                                                Dir: dir,
-                                        })
+                                        name := strings.TrimPrefix(s, prefix)
+                                        file := stat(name, sub, prefix)
+                                        assert(file != nil, "`%s` missing (%s)", s, name)
+                                        files = append(files, file)
                                 }
                         }
                 }
@@ -239,75 +229,48 @@ ForPats:
         return
 }
 
-func (p *Project) search(file *File) (res bool) {
+func (p *Project) search(name string) (file *File) {
         for _, filemap := range p.filemaps() {
                 // Match the represented file name.
-                if filemap.Match(file.Name) {
-                        file.Match = filemap
-                        if filemap.statFile(p.absPath, file) {
-                                return true
+                if filemap.Match(name) {
+                        if file = filemap.stat(p.absPath, name); file != nil {
+                                file.match = filemap
+                                if enable_assertions {
+                                        assert(file.exists(), "`%s` file not existed", file)
+                                }
+                                return
                         }
                 }
         }
 
-        if file.Info == nil && file.Dir == "" {
-                if file.Info, _ = stat(filepath.Join(p.absPath, file.Name)); file.Info != nil {
-                        file.Dir = p.absPath
-                }
-        }
-
-        if file.Info == nil && file.Dir == "" {
+        if file = stat(name, "", p.absPath); file == nil {
                 for _, base := range p.bases {
-                        if base.search(file) {
-                                return true
+                        file = base.search(name)
+                        if file != nil && file.exists() {
+                                return
                         }
                 }
-        }
-
-        if res = file.Info != nil; !res {
-                //file.Sub = nil
-                //file.Dir = ""
         }
         return
 }
 
-func (p *Project) searchInDir(file *File, dir, name string, ignoreMissing bool) (res bool) {
+func (p *Project) searchInDir(dir, name string, ignoreMissing bool) (file *File) {
         var isAbs, isRel bool
         if isAbs = filepath.IsAbs(name); isAbs {
-                if file.Info, _ = stat(name); file.Info != nil {
-                        file.Dir = filepath.Dir(name)
-                        return true //continue ForScan
-                }
+                file = stat(name, "", "")
         } else if isRel = isRelPath(name); isRel {
-                var s = filepath.Join(dir, name)
-                if file.Info, _ = stat(s); file.Info != nil {
-                        file.Dir = filepath.Dir(s)
-                        return true //continue ForScan
-                }
-        } else if p.search(file) {
-                return true //continue ForScan
+                file = stat(name, "", dir)
+        } else if file = p.search(name); file == nil {
+                // return
         } else if ignoreMissing {
                 // ignore missing
         } else if dir := filepath.Dir(name); /*dir != "."*/true {
                 // Check for bare non-system sub-path (e.g. foo/bar/name.xxx)
-                var ( savDir = file.Dir ; savSub = file.Sub )
-                file.Dir, file.Sub = "", nil
-                file.Name = filepath.Base(name)
-                if p.search(file) && strings.HasSuffix(file.Dir, dir) {
-                        file.Dir = strings.TrimSuffix(file.Dir, dir)
-                        file.Dir = strings.TrimSuffix(file.Dir, PathSep)
-                        file.Name = name
-                        return true //continue ForScan
-                } else {
-                        file.Name, file.Dir, file.Sub = name, savDir, savSub
+                file = p.search(filepath.Base(name))
+                if file != nil && !strings.HasSuffix(file.dir, dir) {
+                        file = nil // 
                 }
         }
-        return
-}
-
-func (p *Project) searchFile(name string) (file *File, res bool) {
-        file = &File{ Name: name }
-        res = p.search(file)
         return
 }
 
@@ -325,19 +288,16 @@ func (p *Project) isFileName(s string) (res bool) {
 
 func (p *Project) file(s string) (file *File) {
         if okay := p.isFileName(s); okay {
-                if file, okay = p.searchFile(s); enable_assertions {
-                        assert(file != nil, "`%s` nil file", s)
-                        assert(file.Name == s, "file name differs '%s' != '%s'", file.Name, s)
-                        assert(file.Match != nil, "`%s` not matched file", s)
-                        if okay {
-                                assert(file.Info != nil, "`%v` found nil file info", s)
-                                assert(file.Dir != "", "`%v` found empty file dir", s)
-                        } else {
-                                assert(file.Info == nil, "`%v` non-nil info", s)
-                        }
+                file = p.search(s)
+                if file != nil && enable_assertions {
+                        assert(file.exists(), "`%s` file not existed", file)
+                        assert(file.name == s, "file name differs '%s' != '%s'", file.name, s)
+                        //assert(file.match != nil, "`%s` not matched file", s)
+                        assert(file.info != nil, "`%v` found nil file info", s)
+                        assert(file.dir != "", "`%v` found empty file dir", s)
                 }
         }
-        return // FIXME: return searchFile bool result
+        return
 }
 
 func (p *Project) DefaultEntry() (entry *RuleEntry) {
@@ -363,7 +323,7 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
         for _, rec := range p.concrete {
                 switch target := rec.target.(type) {
                 case *File:
-                        if target.Name == s { return rec, nil }
+                        if target.name == s { return rec, nil }
                 default:
                         var sv string
                         if sv, err = target.Strval(); err != nil { return }

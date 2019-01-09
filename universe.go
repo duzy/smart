@@ -82,6 +82,9 @@ var (
                 GroupKind:      {GroupKind, IsGroup, "group"},
                 MapKind:        {MapKind, IsMap, "map"},
                 PairKind:       {PairKind, IsPair, "pair"},
+                PercPatternKind:   {PercPatternKind, IsPercPattern, "perc_pattern"},
+                GlobPatternKind:   {GlobPatternKind, IsGlobPattern, "glob_pattern"},
+                RegexpPatternKind: {RegexpPatternKind, IsRegexpPattern, "regexp_pattern"},
                 DelegateKind:   {DelegateKind, IsDelegate, "delegate"},
                 ClosureKind:    {ClosureKind, IsClosure, "closure"},
                 SelectionKind:  {SelectionKind, IsSelection, "selection"},
@@ -91,20 +94,20 @@ var (
         UnknownObjectType    = CoreTypes[UnknownObjectKind]
         KnownObjectType      = CoreTypes[KnownObjectKind]
         UnresolvedObjectType = CoreTypes[UnresolvedObjectKind]
-        UndeterminedType= CoreTypes[UndeterminedKind]
-        DefType         = CoreTypes[DefKind]
-        UsingType       = CoreTypes[UsingKind]
-        UsingListType   = CoreTypes[UsingListKind]
-        DefinerType     = CoreTypes[DefinerKind]
-        PlainType       = CoreTypes[PlainKind]
-        JSONType        = CoreTypes[JSONKind]
-        XMLType         = CoreTypes[XMLKind]
-        YAMLType        = CoreTypes[YAMLKind]
-        ExecResultType  = CoreTypes[ExecResultKind]
-        BuiltinType     = CoreTypes[BuiltinKind]
-        RuleEntryType   = CoreTypes[RuleEntryKind]
-        ScopeNameType   = CoreTypes[ScopeNameKind]
-        ProjectNameType = CoreTypes[ProjectNameKind]
+        UndeterminedType = CoreTypes[UndeterminedKind]
+        DefType          = CoreTypes[DefKind]
+        UsingType        = CoreTypes[UsingKind]
+        UsingListType    = CoreTypes[UsingListKind]
+        DefinerType      = CoreTypes[DefinerKind]
+        PlainType        = CoreTypes[PlainKind]
+        JSONType         = CoreTypes[JSONKind]
+        XMLType          = CoreTypes[XMLKind]
+        YAMLType         = CoreTypes[YAMLKind]
+        ExecResultType   = CoreTypes[ExecResultKind]
+        BuiltinType      = CoreTypes[BuiltinKind]
+        RuleEntryType    = CoreTypes[RuleEntryKind]
+        ScopeNameType    = CoreTypes[ScopeNameKind]
+        ProjectNameType  = CoreTypes[ProjectNameKind]
 
         // Shortcuts of basic types.
         InvalidType  = BasicTypes[InvalidKind]
@@ -140,7 +143,9 @@ var (
         GroupType      = CompositeTypes[GroupKind]
         MapType        = CompositeTypes[MapKind]
         PairType       = CompositeTypes[PairKind]
-        PatternType    = CompositeTypes[PatternKind]
+        PercPatternType   = CompositeTypes[PercPatternKind]
+        GlobPatternType   = CompositeTypes[GlobPatternKind]
+        RegexpPatternType = CompositeTypes[RegexpPatternKind]
         DelegateType   = CompositeTypes[DelegateKind]
         ClosureType    = CompositeTypes[ClosureKind]
         SelectionType  = CompositeTypes[SelectionKind]

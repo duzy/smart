@@ -122,6 +122,14 @@ type ExecResult struct {
 func (p *ExecResult) refs(_ Value) bool { return false }
 func (p *ExecResult) closured() bool { return false }
 func (p *ExecResult) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *ExecResult) cmp(v Value) (res cmpres) {
+        if v.Type() == ExecResultType {
+                a, ok := v.(*ExecResult)
+                assert(ok, "value is not ExecResult")
+                if p.Status == a.Status { res = cmpEqual }
+        }
+        return
+}
 func (p *ExecResult) Type() Type { return ExecResultType }
 func (p *ExecResult) True() bool { return p.Status == 0 && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */ }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }

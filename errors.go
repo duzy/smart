@@ -17,8 +17,6 @@ import (
 var (
         ErrorIllImport  = errors.New("illegal import spec")
         ErrorIllName    = errors.New("illegal name")
-        ErrorUnreachable = errors.New("unreachable")
-        ErrorAssertion   = errors.New("assertion failed")
 
         ErrorUpdated   = errors.New("target updated")
         ErrorNilExec   = errors.New("execute nil program")
@@ -31,21 +29,16 @@ type AssertionFailed string
 
 func (s AssertionFailed) Error() string { return string(s) }
 
-func assert(cond bool, f string, a ...interface{}) {
-	if !cond {
-                s := fmt.Sprintf(f, a...)
-		panic(AssertionFailed(s))
-	}
+func assert(cond bool, s string, a ...interface{}) {
+	if !cond { panic(AssertionFailed(fmt.Sprintf(s, a...))) }
 }
 
-func precondition(cond bool, msg string) {
-	if !cond {
-		panic("parser internal error: " + msg)
-	}
-}
+type UnreachablePoint string
 
-func unreachable() {
-	panic(ErrorUnreachable)
+func (s UnreachablePoint) Error() string { return string(s) }
+
+func unreachable(a ...interface{}) {
+	panic(UnreachablePoint(fmt.Sprint(a...)))
 }
 
 type Returner struct {
@@ -98,7 +91,7 @@ func (e pathNotFoundError) Error() string {
 }
 
 func (e fileNotFoundError) Error() string {
-        return fmt.Sprintf("unknown file `%v` (%v)", e.file.Name, e.file)
+        return fmt.Sprintf("`%v` unknown file (%v)", e.file.name, e.file)
 }
 
 func report(err error) error {

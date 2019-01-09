@@ -46,6 +46,16 @@ func (p *using) prepare(pc *preparer) (err error) {
         }
         return
 }
+func (p *using) cmp(v Value) (res cmpres) {
+        if v.Type() == UsingType {
+                a, ok := v.(*using)
+                assert(ok, "value is not using")
+                if p.project == a.project {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 func (p *using) Type() Type { return UsingType }
 func (p *using) True() bool { return p.project != nil }
 func (p *using) Integer() (i int64, err error) { return 0, nil }
@@ -113,6 +123,16 @@ func (p *usinglist) True() bool { return len(p.list) > 0 }
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }
 func (p *usinglist) Float() (float64, error) { return 0, nil }
+func (p *usinglist) cmp(v Value) (res cmpres) {
+        if v.Type() == UsingListType {
+                a, ok := v.(*usinglist)
+                assert(ok, "value is not usinglist")
+                if p.name == a.name && p.owner == a.owner {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 func (p *usinglist) Strval() (s string, err error) {
         for i, elem := range p.list {
                 if i > 0 { s += " " }

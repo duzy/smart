@@ -12,9 +12,7 @@ import (
         "io"
 )
 
-type XML struct {
-        Value Value
-}
+type XML struct { Value Value }
 func (p *XML) refs(_ Value) bool { return false }
 func (p *XML) closured() bool { return p.Value.closured() }
 func (p *XML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
@@ -24,6 +22,14 @@ func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *XML) Strval() (string, error) { return p.Value.Strval() }
 func (p *XML) Integer() (int64, error) { return 0, nil }
 func (p *XML) Float() (float64, error) { return 0, nil }
+func (p *XML) cmp(v Value) (res cmpres) {
+        if v.Type() == XMLType {
+                a, ok := v.(*XML)
+                assert(ok, "value is not XML")
+                res = p.Value.cmp(a.Value)
+        }
+        return
+}
 
 /*
 <books number="3">

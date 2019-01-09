@@ -52,6 +52,16 @@ func (p *unknownobject) Integer() (int64, error) { return 0, nil }
 func (p *unknownobject) Float() (float64, error) { return 0, nil }
 func (p *unknownobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *unknownobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
+func (p *unknownobject) cmp(v Value) (res cmpres) {
+        if v.Type() == UnknownObjectType {
+                a, ok := v.(*unknownobject)
+                assert(ok, "value is not unknownobject")
+                if p.owner == a.owner && p.scope == a.scope {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 
 type knownobject struct { // generally named objects
         unknownobject
@@ -72,6 +82,16 @@ func (p *knownobject) redecl(scope *Scope) {
                         p.scope.elems[p.name] = p
                 }
         }
+}
+func (p *knownobject) cmp(v Value) (res cmpres) {
+        if v.Type() == KnownObjectType {
+                a, ok := v.(*knownobject)
+                assert(ok, "value is not knownobject")
+                if p.owner == a.owner && p.scope == a.scope && p.name == a.name {
+                        res = cmpEqual
+                }
+        }
+        return
 }
 
 type unresolvedobject struct { // named callable/executable objects
@@ -108,6 +128,17 @@ func (p *unresolvedobject) redecl(scope *Scope) {
                 }
         }
 }
+func (p *unresolvedobject) cmp(v Value) (res cmpres) {
+        if v.Type() == UnresolvedObjectType {
+                a, ok := v.(*unresolvedobject)
+                assert(ok, "value is not unresolvedobject")
+                if p.owner == a.owner && p.scope == a.scope {
+                        res = p.name.cmp(a.name)
+                }
+        }
+        return
+}
+
 func unresolved(p *Project, v Value) *unresolvedobject {
         return &unresolvedobject{unknownobject{ scope: p.scope, owner: p }, v}
 }
@@ -125,10 +156,7 @@ func (p *ProjectName) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *ProjectName) Type() Type { return ProjectNameType }
 func (p *ProjectName) True() bool { return p.project != nil }
 func (p *ProjectName) NamedProject() *Project { return p.project }
-func (p *ProjectName) Strval() (string, error) {
-        //return fmt.Sprintf("%s!%p", p.name, p.project), nil
-        return p.name, nil
-}
+func (p *ProjectName) Strval() (string, error) { return p.name, nil }
 func (p *ProjectName) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -162,6 +190,17 @@ func (p *ProjectName) prepare(pc *preparer) (err error) {
         return
 }
 
+func (p *ProjectName) cmp(v Value) (res cmpres) {
+        if v.Type() == ProjectNameType {
+                a, ok := v.(*ProjectName)
+                assert(ok, "value is not ProjectName")
+                if p.name == a.name && p.project == a.project {
+                        res = cmpEqual
+                }
+        }
+        return
+}
+
 type ScopeName struct {
         knownobject
         scope *Scope
@@ -184,6 +223,17 @@ func (n *ScopeName) Get(name string) (Value, error) {
                 return value, nil
         }
         return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name())
+}
+
+func (p *ScopeName) cmp(v Value) (res cmpres) {
+        if v.Type() == ScopeNameType {
+                a, ok := v.(*ScopeName)
+                assert(ok, "value is not ScopeName")
+                if p.name == a.name && p.scope == a.scope {
+                        res = cmpEqual
+                }
+        }
+        return
 }
 
 type DefOrigin int
@@ -222,6 +272,20 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
         return
 }
 
+func (d *Def) cmp(v Value) (res cmpres) {
+        if v.Type() == DefType {
+                if d.Value != nil {
+                        a, ok := v.(*Def)
+                        assert(ok, "value is not Def")
+                        if a.Value != nil {
+                                res = d.Value.cmp(a.Value)
+                        }
+                }
+        }
+        return
+}
+
+func (d *Def) Type() Type { return DefType }
 func (d *Def) True() bool { return d.Value.True() }
 func (d *Def) String() (s string) {
         switch s = d.name; d.origin {
@@ -399,15 +463,40 @@ func (p *undetermined) Strval() (s string, err error) {
 func (p *undetermined) Float() (float64, error) { return 0, nil }
 func (p *undetermined) Integer() (int64, error) { return 0, nil }
 
+func (p *undetermined) cmp(v Value) (res cmpres) {
+        if v.Type() == UndeterminedType {
+                a, ok := v.(*undetermined)
+                assert(ok, "value is not undetermined")
+                if p.identifier.cmp(a.identifier) == cmpEqual {
+                        if p.value.cmp(a.value) == cmpEqual {
+                                res = cmpEqual
+                        }
+                }
+        }
+        return
+}
+
 // A Builtin represents a built-in function.
 // Builtins don't have a valid type.
 type Builtin struct {
         knownobject
         f BuiltinFunc
 }
+func (p *Builtin) Type() Type { return BuiltinType }
+func (p *Builtin) True() bool { return p.f != nil }
 func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) { return p.f(pos, a...) }
+func (p *Builtin) cmp(v Value) (res cmpres) {
+        if v.Type() == BuiltinType {
+                a, ok := v.(*Builtin)
+                assert(ok, "value is not Builtin")
+                if /*p.f == a.f &&*/ p.name == a.name {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 
 type RuleEntryClass int
 
@@ -485,8 +574,8 @@ func (entry *RuleEntry) IsFile() bool {
 }
 
 func (entry *RuleEntry) SetExplicitFile(file *File) {
-        if file.Dir == "" {
-                file.Dir = entry.OwnerProject().AbsPath()
+        if file.dir == "" {
+                file.dir = entry.OwnerProject().absPath
         }
         if path, ok := entry.target.(*Path); ok && path != nil {
                 path.File = file
@@ -495,8 +584,8 @@ func (entry *RuleEntry) SetExplicitFile(file *File) {
 }
 
 func (entry *RuleEntry) SetExplicitPath(path *Path) {
-        if path.File != nil && path.File.Dir == "" {
-                path.File.Dir = entry.OwnerProject().AbsPath()
+        if path.File != nil && path.File.dir == "" {
+                path.File.dir = entry.OwnerProject().absPath
         }
         //if path, ok := entry.target.(*Path); ok && path != nil {
         //        path
@@ -615,6 +704,19 @@ ForPrograms:
         return
 }
 
+func (entry *RuleEntry) cmp(v Value) (res cmpres) {
+        if v.Type() == RuleEntryType {
+                a, ok := v.(*RuleEntry)
+                assert(ok, "value is not RuleEntry")
+                if /*entry.class == a.class &&*/ entry.target.cmp(a.target) == cmpEqual {
+                        if entry.OwnerProject() == a.OwnerProject() {
+                                res = cmpEqual
+                        }
+                }
+        }
+        return
+}
+
 type PatternEntry struct {
         *RuleEntry
         Pattern Pattern
@@ -650,7 +752,7 @@ func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
         var sources = []string{ ps.target }
         var entry *RuleEntry
         if ps.file != nil {
-                sources = append(sources, ps.file.Name)
+                sources = append(sources, ps.file.name)
         }
 
         // Find all useful stems.

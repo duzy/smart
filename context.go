@@ -103,9 +103,8 @@ func (ctx *Context) run(targets... Value) (result []Value, err error) {
 func walkSmartBaseDirs(cwd string, vis func(string)bool) (s string) {
         s = cwd
         for s != "" {
-                if fi, err := stat(filepath.Join(s, ".smart")); err == nil && fi != nil && !vis(s) {
-                        break
-                }
+                file := stat(".smart", "", s)
+                if file != nil && file.info.IsDir() && !vis(s) { break }
                 if up := filepath.Dir(s); up == s {
                         break
                 } else {
@@ -196,7 +195,7 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                 }
         }
 
-        if _, e := stat(sp); e == nil {
+        if _, e := os.Stat(sp); e == nil {
                 ctx.loader.AddSearchPaths(sp)
         }
 
@@ -215,10 +214,11 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
         )
         if defCTD == nil { /* ... */ }
         if defCWD == nil { /* ... */ }
-        AtLookupLoop: for {
+AtLookupLoop:
+        for {
                 var s1 = filepath.Join(ab, "@.smart")
                 var s2 = filepath.Join(ab, "@")
-                if fi, _ := stat(s1); fi != nil {
+                if fi, _ := os.Stat(s1); fi != nil {
                         if m := fi.Mode(); m.IsRegular() {
                                 defS.set(DefExpand, &String{ab})
                                 defD.set(DefExpand, &String{ab})
@@ -230,7 +230,7 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                         } else {
                                 fmt.Fprintf(os.Stderr, "@.smart is not a regular")
                         }
-                } else if fi, _ = stat(s2); fi != nil {
+                } else if fi, _ = os.Stat(s2); fi != nil {
                         if m := fi.Mode(); m.IsDir() {
                                 defS.set(DefExpand, &String{ab})
                                 defD.set(DefExpand, &String{ab})
@@ -310,8 +310,10 @@ func CommandLine() {
         // make sure that .smart dirs have higher priority.
         globalPaths = append(modulesPaths, globalPaths...)
 
+        loadGrepCache()
         defer func(globe *Globe) {
                 printLeavingDirectory()
+                saveGrepCache()
                 context.globe = globe
         } (context.globe)
 

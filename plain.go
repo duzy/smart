@@ -32,6 +32,16 @@ func (p *Plain) String() (s string) {
 func (p *Plain) Strval() (string, error) { return p.Value, nil }
 func (p *Plain) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *Plain) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
+func (p *Plain) cmp(v Value) (res cmpres) {
+        if v.Type() == PlainType {
+                a, ok := v.(*Plain)
+                assert(ok, "value is not Plain")
+                if p.Name == a.Name && p.Value == a.Value {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 
 type _plain struct {}
 

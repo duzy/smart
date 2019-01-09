@@ -287,14 +287,13 @@ func configureOption(pos token.Position, prog *Program, args... Value) (result V
 }
 
 func loadPackageSmartInfo(pos token.Position, name string) (info *packageinfo, err error) {
-        var found string
+        var file *File
         for _, path := range configuration.paths {
-                s := filepath.Join(path, name + ".smart")
-                if fi, er := stat(s); er == nil && fi != nil {
-                        found = s; break
-                }
+                file = stat(name+".smart", "", path)
+                if file != nil { break }
         }
-        if found == "" { return }
+        if file == nil { return }
+
         var l = &loader{
                 Context: &context,
                 fset:     configuration.fset,
@@ -302,19 +301,15 @@ func loadPackageSmartInfo(pos token.Position, name string) (info *packageinfo, e
                 paths:    configuration.paths,
                 loaded:   make(map[string]*Project),
         }
-        if err = l.loadFile(found, nil); err != nil {
-                /*if p, ok := err.(scanner.Errors); ok {
-                        fmt.Fprintf(os.Stderr, "%v\n", p)
-                        fmt.Fprintf(os.Stderr, "%v: `%v` package not loaded\n", pos, name)
-                } else {
-                        fmt.Fprintf(os.Stderr, "%v: package %v: %v\n", pos, name, err)
-                }*/
+
+        var filename = file.FullName()
+        if err = l.loadFile(filename, nil); err != nil {
                 return
         }
-        if project, _ := l.loaded[found]; project == nil {
-                err = scanner.Errorf(pos, "unloaded package %v (%v)\n", name, found)
+        if project, _ := l.loaded[filename]; project == nil {
+                err = scanner.Errorf(pos, "unloaded package %v (%v)\n", name, file)
         } else if project.name != name {
-                err = scanner.Errorf(pos, "%v: conflicted package name %v (!= %v)\n", found, project.name, name)
+                err = scanner.Errorf(pos, "%v: conflicted package name %v (!= %v)\n", file, project.name, name)
         } else {
                 info = &packageinfo{ project, packageSmart }
         }
@@ -544,12 +539,11 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
                 if rel, err = filepath.Rel(root, path); err != nil {
                         return err
                 }
-                return fn(&File{
-                        Name: rel, //filepath.Base(path),
-                        Dir: root, //filepath.Dir(path),
-                        Info: info,
-                        //Sub: ...
-                }, err)
+                file := stat(rel, "", root, info)
+                if enable_assertions {
+                        assert(file != nil, "`%s` file is nil", rel)
+                }
+                return fn(file, err)
         })
 }
 
@@ -696,16 +690,20 @@ func modifierExtractConfiguration(pos token.Position, prog *Program, args... Val
                                 })
                         }
                 default:
-                        var (s string; fi os.FileInfo)
+                        var s string
                         if s, err = d.Strval(); err != nil {
                                 return
-                        } else if fi, err = stat(s); err != nil {
+                        }
+
+                        dir := filepath.Dir(s)
+                        name := filepath.Base(s)
+                        file := stat(name, "", dir)
+                        if file == nil {
+                                err = scanner.Errorf(pos, "`%s` file not found", name)
                                 return
-                        } else if fi.IsDir() {
+                        } else if file.info.IsDir() {
                                 err = walkFiles(s, pats, func(file *File, err error) error {
-                                        if err == nil {
-                                                sources = append(sources, file)
-                                        }
+                                        if err == nil { sources = append(sources, file) }
                                         return err
                                 })
                         } else if a, err = filterValues(pats, false, d); err == nil {
@@ -715,10 +713,11 @@ func modifierExtractConfiguration(pos token.Position, prog *Program, args... Val
         }
 
         var exprs = make(map[string]int)
-        ForSources: for _, source := range sources {
+ForSources:
+        for _, source := range sources {
                 var (s string; f *os.File)
                 switch t := source.(type) {
-                case *File: s = filepath.Join(t.Dir, t.Name)
+                case *File: s = t.FullName()
                 default:
                         if s, err = t.Strval(); err != nil {
                                 break ForSources

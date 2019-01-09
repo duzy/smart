@@ -138,7 +138,7 @@ func (i *loader) AddSearchPaths(paths... string) (err error) {
                 if s, err = filepath.Abs(s); err != nil {
                         break
                 }
-                if fi, _ := stat(s); fi != nil && fi.IsDir() {
+                if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
                         i.paths = append(i.paths, s)
                 } else {
                         return errors.New(fmt.Sprintf("path '%s' is not dir", s))
@@ -206,14 +206,14 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
                                 return
                         }
                 }
-                if fi, err = stat(s); err != nil {
+                if fi, err = os.Stat(s); err != nil {
                         sx = s + ".smart"
-                        if fi, er := stat(sx); fi != nil {
+                        if fi, er := os.Stat(sx); fi != nil {
                                 isDir, absPath, err = fi.IsDir(), sx, er
                                 return
                         }
                         sx = s + ".sm"
-                        if fi, er := stat(sx); fi != nil {
+                        if fi, er := os.Stat(sx); fi != nil {
                                 isDir, absPath, err = fi.IsDir(), sx, er
                                 return
                         }
@@ -228,7 +228,7 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
                         } else {
                                 s = filepath.Join(l.workdir, base, specName)
                         }
-                        if fi, err = stat(s); err == nil && fi != nil {
+                        if fi, err = os.Stat(s); err == nil && fi != nil {
                                 isDir, absPath = fi.IsDir(), s
                                 return
                         }
@@ -1123,12 +1123,12 @@ func includespec(l *loader, pos token.Pos, spec Value) {
         /*case *Path:
                 panic(fmt.Sprintf("include not implemented (%T)", t))*/
         case *File:
-                if t.Info == nil {
+                if t.info == nil {
                         l.parser.error(pos, "`%v` no source file", t)
                         return
                 }
-                fullname = filepath.Join(t.Dir, t.Name)
-                specName = t.Name
+                fullname = t.FullName() //filepath.Join(t.dir, t.Name)
+                specName = t.name
         default:
                 if specName, err = spec.Strval(); err != nil {
                         l.parser.error(pos, "include `%v`: %v", spec, err)
@@ -1306,23 +1306,20 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, params []Valu
                 unreachable()
         } else if s, err := ctd.Strval(); err != nil {
                 return err
-        } else if s = filepath.Join(s, "configuration.sm"); s == "" {
-                unreachable()
-        } else if fi, er := stat(s); er == nil && fi != nil {
-                l.includeFunc(l, ident.Pos(), &String{s})
+        } else if file := stat("configuration.sm", "", s); file != nil {
+                l.includeFunc(l, ident.Pos(), file)
         }
 
         if optNoDock || l.project.name == "dock" { return }
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
-                var dir = filepath.Join(s, ".smart", "dock")
-                if fi, err := stat(dir); err != nil || fi == nil {
+                if file := stat("dock", "", filepath.Join(s, ".smart")); !file.exists() {
                         // no docking enabled
-                } else if err = l.loadDir("dock", dir, nil); err != nil {
+                } else if err = l.loadDir("dock", file.FullName(), nil); err != nil {
                         l.parser.error(ident.Pos(), "dock: %v", err)
-                } else if loaded, _ := l.loaded[dir]; loaded != nil {
+                } else if loaded, _ := l.loaded[file.FullName()]; loaded != nil {
                         name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
                         if name == nil {
-                                l.parser.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, dir)
+                                l.parser.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
                         } else {
                                 l.useProject(ident.Pos(), loaded, nil)
                         }
@@ -1579,7 +1576,8 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
         defer l.closeScope(scope)
 
         var def *Def
-	ListLoop: for _, d := range list {
+ListLoop:
+        for _, d := range list {
                 var name = d.Name()
                 if strings.HasPrefix(name, ".#") || 
                    strings.HasSuffix(name, "~") || 
@@ -1593,7 +1591,7 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
                         var ( l string; t os.FileInfo )
                         if l, err = os.Readlink(fullname); err != nil { continue ListLoop }
                         if !filepath.IsAbs(l) { l = filepath.Join(linked, l) }
-                        if t, err = stat(l); err != nil { continue ListLoop }
+                        if t, err = os.Stat(l); err != nil { continue ListLoop }
                         if t.IsDir() { continue ListLoop }
                 }
 
@@ -1825,7 +1823,7 @@ func AddSearchPaths(paths... string) (err error) {
                 if s, err = filepath.Abs(s); err != nil {
                         break
                 }
-                if fi, _ := stat(s); fi != nil && fi.IsDir() {
+                if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
                         globalPaths = append(globalPaths, s)
                 }
         }

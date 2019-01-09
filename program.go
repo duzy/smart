@@ -352,28 +352,23 @@ PrePipe:
         preqDef.append(depends...)
 
         // Calculate and prepare depends and files.
-        var pc = &preparer{
-                entry, prog, nil, new(List),
-                prog.stem, prog.level,
-        }
+        var pc = &preparer{ entry, prog, nil, nil, prog.stem, prog.level }
         if err = pc.updateall(preqDef); err != nil {
                 if false {
                         fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
                 }
                 return
-        } else if pc.targets.Len() > 0 {
-                var elems = pc.targets.Elems[:]
-                for i := 0; i < len(elems); i += 1 {
-                        for j := i + 1; j < len(elems); j += 1 {
-                                if dependEquals(elems[i], elems[j]) {
-                                        elems = append(elems[:j], elems[j+1:]...)
-                                        j -= 1
-                                }
-                        }
-                }
-                pc.targets.Elems = elems
-                preqDef.set(DefDefault, pc.targets)
-                pre0Def.set(DefDefault, pc.targets.Elems[0])
+        } else if n := len(pc.targets); n == 0 {
+                //preqDef.set(DefDefault, universalnone)
+                //pre0Def.set(DefDefault, universalnone)
+        } else if n == 1 {
+                if trace_prepare { pc.tracef("targets: %v", pc.targets[0]) }
+                preqDef.set(DefDefault, pc.targets[0])
+                pre0Def.set(DefDefault, pc.targets[0])
+        } else if n > 1 {
+                if trace_prepare { pc.tracef("targets: (%d) %v", n, pc.targets) }
+                preqDef.set(DefDefault, MakeList(pc.targets...))
+                pre0Def.set(DefDefault, pc.targets[0])
         }
 
 PostPipe:
@@ -422,6 +417,7 @@ func (prog *Program) passExecution(position token.Position, entry *RuleEntry, ar
         return
 }
 
+/*
 func dependEquals(a, b Value) bool {
         if a == b {
                 return true
@@ -441,3 +437,4 @@ func dependEquals(a, b Value) bool {
         }
         return sa == sb
 }
+*/

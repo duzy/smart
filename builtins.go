@@ -151,34 +151,6 @@ var builtins = map[string]BuiltinFunc {
         `return`:     builtinReturn,
 }
 
-var statcache = make(map[string]os.FileInfo)
-
-func stat(s string) (info os.FileInfo, err error) {
-        if ok := enable_statcache; ok {
-                if info, ok = statcache[s]; !ok {
-                        if info, err = os.Stat(s); err == nil {
-                                statcache[s] = info
-                        } else {
-                                delete(statcache, s)
-                        }
-                }
-        } else {
-                info, err = os.Stat(s)
-        }
-        return
-}
-
-func cachestat(s string) (okay bool) {
-        if enable_statcache {
-                if info, err := os.Stat(s); err == nil {
-                        statcache[s], okay = info, true
-                } else {
-                        delete(statcache, s)
-                }
-        }
-        return
-}
-
 func EscapedString(v Value) (s string, e error) {
         if v.Type() == StringType {
                 var sv string
@@ -476,14 +448,15 @@ func builtinMinus(pos token.Position, args... Value) (result Value, err error) {
 }
 
 func builtinUnique(pos token.Position, args... Value) (res Value, err error) {
-        var list []Value
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
         }
 
-        ForArgs: for _, a := range args {
+        var list []Value
+ForArgs:
+        for _, a := range args {
                 for _, v := range list { if a == v { continue ForArgs } }
 
                 var s1, s2 string
@@ -500,7 +473,7 @@ func builtinUnique(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -521,7 +494,7 @@ func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -542,7 +515,7 @@ func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -570,7 +543,7 @@ func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinSplitString(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -866,22 +839,20 @@ ForSources:
                         // Deal with special source value
                         switch t := src.(type) {
                         case *File:
-                                var str string
-                                if str, err = comp.Strval(); err != nil { break ForSources }
+                                var name, sub string
+                                if name, err = comp.Strval(); err != nil { break ForSources }
 
-                                var file = &File{ Name: str }
-                                for _, m := range filemaps {
-                                        if m.Match(str) {
-                                                file.Match = m
-                                                //file.Sub = ?
-                                                //file.Dir = ?
-                                                //file.Info = ?
-                                                break
+                                var file = stat(name, sub, t.dir, nil/* okay missing */)
+                                if file.match == nil {
+                                        for _, m := range filemaps {
+                                                if m.Match(name) {
+                                                        file.match = m
+                                                        //sub, dir = ?, ?
+                                                        break
+                                                }
                                         }
                                 }
-                                if file.Dir == "" && t.Dir != "" {
-                                        file.Dir = t.Dir
-                                }
+
                                 list = append(list, file)
                                 continue ForDstPats
 
@@ -905,7 +876,7 @@ func builtinTrimSpace(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -929,7 +900,7 @@ func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -959,7 +930,7 @@ func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -989,7 +960,7 @@ func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1019,7 +990,7 @@ func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) 
 }
 
 func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1049,7 +1020,7 @@ func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1079,7 +1050,7 @@ func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinTrimExt(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1629,7 +1600,7 @@ func builtinRename(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1659,7 +1630,7 @@ func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemoveAll(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1824,7 +1795,7 @@ func builtinSymlink(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinFileExists(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1856,7 +1827,7 @@ func builtinFileExists(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinFileSource(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1873,7 +1844,7 @@ func builtinFileSource(pos token.Position, args... Value) (res Value, err error)
                 var str string
                 if str, err = a.Strval(); err != nil { return }
                 if file := proj.file(str); file != nil {
-                        l = append(l, file.Sub)
+                        l = append(l, &String{file.sub})
                 }
         }
         if err == nil {
@@ -1883,7 +1854,7 @@ func builtinFileSource(pos token.Position, args... Value) (res Value, err error)
 }
 
 func builtinFile(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -1914,7 +1885,7 @@ func builtinFile(pos token.Position, args... Value) (res Value, err error) {
 }
 
 func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -2135,7 +2106,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
 //      	configure-file -p -m=0600 $@ $(read-file $<)
 //     
 func builtinConfigureFile(pos token.Position, args... Value) (res Value, err error) {
-        if false {
+        if true {
                 if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         } else {
                 if args, err = mergeresult(Disclose(args...)); err != nil { return }
@@ -2196,21 +2167,21 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
         var file *File
         var filename string
         if file, _ = args[0].(*File); file == nil {
-                if filename, err = args[0].Strval(); err != nil { return }
-                file = &File{
-                        Name: filepath.Base(filename), //args[0],
-                        Dir: filepath.Dir(filename),
-                        //Sub: ...,
+                if filename, err = args[0].Strval(); err != nil {
+                        return
                 }
+                var dir = filepath.Dir(filename)
+                var name = filepath.Base(filename)
+                file = stat(name, "", dir)
         } else if filename, err = file.Strval(); err != nil {
-                return
+                unreachable()
         } else if filename == "" {
                 err = fmt.Errorf("invalid file `%v`", file)
                 return
         }
 
-        if file.Info == nil { file.Info, _ = stat(filename) }
-        if file.Info != nil {
+        //if file.Info == nil { file.Info, _ = stat(filename) }
+        if file.info != nil {
                 var f *os.File
                 if f, err = os.Open(filename); err == nil && f != nil {
                         defer f.Close()
@@ -2243,8 +2214,8 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
         }
 
         if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err == nil {
-                if file.Info != nil { res = file } else {
-                        if file.Info, err = os.Stat(filename); err == nil {
+                if file.info != nil { res = file } else {
+                        if file.info, err = os.Stat(filename); err == nil {
                                 res = file
                         }
                 }

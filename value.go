@@ -36,6 +36,15 @@ const (
         expandAll = expandDelegate | expandClosure | expandPath
 )
 
+type cmpres int
+
+const (
+        cmpUnknown cmpres = 0
+        cmpLess        = -1 // meaningless so far
+        cmpGreater     = 1  // meaningless so far
+        cmpEqual       = 2
+)
+
 // Value represents a value of a type.
 type Value interface {
         // Type returns the underlying type of the value.
@@ -55,6 +64,8 @@ type Value interface {
 
         // Float returns the float form of the value.
         Float() (float64, error)
+
+        cmp(v Value) cmpres
 
         // Recursively detecting whether this value references
         // the object (to avoid loop-delegation).
@@ -100,16 +111,6 @@ func (cc closurecontext) String() (s string) {
         s += "}"
         return
 }
-
-type value struct {}
-func (_ *value) refs(_ Value) bool { return false }
-func (_ *value) closured() bool { return false }
-func (_ *value) Type() Type { return InvalidType }
-func (_ *value) True() bool { return false }
-func (_ *value) Integer() (int64, error) { return 0, nil }
-func (_ *value) Float() (float64, error) { return 0, nil }
-func (p *value) Strval() (string, error) { return fmt.Sprintf("{value %p}", p), nil }
-func (p *value) String() string {return "{value}" }
 
 type comparer struct {
         globe *Globe
@@ -214,7 +215,7 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (/*upda
                 dt = t
         } else if di != nil {
                 dt = di.ModTime()
-        } else if di, _ = stat(ds); di != nil {
+        } else if di, _ = os.Stat(ds); di != nil {
                 dt = di.ModTime()
         } else if c.nomiss {
                 err =  break_bad("no required %s '%v'", k, ds)
@@ -230,7 +231,7 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (/*upda
                 tt = t
         } else if ti != nil {
                 tt = ti.ModTime()
-        } else if ti, _ = stat(ts); ti != nil {
+        } else if ti, _ = os.Stat(ts); ti != nil {
                 tt = ti.ModTime()
         } else if c.nomiss {
                 err = break_bad("no target %s '%v'", k, ds)
@@ -257,10 +258,10 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (/*upda
 
 // preparer prepares prerequisites of targets.
 type preparer struct {
-        entry *RuleEntry // caller entry
+        entry *RuleEntry // caller entry (target)
         program *Program
         arguments []Value
-        targets *List
+        targets []Value // prerequisite targets ($^ $<)
         stem string // set by StemmedEntry
         level int // prepare/trace level
 }
@@ -288,6 +289,13 @@ func (pc *preparer) trace(a ...interface{}) {
 
 func (pc *preparer) tracef(s string, a ...interface{}) {
         printIndentDots(pc.level, fmt.Sprintf(s, a...))
+}
+
+func (pc *preparer) addTarget(target Value) {
+        for _, v := range pc.targets {
+                if v.cmp(target) == cmpEqual { return }
+        }
+        pc.targets = append(pc.targets, target)
 }
 
 func (pc *preparer) updateall(value interface{}) (err error) {
@@ -347,32 +355,36 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err != nil {
+                if trace_prepare { pc.tracef("error: %s", err) }
                 fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
                 return
         }
 
         dd, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
         switch t := dd.(type) {
-        case *File: pc.targets.Append(t)
+        case *None: // ignored
+        case *File: pc.addTarget(t)
         case *Path:
                 if t.File != nil {
-                        pc.targets.Append(t.File)
+                        pc.addTarget(t.File)
                 } else {
-                        pc.targets.Append(t)
+                        pc.addTarget(t)
                 }
         default:
                 var s string
                 if s, err = dd.Strval(); err != nil {
                         return
+                } else if s == "" {
+                        panic(fmt.Sprintf("%T %v", dd, dd))
+                } else if file := prog.project.search(s); file != nil {
+                        pc.addTarget(file)
                 }
-                file, _ := prog.project.searchFile(s)
-                pc.targets.Append(file)
         }
 
         if res != nil && res.Type() != NoneType {
                 for _, elem := range merge(res) {
                         switch elem.(type) {
-                        case *File: pc.targets.Append(elem)
+                        case *File: pc.addTarget(elem)
                         }
                 }
         }
@@ -424,6 +436,16 @@ func (p *Argumented) expand(w expandwhat) (res Value, err error) {
         }
         if err == nil && res == nil {
                 res = p
+        }
+        return
+}
+func (p *Argumented) cmp(v Value) (res cmpres) {
+        if v.Type() == ArgumentedType {
+                a, ok := v.(*Argumented)
+                assert(ok, "value is not Argumented")
+                if res = p.Val.cmp(a.Val); res == cmpEqual {
+                        // FIXME: check p.Args, a.Args too
+                }
         }
         return
 }
@@ -480,9 +502,18 @@ func (p *Argumented) prepare(pc *preparer) (err error) {
         return
 }
 
-type None struct { value }
+type None struct {}
+func (_ *None) refs(_ Value) bool { return false }
+func (_ *None) closured() bool { return false }
 func (p *None) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *None) Type() Type { return NoneType }
+func (_ *None) cmp(v Value) (res cmpres) { 
+        if v.Type() == NoneType { res = cmpEqual }
+        return
+}
+func (_ *None) Type() Type { return NoneType }
+func (_ *None) True() bool { return false }
+func (_ *None) Integer() (int64, error) { return 0, nil }
+func (_ *None) Float() (float64, error) { return 0, nil }
 func (p *None) String() (s string) { return }
 func (p *None) Strval() (s string, err error) { return }
 func (p *None) prepare(pc *preparer) (err error) { return }
@@ -492,14 +523,45 @@ func (p *None) dependcompare(c *comparer) (err error) {
 }
 
 type Nil struct { None }
+func (p *Nil) cmp(v Value) (res cmpres) {
+        if v.Type() == p.Type() {
+                if _, ok := v.(*Nil); ok {
+                        res = cmpEqual
+                }
+        }
+        return
+}
+
 type ModifierBar struct { None }
 func (p *ModifierBar) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *ModifierBar) Strval() (string, error) { return "|", nil }
 func (p *ModifierBar) String() string { return "|" }
+func (p *ModifierBar) cmp(v Value) (res cmpres) {
+        if v.Type() == p.Type() {
+                if _, ok := v.(*ModifierBar); ok {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 
 // Any is used to box an arbitrary value
 type Any struct { value interface{} }
 func (p *Any) Type() Type { return AnyType }
+func (p *Any) cmp(v Value) (res cmpres) {
+        if v.Type() == AnyType {
+                a, ok := v.(*Any)
+                assert(ok, "value is not Any")
+                if v1, ok := p.value.(Value); ok {
+                        if v2, ok := a.value.(Value); ok {
+                                res = v1.cmp(v2)
+                        }
+                } else if p.value == a.value {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 func (p *Any) expand(w expandwhat) (res Value, err error) {
         if v, ok := p.value.(Value); ok {
                 res, err = v.expand(w)
@@ -591,6 +653,14 @@ func (p *negative) expand(w expandwhat) (res Value, err error) {
         if v == p.x { res = p } else { res = &negative{v} }
         return
 }
+func (p *negative) cmp(v Value) (res cmpres) {
+        if v.Type() == NegativeType {
+                a, ok := v.(*negative)
+                assert(ok, "value is not negative")
+                res = p.x.cmp(a.x)
+        }
+        return
+}
 func (p *negative) Type() Type { return NegativeType }
 func (p *negative) True() bool { return !p.x.True() }
 func (p *negative) String() (s string) { return fmt.Sprintf("!%v", p.x) }
@@ -638,6 +708,30 @@ func (p *boolean) Integer() (v int64, err error) {
         return
 }
 func (p *boolean) prepare(pc *preparer) error { return nil }
+func (p *boolean) cmp(v Value) (res cmpres) {
+        if t := v.Type(); t == BooleanType {
+                a, ok := v.(*boolean)
+                assert(ok, "value is not boolean")
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpLess
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if t == AnswerType {
+                a, ok := v.(*answer)
+                assert(ok, "value is not answer")
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpLess
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        }
+        return
+}
 
 type answer struct { bool }
 func (p *answer) refs(_ Value) bool { return false }
@@ -659,6 +753,30 @@ func (p *answer) Integer() (v int64, err error) {
         return
 }
 func (p *answer) prepare(pc *preparer) error { return nil }
+func (p *answer) cmp(v Value) (res cmpres) {
+        if t := v.Type(); t == AnswerType {
+                a, ok := v.(*answer)
+                assert(ok, "value is not answer")
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpLess
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if t == BooleanType {
+                a, ok := v.(*boolean)
+                assert(ok, "value is not boolean")
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpLess
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        }
+        return
+}
 
 func MakeAnswer(v bool) Value { if v { return universalyes } else { return universalno } }
 func MakeBoolean(v bool) Value { if v { return universaltrue } else { return universalfalse } }
@@ -670,6 +788,20 @@ func (p *integer) Type() Type { return InvalidType }
 func (p *integer) True() bool { return p.int64 != 0 }
 func (p *integer) Integer() (int64, error) { return p.int64, nil }
 func (p *integer) Float() (float64, error) { return float64(p.int64), nil }
+func (p *integer) cmp(v Value) (res cmpres) {
+        if t := v.Type(); t == BinType || t == OctType || t == IntType || t == HexType {
+                i, e := v.Integer()
+                assert(e == nil, "%T: %v", v, e)
+                if p.int64 == i {
+                        res = cmpEqual
+                } else if p.int64 < i {
+                        res = cmpLess
+                } else if p.int64 > i {
+                        res = cmpGreater
+                }
+        }
+        return
+}
 
 type Bin struct { integer }
 func (p *Bin) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -753,6 +885,20 @@ func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),
 func (p *Float) Strval() (string, error) { return strconv.FormatFloat(float64(p.float64),'g', -1, 64), nil }
 func (p *Float) Integer() (int64, error) { return int64(p.float64), nil }
 func (p *Float) Float() (float64, error) { return p.float64, nil }
+func (p *Float) cmp(v Value) (res cmpres) {
+        if v.Type() == FloatType {
+                f, e := v.Float()
+                assert(e == nil, "%T: %v", v, e)
+                if p.float64 == f {
+                        res = cmpEqual
+                } else if p.float64 < f {
+                        res = cmpLess
+                } else if p.float64 > f {
+                        res = cmpGreater
+                }
+        }
+        return
+}
 
 func MakeFloat(f float64) *Float { return &Float{f} }
 func ParseFloat(s string) *Float {
@@ -780,6 +926,32 @@ func (p *DateTime) String() string {
 func (p *DateTime) Strval() (string, error) { return time.Time(p.Value).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
 func (p *DateTime) Integer() (int64, error) { return p.Value.Unix(), nil }
 func (p *DateTime) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *DateTime) cmp(v Value) (res cmpres) {
+        var vt time.Time
+        if t := v.Type(); t == DateTimeType {
+                a, ok := v.(*DateTime)
+                assert(ok, "value is not DateTime")
+                vt = a.Value
+        } else if t == DateType {
+                a, ok := v.(*Date)
+                assert(ok, "value is not Date")
+                vt = a.Value
+        } else if t == TimeType {
+                a, ok := v.(*Time)
+                assert(ok, "value is not Time")
+                vt = a.Value
+        } else {
+                return
+        }
+        if p.Value.Equal(vt) {
+                res = cmpEqual
+        } else if p.Value.Before(vt) {
+                res = cmpLess
+        } else /*if p.Value.After(vt)*/ {
+                res = cmpGreater
+        }
+        return
+}
 
 func ParseDateTime(s string) *DateTime {
         // time.RFC3339Nano
@@ -844,6 +1016,17 @@ func (p *URL) String() string { return p.URL.String() }
 func (p *URL) Strval() (string, error) { return p.URL.String(), nil }
 func (p *URL) Integer() (int64, error) { return int64(len(p.URL.String())), nil }
 func (p *URL) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *URL) cmp(v Value) (res cmpres) {
+        if v.Type() == URLType {
+                a, ok := v.(*URL)
+                assert(ok, "value is not URL")
+                if p.Scheme == a.Scheme && p.Opaque == a.Opaque &&
+                   p.Host == a.Host && p.Path == a.Path &&
+                   p.RawPath == a.RawPath && p.RawQuery == a.RawQuery &&
+                   p.Fragment == a.Fragment { res = cmpEqual }
+        }
+        return
+}
 
 func MakeURL(s *url.URL) *URL { return &URL{ *s } }
 func ParseURL(s string) *URL {
@@ -865,6 +1048,16 @@ func (p *Raw) Strval() (string, error) { return p.string, nil }
 func (p *Raw) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Raw) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *Raw) prepare(pc *preparer) error { return fmt.Errorf("preparing raw string") }
+func (p *Raw) cmp(v Value) (res cmpres) {
+        if v.Type() == RawType {
+                a, ok := v.(*Raw)
+                assert(ok, "value is not Raw")
+                if p.string == a.string {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 
 type String struct { string }
 func (_ *String) refs(_ Value) bool { return false }
@@ -881,6 +1074,20 @@ func (p *String) prepare(pc *preparer) error {
         if trace_prepare { defer prepun(preptrace(pc, "String", p)) }
         //pc.source = p.Value
         return pc.updateTarget(p.string)
+}
+func (p *String) cmp(v Value) (res cmpres) {
+        if v.Type() == StringType {
+                a, ok := v.(*String)
+                assert(ok, "value is not String")
+                if p.string == a.string {
+                        res = cmpEqual
+                } else if p.string < a.string {
+                        res = cmpLess
+                } else /*if p.string > a.string*/ {
+                        res = cmpGreater
+                }
+        }
+        return
 }
 
 type Bareword struct { string }
@@ -905,6 +1112,20 @@ func (p *Bareword) prepare(pc *preparer) error {
         if trace_prepare { defer prepun(preptrace(pc, "Bareword", p)) }
         //pc.source = p.string
         return pc.updateTarget(p.string)
+}
+func (p *Bareword) cmp(v Value) (res cmpres) {
+        if v.Type() == BarewordType {
+                a, ok := v.(*Bareword)
+                assert(ok, "value is not Bareword")
+                if p.string == a.string {
+                        res = cmpEqual
+                } else if p.string > a.string {
+                        res = cmpLess
+                } else if p.string < a.string {
+                        res = cmpGreater
+                }
+        }
+        return
 }
 
 type elements struct { Elems []Value }
@@ -959,6 +1180,19 @@ func (p *elements) closured() bool {
         return false 
 }
 
+func (p *elements) cmpElems(elems []Value) (res cmpres) {
+        if len(p.Elems) == len(elems) {
+                for i, elem := range p.Elems {
+                        other := elems[i]
+                        if r := elem.cmp(other); r != cmpEqual {
+                                return cmpUnknown
+                        }
+                }
+                res = cmpEqual
+        }
+        return
+}
+
 type Barecomp struct { elements }
 func (p *Barecomp) Type() Type { return BarecompType }
 func (p *Barecomp) Strval() (s string, e error) {
@@ -1003,6 +1237,15 @@ func (p *Barecomp) prepare(pc *preparer) error {
         return pc.updateTargetValue(p)
 }
 
+func (p *Barecomp) cmp(v Value) (res cmpres) {
+        if v.Type() == BarecompType {
+                a, ok := v.(*Barecomp)
+                assert(ok, "value is not Barecomp")
+                res = p.cmpElems(a.Elems)
+        }
+        return
+}
+
 func MakeBarecomp(elems... Value) *Barecomp {
         return &Barecomp{elements{elems}}
 }
@@ -1029,14 +1272,17 @@ func (p *Barefile) True() bool { return p.File != nil }
 func (p *Barefile) String() string { return elementString(nil, p.Name) }
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
-        var ( str string; fi os.FileInfo )
-        if str, err = p.Name.Strval(); err != nil { return }
-        if fi, err = stat(str); err == nil {
-                res = fi.Size()
+        //var str string
+        //if str, err = p.Name.Strval(); err != nil { return }
+        if p.File != nil && p.File.exists() {
+                res = p.File.info.Size()
         }
         return
 }
-func (p *Barefile) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Barefile) Float() (float64, error) {
+        i, e := p.Integer()
+        return float64(i), e
+}
 
 func (p *Barefile) dependcompare(c *comparer) (err error) {
         if trace_compare { defer compun(comptrace(c, p, "Barefile")) }
@@ -1054,13 +1300,23 @@ func (p *Barefile) prepare(pc *preparer) error {
         if p.File != nil {
                 if s, e := p.Name.Strval(); e != nil {
                         return e
-                } else if s != p.File.Name {
-                        p.File.Name = s // Fix it in case of '$@.o' was parsed and became '.o'.
+                } else if s != p.File.name {
+                        p.File.name = s // Fix it in case of '$@.o' was parsed and became '.o'.
                 }
                 return p.File.prepare(pc)
         } else {
                 return pc.updateTargetValue(p)
         }
+}
+
+func (p *Barefile) cmp(v Value) (res cmpres) {
+        if v.Type() == BarefileType {
+                a, ok := v.(*Barefile)
+                assert(ok, "value is not Barefile")
+                // FIXME: check p.File.filebase == a.File.filebase first
+                res = p.Name.cmp(a.Name)
+        }
+        return
 }
 
 func MakeBarefile(name Value, file *File) *Barefile {
@@ -1077,6 +1333,16 @@ func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval() (string, error) { return p.Token.String(), nil }
 func (p *GlobMeta) Integer() (int64, error) { return 0, nil }
 func (p *GlobMeta) Float() (float64, error) { return 0, nil }
+func (p *GlobMeta) cmp(v Value) (res cmpres) {
+        if v.Type() == GlobType {
+                a, ok := v.(*GlobMeta)
+                assert(ok, "value is not GlobMeta")
+                if p.Token == a.Token {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 
 // `[a-b]`, `[abc]`, ...
 // `a-b`, `abc`, `a$(var)c`, `a$(spaces)c`...
@@ -1104,6 +1370,14 @@ func (p *GlobRange) Strval() (s string, err error) {
 }
 func (p *GlobRange) Integer() (int64, error) { return 0, nil }
 func (p *GlobRange) Float() (float64, error) { return 0, nil }
+func (p *GlobRange) cmp(v Value) (res cmpres) {
+        if v.Type() == GlobType {
+                a, ok := v.(*GlobRange)
+                assert(ok, "value is not GlobRange")
+                res = p.Chars.cmp(a.Chars)
+        }
+        return
+}
 
 func MakeGlobMeta(tok token.Token) *GlobMeta { return &GlobMeta{tok} }
 func MakeGlobRange(v Value) *GlobRange { return &GlobRange{v} }
@@ -1178,7 +1452,7 @@ func (p *Path) dependcompare(c *comparer) (err error) {
         if enable_assertions { assert(c.target != p, "self comparation") }
         if ds, err := p.Strval(); err == nil {
                 var di os.FileInfo
-                if p.File != nil { di = p.File.Info }
+                if p.File != nil { di = p.File.info }
                 err =  c.compareStatDepend(p, di, ds)
         }
         return
@@ -1194,12 +1468,9 @@ func (p *Path) prepare(pc *preparer) (err error) {
 
         if p.File == nil {
                 if pc.program.project.isFileName(filepath.Base(s)) || pc.program.project.isFileName(s) {
-                        var found bool
-                        if p.File, found = pc.program.project.searchFile(s); p.File != nil {
-                                if found {
-                                        pc.targets.Append(p)
-                                        return
-                                }
+                        if p.File = pc.program.project.search(s); p.File != nil {
+                                pc.addTarget(p)
+                                return
                         }
                 }
         }
@@ -1209,20 +1480,29 @@ func (p *Path) prepare(pc *preparer) (err error) {
         } else if err = pc.updateTarget(s); err == nil {
                 // Good!
         } else if e, ok := err.(targetNotFoundError); ok {
-                if info, _ := stat(e.target); info == nil {
-                        pc.targets.Append(p) // Append unknown path anyway.
+                if p.File = stat(e.target, "", ""); p.File == nil {
+                        pc.addTarget(p) // Append unknown path anyway.
                         err = pathNotFoundError{ p }
-                } else if info.IsDir() {
-                        pc.targets.Append(p)
+                } else if p.File.info.IsDir() {
+                        pc.addTarget(p)
                         err = nil
                 } else {
                         // Search this path target as a file.
-                        p.File, _ = pc.program.project.searchFile(e.target)
+                        p.File = pc.program.project.search(e.target)
                         if p.File != nil {
-                                pc.targets.Append(p.File)
+                                pc.addTarget(p.File)
                                 err = nil
                         }
                 }
+        }
+        return
+}
+
+func (p *Path) cmp(v Value) (res cmpres) {
+        if v.Type() == PathType {
+                a, ok := v.(*Path)
+                assert(ok, "value is not Path")
+                res = p.cmpElems(a.Elems)
         }
         return
 }
@@ -1262,55 +1542,211 @@ func (p *PathSeg) Strval() (s string, e error) {
 func (p *PathSeg) Float() (v float64, err error) { return }
 func (p *PathSeg) Integer() (v int64, err error) { return }
 func (p *PathSeg) prepare(pc *preparer) error { return nil }
-func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
-
-type File struct {
-        Name string      // constant represented name (e.g. relative filename)
-        Match *FileMap   // matched pattern (see 'files' directive)
-        Sub Value        // matched sub path (in Project.SearchFile), may be absolete 
-        Dir string       // full directory where the file was or should be found
-        Info os.FileInfo // file info if exists
-}
-func (p *File) refs(_ Value) bool { return false }
-func (p *File) closured() bool { return false }
-func (p *File) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *File) Type() Type { return FileType }
-func (p *File) True() bool { return p.Name != "" }
-func (p *File) String() string { return p.Name }
-func (p *File) Strval() (string, error) {
-        if p.Sub != nil {
-                if s, err := p.Sub.Strval(); err != nil {
-                        return "", err
-                } else {
-                        return filepath.Join(s, p.Name), nil
+func (p *PathSeg) cmp(v Value) (res cmpres) {
+        if p.Type() == PathSegType {
+                a, ok := v.(*PathSeg)
+                assert(ok, "value is not PathSeg")
+                if p.rune == a.rune {
+                        res = cmpEqual
                 }
-        }
-        return p.Name, nil
-}
-func (_ *File) Integer() (int64, error) { return 0, nil }
-func (_ *File) Float() (float64, error) { return 0, nil }
-
-func (p *File) FullName() (s string) {
-        if filepath.IsAbs(p.Name) {
-                s = p.Name
-        } else {
-                s = filepath.Join(p.Dir, p.Name)
         }
         return
 }
 
-func (p *File) BaseName() string {
-        if p.Info != nil {
-                return p.Info.Name()
-        } else {
-                return filepath.Base(p.Name)
-        }
+func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
+
+type filestub struct {
+        match *FileMap   // matched pattern (see 'files' directive)
+        sub string       // matched sub path (see Project.search), may be Dir (absoletep path)
+        name string      // constant represented name (e.g. relative filename)
+        other *filestub  // pointed to another stub (in a different project) of the same file
 }
 
-func (p *File) exists() bool { return p.Info != nil }
+type filebase struct {
+        stub filestub    // cycled-list of file stubs of different projects
+        dir string       // full directory where the file was or should be found
+        info os.FileInfo // file info if exists
+}
+
+var filecache = make(map[string]*filebase) // File.FullName() -> File
+
+func (p *filestub) subname() (s string) {
+        if isAbsOrRel(p.sub) {
+                s = p.name
+        } else {
+                s = filepath.Join(p.sub, p.name)
+        }
+        return
+}
+func (p *filebase) exists() bool { return p.info != nil }
+
+func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
+        var ( base *filebase ; stub *filestub ; fullname string )
+        var isAbsName bool
+
+        // Trims / suffix
+        if dir != "" { dir = filepath.Clean(dir) }
+        if sub != "" { sub = filepath.Clean(sub) }
+
+        if isAbsName = filepath.IsAbs(name); isAbsName {
+                if fullname = name; dir == "" {
+                        dir = filepath.Dir(fullname)
+                        name = filepath.Base(fullname)
+                        if enable_assertions {
+                                assert(sub == "", "`%s` sub for fullname", sub)
+                        }
+                } else if strings.HasPrefix(fullname, dir) {
+                        tail := strings.TrimPrefix(fullname, dir)
+                        tail  = strings.TrimPrefix(tail, PathSep)
+                        sub  = filepath.Dir(tail)
+                        name = filepath.Base(tail)
+                        if enable_assertions {
+                                assert(filepath.Join(dir, sub, name) == fullname, "(%s %s %s) components conflicted: %s", fullname)
+                        }
+                } else {
+                        unreachable("prefix dir differred: ", dir, " ", sub, " ", name)
+                }
+        } else if filepath.IsAbs(sub) {
+                fullname = filepath.Join(sub, name)
+                if dir == "" {
+                        dir = sub // trims / suffix
+                        sub = "" // .
+                } else if sub == dir {
+                        sub = "" // .
+                } else if strings.HasPrefix(sub, dir) {
+                        sub = strings.TrimPrefix(sub, dir)
+                        sub = strings.TrimPrefix(sub, PathSep)
+                        sub = filepath.Clean(sub)
+                } else {
+                        unreachable("conflicted sub/dir: ", sub, " ", dir) //return
+                }
+        } else if sub == "" {
+                fullname = filepath.Join(dir, name)
+        } else {
+                fullname = filepath.Join(dir, sub, name)
+        }
+
+        if enable_assertions {
+                assert(!filepath.IsAbs(name), "`%s` name is abs", name)
+                assert(!filepath.IsAbs(sub), "`%s` sub is abs", sub)
+                assert(dir != "", "`%s` empty dir (fullname=%s)", dir, fullname)
+                
+                s := filepath.Join(dir, sub, name)
+                assert(fullname == s, "`%s` fullname conflicted (%s)", fullname, s)
+        }
+
+        var addNotExisted bool
+        var info os.FileInfo
+        if len(infos) == 1 {
+                if info = infos[0]; info == nil {
+                        addNotExisted = true
+                }
+                if enable_assertions && info != nil {
+                        assert(info.Name() == filepath.Base(fullname), "`%s` file name conflicted", info.Name())
+                }
+        } else if len(infos) > 1 {
+                unreachable("too many file infos")
+        }
+
+        var okay bool
+        if base, okay = filecache[fullname]; okay {
+                if base.info == nil {
+                        if info == nil { info, _ = os.Stat(fullname) }
+                        if info == nil && !addNotExisted {
+                                return nil // file not exists
+                        }
+                        base.info = info
+                }
+
+                var head = &base.stub
+                if enable_assertions {
+                        for stub = head; stub != nil ; stub = stub.other {
+                                //fmt.Printf("dup: %s %s %s (%s %s %s)\n", base.dir, stub.sub, stub.name, dir, sub, name)
+                                s := filepath.Join(base.dir, stub.sub, stub.name)
+                                assert(fullname == s, "(%s %s %s) fullname conflicted", base.dir, stub.sub, stub.name)
+                                if stub.other == head { break }
+                        }
+                }
+                if base.dir == dir {
+                        for stub = head; stub != nil ; stub = stub.other {
+                                if stub.sub == sub && stub.name == name { goto GotFile }
+                                if stub.other == head { break }
+                        }
+                } else if strings.HasPrefix(dir, base.dir) {
+                        //sub = strings.TrimPrefix(dir, base.dir)
+                        //sub = strings.TrimPrefix(sub, PathSep)
+                        sub = dir[len(base.dir)+1:]
+                        dir = base.dir
+                        for stub = head; stub != nil ; stub = stub.other {
+                                if stub.sub == sub && stub.name == name { goto GotFile }
+                                if stub.other == head { break }
+                        }
+                }
+
+                stub = &filestub{ nil, sub, name, head.other }
+                head.other = stub
+                
+                //fmt.Printf("new: %s %s %s (%v)\n", base.dir, stub.sub, stub.name, base.info)
+        } else {
+                if info == nil {
+                        info, _ = os.Stat(fullname)
+                        if info == nil && !addNotExisted {
+                                return nil // file not exists
+                        }
+                }
+                base = &filebase{ filestub{ nil, sub, name, nil }, dir, info }
+                base.stub.other = &base.stub
+                stub = &base.stub
+                filecache[fullname] = base
+        }
+GotFile:
+        file = &File{ base, stub }
+        if enable_assertions {
+                if !addNotExisted {
+                        assert(file.exists(), "`%s` file not existed", fullname)
+                }
+                assert(file.name == name, "(%s %s %s).name != %s", file.name, file.sub, file.dir, name)
+                assert(file.sub == sub, "(%s %s %s).sub != %s", file.name, file.sub, file.dir, sub)
+                assert(file.dir == dir, "(%s %s %s).dir != %s", file.name, file.sub, file.dir, dir)
+                if file.exists() {
+                        assert(file.info != nil, "(%s %s %s) info is nil", file.name, file.sub, file.dir)
+                        assert(file.info.Name() == filepath.Base(file.name), "(%s %s %s) name conflicted", file.name, file.sub, file.dir)
+                        s := filepath.Join(file.dir, file.sub, file.name)
+                        assert(file.FullName() == s, "(%s %s %s) fullname conflicted (%s)", file.dir, file.sub, file.name, s)
+                }
+        }
+        return
+}
+
+type File struct { *filebase ; *filestub }
+func (p *File) refs(_ Value) bool { return false }
+func (p *File) closured() bool { return false }
+func (p *File) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *File) Type() Type { return FileType }
+func (p *File) True() bool { return p.name != "" }
+func (p *File) String() string { return p.name }
+func (p *File) Strval() (s string, err error) { s = p.FullName(); return }
+func (_ *File) Integer() (int64, error) { return 0, nil }
+func (_ *File) Float() (float64, error) { return 0, nil }
+
+func (p *File) Dir() string { return p.dir }
+func (p *File) BaseName() (s string) {
+        if p.info != nil {
+                s = p.info.Name()
+        } else {
+                s = filepath.Base(p.name)
+        }
+        return
+}
+func (p *File) FullName() (s string) {
+        s = filepath.Join(p.dir, p.sub, p.name)
+        return
+}
+
 func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
-        if p.Match != nil {
-                res = p.Match.statFile(proj.absPath, p)
+        if p.match != nil {
+                f := p.match.stat(proj.absPath, p.name)
+                res = f != nil && f.exists()
         }
         return
 }
@@ -1319,20 +1755,28 @@ func (p *File) dependcompare(c *comparer) (err error) {
         if trace_compare { defer compun(comptrace(c, p, "File")) }
         if enable_assertions { assert(c.target != p, "self comparation") }
         if ds, err := p.Strval(); err == nil {
-                err =  c.compareStatDepend(p, p.Info, ds)
+                err =  c.compareStatDepend(p, p.info, ds)
         }
         return
 }
 
 func (p *File) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "File", p)) }
-        if p.Info == nil && p.Dir != "" {
-                if info, err := stat(p.Dir); err != nil || info == nil {
-                        if err = os.MkdirAll(p.Dir, 0755); err != nil {
-                                return err
-                        }
+        if trace_prepare {
+                defer prepun(preptrace(pc, "File", p))
+                if p.exists() {
+                        var s string
+                        if p.sub != "" { s = " (" + p.sub + ")" }
+                        pc.tracef("existed: %s%s", p.name, s)
                 }
         }
+
+        /*
+        if p.info == nil && p.dir != "" {
+                if err = os.MkdirAll(p.dir, 0755); err != nil {
+                        return err
+                }
+        }
+        */
 
         if pc.entry.target == p {
                 pc.tracef("error: target depends on itself")
@@ -1342,32 +1786,36 @@ func (p *File) prepare(pc *preparer) (err error) {
                 switch t := pc.entry.target.(type) {
                 case *Bareword: s = t.string
                 case *String: s = t.string
-                case *File: s = t.Name
+                case *File: s = t.name
                 }
-                if s == p.Name {
-                        pc.tracef("error:%d: file depends on itself", pc.level)
+                if s == p.name {
+                        pc.tracef("error:%d: `%s` file depends on itself", pc.level, s)
                         unreachable()
                 }
         }
 
         var brk bool
         if err, brk = p.explicitly(pc); err != nil || brk { return }
-        if err, brk = p.implicitly(pc); err != nil || brk { return }
-
         if p.exists() {
-                pc.targets.Append(p)
+                pc.addTarget(p)
+                return
+        }
+
+        if err, brk = p.implicitly(pc); err != nil || brk { return }
+        if p.exists() {
+                pc.addTarget(p)
                 return
         }
         
         for _, proj := range execstack.projects(pc.program.project) {
-                if p.Match != nil {
+                if p.match != nil {
                         if p.searchInMatchedPaths(proj) {
-                                pc.targets.Append(p)
+                                pc.addTarget(p)
                                 return
                         }
                 }
-                if proj.search(p) {
-                        pc.targets.Append(p)
+                if f := proj.search(p.name); f != nil && f.exists() {
+                        pc.addTarget(f)
                         return
                 }
         }
@@ -1380,7 +1828,7 @@ func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
         // Find concrete entry (by file's represented name)
         // Search into the upper projects for matched a rule.
         for _, proj := range execstack.projects(pc.program.project) {
-                if entry, err = proj.resolveEntry(p.Name); err != nil {
+                if entry, err = proj.resolveEntry(p.name); err != nil {
                         break
                 } else if entry != nil {
                         err, trybrk = entry.prepare(pc), true
@@ -1395,7 +1843,7 @@ func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
 ForProjects:
         for _, proj := range execstack.projects(pc.program.project) {
                 var pss []*StemmedEntry
-                if pss, err = proj.resolvePatterns(p.Name); err != nil {
+                if pss, err = proj.resolvePatterns(p.name); err != nil {
                         break ForProjects
                 } else if len(pss) == 0 {
                         continue ForProjects
@@ -1446,7 +1894,16 @@ func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEnt
         return
 }
 
-func MakeFile(s string) (fv *File) { return &File{ Name:s } }
+func (p *File) cmp(v Value) (res cmpres) {
+        if v.Type() == FileType {
+                a, ok := v.(*File)
+                assert(ok, "value is not File")
+                if p.filebase == a.filebase {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 
 type FileContent struct {
         file *File
@@ -1523,7 +1980,16 @@ func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
         }
         return
 }
-        
+
+func (p *Flag) cmp(v Value) (res cmpres) {
+        if v.Type() == FlagType {
+                a, ok := v.(*Flag)
+                assert(ok, "value is not Flag")
+                res = p.Name.cmp(a.Name)
+        }
+        return
+}
+      
 type Compound struct { elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
@@ -1556,6 +2022,18 @@ func (p *Compound) Strval() (s string, err error) {
 }
 func (p *Compound) Integer() (int64, error) { return int64(len(p.Elems)), nil }
 func (p *Compound) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Compound) cmp(v Value) (res cmpres) {
+        if v.Type() == CompoundType {
+                a, ok := v.(*Compound)
+                assert(ok, "value is not Compound")
+                s1, e := p.Strval()
+                if e != nil { return }
+                s2, e := a.Strval()
+                if e != nil { return }
+                if s1 == s2 { res = cmpEqual }
+        }
+        return
+}
 func MakeCompound(elems... Value) *Compound { return &Compound{elements{elems}} }
 
 type List struct { elements }
@@ -1628,6 +2106,15 @@ func (p *List) prepare(pc *preparer) (err error) {
         return
 }
 
+func (p *List) cmp(v Value) (res cmpres) {
+        if v.Type() == ListType {
+                a, ok := v.(*List)
+                assert(ok, "value is not List")
+                res = p.cmpElems(a.Elems)
+        }
+        return
+}
+
 func MakeList(elems... Value) *List { return &List{elements{elems}} }
 
 type Group struct { List }
@@ -1654,6 +2141,15 @@ func (p *Group) expand(w expandwhat) (res Value, err error) {
                 } else {
                         res = p
                 }
+        }
+        return
+}
+
+func (p *Group) cmp(v Value) (res cmpres) {
+        if v.Type() == GroupType {
+                a, ok := v.(*Group)
+                assert(ok, "value is not Group")
+                res = p.cmpElems(a.Elems)
         }
         return
 }
@@ -1721,6 +2217,18 @@ func (p *Pair) SetKey(k Value) {
 }
 func (p *Pair) isFlag(r rune, s string) (result bool, err error) {
         if k, ok := p.Key.(*Flag); ok { result, err = k.is(r, s) }
+        return
+}
+func (p *Pair) cmp(v Value) (res cmpres) {
+        if v.Type() == PairType {
+                a, ok := v.(*Pair)
+                assert(ok, "value is not Pair")
+                if p.Key.cmp(a.Key) == cmpEqual {
+                        if p.Value.cmp(a.Value) == cmpEqual {
+                                res = cmpEqual
+                        }
+                }
+        }
         return
 }
 func MakePair(k, v Value) (p *Pair) {
@@ -1901,6 +2409,23 @@ func (p *delegate) prepare(pc *preparer) (err error) {
         if val, err = p.expand(expandDelegate); err != nil { return }
         for _, d := range merge(val) {
                 if err = pc.update(d); err != nil { break }
+        }
+        return
+}
+
+func (p *delegate) cmp(v Value) (res cmpres) {
+        if v.Type() == DelegateType {
+                a, ok := v.(*delegate)
+                assert(ok, "value is not delegate")
+                // FIXME: compare the expanded value instead??
+                if p.o.cmp(a.o) == cmpEqual && len(p.a) == len(a.a) {
+                        for i, t := range p.a {
+                                if t.cmp(a.a[i]) != cmpEqual {
+                                        return
+                                }
+                        }
+                        res = cmpEqual
+                }
         }
         return
 }
@@ -2098,6 +2623,23 @@ func (p *closure) prepare(pc *preparer) (err error) {
         return
 }
 
+func (p *closure) cmp(v Value) (res cmpres) {
+        if v.Type() == ClosureType {
+                a, ok := v.(*closure)
+                assert(ok, "value is not closure")
+                // FIXME: compare the expanded value instead??
+                if p.o.cmp(a.o) == cmpEqual && len(p.a) == len(a.a) {
+                        for i, t := range p.a {
+                                if t.cmp(a.a[i]) != cmpEqual {
+                                        return
+                                }
+                        }
+                        res = cmpEqual
+                }
+        }
+        return
+}
+
 type selection struct {
         t token.Token
         o Value // Object or selection
@@ -2221,6 +2763,17 @@ func (p *selection) prepare(pc *preparer) (err error) {
         return
 }
 
+func (p *selection) cmp(v Value) (res cmpres) {
+        if v.Type() == SelectionType {
+                a, ok := v.(*selection)
+                assert(ok, "value is not selection")
+                if p.o.cmp(a.o) == cmpEqual && p.s.cmp(a.s) == cmpEqual {
+                        if p.t == a.t { res = cmpEqual }
+                }
+        }
+        return
+}
+
 // Pattern
 type Pattern interface {
         Value
@@ -2229,7 +2782,6 @@ type Pattern interface {
 }
 
 type pattern struct {}
-func (p *pattern) Type() Type { return PatternType }
 func (p *pattern) True() bool { return false }
 func (p *pattern) Integer() (int64, error) { return 0, nil }
 func (p *pattern) Float() (float64, error) { return 0, nil }
@@ -2241,7 +2793,7 @@ func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleE
         
         var proj = mostDerived() //patent.OwnerProject()
         if proj.isFileName(/*filepath.Base(target)*/target) {
-                if file, _ := proj.searchFile(target); file != nil {
+                if file := proj.search(target); file != nil {
                         entry.target = file
                 }
         } else {
@@ -2257,6 +2809,7 @@ type PercPattern struct {
         Suffix Value
 }
 func (p *PercPattern) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *PercPattern) Type() Type { return PercPatternType }
 func (p *PercPattern) String() string {
         prefix := elementString(nil, p.Prefix)
         suffix := elementString(nil, p.Suffix)
@@ -2286,7 +2839,7 @@ func (p *PercPattern) match(i interface{}) (matched bool, stem string, err error
         var prefix, suffix, s string
         switch t := i.(type) {
         case string: s = t
-        case *File: s = t.Name
+        case *File: s = t.name
         default: if v, ok := i.(Value); ok {
                 if s, err = v.Strval(); err != nil { return }
         }}
@@ -2363,6 +2916,19 @@ func (p *PercPattern) prepare(pc *preparer) (err error) {
         return
 }
 
+func (p *PercPattern) cmp(v Value) (res cmpres) {
+        if v.Type() == PercPatternType {
+                a, ok := v.(*PercPattern)
+                assert(ok, "value is not PercPattern")
+                if p.Prefix.cmp(a.Prefix) == cmpEqual {
+                        if p.Suffix.cmp(a.Suffix) == cmpEqual {
+                                res = cmpEqual
+                        }
+                }
+        }
+        return
+}
+
 func MakePercPattern(prefix, suffix Value) Pattern {
         if prefix == nil { prefix = universalnone }
         if suffix == nil { suffix = universalnone }
@@ -2395,6 +2961,7 @@ type GlobPattern struct {
         Components []Value
 }
 func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *GlobPattern) Type() Type { return GlobPatternType }
 func (p *GlobPattern) String() (s string) {
         for _, comp := range p.Components {
                 s += elementString(nil, comp)
@@ -2415,7 +2982,7 @@ func (p *GlobPattern) match(i interface{}) (matched bool, stem string, err error
         var pat, s string
         switch t := i.(type) {
         case string: s = t
-        case *File: s = t.Name
+        case *File: s = t.name
         default: if v, ok := i.(Value); ok {
                 if s, err = v.Strval(); err != nil { return }
         }}
@@ -2494,17 +3061,32 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
         return
 }
 
+func (p *GlobPattern) cmp(v Value) (res cmpres) {
+        if v.Type() == GlobPatternType {
+                a, ok := v.(*GlobPattern)
+                assert(ok, "value is not GlobPattern")
+                if len(p.Components) == len(a.Components) {
+                        for i, c := range p.Components {
+                                if c.cmp(a.Components[i]) != cmpEqual {
+                                        return
+                                }
+                        }
+                        res = cmpEqual
+                }
+        }
+        return
+}
+
 func MakeGlobPattern(components... Value) Pattern {
         return &GlobPattern{Components:components}
 }
 
 // TODO: implement regexp pattern
-type RegexpPattern struct {
-        pattern
-}
+type RegexpPattern struct { pattern }
 func (p *RegexpPattern) refs(_ Value) bool { return false }
 func (p *RegexpPattern) closured() bool { return false }
 func (p *RegexpPattern) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *RegexpPattern) Type() Type { return RegexpPatternType }
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
 func (p *RegexpPattern) match(i interface{}) (matched bool, stem string, err error) {
@@ -2515,6 +3097,15 @@ func (p *RegexpPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEnt
         panic("TODO: creating new match entry")
         return
 }
+func (p *RegexpPattern) cmp(v Value) (res cmpres) {
+        if v.Type() == RegexpPatternType {
+                a, ok := v.(*RegexpPattern)
+                assert(ok, "value is not RegexpPattern")
+                if a != nil { /* FIXME: ... */ }
+        }
+        return
+}
+
 func NewRegexpPattern() Pattern {
         return &RegexpPattern{}
 }

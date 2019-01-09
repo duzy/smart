@@ -24,6 +24,14 @@ func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
 func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
 func (p *JSON) Integer() (int64, error) { return 0, nil }
 func (p *JSON) Float() (float64, error) { return 0, nil }
+func (p *JSON) cmp(v Value) (res cmpres) {
+        if v.Type() == JSONType {
+                a, ok := v.(*JSON)
+                assert(ok, "value is not JSON")
+                res = p.Value.cmp(a.Value)
+        }
+        return
+}
 
 func joinRecipesString(recipes... Value) (res string, err error) {
         var (

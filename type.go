@@ -64,7 +64,9 @@ const (
         GroupKind
         MapKind
         PairKind
-        PatternKind
+        PercPatternKind
+        GlobPatternKind
+        RegexpPatternKind
         DelegateKind
         ClosureKind
         SelectionKind
@@ -128,7 +130,9 @@ var (
                 GroupKind:      "Group",
                 MapKind:        "Map",
                 PairKind:       "Pair",
-                PatternKind:    "Pattern",
+                PercPatternKind:    "PercPattern",
+                GlobPatternKind:    "GlobPattern",
+                RegexpPatternKind:  "RegexpPattern",
                 DelegateKind:   "Delegate",
                 ClosureKind:    "Closure",
                 SelectionKind:  "Selection",
@@ -202,7 +206,9 @@ const (
         IsGroup
         IsMap
         IsPair // name-value pair
-        IsPattern // percent pattern, regexp pattern, etc.
+        IsPercPattern // percent pattern
+        IsGlobPattern // glob pattern
+        IsRegexpPattern // regexp pattern
         IsDelegate // $(foo ...)
         IsClosure  // &(foo ...)
         IsSelection  // foo->bar  foo=>bar
@@ -226,6 +232,8 @@ const (
         IsXML
         IsYAML
         IsExecResult
+
+        IsPattern   = IsPercPattern | IsGlobPattern | IsRegexpPattern
 
         IsDateTime  = IsDate | IsTime
 	IsNumeric   = IsAnswer | IsBoolean | IsBin | IsOct | IsInt | IsHex | IsFloat
