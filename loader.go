@@ -1000,6 +1000,7 @@ func (l *loader) define(clause *ast.DefineClause) {
 func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*RuleEntry) {
         var (
                 depends []Value
+                ordered []Value
                 recipes []Value
                 progScope *Scope
                 params []string
@@ -1010,6 +1011,14 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                         depends = append(depends, dep.Elems...)
                 default:
                         depends = append(depends, dep)
+                }
+        }
+        for _, depend := range clause.Ordered {
+                switch dep := l.expr(depend).(type) {
+                case *List:
+                        ordered = append(ordered, dep.Elems...)
+                default:
+                        ordered = append(ordered, dep)
                 }
         }
 
@@ -1043,6 +1052,7 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                 scope:    progScope,
                 params:   params,
                 depends:  depends,
+                ordered:  ordered,
                 recipes:  recipes,
                 position: clause.Position,
         }

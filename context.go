@@ -310,9 +310,8 @@ func CommandLine() {
         // make sure that .smart dirs have higher priority.
         globalPaths = append(modulesPaths, globalPaths...)
 
-        loadGrepCache()
+        //loadGrepCache()
         defer func(globe *Globe) {
-                printLeavingDirectory()
                 saveGrepCache()
                 context.globe = globe
         } (context.globe)
@@ -328,6 +327,7 @@ func CommandLine() {
                 report(do_configuration())
         } else if result, err := context.run(works...); err != nil {
                 report(err)
+                printLeavingDirectory()
         } else if result != nil {
                 for _, v := range result {
                         var s string
@@ -338,5 +338,6 @@ func CommandLine() {
                         }
                 }
                 fmt.Printf("\n")
+                printLeavingDirectory()
         }
 }

@@ -25,8 +25,6 @@ import (
 const (
         TheShellEnvarsDef = "shell->envars"
         TheShellStatusDef = "shell->status" // status code of execution
-
-        enable_grep_bench = true
 )
 
 type breaker struct {
@@ -264,16 +262,6 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
         return
 }
 
-func getCompareDepends(pos token.Position, prog *Program) (depends *List, err error) {
-        def := prog.scope.Lookup("^").(*Def)
-        dependVal, _ := def.Call(pos)
-        if dependVal, err = dependVal.expand(expandDelegate); err != nil { return }
-        if dependList, _ := dependVal.(*List); dependList != nil && dependList.Len() > 0 {
-                depends, err = parseDependList(pos, prog, dependList)
-        }
-        return
-}
-
 func compareTargetDepend(pos token.Position, prog *Program, target, depend Value, tt time.Time) (outdated bool, err error) {
         if dependFile, okay := depend.(*File); okay && dependFile != nil {
                 var str string
@@ -316,14 +304,90 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
         return
 }
 
+// parseGrepOption - parses grep options
+// 
+//   (regexp=(sys='...' '...') $^)
+//   (regexp='...' sys='...' $^)
+//   (regexp='...' s='|' $^)
+func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReportMissing, optDiscardMissing bool) (result []Value, err error) {
+        var grep *Group
+        if g, ok := optGrep.(*Group); ok { grep = g } else {
+                err = scanner.Errorf(pos, "`%T` non-group grep option", optGrep)
+                return
+        }
+        
+        var ( rxs []*greprex ; vals []Value ; store Value )
+        for _, elem := range grep.Elems {
+                switch a := elem.(type) {
+                case *Pair:
+                        var s string
+                        if s, err = a.Key.Strval(); err != nil { return }
+                        switch s {
+                        case "regexp", "exp":
+                                switch v := a.Value.(type) {
+                                case *Group: for _, v := range v.Elems {
+                                        if p, ok := v.(*Pair); ok {
+                                                if s, err = p.Key.Strval(); err != nil { return }
+                                                if s == "sys" {
+                                                        if s, err = p.Value.Strval(); err != nil { return }
+                                                        rxs = append(rxs, &greprex{s, true, nil})
+                                                } else {
+                                                        err = scanner.Errorf(pos, "`%s` unknown regexp (%v)", s, p.Value)
+                                                        return
+                                                }
+                                        } else {
+                                                if s, err = v.Strval(); err != nil { return }
+                                                rxs = append(rxs, &greprex{s, false, nil})
+                                        }
+                                }
+                                default:
+                                        if s, err = v.Strval(); err != nil { return }
+                                        rxs = append(rxs, &greprex{s, false, nil})
+                                }
+                        case "s":
+                                store = a.Value
+                        }
+                default:
+                        vals = append(vals, merge(a)...)
+                }
+        }
+
+        for _, val := range vals {
+                var files Value
+                if files, err = grepFiles(val, rxs, optReportMissing, optDiscardMissing); err == nil {
+                        result = append(result, files)
+                } else {
+                        return
+                }
+        }
+
+        if store != nil {
+                var s string
+                if s, err = store.Strval(); err != nil { return }
+                if def := prog.scope.FindDef(s); def != nil {
+                        def.append(result...)
+                        result = nil
+                } else {
+                        err = scanner.Errorf(pos, "`%s` no such Def", s)
+                }
+        }
+        return
+}
+
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var optPath, optNoUpdate, optDisMiss bool
+        var optReportMissing = true
+        var optDiscardMissing bool
+        var optPath, optNoUpdate bool
+        var optGrep Value
         var opts = []string{
                 "p,path",
+                "e,report",
                 "i,ignore",
                 "n,no-update",
+                "g,grep", // -grep=(regexp=(sys='...' '...') $^)
+                //"s,store", // -store='^' - store results
         }
         if len(args) > 0 {
                 var va []Value
@@ -352,8 +416,10 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                         for _, ru := range runes {
                                 switch ru {
                                 case 'p': optPath = true
-                                case 'i': optDisMiss = true
+                                case 'e': optReportMissing = true
+                                case 'i': optDiscardMissing = true
                                 case 'n': optNoUpdate = true
+                                case 'g': optGrep = v
                                 }
                         }
                 }
@@ -376,18 +442,33 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 }
         }
 
+        var depends []Value
+        depends = append(depends, prog.scope.Lookup("^"))
+        depends = append(depends, prog.scope.Lookup("|"))
+
+        if optGrep != nil {
+                var res []Value
+                if res, err = parseGrepOption(pos, prog, optGrep, optReportMissing, optDiscardMissing); err != nil {
+                        return
+                } else if res != nil {
+                        depends = append(depends, MakeListOrScalar(res))
+                }
+        }
+
         var c *comparer
-        if c, err = newcompariation(prog.globe, target); err == nil {
-                c.nomiss = optDisMiss
+        if c, err = newcompariation(prog, target); err == nil {
+                c.nomiss = optDiscardMissing
                 c.noexec = optNoUpdate
-                if err = c.Compare(prog.scope.Lookup("^")); err == nil {
-                        result = MakeListOrScalar(c.result)
+                if err = c.Compare(depends); err == nil {
+                        result = universaltrue
+                } else {
+                        result = universalfalse
                 }
         }
         return
 }
 
-// grep-compare - grep dependencies and compare, example usage:
+// grep-compare - grep files from target and compare, example usage:
 //
 //      (grep-compare '\s*#\s*include\s*<(.*)>')
 //      
@@ -439,7 +520,10 @@ func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (resu
         }
 
         var target = prog.scope.Lookup("@").(*Def)
-        if optTarget != nil { target.set(DefDefault, optTarget) }
+        if optTarget != nil {
+                defer func(v Value) { target.set(DefDefault, v) } (target.Value)
+                target.set(DefDefault, optTarget)
+        }
         if optPath && target.Value != nil {
                 var s string
                 if s, err = target.Value.Strval(); err != nil { return }
@@ -448,28 +532,25 @@ func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (resu
                 }
         }
 
+        //if v, e := grepFiles(target, rxs, true, optDisMiss); e != nil {
         if v, e := modifierGrepFiles(pos, prog, args...); e != nil {
                 err = e
-        } else if /*v != nil*/false {
-                var def = prog.scope.Lookup("^").(*Def)
-                defer def.set(def.origin, def.Value)
-                if err = def.set(DefDefault, v); err == nil {
-                        result, err = modifierCompare(pos, prog)
-                }
         } else if v != nil {
                 var c *comparer
-                if c, err = newcompariation(prog.globe, target); err == nil {
+                if c, err = newcompariation(prog, target); err == nil {
                         c.nomiss = optDisMiss
                         c.noexec = optNoUpdate
                         if err = c.Compare(v); err == nil {
-                                result = MakeListOrScalar(c.result)
+                                result = universaltrue //MakeListOrScalar(c.result)
+                        } else {
+                                result = universalfalse
                         }
                 }
         }
         return
 }
 
-// grep-dependencies - grep dependencies, example usage:
+// grep-dependencies - grep dependencies from target, example usage:
 //
 //      (grep-dependencies '\s*#\s*include\s*<(.*)>')
 //      
@@ -477,11 +558,16 @@ func modifierGrepDependencies(pos token.Position, prog *Program, args... Value) 
         if v, e := modifierGrepFiles(pos, prog, args...); e != nil {
                 err = e
         } else if v != nil {
-                err = prog.scope.Lookup("^").(*Def).append(v)
+                if false {
+                        err = prog.scope.Lookup("^").(*Def).append(v)
+                } else {
+                        err = prog.scope.Lookup("|").(*Def).append(v)
+                }
         }
         return
 }
 
+type greprex struct{ string ; bool ; *regexp.Regexp }
 var grepcache = make(map[string][]Value)
 
 func loadGrepCache() {
@@ -527,24 +613,26 @@ func saveGrepCache() {
         }
 }
 
-// grep-files - grep files from target, example usage:
-//
-//      (grep-files '\s*#\s*include\s*<(.*)>')
-//      
-// https://github.com/google/re2/wiki/Syntax
-func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+func grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value, err error) {
         var project = mostDerived() // prog.project
-        var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
-        var targetName, targetFileName string
+        var targetDir, targetName, targetFileName string
         switch t := target.(type) {
         case *File:
                 targetName = t.name
                 targetFileName = t.FullName()
+                targetDir = filepath.Dir(targetFileName)
         default:
-                targetName, err = t.Strval()
-                targetFileName = targetName
+                targetDir = project.absPath
+                if targetName, err = t.Strval(); err != nil { return }
+                if filepath.IsAbs(targetName) {
+                        targetFileName = targetName
+                } else {
+                        targetFileName = filepath.Join(targetDir, targetName)
+                }
         }
-        if err != nil { return }
+        if !filepath.IsAbs(targetFileName) {
+                unreachable(targetFileName, " is not abs")
+        }
 
         var ( list []Value ; cached bool )
         if list, cached = grepcache[targetFileName]; cached {
@@ -552,39 +640,6 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                 return
         } else {
                 defer func() { grepcache[targetFileName] = list } ()
-        }
-
-        var optReportMissing = true
-        var optDiscardMissing = false
-
-        type rxty struct{ string ; bool ; *regexp.Regexp }
-        var rxs []*rxty
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        for _, arg := range args {
-                var s string
-                switch a := arg.(type) {
-                case *Flag:
-                        var opt bool
-                        if opt, err = a.is('d', "discard-missing"); err != nil { return } else if opt { optDiscardMissing = opt }
-                case *Pair:
-                        if s, err = a.Key.Strval(); err != nil { return }
-                        switch s {
-                        case "sys", "system":
-                                // FIXME: if a.Value.(*Group) ...
-                                if s, err = a.Value.Strval(); err != nil { return }
-                                rxs = append(rxs, &rxty{s, true, nil})
-                        default:
-                                err = scanner.Errorf(pos, "`%v` unsupported argument (%s)", a, s)
-                                return
-                        }
-                default:
-                        if s, err = a.Strval(); err != nil { return }
-                        rxs = append(rxs, &rxty{s, false, nil})
-                }
-        }
-        if len(rxs) == 0 {
-                err = scanner.Errorf(pos, "no grep expressions")
-                return
         }
 
         var isSameAsTarget = func(file *File) (res bool) {
@@ -598,7 +653,6 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                 return
         }
 
-        var targetDir = filepath.Dir(targetFileName)
         var searchName = func(sys bool, linum, colnum int, name string) (file *File) {
                 if file = project.searchInDir(targetDir, name, sys); file != nil {
                         if file.info == nil { unreachable() }
@@ -615,12 +669,12 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                         if f, ok := file.match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
                                 return
                         }
-                } else if !optDiscardMissing && !isSameAsTarget(file) {
+                } else if !discard && !isSameAsTarget(file) {
                         // FIXME: file is nil if it's not found by searchInDir
                         list = append(list, file) // add missing files
                 }
 
-                if optReportMissing {
+                if report {
                         fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s)\n", targetFileName, linum, colnum, name, project.name)
                 }
 
@@ -640,7 +694,8 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                 s = filepath.Join("_", filepath.Base(s))
                 savedGrepFileName = joinTmpPath(dir, s)
         } else {
-                if strings.HasPrefix(s, "..") { s = filepath.Join("_", s) }
+                //if strings.HasPrefix(s, "..") { s = filepath.Join("_", s) }
+                s = strings.Replace(s, "..", "_", -1)
                 // TODO: deal with foo/bar/name.xxx
                 savedGrepFileName = joinTmpPath(project.absPath, s)
         }
@@ -674,7 +729,7 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
 
 GrepTargetFile:
         if targetOSFile, err = os.Open(targetFileName); err != nil {
-                if optDiscardMissing { err = nil }
+                if discard { err = nil }
                 return
         } else {
                 defer func() { err = targetOSFile.Close() } ()
@@ -724,15 +779,56 @@ ForScan:
         }
         if enable_assertions {
                 for _, v := range list {
-                        if v == nil {
-                                unreachable()
-                        }
+                        if v == nil { unreachable() }
                         if f, ok := v.(*File); ok && f == nil {
                                 unreachable()
                         }
                 }
         }
         result = MakeListOrScalar(list)
+        return
+}
+
+// grep-files - grep files from target, example usage:
+//
+//      (grep-files '\s*#\s*include\s*<(.*)>')
+//      
+// https://github.com/google/re2/wiki/Syntax
+func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+
+        var rxs []*greprex
+        var optReportMissing = true // TODO: option "e,report" 
+        var optDiscardMissing = false // TODO: option "i,ignore"
+        for _, arg := range args {
+                var s string
+                switch a := arg.(type) {
+                case *Flag:
+                        var opt bool
+                        if opt, err = a.is('d', "discard-missing"); err != nil { return } else if opt { optDiscardMissing = opt }
+                case *Pair:
+                        if s, err = a.Key.Strval(); err != nil { return }
+                        switch s {
+                        case "sys", "system":
+                                // FIXME: if a.Value.(*Group) ...
+                                if s, err = a.Value.Strval(); err != nil { return }
+                                rxs = append(rxs, &greprex{s, true, nil})
+                        default:
+                                err = scanner.Errorf(pos, "`%v` unsupported argument (%s)", a, s)
+                                return
+                        }
+                default:
+                        if s, err = a.Strval(); err != nil { return }
+                        rxs = append(rxs, &greprex{s, false, nil})
+                }
+        }
+        if len(rxs) == 0 {
+                err = scanner.Errorf(pos, "no grep expressions")
+                return
+        }
+
+        var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
+        result, err = grepFiles(target, rxs, optReportMissing, optDiscardMissing)
         return
 }
 

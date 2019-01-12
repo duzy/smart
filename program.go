@@ -78,12 +78,12 @@ type Program struct {
         globe   *Globe
         project *Project
         scope   *Scope
-        stem    string // set by preparer, for pattern rules
-        level   int // execution level/depth
         params  []string
         depends []Value
+        ordered []Value
         recipes []Value
         pipline []*modifier
+        callers []*preparecontext
         position token.Position
 }
 
@@ -201,6 +201,36 @@ func (prog *Program) hasCDDash() (res bool) {
         return
 }
 
+func (prog *Program) prerequisites(pc *preparer, args []Value) (result []Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        for _, arg := range args {
+                switch a := arg.(type) {
+                case *PercPattern:
+                        var ( s string ; v Value )
+                        if s, err = a.MakeString(pc.stem); err != nil { return }
+                        for _, proj := range pc.projects {
+                                if file := proj.file(s); file != nil {
+                                        v = file ; break
+                                }
+                        }
+                        if v != nil {
+                                result = append(result, v)
+                        } else if true {
+                                result = append(result, a)
+                        } else if false {
+                                result = append(result, &String{s})
+                        } else {
+                                err = scanner.Errorf(prog.position, "`%s` unknown target (via %s)", s, a)
+                        }
+                case *GlobPattern:
+                        unreachable("`%s` glob pattern unsupported", a)
+                default:
+                        result = append(result, a)
+                }
+        }
+        return
+}
+
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
         var print = true // printing work directories (Entering/Leaving)
 
@@ -245,17 +275,11 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         // set $@, $^, $<, etc before pre-modifiers.
-        var targDef, preqDef, pre0Def *Def
-        if targDef, err = prog.auto("@", target); err != nil {
+        var targetDef *Def
+        if targetDef, err = prog.auto("@", target); err != nil {
                 return
-        } else if targDef == nil {
+        } else if targetDef == nil {
                 err = scanner.Errorf(prog.position, "undefined target automatic")
-                return
-        }
-        if preqDef, err = prog.auto("^", universalnone); err != nil {
-                return
-        }
-        if pre0Def, err = prog.auto("<", universalnone); err != nil {
                 return
         }
 
@@ -300,22 +324,56 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
+        var stemDef *Def
+        if stemDef, err = prog.auto("*", universalnone); err != nil {
+                return
+        }
+
+        var ctx preparecontext
+        ctx.projects = execstack.projects(prog.project)
+
+        var pc = &preparer{ entry, prog, nil, ctx }
+        if len(prog.callers) > 0 {
+                p := prog.callers[0]
+                pc.stem, pc.level = p.stem, p.level
+                if pc.stem != "" {
+                        stemDef.set(DefDefault, &String{pc.stem})
+                } else {
+                        stemDef.set(DefDefault, universalnone)
+                }
+        }
+
+        // Expanding all dependencies after pre-modifiers.
+        var depends, ordered []Value
+        if depends, err = prog.prerequisites(pc, prog.depends); err != nil { return }
+        if ordered, err = prog.prerequisites(pc, prog.ordered); err != nil { return }
+
+        var dependsDef, depend0Def, orderedDef, updatedDef *Def
+        if dependsDef, err = prog.auto("^", universalnone); err != nil { return }
+        if depend0Def, err = prog.auto("<", universalnone); err != nil { return }
+        if orderedDef, err = prog.auto("|", universalnone); err != nil { return }
+        if updatedDef, err = prog.auto("?", universalnone); err != nil { return }
+        if len(depends) > 0 {
+                dependsDef.append(depends...)
+                depend0Def.append(depends[0])
+        }
+        if len(ordered) > 0 {
+                orderedDef.append(ordered...)
+        }
+
         // Modifier buffer.
         var modifyBuf *Def
         if modifyBuf, err = prog.auto("-", universalnone); err != nil { return }
         defer func() {
+                result = modifyBuf.Value
                 for _, param := range params {
                         param.set(DefDefault, universalnone)
                 }
-                result = modifyBuf.Value
         } ()
-
-
-        // Pre-interpreted & post-interpreted dialect name.
-        var preInterpreted, postInterpreted string
 
         // Split modifiers by '|', if no '|', all goes postModifiers.
         var preModifiers, postModifiers []*modifier
+        var preInterpreted, postInterpreted string
         for i, m := range prog.pipline {
                 if m.name == modifierbar {
                         preModifiers = prog.pipline[:i]
@@ -332,7 +390,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         }
 
-        // Pre-modifiers could change $@, $^, $<, etc.
+        // Pre-modifiers could change $@, $^, $<, $|, etc.
 PrePipe:
         for _, m := range preModifiers {
                 if m.name == modifierbar { continue }
@@ -342,36 +400,50 @@ PrePipe:
                                 // default interpreter being called.
                                 err, preInterpreted = nil, "--"
                         }
-                        break PrePipe
+                        goto FinalInterpretation //break PrePipe
                 }
         }
-
-        // Expanding all dependencies after pre-modifiers.
-        var depends []Value
-        if depends, err = mergeresult(ExpandAll(prog.depends...)); err != nil { return }
-        preqDef.append(depends...)
 
         // Calculate and prepare depends and files.
-        var pc = &preparer{ entry, prog, nil, nil, prog.stem, prog.level }
-        if err = pc.updateall(preqDef); err != nil {
-                if false {
-                        fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err)
-                }
+        if err = pc.updateall(dependsDef); err != nil {
+                if false { fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err) }
                 return
-        } else if n := len(pc.targets); n == 0 {
-                //preqDef.set(DefDefault, universalnone)
-                //pre0Def.set(DefDefault, universalnone)
+        }
+        if n := len(pc.targets); n == 0 {
+                //if trace_prepare { pc.tracef("targets: (0)") }
+                dependsDef.set(DefDefault, universalnone)
+                depend0Def.set(DefDefault, universalnone)
         } else if n == 1 {
                 if trace_prepare { pc.tracef("targets: %v", pc.targets[0]) }
-                preqDef.set(DefDefault, pc.targets[0])
-                pre0Def.set(DefDefault, pc.targets[0])
+                dependsDef.set(DefDefault, pc.targets[0])
+                depend0Def.set(DefDefault, pc.targets[0])
         } else if n > 1 {
                 if trace_prepare { pc.tracef("targets: (%d) %v", n, pc.targets) }
-                preqDef.set(DefDefault, MakeList(pc.targets...))
-                pre0Def.set(DefDefault, pc.targets[0])
+                dependsDef.set(DefDefault, MakeList(pc.targets...))
+                depend0Def.set(DefDefault, pc.targets[0])
         }
+        if len(pc.updated) > 0 {
+                updatedDef.set(DefDefault, MakeList(pc.updated...))
+        } else {
+                updatedDef.set(DefDefault, universalnone)
+        }
+        pc.targets = nil
+        pc.updated = nil
 
-PostPipe:
+        if err = pc.updateall(orderedDef); err != nil {
+                if false { fmt.Fprintf(os.Stdout, "%s: %s\n", entry.Position, err) }
+                return
+        }
+        if n := len(pc.targets); n == 0 {
+                //if trace_prepare { pc.tracef("ordered: (0)") }
+                orderedDef.set(DefDefault, universalnone)
+        } else {
+                if trace_prepare { pc.tracef("ordered: (%d) %v", n, pc.targets) }
+                orderedDef.set(DefDefault, MakeList(pc.targets...))
+        }
+        pc.targets = nil
+        pc.updated = nil
+
         for _, m := range postModifiers {
                 if m.name == modifierbar { continue }
                 if err = prog.modify(m, true, print, &postInterpreted, modifyBuf); err != nil {
@@ -381,10 +453,11 @@ PostPipe:
                                 // called.
                                 err, postInterpreted = nil, "--"
                         }
-                        break PostPipe
+                        goto FinalInterpretation //break PostPipe
                 }
         }
 
+FinalInterpretation:
         if err == nil && preInterpreted == "" && postInterpreted == "" {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
@@ -416,25 +489,3 @@ func (prog *Program) passExecution(position token.Position, entry *RuleEntry, ar
         result, err = Executer(entry).Execute(position, args...)
         return
 }
-
-/*
-func dependEquals(a, b Value) bool {
-        if a == b {
-                return true
-        }
-
-        // TODO: more advanced checking "the same depend"
-
-        var (
-                sa, sb string
-                err error
-        )
-        if sa, err = a.Strval(); err != nil {
-                return false
-        }
-        if sb, err = b.Strval(); err != nil {
-                return false
-        }
-        return sa == sb
-}
-*/

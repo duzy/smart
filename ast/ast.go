@@ -552,7 +552,8 @@ type (
 	RuleClause struct {
 		Doc      *CommentGroup  // associated documentation; or nil
 		Targets  []Expr         // targets
-                Depends  []Expr         // prerequisites
+                Depends  []Expr         // normal prerequisites
+                Ordered  []Expr         // ordered prerequisites
                 Modifier *ModifierExpr  // modifier (e.g. [shell])
                 Program  Expr           // program (e.g. recipes)
                 Position token.Position

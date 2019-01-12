@@ -738,7 +738,7 @@ type StemmedEntry struct {
 
 //func (ps *StemmedEntry) Strval() (string, error) {return ps.target, nil }
 func (ps *StemmedEntry) String() (s string) {
-        return fmt.Sprintf("{StemmedEntry %s,%s,%s,%s}", ps.Patent, ps.Stem, ps.target, ps.file)
+        return fmt.Sprintf("StemmedEntry{%s,%s,%s,%s}", ps.Patent, ps.Stem, ps.target, ps.file)
 }
 
 func (ps *StemmedEntry) concrete() (*RuleEntry, error) {

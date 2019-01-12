@@ -22,8 +22,9 @@ import (
 const (
         enable_statcache = true
         enable_assertions = true
-        trace_compare = false
-        trace_prepare = false
+        enable_grep_bench = true
+        trace_compare = false //true //
+        trace_prepare = false //true //
         trace_entering = trace_prepare && false
 )
 
@@ -113,12 +114,12 @@ func (cc closurecontext) String() (s string) {
 }
 
 type comparer struct {
-        globe *Globe
+        program *Program
         target Value
         tarcom comparable // target comparable
         updated []Value // found updated dependencies
-        objects []Value
-        result []Value
+        //objects []Value
+        //result []Value
         noexec bool // just checking existence
         nomiss bool // all file dependencies must exist
         level int // compare/trace level
@@ -144,12 +145,12 @@ func compun(c *comparer) {
         c.trace(")")
 }
 
-func newcompariation(globe *Globe, target Value) (c *comparer, err error) {
+func newcompariation(prog *Program, target Value) (c *comparer, err error) {
         if target, err = target.expand(expandDelegate); err != nil { return }
         if target == nil || target.Type() == NoneType {
                 err = break_bad("comparing no target")
         } else if tar, ok := target.(comparable); ok || true {
-                c = &comparer{ globe, target, tar, nil, nil, nil, false, true, 0 }
+                c = &comparer{ prog, target, tar, nil, false, true, 0 }
         } else {
                 err = fmt.Errorf("incomparable target (%T %v)", target, target)
         }
@@ -167,7 +168,7 @@ func (c *comparer) Compare(value interface{}) (err error) {
                 c.level += 1
                 defer func() {
                         if c.updated != nil { c.trace("updated:", c.updated) }
-                        if c.result != nil { c.trace("result:", c.result) }
+                        //if c.result != nil { c.trace("result:", c.result) }
                         if err != nil { c.trace("error:", err) }
                         compun(c)
                 } ()
@@ -199,22 +200,37 @@ func (c *comparer) compare(value interface{}) (err error) {
                         err = dep.dependcompare(c)
                 }
         } else {
-                err = fmt.Errorf("`%T` is not depend-comparable", value)
+                err = fmt.Errorf("`%v` is not dependcomparable (%T)", value, value)
         }
         return
 }
 
-func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (/*updated bool,*/ err error) {
+func (c *comparer) compareDepend(value interface{}) (err error) {
+        if dep, ok := value.(dependcomparable); ok {
+                if c.tarcom != nil {
+                        err = c.tarcom.compare(c, dep)
+                } else {
+                        err = dep.dependcompare(c)
+                }
+        } else {
+                err = fmt.Errorf("`%v` is not dependcomparable (%T)", value, value)
+        }
+        return
+}
+
+func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err error) {
         var k = strings.ToLower(d.Type().String())
         if trace_compare { c.trace(k+":", ds) }
 
-        var ti os.FileInfo
         var tt, dt time.Time
 
-        if t, ok := c.globe.timestamps[ds]; ok {
+        if t, ok := c.program.globe.timestamps[ds]; ok {
                 dt = t
         } else if di != nil {
                 dt = di.ModTime()
+        } else if f, ok := d.(*File); ok && f.info != nil {
+                // Note that this case should not happen!
+                ds, di = f.FullName(), f.info
         } else if di, _ = os.Stat(ds); di != nil {
                 dt = di.ModTime()
         } else if c.nomiss {
@@ -225,12 +241,15 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (/*upda
         }
 
         var ts string
-        if ts, err = c.target.Strval(); err != nil {
-                return
-        } else if t, ok := c.globe.timestamps[ts]; ok {
+        var ti os.FileInfo
+        if t, ok := c.program.globe.timestamps[ts]; ok {
                 tt = t
         } else if ti != nil {
                 tt = ti.ModTime()
+        } else if f, ok := c.target.(*File); ok && f.info != nil {
+                ts, ti = f.FullName(), f.info
+        } else if ts, err = c.target.Strval(); err != nil {
+                return
         } else if ti, _ = os.Stat(ts); ti != nil {
                 tt = ti.ModTime()
         } else if c.nomiss {
@@ -241,19 +260,26 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (/*upda
         }
 
         if dt.After(tt) {
-                //updated = true // tells updated dependency
                 c.updated = append(c.updated, d)
-                if false {
-                        c.globe.timestamps[ts] = tt
-                        c.globe.timestamps[ds] = dt
-                } else {
-                        // Update timestamps to depended file, so that
-                        // further updates can happen.
-                        c.globe.timestamps[ts] = dt
-                        c.globe.timestamps[ds] = dt
-                }
+
+                // Update timestamps to depended file, so that
+                // further updates can happen.
+                c.program.globe.timestamps[ts] = dt
+                c.program.globe.timestamps[ds] = dt
+        } else {
+                // Just save the timestamps to optimize further stats.
+                c.program.globe.timestamps[ts] = tt
+                c.program.globe.timestamps[ds] = tt
         }
         return
+}
+
+type preparecontext struct {
+        projects []*Project
+        targets []Value // prerequisite targets ($^ $<)
+        updated []Value // prerequisites newer than the target (from comparer) ($?)
+        stem string // set by StemmedEntry
+        level int // prepare/trace level
 }
 
 // preparer prepares prerequisites of targets.
@@ -261,9 +287,7 @@ type preparer struct {
         entry *RuleEntry // caller entry (target)
         program *Program
         arguments []Value
-        targets []Value // prerequisite targets ($^ $<)
-        stem string // set by StemmedEntry
-        level int // prepare/trace level
+        preparecontext
 }
 
 //type preparable interface {
@@ -333,21 +357,14 @@ func (pc *preparer) update(value interface{}) (err error) {
 }
 
 func (pc *preparer) updateTarget(target string) (err error) {
-        if false {
-                err = pc.program.project.updateTarget(pc, target)
-        } else if false {
-                var project = mostDerived()
+        for _, project := range pc.projects/*execstack.projects(pc.program.project)*/ {
                 err = project.updateTarget(pc, target)
-        } else {
-                for _, project := range execstack.projects(pc.program.project) {
-                        err = project.updateTarget(pc, target)
-                        if err == nil { break }
-                        if trace_prepare { pc.tracef("%s", err) }
-                        if _, ok := err.(targetNotFoundError); ok {
-                                continue
-                        } else {
-                                break
-                        }
+                if err == nil { break }
+                if trace_prepare { pc.tracef("%s", err) }
+                if _, ok := err.(targetNotFoundError); ok {
+                        continue
+                } else {
+                        break
                 }
         }
         return
@@ -364,10 +381,9 @@ func (pc *preparer) updateTargetValue(value Value) (err error) {
 func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         var res Value
 
-        // Pase pc.stem to the program, so that patterns will work.
-        defer func(s string) { prog.stem = s } (prog.stem)
-        prog.stem = pc.stem
-        prog.level = pc.level
+        // Push the context to the program, so that patterns will work.
+        defer func(a []*preparecontext) { prog.callers = a } (prog.callers)
+        prog.callers = append([]*preparecontext{&pc.preparecontext}, prog.callers...)
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err != nil {
@@ -1088,8 +1104,7 @@ func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 
 func (p *String) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, nil, p.string) }
 func (p *String) prepare(pc *preparer) error {
         if trace_prepare { defer prepun(preptrace(pc, "String", p)) }
-        //pc.source = p.Value
-        return pc.updateTarget(p.string)
+         return pc.updateTarget(p.string)
 }
 func (p *String) cmp(v Value) (res cmpres) {
         if v.Type() == StringType {
@@ -1584,15 +1599,15 @@ func (p *PathSeg) cmp(v Value) (res cmpres) {
 func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
 
 type filestub struct {
-        match *FileMap   // matched pattern (see 'files' directive)
+        dir string       // full directory where the file was or should be found
         sub string       // matched sub path (see Project.search), may be Dir (absoletep path)
         name string      // constant represented name (e.g. relative filename)
+        match *FileMap   // matched pattern (see 'files' directive)
         other *filestub  // pointed to another stub (in a different project) of the same file
 }
 
 type filebase struct {
         stub filestub    // cycled-list of file stubs of different projects
-        dir string       // full directory where the file was or should be found
         info os.FileInfo // file info if exists
 }
 
@@ -1610,22 +1625,23 @@ func (p *filebase) exists() bool { return p.info != nil }
 
 func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
         var ( base *filebase ; stub *filestub ; fullname string )
-        var isAbsName bool
 
         // Trims / suffix
         if dir != "" { dir = filepath.Clean(dir) }
         if sub != "" { sub = filepath.Clean(sub) }
+        name = filepath.Clean(name)
 
-        if isAbsName = filepath.IsAbs(name); isAbsName {
+        if filepath.IsAbs(name) {
                 if fullname = name; dir == "" {
                         dir = filepath.Dir(fullname)
                         name = filepath.Base(fullname)
                         if enable_assertions {
                                 assert(sub == "", "`%s` sub for fullname", sub)
                         }
-                } else if strings.HasPrefix(fullname, dir) {
-                        tail := strings.TrimPrefix(fullname, dir)
-                        tail  = strings.TrimPrefix(tail, PathSep)
+                } else if strings.HasPrefix(fullname, dir+PathSep) {
+                        //tail := strings.TrimPrefix(fullname, dir)
+                        //tail  = strings.TrimPrefix(tail, PathSep)
+                        tail := fullname[len(dir)+1:]
                         sub  = filepath.Dir(tail)
                         name = filepath.Base(tail)
                         if enable_assertions {
@@ -1655,9 +1671,10 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
         }
 
         if enable_assertions {
-                assert(!filepath.IsAbs(name), "`%s` name is abs", name)
+                assert(filepath.IsAbs(fullname), "`%s` is not abs", fullname)
+                assert(dir != "", "`%s` empty dir (sub=%s)", fullname, sub)
                 assert(!filepath.IsAbs(sub), "`%s` sub is abs", sub)
-                assert(dir != "", "`%s` empty dir (fullname=%s)", dir, fullname)
+                assert(!filepath.IsAbs(name), "`%s` name is abs", name)
                 
                 s := filepath.Join(dir, sub, name)
                 assert(fullname == s, "`%s` fullname conflicted (%s)", fullname, s)
@@ -1689,32 +1706,20 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                 var head = &base.stub
                 if enable_assertions {
                         for stub = head; stub != nil ; stub = stub.other {
-                                //fmt.Printf("dup: %s %s %s (%s %s %s)\n", base.dir, stub.sub, stub.name, dir, sub, name)
-                                s := filepath.Join(base.dir, stub.sub, stub.name)
-                                assert(fullname == s, "(%s %s %s) fullname conflicted", base.dir, stub.sub, stub.name)
+                                s := filepath.Join(stub.dir, stub.sub, stub.name)
+                                assert(fullname == s, "(%s %s %s) fullname conflicted", stub.dir, stub.sub, stub.name)
                                 if stub.other == head { break }
                         }
                 }
-                if base.dir == dir {
-                        for stub = head; stub != nil ; stub = stub.other {
-                                if stub.sub == sub && stub.name == name { goto GotFile }
-                                if stub.other == head { break }
+                for stub = head; stub != nil; stub = stub.other {
+                        if stub.dir == dir && stub.sub == sub && stub.name == name {
+                                goto GotFile
                         }
-                } else if strings.HasPrefix(dir, base.dir) {
-                        //sub = strings.TrimPrefix(dir, base.dir)
-                        //sub = strings.TrimPrefix(sub, PathSep)
-                        sub = dir[len(base.dir)+1:]
-                        dir = base.dir
-                        for stub = head; stub != nil ; stub = stub.other {
-                                if stub.sub == sub && stub.name == name { goto GotFile }
-                                if stub.other == head { break }
-                        }
+                        if stub.other == head { break }
                 }
 
-                stub = &filestub{ nil, sub, name, head.other }
+                stub = &filestub{ dir, sub, name, nil, head.other }
                 head.other = stub
-                
-                //fmt.Printf("new: %s %s %s (%v)\n", base.dir, stub.sub, stub.name, base.info)
         } else {
                 if info == nil {
                         info, _ = os.Stat(fullname)
@@ -1722,7 +1727,7 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                                 return nil // file not exists
                         }
                 }
-                base = &filebase{ filestub{ nil, sub, name, nil }, dir, info }
+                base = &filebase{ filestub{ dir, sub, name, nil, nil }, info }
                 base.stub.other = &base.stub
                 stub = &base.stub
                 filecache[fullname] = base
@@ -1735,7 +1740,15 @@ GotFile:
                 }
                 assert(file.name == name, "(%s %s %s).name != %s", file.name, file.sub, file.dir, name)
                 assert(file.sub == sub, "(%s %s %s).sub != %s", file.name, file.sub, file.dir, sub)
+                if file.dir != dir {
+                        var head = &base.stub
+                        for stub := head; stub != nil; stub = stub.other {
+                                fmt.Printf("stat: %s %s %s\n", stub.dir, stub.sub, stub.name)
+                                if stub.other == head { break }
+                        }
+                }
                 assert(file.dir == dir, "(%s %s %s).dir != %s", file.name, file.sub, file.dir, dir)
+                assert(file.dir != "", "(%s %s %s) empty dir", file.name, file.sub, file.dir)
                 if file.exists() {
                         assert(file.info != nil, "(%s %s %s) info is nil", file.name, file.sub, file.dir)
                         assert(file.info.Name() == filepath.Base(file.name), "(%s %s %s) name conflicted", file.name, file.sub, file.dir)
@@ -1824,18 +1837,14 @@ func (p *File) prepare(pc *preparer) (err error) {
 
         var brk bool
         if err, brk = p.explicitly(pc); err != nil || brk { return }
-        if p.exists() {
-                pc.addTarget(p)
-                return
-        }
-
         if err, brk = p.implicitly(pc); err != nil || brk { return }
+
         if p.exists() {
                 pc.addTarget(p)
                 return
         }
         
-        for _, proj := range execstack.projects(pc.program.project) {
+        for _, proj := range pc.projects/*execstack.projects(pc.program.project)*/ {
                 if p.match != nil {
                         if p.searchInMatchedPaths(proj) {
                                 pc.addTarget(p)
@@ -1860,12 +1869,13 @@ func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
         var entry *RuleEntry
         // Find concrete entry (by file's represented name)
         // Search into the upper projects for matched a rule.
-        for _, proj := range execstack.projects(pc.program.project) {
+ForProjects:
+        for _, proj := range pc.projects/*execstack.projects(pc.program.project)*/ {
                 if entry, err = proj.resolveEntry(p.name); err != nil {
-                        break
+                        break ForProjects
                 } else if entry != nil {
                         err, trybrk = entry.prepare(pc), true
-                        break
+                        break ForProjects
                 }
         }
         return
@@ -1874,7 +1884,7 @@ func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
 func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
         // Search into the upper projects for matched a rule.
 ForProjects:
-        for _, proj := range execstack.projects(pc.program.project) {
+        for _, proj := range pc.projects/*execstack.projects(pc.program.project)*/ {
                 var pss []*StemmedEntry
                 if pss, err = proj.resolvePatterns(p.name); err != nil {
                         break ForProjects
@@ -2820,15 +2830,16 @@ func (p *pattern) Integer() (int64, error) { return 0, nil }
 func (p *pattern) Float() (float64, error) { return 0, nil }
 func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
         entry = new(RuleEntry)
+        *entry = *patent // Copy the entry object bits
 
-        // Per-bit copying the entry object
-        *entry = *patent
-        
-        var proj = mostDerived() //patent.OwnerProject()
-        if proj.isFileName(/*filepath.Base(target)*/target) {
-                if file := proj.search(target); file != nil {
-                        entry.target = file
+        var project = mostDerived()
+        if project.isFileName(target) {
+                var file = project.search(target)
+                if file == nil { // stat non-existed file
+                        file = stat(target, "", project.absPath, nil)
                 }
+                assert(file != nil, "`%s` nil file", target)
+                entry.target = file
         } else {
                 entry.target = &String{ target }
         }
@@ -2899,17 +2910,34 @@ func (p *PercPattern) MakeString(stem string) (s string, err error) {
 func (p *PercPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         var target string
         if target, err = p.MakeString(stem); err == nil {
-                entry = &RuleEntry{
-                        patent.class, &String{ target },
-                        patent.programs, patent.Position,
-                }
-                return
+                entry, err = p.pattern.concrete(patent, target, stem)
         }
         return
 }
 
 func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
+
+func (p *PercPattern) dependcompare(c *comparer) (err error) {
+        if enable_assertions { assert(c.target != p, "self comparation") }
+        
+        var stem string
+        if len(c.program.callers) == 0 {
+                //err = fmt.Errorf("no calltrace (%s)", p)
+                return
+        } else if stem = c.program.callers[0].stem; stem == "" {
+                //err = fmt.Errorf("empty stem (%s)", p)
+                return
+        }
+
+        var target string
+        if target, err = p.MakeString(stem); err != nil { return }
+
+        if err = c.compareDepend(target); err != nil {
+                err = patternCompareError(err)
+        }
+        return
+}
 
 func (p *PercPattern) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, "PercPattern", p)) }
@@ -2920,30 +2948,7 @@ func (p *PercPattern) prepare(pc *preparer) (err error) {
 
         var target string
         if target, err = p.MakeString(pc.stem); err != nil { return }
-
-        // Check if target is a file (if source entry is file).
-        for i := len(execstack)-1; i >= 0; i -= 1 {
-                prog := execstack[i]
-                if file := prog.project.file(target); file == nil {
-                        continue
-                } else if file.exists() {
-                        // File exists, but we still prepare it to call
-                        // it's dependencies if any.
-                        err = file.prepare(pc)
-                        return
-                }
-
-                // Try update the file target via rules if not found.
-                if err = prog.project.updateTarget(pc, target); err == nil {
-                        continue
-                } else {
-                        return
-                }
-        }
-
-        if err = pc.updateTarget(target); err == nil {
-                return // Good!
-        } else {
+        if err = pc.updateTarget(target); err != nil {
                 err = patternPrepareError(err)
         }
         return
@@ -3027,18 +3032,14 @@ func (p *GlobPattern) match(i interface{}) (matched bool, stem string, err error
 }
 
 func (p *GlobPattern) MakeString(stem string) (s string, err error) {
-        // FIXME: make string from stem
+        unreachable("FIXME: make string from stem")
         return
 }
 
 func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         var target string
         if target, err = p.MakeString(stem); err == nil {
-                entry = &RuleEntry{
-                        patent.class, &String{ target },
-                        patent.programs, patent.Position,
-                }
-                return
+                entry, err = p.pattern.concrete(patent, target, stem)
         }
         return
 }
@@ -3056,6 +3057,27 @@ func (p *GlobPattern) closured() (res bool) {
         return
 }
 
+func (p *GlobPattern) dependcompare(c *comparer) (err error) {
+        if enable_assertions { assert(c.target != p, "self comparation") }
+
+        var stem string
+        if len(c.program.callers) == 0 {
+                //err = fmt.Errorf("no calltrace (%s)", p)
+                return
+        } else if stem = c.program.callers[0].stem; stem == "" {
+                //err = fmt.Errorf("empty stem (%s)", p)
+                return
+        }
+
+        var target string
+        if target, err = p.MakeString(stem); err != nil { return }
+
+        if err = c.compareDepend(target); err != nil {
+                err = patternCompareError(err)
+        }
+        return
+}
+
 func (p *GlobPattern) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, "GlobPattern", p)) }
         if pc.stem == "" {
@@ -3065,30 +3087,7 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
 
         var target string
         if target, err = p.MakeString(pc.stem); err != nil { return }
-
-        // Check if target is a file (if source entry is file).
-        for i := len(execstack)-1; i >= 0; i -= 1 {
-                prog := execstack[i]
-                if file := prog.project.file(target); file == nil {
-                        continue
-                } else if file.exists() {
-                        // File exists, but we still prepare it to call
-                        // it's dependencies if any.
-                        err = file.prepare(pc)
-                        return
-                }
-
-                // Try update the file target via rules if not found.
-                if err = prog.project.updateTarget(pc, target); err == nil {
-                        continue
-                } else {
-                        return
-                }
-        }
-
-        if err = pc.updateTarget(target); err == nil {
-                return // Good!
-        } else {
+        if err = pc.updateTarget(target); err != nil {
                 err = patternPrepareError(err)
         }
         return

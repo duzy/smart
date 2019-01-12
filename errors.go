@@ -76,8 +76,9 @@ func ParseStack(all bool) (s string) {
         return
 }
 
-// patternPrepareError indicates an error occurred in preparing a pattern.
+type patternCompareError error
 type patternPrepareError error
+
 type targetNotFoundError struct { project *Project; target string }
 type pathNotFoundError struct { project *Project; path *Path }
 type fileNotFoundError struct { project *Project; file *File }

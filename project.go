@@ -260,14 +260,14 @@ func (p *Project) searchInDir(dir, name string, ignoreMissing bool) (file *File)
                 file = stat(name, "", "")
         } else if isRel = isRelPath(name); isRel {
                 file = stat(name, "", dir)
-        } else if file = p.search(name); file == nil {
+        } else if file = p.search(name); file != nil {
                 // return
         } else if ignoreMissing {
                 // ignore missing
-        } else if dir := filepath.Dir(name); /*dir != "."*/true {
+        } else if s := filepath.Dir(name); dir != "." {
                 // Check for bare non-system sub-path (e.g. foo/bar/name.xxx)
                 file = p.search(filepath.Base(name))
-                if file != nil && !strings.HasSuffix(file.dir, dir) {
+                if file != nil && !strings.HasSuffix(file.dir, s) {
                         file = nil // 
                 }
         }

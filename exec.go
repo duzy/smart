@@ -420,10 +420,17 @@ ForArgs:
                 }
                 
                 if promstr == "" {
-                        fmt.Printf("smart: gen %s\n", targetName)
+                        fmt.Printf("smart: gen %s …", targetName)
                 } else {
-                        fmt.Printf("%s: %s\n", promstr, targetName)
+                        fmt.Printf("%s: %s …", promstr, targetName)
                 }
+                defer func() {
+                        if err == nil {
+                                fmt.Printf("… ok\n")
+                        } else {
+                                fmt.Printf("… error: %v\n", err)
+                        }
+                } ()
         }
         ForRecipes: for _, recipe := range recipes {
                 if str, err = recipe.Strval(); err != nil { return }

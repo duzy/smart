@@ -75,10 +75,13 @@ const (
         CLOSURE_R    // &/
         CLOSURE_D    // &.
         CLOSURE_A    // &@
+        CLOSURE_B    // &|
         CLOSURE_L    // &<
         CLOSURE_U    // &^
         CLOSURE_S    // &*
         CLOSURE_M    // &-
+        CLOSURE_P    // &+
+        CLOSURE_Q    // &?
         CLOSURE_1    // &1
         CLOSURE_2    // &2
         CLOSURE_3    // &3
@@ -94,10 +97,13 @@ const (
         DELEGATE_R    // $/
         DELEGATE_D    // $.
         DELEGATE_A    // $@
+        DELEGATE_B    // $|
         DELEGATE_L    // $<
         DELEGATE_U    // $^
         DELEGATE_S    // $*
         DELEGATE_M    // $-
+        DELEGATE_P    // $+
+        DELEGATE_Q    // $?
         DELEGATE_1    // $1
         DELEGATE_2    // $2
         DELEGATE_3    // $3
@@ -202,10 +208,13 @@ var tokens = [...]string{
         CLOSURE_R:    "&/",
         CLOSURE_D:    "&.",
         CLOSURE_A:    "&@",
+        CLOSURE_B:    "&|",
         CLOSURE_L:    "&<",
         CLOSURE_U:    "&^",
         CLOSURE_S:    "&*",
         CLOSURE_M:    "&-",
+        CLOSURE_P:    "&+",
+        CLOSURE_Q:    "&Q",
         CLOSURE_1:    "&1",
         CLOSURE_2:    "&2",
         CLOSURE_3:    "&3",
@@ -220,10 +229,13 @@ var tokens = [...]string{
         DELEGATE_R:    "$/",
         DELEGATE_D:    "$.",
         DELEGATE_A:    "$@",
+        DELEGATE_B:    "$|",
         DELEGATE_L:    "$<",
         DELEGATE_U:    "$^",
         DELEGATE_S:    "$*",
         DELEGATE_M:    "$-",
+        DELEGATE_P:    "$+",
+        DELEGATE_Q:    "$?",
         DELEGATE_1:    "$1",
         DELEGATE_2:    "$2",
         DELEGATE_3:    "$3",
