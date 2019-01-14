@@ -42,7 +42,10 @@ func (filemap *FileMap) stat(base, name string) (file *File) {
                 }
 
                 // Check file in the filesystem.
-                if file = stat(name, sub, dir); file != nil { break }
+                if file = stat(name, sub, dir); file != nil {
+                        //if file.match == nil { file.match = filemap }
+                        break
+                }
         }
         return
 }
@@ -272,6 +275,35 @@ func (p *Project) searchInDir(dir, name string, ignoreMissing bool) (file *File)
                 file = p.search(filepath.Base(name))
                 if file != nil && !strings.HasSuffix(file.dir, s) {
                         file = nil // 
+                }
+        }
+        return
+}
+
+func (p *Project) matchFileName(name string) (file *File) {
+        for _, filemap := range p.filemaps() {
+                // Match the represented file name.
+                if filemap.Match(name) {
+                        if file = filemap.stat(p.absPath, name); file != nil {
+                                if file.match == nil { file.match = filemap }
+                                if enable_assertions {
+                                        assert(file.exists(), "`%s` file not existed", file)
+                                }
+                                break
+                        } else if len(filemap.Paths) > 0 {
+                                var ( dir, sub string ; err error )
+                                if sub, err = filemap.Paths[0].Strval(); err != nil {
+                                        return
+                                } else if filepath.IsAbs(sub) {
+                                        dir = sub
+                                        sub = ""
+                                } else {
+                                        dir = p.absPath
+                                }
+                                file = stat(name, sub, dir, nil)
+                                if file.match == nil { file.match = filemap }
+                                break
+                        }
                 }
         }
         return

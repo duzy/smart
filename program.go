@@ -292,21 +292,22 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         } ()
 
         // select the right target value
-        pc.realTarget = universalnone
+        var realTarget Value = universalnone
         switch t := pc.entry.target.(type) {
-        case *File: pc.realTarget = t
+        case *File: realTarget = t
         default:
                 var s string
                 if s, err = pc.entry.target.Strval(); err != nil { return }
                 if file := prog.project.file(s); file == nil {
-                        pc.realTarget = pc.entry.target
+                        realTarget = pc.entry.target
                 } else {
-                        pc.realTarget = file
+                        realTarget = file
                 }
+                // FIXME: project.matchFileName(realTarget)
         }
 
         // set $@, $^, $<, etc before pre-modifiers.
-        if pc.targetDef, err = prog.auto("@", pc.realTarget); err != nil {
+        if pc.targetDef, err = prog.auto("@", realTarget); err != nil {
                 return
         } else if pc.targetDef == nil {
                 err = scanner.Errorf(prog.position, "undefined target automatic")
@@ -417,6 +418,20 @@ PrePipe:
                         if br, ok := err.(*breaker); ok {
                                 switch br.what {
                                 case breakGood:
+                                        var s string
+                                        // Check target existence
+                                        if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
+                                                break PrePipe
+                                        } else if s, err = pc.targetDef.Value.Strval(); err != nil {
+                                                return
+                                        }
+                                        for _, proj := range pc.projects {
+                                                if file := proj.matchFileName(s); file != nil && !file.exists() {
+                                                        pc.targetDef.Value = file
+                                                        break PrePipe
+                                                }
+                                        }
+                                        
                                         // Discard err and change dialect to avoid
                                         // default interpreter being called.
                                         err, preInterpreted = nil, "--"
@@ -434,6 +449,9 @@ PrePipe:
         // Update outdated targets
         if len(pc.updated) > 0 {
                 // Switch into update mode to avoid further comparations
+                pc.mode = updateMode
+        } else if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
+                // Switch into update mode to update target
                 pc.mode = updateMode
         }
 
