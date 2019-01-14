@@ -28,23 +28,23 @@ var (
 // Predeclared types.
 var (
         CoreTypes = []*Core {
-                UnknownObjectKind:    {UnknownObjectKind, IsUnknownObject, "UnknownObject"},
-                KnownObjectKind:      {KnownObjectKind, IsKnownObject, "KnownObject"},
-                UnresolvedObjectKind: {UnresolvedObjectKind, IsUnresolvedObject, "UnresolvedObject"},
-                DefKind:         {DefKind, IsDef, "Def"},
-                UndeterminedKind:{UndeterminedKind, IsUndetermined, "Undetermined"},
+                UnknownObjectKind:    {UnknownObjectKind, IsUnknownObject, "unknown"},
+                KnownObjectKind:      {KnownObjectKind, IsKnownObject, "known"},
+                UnresolvedObjectKind: {UnresolvedObjectKind, IsUnresolvedObject, "unresolved"},
+                DefKind:         {DefKind, IsDef, "def"},
+                UndeterminedKind:{UndeterminedKind, IsUndetermined, "undetermined"},
                 UsingKind:       {UsingKind, IsUsing, "using"},
                 UsingListKind:   {UsingListKind, IsUsingList, "usinglist"},
-                DefinerKind:     {DefinerKind, IsDefiner, "Definer"},
-                PlainKind:       {PlainKind, IsPlain, "Plain"},
-                JSONKind:        {JSONKind, IsJSON, "JSON"},
-                XMLKind:         {XMLKind, IsXML, "XML"},
-                YAMLKind:        {YAMLKind, IsYAML, "YAML"},
-                ExecResultKind:  {ExecResultKind, IsExecResult, "ExecResult"},
-                ScopeNameKind:   {ScopeNameKind, IsScopeName, "ScopeName"},
-                ProjectNameKind: {ProjectNameKind, IsProjectName, "ProjectName"},
-                BuiltinKind:     {BuiltinKind, IsBuiltin, "Builtin"},
-                RuleEntryKind:   {RuleEntryKind, IsRuleEntry, "RuleEntry"},
+                DefinerKind:     {DefinerKind, IsDefiner, "definer"},
+                PlainKind:       {PlainKind, IsPlain, "plain"},
+                JSONKind:        {JSONKind, IsJSON, "json"},
+                XMLKind:         {XMLKind, IsXML, "xml"},
+                YAMLKind:        {YAMLKind, IsYAML, "yaml"},
+                ExecResultKind:  {ExecResultKind, IsExecResult, "exec_result"},
+                ScopeNameKind:   {ScopeNameKind, IsScopeName, "scope_name"},
+                ProjectNameKind: {ProjectNameKind, IsProjectName, "project_name"},
+                BuiltinKind:     {BuiltinKind, IsBuiltin, "builtin"},
+                RuleEntryKind:   {RuleEntryKind, IsRuleEntry, "entry"},
         }
         
         BasicTypes = []*Basic {

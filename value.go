@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "path/filepath"
         "net/url"
@@ -113,13 +114,19 @@ func (cc closurecontext) String() (s string) {
         return
 }
 
+type updatedtarget struct {
+        target Value
+        prerequisites []*updatedtarget
+}
+
+func (p *updatedtarget) String() string {
+        return p.target.String()
+}
+
 type comparer struct {
         program *Program
         target Value
-        tarcom comparable // target comparable
-        updated []Value // found updated dependencies
-        //objects []Value
-        //result []Value
+        updated []*updatedtarget // found updated dependencies
         noexec bool // just checking existence
         nomiss bool // all file dependencies must exist
         level int // compare/trace level
@@ -130,12 +137,15 @@ type dependcomparable interface {
         dependcompare(c *comparer) error
 }
 
-type comparable interface {
-        compare(c *comparer, d dependcomparable) error
-}
+//type comparable interface {
+//        compare(c *comparer, d dependcomparable) error
+//}
 
-func comptrace(c *comparer, v Value, s string) *comparer {
-        c.trace(s, c.target.String(), ":", v.String(), "(")
+func comptrace(c *comparer, v Value) *comparer {
+        t := c.target
+        a := fmt.Sprintf("%s{%v}", t.Type(), t)
+        b := fmt.Sprintf("%s{%v}", v.Type(), v)
+        c.trace(a, ":", b, "(")
         c.level += 1
         return c
 }
@@ -148,11 +158,15 @@ func compun(c *comparer) {
 func newcompariation(prog *Program, target Value) (c *comparer, err error) {
         if target, err = target.expand(expandDelegate); err != nil { return }
         if target == nil || target.Type() == NoneType {
-                err = break_bad("comparing no target")
-        } else if tar, ok := target.(comparable); ok || true {
-                c = &comparer{ prog, target, tar, nil, false, true, 0 }
+                err = break_bad(prog.position, "comparing no target")
+        } else if /*tar, ok := target.(comparable); ok ||*/ true {
+                var l int
+                if len(prog.callers) > 0 {
+                        l = prog.callers[0].level
+                }
+                c = &comparer{ prog, target, /*tar,*/ nil, false, true, l }
         } else {
-                err = fmt.Errorf("incomparable target (%T %v)", target, target)
+                err = fmt.Errorf("%s '%s' is incomparable target", target.Type(), target)
         }
         return
 }
@@ -161,22 +175,30 @@ func (c *comparer) trace(a ...interface{}) {
         printIndentDots(c.level, a...)
 }
 
-func (c *comparer) Compare(value interface{}) (err error) {
-        if trace_compare { 
-                // s, _ := c.target.()
-                c.trace("compare:", c.target, "(")
+func (c *comparer) Compare(pos token.Position, value interface{}) (err error) {
+        if trace_compare {
+                s := fmt.Sprintf("%s{%s}", c.target.Type(), c.target)
+                c.trace("compare:", s, ":", value, "(")
                 c.level += 1
                 defer func() {
-                        if c.updated != nil { c.trace("updated:", c.updated) }
-                        //if c.result != nil { c.trace("result:", c.result) }
-                        if err != nil { c.trace("error:", err) }
+                        if err != nil {
+                                if br, ok := err.(*breaker); ok {
+                                        switch br.what {
+                                        case breakBad: c.trace("bad:", err)
+                                        case breakGood: //c.trace("good:", err)
+                                        case breakUpdates: //c.trace("updates:", br.values)
+                                        }
+                                } else {
+                                        c.trace("error:", err)
+                                }
+                        }
                         compun(c)
                 } ()
         }
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
                         var dep = v.Index(i).Interface()
-                        if err = c.compare(dep); err == nil {
+                        if err = c.compareDepend(dep); err == nil {
                                 continue
                         } else if trace_compare {
                                 c.trace("error:", err)
@@ -184,36 +206,24 @@ func (c *comparer) Compare(value interface{}) (err error) {
                         }
                 }
         } else {
-                err = c.compare(value)
+                err = c.compareDepend(value)
         }
-        if err == nil && c.updated == nil {
-                err = break_good("already updated")
-        }
-        return
-}
-
-func (c *comparer) compare(value interface{}) (err error) {
-        if dep, ok := value.(dependcomparable); ok {
-                if c.tarcom != nil {
-                        err = c.tarcom.compare(c, dep)
-                } else {
-                        err = dep.dependcompare(c)
-                }
+        if err != nil {
+                // hmm...
+        } else if c.updated == nil {
+                err = break_good(pos, "no need to update")
         } else {
-                err = fmt.Errorf("`%v` is not dependcomparable (%T)", value, value)
+                target := &updatedtarget{c.target, c.updated}
+                err = break_updated(pos, target)
         }
         return
 }
 
 func (c *comparer) compareDepend(value interface{}) (err error) {
         if dep, ok := value.(dependcomparable); ok {
-                if c.tarcom != nil {
-                        err = c.tarcom.compare(c, dep)
-                } else {
-                        err = dep.dependcompare(c)
-                }
+                err = dep.dependcompare(c)
         } else {
-                err = fmt.Errorf("`%v` is not dependcomparable (%T)", value, value)
+                err = fmt.Errorf("'%v' is not dependcomparable", value)
         }
         return
 }
@@ -234,10 +244,10 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err er
         } else if di, _ = os.Stat(ds); di != nil {
                 dt = di.ModTime()
         } else if c.nomiss {
-                err =  break_bad("no required %s '%v'", k, ds)
+                err =  break_bad(c.program.position, "no required %s '%v'", k, ds)
                 return
         } else {
-                return
+                //return
         }
 
         var ts string
@@ -253,41 +263,66 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err er
         } else if ti, _ = os.Stat(ts); ti != nil {
                 tt = ti.ModTime()
         } else if c.nomiss {
-                err = break_bad("no target %s '%v'", k, ds)
+                err = break_bad(c.program.position, "no target %s '%v'", k, ds)
                 return
         } else {
-                return
+                //return
         }
 
         if dt.After(tt) {
-                c.updated = append(c.updated, d)
+                c.updated = append(c.updated, &updatedtarget{target:d})
 
                 // Update timestamps to depended file, so that
                 // further updates can happen.
-                c.program.globe.timestamps[ts] = dt
-                c.program.globe.timestamps[ds] = dt
+                //c.program.globe.timestamps[ts] = dt
+                //c.program.globe.timestamps[ds] = dt
         } else {
                 // Just save the timestamps to optimize further stats.
-                c.program.globe.timestamps[ts] = tt
-                c.program.globe.timestamps[ds] = tt
+                //c.program.globe.timestamps[ts] = tt
+                //c.program.globe.timestamps[ds] = tt
+
+                //projects := c.program.callers[0].projects
+                //fmt.Printf("projects: %v\n", projects)
+                //for _, proj := range projects {
+                //        TODO: proj.compareFurther(c, ds)
+                //        See: proj.updateTarget(...)
+                //}
         }
         return
 }
 
+type preparemode int
+const (
+        updateMode preparemode = iota
+        compareMode 
+)
+
+func (m preparemode) String() (s string) {
+        if m == compareMode { s = "!" }
+        return
+}
+
 type preparecontext struct {
-        projects []*Project
+        mode preparemode
+        entry *RuleEntry // caller entry (target)
+        realTarget Value // the real target being selected
+        args, arguments []Value // target and argumented prerequisite args
         targets []Value // prerequisite targets ($^ $<)
-        updated []Value // prerequisites newer than the target (from comparer) ($?)
+        updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
+        projects []*Project
         stem string // set by StemmedEntry
         level int // prepare/trace level
 }
 
 // preparer prepares prerequisites of targets.
 type preparer struct {
-        entry *RuleEntry // caller entry (target)
         program *Program
-        arguments []Value
         preparecontext
+        print bool // printing work directories (Entering/Leaving)
+
+        targetDef, dependsDef, depend0Def, orderedDef, greppedDef, updatedDef, modifyBuf *Def
+        preModifiers, postModifiers []*modifier
+        updating []Value
 }
 
 //type preparable interface {
@@ -295,9 +330,21 @@ type prerequisite interface {
         prepare(pc *preparer) error
 }
 
-func preptrace(pc *preparer, s string, i interface{}) *preparer {
-        s = fmt.Sprintf("%s{%v}", s, i)
-        pc.trace(pc.entry.target, ":", s, "(")
+func preptrace(pc *preparer, i Value) *preparer {
+        // Note that pc.args and pc.arguments are different, they're
+        // target execution args and argumented-prerequisite args.
+        var a string
+        if t := pc.entry.target; len(pc.args) > 0 {
+                a = fmt.Sprintf("%s{%s%s}", t.Type(), t, pc.args)
+        } else {
+                a = fmt.Sprintf("%s{%v}", t.Type(), t)
+        }
+        b := fmt.Sprintf("%s{%v}", i.Type(), i)
+        if pc.mode == compareMode {
+                pc.trace("!", a, ":", b, "(")
+        } else {
+                pc.trace(a, ":", b, "(")
+        }
         pc.level += 1
         return pc
 }
@@ -327,10 +374,6 @@ func (pc *preparer) updateall(value interface{}) (err error) {
                 for i := 0; i < v.Len(); i++ {
                         if err = pc.update(v.Index(i).Interface()); err == nil {
                                 // Good!
-                        } else if _, ok := err.(targetNotFoundError); ok {
-                                break
-                        } else if _, ok := err.(fileNotFoundError); ok {
-                                break
                         } else {
                                 break
                         }
@@ -342,16 +385,17 @@ func (pc *preparer) updateall(value interface{}) (err error) {
 }
 
 func (pc *preparer) update(value interface{}) (err error) {
+        var pos = pc.entry.Position
         if value == nil {
-                err = fmt.Errorf("updating nil prerequisite")
+                err = scanner.Errorf(pos, "updating nil prerequisite")
         } else if p, ok := value.(prerequisite); ok {
                 if p != nil {
                         err = p.prepare(pc)
                 } else { // this could happen
-                        err = fmt.Errorf("updating nil prerequisite")
+                        err = scanner.Errorf(pos, "updating nil prerequisite")
                 }
         } else {
-                err = fmt.Errorf("`%v` is not prerequisite (%T)", value, value)
+                err = scanner.Errorf(pos, "'%v' is not prerequisite", value)
         }
         return
 }
@@ -387,8 +431,10 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
 
         // Execute the updating program.
         if res, err = prog.Execute(entry, pc.arguments); err != nil {
-                if trace_prepare { pc.tracef("execute: %s", err) }
-                fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
+                //if trace_prepare { pc.tracef("%s: %s", entry, err) }
+                if br, ok := err.(*breaker); ok && br.what == breakBad {
+                        fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
+                }
                 return
         }
 
@@ -407,7 +453,7 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                 if s, err = dd.Strval(); err != nil {
                         return
                 } else if s == "" {
-                        panic(fmt.Sprintf("%T %v", dd, dd))
+                        panic(fmt.Sprintf("%s `%v`", dd.Type(), dd))
                 } else if file := prog.project.search(s); file != nil {
                         pc.addTarget(file)
                 }
@@ -526,10 +572,8 @@ func (p *Argumented) Strval() (s string, err error) {
 }
 
 func (p *Argumented) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "Argumented", p)) }
-
-        // TODO: merge args with p.Args ??
-        pc.arguments, err = Disclose(p.Args...)
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
+        pc.arguments, err = mergeresult(ExpandAll(p.Args...))
         if err == nil { err = pc.update(p.Val) }
         return
 }
@@ -660,7 +704,7 @@ func (p *Any) dependcompare(c *comparer) (err error) {
         return
 }
 func (p *Any) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "Any", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         if p, ok := p.value.(prerequisite); ok {
                 err = p.prepare(pc)
         }
@@ -706,7 +750,7 @@ func (p *negative) Integer() (res int64, err error) {
         return
 }
 func (p *negative) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, p, "negative")) }
+        if trace_compare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
         if p, ok := p.x.(dependcomparable); ok {
                 err = p.dependcompare(c)
@@ -714,7 +758,7 @@ func (p *negative) dependcompare(c *comparer) (err error) {
         return
 }
 func (p *negative) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "negative", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         if p, ok := p.x.(prerequisite); ok {
                 err = p.prepare(pc)
         }
@@ -823,7 +867,7 @@ func (p *integer) Float() (float64, error) { return float64(p.int64), nil }
 func (p *integer) cmp(v Value) (res cmpres) {
         if t := v.Type(); t == BinType || t == OctType || t == IntType || t == HexType {
                 i, e := v.Integer()
-                assert(e == nil, "%T: %v", v, e)
+                assert(e == nil, "%s: %v", v.Type(), e)
                 if p.int64 == i {
                         res = cmpEqual
                 } else if p.int64 < i {
@@ -920,7 +964,7 @@ func (p *Float) Float() (float64, error) { return p.float64, nil }
 func (p *Float) cmp(v Value) (res cmpres) {
         if v.Type() == FloatType {
                 f, e := v.Float()
-                assert(e == nil, "%T: %v", v, e)
+                assert(e == nil, "%s: %v", v.Type(), e)
                 if p.float64 == f {
                         res = cmpEqual
                 } else if p.float64 < f {
@@ -1103,7 +1147,7 @@ func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *String) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, nil, p.string) }
 func (p *String) prepare(pc *preparer) error {
-        if trace_prepare { defer prepun(preptrace(pc, "String", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
          return pc.updateTarget(p.string)
 }
 func (p *String) cmp(v Value) (res cmpres) {
@@ -1140,8 +1184,7 @@ func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *Bareword) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, nil, p.string) }
 func (p *Bareword) prepare(pc *preparer) error {
-        if trace_prepare { defer prepun(preptrace(pc, "Bareword", p)) }
-        //pc.source = p.string
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         return pc.updateTarget(p.string)
 }
 func (p *Bareword) cmp(v Value) (res cmpres) {
@@ -1264,7 +1307,7 @@ func (p *Barecomp) dependcompare(c *comparer) (err error) {
 }
 
 func (p *Barecomp) prepare(pc *preparer) error {
-        if trace_prepare { defer prepun(preptrace(pc, "Barecomp", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         return pc.updateTargetValue(p)
 }
 
@@ -1316,18 +1359,18 @@ func (p *Barefile) Float() (float64, error) {
 }
 
 func (p *Barefile) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, p, "Barefile")) }
+        if trace_compare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
         if p.File != nil {
                 err = p.File.dependcompare(c)
         } else if c.nomiss {
-                err = break_bad("no such file '%v'", p)
+                err = break_bad(c.program.position, "no such file '%v'", p)
         }
         return
 }
 
 func (p *Barefile) prepare(pc *preparer) error {
-        if trace_prepare { defer prepun(preptrace(pc, "Barefile", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         if p.File != nil {
                 if s, e := p.Name.Strval(); e != nil {
                         return e
@@ -1479,7 +1522,7 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
 }
 
 func (p *Path) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, p, "Path")) }
+        if trace_compare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
         if ds, err := p.Strval(); err == nil {
                 var di os.FileInfo
@@ -1490,7 +1533,7 @@ func (p *Path) dependcompare(c *comparer) (err error) {
 }
 
 func (p *Path) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "Path", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
 
         var s string // path/file target
         if s, err = p.Strval(); err != nil {
@@ -1793,7 +1836,7 @@ func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
 }
 
 func (p *File) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, p, "File")) }
+        if trace_compare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
         if ds, err := p.Strval(); err == nil {
                 err =  c.compareStatDepend(p, p.info, ds)
@@ -1803,21 +1846,9 @@ func (p *File) dependcompare(c *comparer) (err error) {
 
 func (p *File) prepare(pc *preparer) (err error) {
         if trace_prepare {
-                defer prepun(preptrace(pc, "File", p))
-                if p.exists() {
-                        var s string
-                        if p.sub != "" { s = " (" + p.sub + ")" }
-                        pc.tracef("existed: %s%s", p.name, s)
-                }
+                defer prepun(preptrace(pc, p))
+                if p.exists() { pc.tracef("existed: %s{%s}", p.Type(), p) }
         }
-
-        /*
-        if p.info == nil && p.dir != "" {
-                if err = os.MkdirAll(p.dir, 0755); err != nil {
-                        return err
-                }
-        }
-        */
 
         if pc.entry.target == p {
                 pc.tracef("error: target depends on itself")
@@ -1884,7 +1915,7 @@ ForProjects:
 func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
         // Search into the upper projects for matched a rule.
 ForProjects:
-        for _, proj := range pc.projects/*execstack.projects(pc.program.project)*/ {
+        for _, proj := range /*pc.projects*/execstack.projects(pc.program.project) {
                 var pss []*StemmedEntry
                 if pss, err = proj.resolvePatterns(p.name); err != nil {
                         break ForProjects
@@ -1906,8 +1937,11 @@ ForProjects:
                         if err = ps.prepare(pc); err == nil {
                                 trybrk = true
                                 break ForProjects // Updated successfully!
-                        } else if _, ok := err.(patternPrepareError); ok {
-                                // ...
+                        } else if e, ok := err.(patternPrepareError); ok {
+                                if _, ok = e.error.(*breaker); ok {
+                                        trybrk = true
+                                        break ForProjects // Breaked!
+                                }
                         } else {
                                 trybrk = true
                                 break ForProjects // Update failed!
@@ -2118,31 +2152,21 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
 }
 
 func (p *List) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, p, "List")) }
+        if trace_compare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
-
         for _, elem := range p.Elems {
-                if err = c.compare(elem); err != nil { break }
-        }
-
-        if trace_compare && false {
-                if c.updated != nil {
-                        c.trace("updated:", c.updated)
-                }
-                if err != nil {
-                        c.trace("error:", err)
-                }
+                if err = c.compareDepend(elem); err != nil { break }
         }
         return
 }
 
 func (p *List) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "List", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         for _, v := range p.Elems {
                 if p, ok := v.(prerequisite); ok {
                         err = p.prepare(pc)
                 } else {
-                        err = fmt.Errorf("non-prerequisite %T: %v", v, v)
+                        err = fmt.Errorf("%s `%s` is not prerequisite", v.Type(), v)
                 }
                 if err != nil { break }
         }
@@ -2255,7 +2279,7 @@ func (p *Pair) SetKey(k Value) {
         if k.Type().Bits()&IsKeyName != 0 {
                 p.Key = k
         } else {
-                panic(fmt.Errorf("'%T' is not key type", k))
+                panic(fmt.Errorf("%s '%v' is not key name type", k.Type(), k))
         }
 }
 func (p *Pair) isFlag(r rune, s string) (result bool, err error) {
@@ -2280,7 +2304,7 @@ func MakePair(k, v Value) (p *Pair) {
                 p.SetKey(k)
                 p.SetValue(v)
         } else {
-                panic(fmt.Errorf("'%T' is not key type", k))
+                panic(fmt.Errorf("%s '%v' is not key name type", k.Type(), k))
         }
         return
 }
@@ -2357,7 +2381,7 @@ func (p *delegate) reveal() (res Value, err error) {
         }
 
         switch o := p.o.(type) {
-        default: err = fmt.Errorf("unknown delegation `%v` (%T)", o, o)
+        default: err = fmt.Errorf("%s '%v' is unknown delegation", o.Type(), o)
         case Caller:
                 if res, err = o.Call(p.p, args...); err != nil {
                         if p.o.Name() != "error" {
@@ -2435,18 +2459,18 @@ func (p *delegate) closured() bool {
 }
 
 func (p *delegate) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, p, "delegate")) }
+        if trace_compare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
 
         var v Value
         if v, err = p.expand(expandDelegate); err == nil {
-                err = c.compare(v)
+                err = c.compareDepend(v)
         }
         return
 }
 
 func (p *delegate) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "delegate", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
 
         var val Value
         if val, err = p.expand(expandDelegate); err != nil { return }
@@ -2542,7 +2566,7 @@ func (p *closure) reveal() (res Value, err error) {
         if t, err = p.o.expand(expandDelegate); err != nil { return }
         if t != nil {
                 if o, _ = t.(Object); o == nil {
-                        err = fmt.Errorf("closure of non-object (%T)", t)
+                        err = fmt.Errorf("%s '%s' is not object", t.Type(), t)
                         return
                 }
         }
@@ -2641,18 +2665,18 @@ func (p *closure) refs(v Value) bool {
 func (p *closure) closured() bool { return true }
 
 func (p *closure) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, p, "closure")) }
+        if trace_compare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
 
         var v Value
         if v, err = p.expand(expandClosure); err == nil {
-                err = c.compare(v)
+                err = c.compareDepend(v)
         }
         return
 }
 
 func (p *closure) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "closure", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
 
         if v, e := p.expand(expandClosure); e != nil {
                 err = e
@@ -2660,7 +2684,6 @@ func (p *closure) prepare(pc *preparer) (err error) {
                 err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
                 fmt.Fprintf(os.Stderr, "%s: %v\n", p.p, err)
         } else {
-                //fmt.Fprintf(os.Stderr, "%s: %T %+v\n", p.p, v, v)
                 err = pc.update(v)
         }
         return
@@ -2711,7 +2734,7 @@ func (p *selection) object() (o Object, err error) {
                         err = fmt.Errorf("selection.object: `%s` is nil", s.String())
                 }
         } else if o, ok = p.o.(Object); !ok {
-                err = fmt.Errorf("selection.object: `%v` is not object but `%T`", p.o, p.o)
+                err = fmt.Errorf("selection.object: %s '%v' is not object", p.o.Type(), p.o)
         }
         return
 }
@@ -2793,7 +2816,7 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
 }
 
 func (p *selection) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "selection", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
 
         var v Value
         if v, err = p.value(); err != nil {
@@ -2934,13 +2957,13 @@ func (p *PercPattern) dependcompare(c *comparer) (err error) {
         if target, err = p.MakeString(stem); err != nil { return }
 
         if err = c.compareDepend(target); err != nil {
-                err = patternCompareError(err)
+                err = patternCompareError{err}
         }
         return
 }
 
 func (p *PercPattern) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "PercPattern", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         if pc.stem == "" {
                 err = fmt.Errorf("empty stem (%s)", p)
                 return
@@ -2949,7 +2972,7 @@ func (p *PercPattern) prepare(pc *preparer) (err error) {
         var target string
         if target, err = p.MakeString(pc.stem); err != nil { return }
         if err = pc.updateTarget(target); err != nil {
-                err = patternPrepareError(err)
+                err = patternPrepareError{err}
         }
         return
 }
@@ -3073,13 +3096,13 @@ func (p *GlobPattern) dependcompare(c *comparer) (err error) {
         if target, err = p.MakeString(stem); err != nil { return }
 
         if err = c.compareDepend(target); err != nil {
-                err = patternCompareError(err)
+                err = patternCompareError{err}
         }
         return
 }
 
 func (p *GlobPattern) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "GlobPattern", p)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         if pc.stem == "" {
                 err = fmt.Errorf("empty stem (%s)", p)
                 return
@@ -3088,7 +3111,7 @@ func (p *GlobPattern) prepare(pc *preparer) (err error) {
         var target string
         if target, err = p.MakeString(pc.stem); err != nil { return }
         if err = pc.updateTarget(target); err != nil {
-                err = patternPrepareError(err)
+                err = patternPrepareError{err}
         }
         return
 }

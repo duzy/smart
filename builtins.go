@@ -716,38 +716,6 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
                 default:
                         pats = append(pats, pat)
                 }
-                /*f := func(v Value) bool {
-                        for _, pat := range pats {
-                                switch p := pat.(type) {
-                                case *PercPattern:
-                                        var (
-                                                str, s string
-                                                m bool
-                                        )
-                                        if str, err = v.Strval(); err == nil {
-                                                if m, s, err = p.match(str); err == nil && m && s != "" {
-                                                        //fmt.Printf("match: %v: %v (%v)\n", m, s, v)
-                                                        return true
-                                                }
-                                        }
-                                        if err != nil { break }
-                                default:
-                                        fmt.Printf("todo: %v (%T) (%v)\n", pat, pat, v)
-                                }
-                        }
-                        return false
-                }
-                if len(pats) > 0 {
-                        var elems, a []Value
-                        if a, err = mergeresult(Reveal(args[1:]...)); err != nil { return }
-                        for _, v := range a {
-                                var okay = f(v)
-                                if err != nil { return }
-                                if neg { okay = !okay }
-                                if okay { elems = append(elems, v) }
-                        }
-                        res = MakeListOrScalar(elems)
-                }*/
                 var elems []Value
                 if elems, err = filterValues(pats, neg, args[1:]...); err == nil {
                         res = MakeListOrScalar(elems)

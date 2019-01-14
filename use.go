@@ -37,8 +37,15 @@ func (p *using) expand(w expandwhat) (Value, error) {
         return p, nil
 }
 func (p *using) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "using", p.project.name)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         if entry := p.project.DefaultEntry(); entry != nil {
+                /*
+                if flag, ok := entry.target.(*Flag); ok {
+                        if v := flag.Name; v == nil || v.Type() == NoneType {
+                                return
+                        }
+                }
+                */
                 if err = entry.prepare(pc); err != nil {
                         s := entry.target.String()
                         fmt.Printf("%v: using default entry `%s=>%s`: %v\n", entry.Position, p.project.name, s, err)
@@ -62,9 +69,9 @@ func (p *using) Integer() (i int64, err error) { return 0, nil }
 func (p *using) Float() (f float64, err error) { return 0, nil }
 func (p *using) String() string {
         if len(p.params) > 0 {
-                return fmt.Sprintf("use %s %v", p.project.name, p.params)
+                return fmt.Sprintf("%s(%v)", p.project.name, p.params)
         } else {
-                return fmt.Sprintf("use %s", p.project.name)
+                return fmt.Sprintf("%s", p.project.name)
         }
 }
 func (p *using) Strval() (s string, err error) {
@@ -107,7 +114,7 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         return p, nil
 }
 func (p *usinglist) prepare(pc *preparer) error {
-        if trace_prepare { defer prepun(preptrace(pc, "usinglist", p.list)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
         for _, elem := range p.list {
                 if err := elem.prepare(pc); err != nil {
                         return err
@@ -138,7 +145,7 @@ func (p *usinglist) Strval() (s string, err error) {
                 if i > 0 { s += " " }
                 s += elem.project.name
         }
-        s = fmt.Sprintf("use [%v]", s)
+        s = fmt.Sprintf("[%v]", s)
         return
 }
 func (p *usinglist) String() string {
@@ -147,7 +154,7 @@ func (p *usinglist) String() string {
                 if i > 0 { s += "," }
                 s += elem.project.name
         }
-        return fmt.Sprintf("using{%s}", s)
+        return fmt.Sprintf("%s", s)
 }
 
 func (p *usinglist) append(proj *Project, params []Value) {

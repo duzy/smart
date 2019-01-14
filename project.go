@@ -115,7 +115,10 @@ type Project struct {
         // TODO: printLeaving() ...
 }
 
-func (p *Project) String() string { return fmt.Sprintf("<project %s>", p.name) }
+func (p *Project) String() string {
+        //return fmt.Sprintf("<project %s>", p.name)
+        return p.name
+}
 
 func (p *Project) AbsPath() string { return p.absPath }
 func (p *Project) RelPath() string { return p.relPath }

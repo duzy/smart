@@ -76,8 +76,8 @@ func ParseStack(all bool) (s string) {
         return
 }
 
-type patternCompareError error
-type patternPrepareError error
+type patternCompareError struct { error }
+type patternPrepareError struct { error }
 
 type targetNotFoundError struct { project *Project; target string }
 type pathNotFoundError struct { project *Project; path *Path }

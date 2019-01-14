@@ -27,20 +27,42 @@ const (
         TheShellStatusDef = "shell->status" // status code of execution
 )
 
+type breakind int
+
+const (
+        breakBad breakind = iota
+        breakGood // good to continue
+        breakUpdates // needs to update
+)
+
 type breaker struct {
-        good bool // it's good to continue
+        pos token.Position
+        what breakind
         message string
-        //values []Value
+        updated *updatedtarget
 }
 
-func (p *breaker) Error() string { return p.message }
-
-func break_bad(s string, a... interface{}) *breaker {
-        return &breaker{ false, fmt.Sprintf(s, a...) }
+func (p *breaker) Error() string {
+        if p.what == breakUpdates {
+                return fmt.Sprintf("updated %s %s", p.updated.target, p.updated.prerequisites)
+        }
+        return p.message
 }
 
-func break_good(s string, a... interface{}) *breaker {
-        return &breaker{ true, fmt.Sprintf(s, a...) }
+func break_bad(pos token.Position, s string, a... interface{}) *breaker {
+        return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil }
+}
+
+func break_good(pos token.Position, s string, a... interface{}) *breaker {
+        return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil }
+}
+
+func break_with(pos token.Position, w breakind, s string, a... interface{}) *breaker {
+        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil }
+}
+
+func break_updated(pos token.Position, v *updatedtarget) *breaker {
+        return &breaker{ pos, breakUpdates, "", v }
 }
 
 type modifierFunc func(pos token.Position, prog *Program, args... Value) (Value, error)
@@ -230,7 +252,7 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
                         }
                 case *ExecResult:
                         if d.Status != 0 {
-                                err = break_bad("got shell failure")
+                                err = break_bad(pos, "got shell failure")
                                 return // target shall be updated
                         } else {
                                 depends.Append(d)
@@ -272,7 +294,7 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
                         dependFile.info, _ = os.Stat(str)
                 }
                 if dependFile.info == nil {
-                        err = break_bad("no file or directory '%v'", dependFile)
+                        err = break_bad(pos, "no file or directory '%v'", dependFile)
                         return
                 }
                 if t := dependFile.info.ModTime(); t.After(tt) {
@@ -362,7 +384,7 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
         }
 
         if store != nil {
-                var s string
+                var s string //= "~"
                 if s, err = store.Strval(); err != nil { return }
                 if def := prog.scope.FindDef(s); def != nil {
                         def.append(result...)
@@ -375,6 +397,7 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
 }
 
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        //if prog.preparer.mode == compareMode { return }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var optReportMissing = true
@@ -430,7 +453,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
         if n := len(args); n == 1 {
                 target.set(DefDefault, args[0])
         } else if n > 1 {
-                err = break_bad("two many targets (%v)", args)
+                err = break_bad(pos, "two many targets (%v)", args)
                 return
         }
 
@@ -445,7 +468,9 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
         var depends []Value
         depends = append(depends, prog.scope.Lookup("^"))
         depends = append(depends, prog.scope.Lookup("|"))
+        depends = append(depends, prog.scope.Lookup("~"))
 
+        //if prog.preparer.mode == compareMode { return }
         if optGrep != nil {
                 var res []Value
                 if res, err = parseGrepOption(pos, prog, optGrep, optReportMissing, optDiscardMissing); err != nil {
@@ -455,15 +480,55 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 }
         }
 
-        var c *comparer
-        if c, err = newcompariation(prog, target); err == nil {
-                c.nomiss = optDiscardMissing
-                c.noexec = optNoUpdate
-                if err = c.Compare(depends); err == nil {
-                        result = universaltrue
-                } else {
-                        result = universalfalse
+        if pc := prog.preparer; pc.mode == compareMode {
+                var c *comparer
+                if c, err = newcompariation(prog, target); err == nil {
+                        c.nomiss = optDiscardMissing
+                        c.noexec = optNoUpdate
+                        if err = c.Compare(pos, depends); err == nil {
+                                result = universaltrue
+                        } else {
+                                result = universalfalse
+                        }
+                        if len(c.updated) > 0 {
+                                if enable_assertions {
+                                        assert(err != nil, "expects update breaker")
+                                        e, ok := err.(*breaker)
+                                        assert(ok, "expects update breaker")
+                                        assert(e.what == breakUpdates, "expects update breaker")
+                                        assert(e.updated != nil, "nil updated target")
+                                        assert(e.updated.target == c.target, "updated target differs")
+                                        assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
+                                        for i, preq := range e.updated.prerequisites {
+                                               assert(preq == c.updated[i], "updated target differs")
+                                        }
+                                }
+                                if trace_prepare { pc.trace("updated:", c.target, c.updated) }
+                        }
                 }
+        } else if pc.mode == updateMode {
+                if true {
+                        defer func(m preparemode) { pc.mode = m } (pc.mode)
+                        pc.mode = compareMode // update in test mode
+                        if err = pc.updateall(depends); err != nil {
+                                result = universaltrue
+                        } else {
+                                result = universalfalse
+                        }
+                } else {
+                        defer func(m preparemode, u []Value) {
+                                pc.mode, pc.updating = m, u
+                        } (pc.mode, pc.updating)
+                        pc.updating = depends
+                        pc.mode = compareMode // update in test mode
+                        if _, err = execer(pc).exec(prog); err != nil {
+                                result = universaltrue
+                        } else {
+                                result = universalfalse
+                        }
+                }
+        } else {
+                unreachable("unknown mode")
         }
         return
 }
@@ -540,7 +605,7 @@ func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (resu
                 if c, err = newcompariation(prog, target); err == nil {
                         c.nomiss = optDisMiss
                         c.noexec = optNoUpdate
-                        if err = c.Compare(v); err == nil {
+                        if err = c.Compare(pos, v); err == nil {
                                 result = universaltrue //MakeListOrScalar(c.result)
                         } else {
                                 result = universalfalse
@@ -858,7 +923,7 @@ func modifierCheck(pos token.Position, prog *Program, args... Value) (result Val
         var value Value
         if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
 
-        var optGood bool // breaking with good results
+        var optBreak breakind // breaking with good results
         var optSilent bool // don't break on failures
         var makeResult func(bool) Value // returns results only if non-nil
         var values []Value
@@ -870,7 +935,7 @@ func modifierCheck(pos token.Position, prog *Program, args... Value) (result Val
                 if opt, err = t.is('a', "answer"); err != nil { return } else if opt { makeResult = MakeAnswer }
                 if opt, err = t.is('r', "result"); err != nil { return } else if opt { makeResult = MakeBoolean }
                 if opt, err = t.is('s', "silent"); err != nil { return } else if opt { optSilent = opt }
-                if opt, err = t.is('g', "good"); err != nil { return } else if opt { optGood = opt }
+                if opt, err = t.is('g', "good"); err != nil { return } else if opt { optBreak = breakGood }
         default:
                 err = fmt.Errorf("unknown check '%v' (%T)", arg, arg)
                 return
@@ -888,7 +953,7 @@ ForPairs:
                 case "status":
                         var exeres, _ = value.(*ExecResult)
                         if exeres == nil {
-                                err = &breaker{ optGood, fmt.Sprintf("not an exec result (%T)", value) }
+                                err = break_with(pos, optBreak, "not an exec result (%T)", value)
                                 return
                         }
 
@@ -897,13 +962,13 @@ ForPairs:
                         if res := exeres.Status == int(num); makeResult != nil {
                                 values = append(values, makeResult(res))
                         } else if !res {
-                                err = &breaker{ optGood, fmt.Sprintf("bad status (%v) (expects %v)", exeres.Status, t.Value) }
+                                err = break_with(pos, optBreak, "bad status (%v) (expects %v)", exeres.Status, t.Value)
                                 break ForPairs
                         }
                 case "stdout", "stderr":
                         var exeres, _ = value.(*ExecResult)
                         if exeres == nil {
-                                err = &breaker{ optGood, fmt.Sprintf("not an exec result (%T)", value) }
+                                err = break_with(pos, optBreak, "not an exec result (%T)", value)
                                 return
                         }
 
@@ -915,7 +980,7 @@ ForPairs:
                         }
 
                         if v == nil {
-                                err = &breaker{ optGood, fmt.Sprintf("bad %s (expects %v)", key, t.Value) }
+                                err = break_with(pos, optBreak, "bad %s (expects %v)", key, t.Value)
                                 break ForPairs
                         }
                         if str, err = t.Value.Strval(); err != nil { 
@@ -923,7 +988,7 @@ ForPairs:
                         } else if res := v.String() == str; makeResult != nil {
                                 values = append(values, makeResult(res))
                         } else if !res {
-                                err = &breaker{ optGood, fmt.Sprintf("bad %s (%v) (expects %v)", key, v, t.Value) }
+                                err = break_with(pos, optBreak, "bad %s (%v) (expects %v)", key, v, t.Value)
                                 break ForPairs
                         }
                 case "file", "dir":
@@ -931,7 +996,7 @@ ForPairs:
                         var project = mostDerived() // prog.project
                         if str, err = t.Value.Strval(); err != nil { return }
                         if file := project.search(str); file == nil || !file.exists() {
-                                err = &breaker{ optGood, fmt.Sprintf("`%v` no such file or directory", t.Value) }
+                                err = break_with(pos, optBreak, "`%v` no such file or directory", t.Value)
                                 break ForPairs
                         }
                         switch key {
@@ -939,14 +1004,14 @@ ForPairs:
                                 if res := file.info.Mode().IsRegular(); makeResult != nil {
                                         values = append(values, makeResult(res))
                                 } else if !res {
-                                        err = &breaker{ optGood, fmt.Sprintf("`%v` is not a regular file", t.Value) }
+                                        err = break_with(pos, optBreak, "`%v` is not a regular file", t.Value)
                                         break ForPairs
                                 }
                         case "dir":
                                 if res := file.info.Mode().IsDir(); makeResult != nil {
                                         values = append(values, makeResult(res))
                                 } else if !res {
-                                        err = &breaker{ optGood, fmt.Sprintf("`%v` is not a directory", t.Value) }
+                                        err = break_with(pos, optBreak, "`%v` is not a directory", t.Value)
                                         break ForPairs
                                 }
                         default: unreachable()
@@ -954,7 +1019,7 @@ ForPairs:
                 case "var":
                         g, ok := t.Value.(*Group)
                         if !ok {
-                                err = &breaker{ optGood, fmt.Sprintf("`%v` is not a group value", t.Value) }
+                                err = break_with(pos, optBreak, "`%v` is not a group value", t.Value)
                                 break ForPairs
                         }
                         for _, elem := range g.Elems {
@@ -969,17 +1034,17 @@ ForPairs:
                                                 if res := a != b; makeResult != nil {
                                                         values = append(values, makeResult(res))
                                                 } else if !res {
-                                                        err = &breaker{ optGood, fmt.Sprintf("`%v` != `%v`", p.Key, p.Value) }
+                                                        err = break_with(pos, optBreak, "`%v` != `%v`", p.Key, p.Value)
                                                         break ForPairs
                                                 }
                                         } else if makeResult != nil {
                                                 values = append(values, makeResult(false))
                                         } else {
-                                                err = &breaker{ optGood, fmt.Sprintf("`%v` is not defined", k) }
+                                                err = break_with(pos, optBreak, "`%v` is not defined", k)
                                                 break ForPairs
                                         }
                                 default:
-                                        err = &breaker{ optGood, fmt.Sprintf("`%v` unsupported checks", elem) }
+                                        err = break_with(pos, optBreak, "`%v` unsupported checks", elem)
                                         break ForPairs
                                 }
                         }
@@ -1021,7 +1086,7 @@ func modifierWriteFile(pos token.Position, prog *Program, args... Value) (result
                         os.Remove(filename)
                 }
         } else {
-                err = break_bad("file %s not generated", target)
+                err = break_bad(pos, "file %s not generated", target)
         }
         return
 }
@@ -1123,7 +1188,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, args... Value) (resul
                 }
         } else {
                 if !optSilent { fmt.Printf("… (%s)\n", err) }
-                err = break_bad("file %s not updated", target)
+                err = break_bad(pos, "file %s not updated", target)
         }
         return
 }

@@ -1521,7 +1521,7 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         var name string
                                         if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
                                         if def, alt := p.def(name); alt != nil {
-                                                p.error(p.pos, "Name `%s' already taken (%T).", name, alt)
+                                                p.error(elem.Pos(), "%s '%s' already existed", alt.Type(), name)
                                         } else if def != nil {
                                                 def.set(DefDefault, v) // KeepClosures|KeepDelegates
                                         } else {
@@ -1540,10 +1540,13 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                                         var v = p.expr(elem)
                                         var s string
                                         if s, err = v.Strval(); err != nil {
-                                                p.error(p.pos, "%s", err)
+                                                p.error(elem.Pos(), "%s", err)
                                         }
                                         if def, alt := p.def(s); alt != nil {
-                                                p.error(p.pos, "Name `%s' already taken, not parameter (%T).", name, alt)
+                                                var ok bool
+                                                if def, ok = alt.(*Def); !ok {
+                                                        p.error(elem.Pos(), "%s '%s' already taken the name, no such parameter", alt.Type(), s)
+                                                }
                                         } else if def != nil {
                                                 //def.set(DefDefault, nil)
                                         } else {
@@ -1628,7 +1631,7 @@ var automatics = []string{
         "@D", "%D", "<D", "?D", "^D", "+D", "|D", "*D", //
         "@F", "%F", "<F", "?F", "^F", "+F", "|F", "*F", //
         "@'", "%'", "<'", "?'", "^'", "+'", "|'", "*'", //
-        "-",
+        "-",  "~",
 }
 
 func (p *parser) parseRuleClause(tok token.Token, special ruleSpecial, targets []ast.Expr) *ast.RuleClause {

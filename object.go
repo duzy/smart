@@ -181,7 +181,7 @@ func (p *ProjectName) Call(pos token.Position, a... Value) (value Value, err err
 }
 
 func (p *ProjectName) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "ProjectName", p.project.name)) }
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
 
         var defent = p.project.DefaultEntry()
         if defent != nil && defent.class != UseRuleEntry {
@@ -402,9 +402,9 @@ func (d *Def) Get(name string) (Value, error) {
 }
 
 func (d *Def) dependcompare(c *comparer) error {
-        if trace_compare { defer compun(comptrace(c, d, "Def"))}
+        if trace_compare { defer compun(comptrace(c, d))}
         if enable_assertions { assert(c.target != d, "self comparation") }
-        return c.compare(d.Value)
+        return c.compareDepend(d.Value)
 }
 
 func (d *Def) prepare(pc *preparer) (err error) {
@@ -412,7 +412,7 @@ func (d *Def) prepare(pc *preparer) (err error) {
                 if p, ok := d.Value.(prerequisite); ok {
                         err = p.prepare(pc)
                 } else {
-                        err = fmt.Errorf("%s: non-prerequisite %T: %v", d.name, d.Value, d.Value)
+                        err = fmt.Errorf("%s: %s '%s' is not prerequisite", d.name, d.Value.Type(), d.Value)
                 }
         }
         return
@@ -599,8 +599,9 @@ func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value,
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
         for _, program := range entry.programs {
-                if v, e := program.Execute(entry, a); e != nil {
-                        err = e; return
+                var v Value
+                if v, err = program.Execute(entry, a); err != nil {
+                        break
                 } else {
                         result = append(result, v)
                 }
@@ -679,13 +680,13 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
 }
 
 func (entry *RuleEntry) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, entry, "RuleEntry")) }
+        if trace_compare { defer compun(comptrace(c, entry)) }
         if enable_assertions { assert(c.target != entry, "self comparation") }
-        return c.compare(entry.target)
+        return c.compareDepend(entry.target)
 }
 
 func (entry *RuleEntry) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "RuleEntry", entry.target)) }
+        if trace_prepare { defer prepun(preptrace(pc, entry.target)) }
 
 ForPrograms:
         for _, prog := range entry.programs {
@@ -746,7 +747,7 @@ func (ps *StemmedEntry) concrete() (*RuleEntry, error) {
 }
 
 func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, "StemmedEntry", ps.Patent)) }
+        if trace_prepare { defer prepun(preptrace(pc, ps.Patent)) }
 
         var stems = []string{ ps.Stem }
         var sources = []string{ ps.target }
