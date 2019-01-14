@@ -39,12 +39,12 @@ type breaker struct {
         pos token.Position
         what breakind
         message string
-        updated *updatedtarget
+        updated []*updatedtarget
 }
 
 func (p *breaker) Error() string {
         if p.what == breakUpdates {
-                return fmt.Sprintf("updated %s %s", p.updated.target, p.updated.prerequisites)
+                return fmt.Sprintf("updated %v", p.updated)
         }
         return p.message
 }
@@ -61,7 +61,7 @@ func break_with(pos token.Position, w breakind, s string, a... interface{}) *bre
         return &breaker{ pos, w, fmt.Sprintf(s, a...), nil }
 }
 
-func break_updated(pos token.Position, v *updatedtarget) *breaker {
+func break_updated(pos token.Position, v ...*updatedtarget) *breaker {
         return &breaker{ pos, breakUpdates, "", v }
 }
 
@@ -397,7 +397,7 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
 }
 
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        //if prog.preparer.mode == compareMode { return }
+        if prog.preparer.mode == updateMode { return/* no comparation in update mode */ }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var optReportMissing = true
@@ -497,38 +497,25 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                                         assert(ok, "expects update breaker")
                                         assert(e.what == breakUpdates, "expects update breaker")
                                         assert(e.updated != nil, "nil updated target")
-                                        assert(e.updated.target == c.target, "updated target differs")
-                                        assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
-                                        for i, preq := range e.updated.prerequisites {
-                                               assert(preq == c.updated[i], "updated target differs")
-                                        }
+                                        //assert(e.updated.target == c.target, "updated target differs")
+                                        //assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
+                                        //for i, preq := range e.updated.prerequisites {
+                                        //       assert(preq == c.updated[i], "updated target differs")
+                                        //}
                                 }
                                 if trace_prepare { pc.trace("updated:", c.target, c.updated) }
                         }
                 }
-        } else if pc.mode == updateMode {
-                if true {
-                        defer func(m preparemode) { pc.mode = m } (pc.mode)
-                        pc.mode = compareMode // update in test mode
-                        if err = pc.updateall(depends); err != nil {
-                                result = universaltrue
-                        } else {
-                                result = universalfalse
-                        }
+        } else if pc.mode == defaultMode {
+                defer func(m preparemode) { pc.mode = m } (pc.mode)
+                pc.mode = compareMode // update in test mode
+                if err = pc.updateall(depends); err != nil {
+                        result = universaltrue
                 } else {
-                        defer func(m preparemode, u []Value) {
-                                pc.mode, pc.updating = m, u
-                        } (pc.mode, pc.updating)
-                        pc.updating = depends
-                        pc.mode = compareMode // update in test mode
-                        if _, err = execer(pc).exec(prog); err != nil {
-                                result = universaltrue
-                        } else {
-                                result = universalfalse
-                        }
+                        result = universalfalse
                 }
         } else {
-                unreachable("unknown mode")
+                unreachable("compare in unsupported mode")
         }
         return
 }

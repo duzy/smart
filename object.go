@@ -723,18 +723,20 @@ type PatternEntry struct {
         Pattern Pattern
 }
 
+/*
 func (p *PatternEntry) concrete(stem string) (entry *RuleEntry, err error) {
         if entry, err = p.Pattern.concrete(p.RuleEntry, stem); err == nil && entry != nil {
                 // entry.creator = p
         }
         return
 }
+*/
 
 type StemmedEntry struct {
         Patent *PatternEntry
-        Stem string
-        target string // source target matched the pattern
-        file *File // source file matched the pattern
+        Stem string // stem string
+        target string // source target matching the pattern
+        file *File // source file matching the pattern
 }
 
 //func (ps *StemmedEntry) Strval() (string, error) {return ps.target, nil }
@@ -742,8 +744,43 @@ func (ps *StemmedEntry) String() (s string) {
         return fmt.Sprintf("StemmedEntry{%s,%s,%s,%s}", ps.Patent, ps.Stem, ps.target, ps.file)
 }
 
-func (ps *StemmedEntry) concrete() (*RuleEntry, error) {
-        return ps.Patent.concrete(ps.Stem)
+func (ps *StemmedEntry) concrete(stem string) (entry *RuleEntry, err error) {
+        entry = new(RuleEntry)
+
+        // Copy the rule entry bits
+        *entry = *ps.Patent.RuleEntry
+
+        var name string
+        if name, err = ps.Patent.Pattern.MakeString(stem); err != nil {
+                return
+        }
+
+        if ps.file != nil {
+                file := stat(name, ps.file.sub, ps.file.dir, nil)
+                entry.target = file
+                if enable_assertions {
+                        assert(name == ps.file.name, "'%s' stemmed name is wrong (!= %s)", name, ps.file.name)
+                        assert(file.filebase == ps.file.filebase, "'%v' stemmed file is wrong (!= %v)", file, ps.file)
+                }
+        } else {
+                if enable_assertions {
+                        assert(ps.target == "", "no stemmed target name")
+                        assert(name == ps.target, "'%s' stemmed name is wrong (!= %s)", name, ps.target)
+                }
+
+                var project = mostDerived()
+                if project.isFileName(name) {
+                        var file = project.search(name)
+                        if file == nil { // still stat non-existed file
+                                file = stat(name, "", project.absPath, nil)
+                        }
+                        assert(file != nil, "`%s` nil file", name)
+                        entry.target = file
+                } else {
+                        entry.target = &String{ name }
+                }
+        }
+        return
 }
 
 func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
@@ -773,7 +810,7 @@ ForSources:
         // Try preparing target with all stems.
 ForStems:
         for _, stem := range stems {
-                if entry, err = ps.Patent.concrete(stem); err != nil {
+                if entry, err = ps.concrete(stem); err != nil {
                         return
                 }
 

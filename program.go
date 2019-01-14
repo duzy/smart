@@ -254,7 +254,7 @@ func (prog *Program) modifiers() (preModifiers, postModifiers []*modifier) {
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
-        ctx := preparecontext{ mode:updateMode, entry:entry, args:args }
+        ctx := preparecontext{ entry:entry, args:args }
         ctx.projects = execstack.projects(prog.project)
         if len(prog.callers) > 0 {
                 p := prog.callers[0]
@@ -395,7 +395,6 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         if pc.modifyBuf, err = prog.auto("-", universalnone); err != nil { return }
         defer func() { result = pc.modifyBuf.Value } ()
 
-        pc.updating = []Value{ pc.dependsDef }
         pc.preModifiers, pc.postModifiers = prog.modifiers()
         return pc.exec(prog)
 }
@@ -415,7 +414,7 @@ PrePipe:
                                 //if trace_prepare { pc.trace("(pre)", m.name, ":", err) }
                                 return
                         }
-                        if br, ok := err.(*breaker); ok && pc.mode == updateMode {
+                        if br, ok := err.(*breaker); ok {
                                 switch br.what {
                                 case breakGood:
                                         // Discard err and change dialect to avoid
@@ -423,7 +422,7 @@ PrePipe:
                                         err, preInterpreted = nil, "--"
                                         goto FinalInterpretation
                                 case breakUpdates:
-                                        pc.updated = append(pc.updated, br.updated)
+                                        pc.updated = append(pc.updated, br.updated...)
                                         if trace_prepare { pc.trace("(pre)", m.name, ":", pc.updated) }
                                         if len(pc.updated) > 0 { break PrePipe }
                                 }
@@ -434,15 +433,11 @@ PrePipe:
 
         // Update outdated targets
         if len(pc.updated) > 0 {
-                var targets []Value
-                for _, updated := range pc.updated {
-                        targets = append(targets, updated.target)
-                }
-                err = pc.updateall(targets)
-        } else {
-                err = pc.updateall(pc.updating)
+                // Switch into update mode to avoid further comparations
+                pc.mode = updateMode
         }
 
+        err = pc.updateall(pc.dependsDef)
         if err != nil {
                 if false { fmt.Fprintf(os.Stdout, "%s: %s\n", pc.entry.Position, err) }
                 return
@@ -498,7 +493,7 @@ PostPipe:
                                         err, postInterpreted = nil, "--"
                                         goto FinalInterpretation
                                 case breakUpdates:
-                                        pc.updated = append(pc.updated, br.updated)
+                                        pc.updated = append(pc.updated, br.updated...)
                                         if trace_prepare { pc.trace("(post)", m.name, ":", pc.updated) }
                                         if len(pc.updated) > 0 { break PostPipe }
                                 }

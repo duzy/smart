@@ -123,6 +123,18 @@ func (p *updatedtarget) String() string {
         return p.target.String()
 }
 
+func newUpdatedTarget(target Value, prerequisites []*updatedtarget) *updatedtarget {
+        if def, ok := target.(*Def); ok { target = def.Value }
+        for _, p := range prerequisites {
+                if p.target != nil {
+                        if def, ok := p.target.(*Def); ok {
+                                p.target = def.Value
+                        }
+                }
+        }
+        return &updatedtarget{target, prerequisites}
+}
+
 type comparer struct {
         program *Program
         target Value
@@ -185,8 +197,8 @@ func (c *comparer) Compare(pos token.Position, value interface{}) (err error) {
                                 if br, ok := err.(*breaker); ok {
                                         switch br.what {
                                         case breakBad: c.trace("bad:", err)
-                                        case breakGood: //c.trace("good:", err)
-                                        case breakUpdates: //c.trace("updates:", br.values)
+                                        case breakGood: c.trace("good:", err)
+                                        case breakUpdates: c.trace("updated:", br.updated)
                                         }
                                 } else {
                                         c.trace("error:", err)
@@ -213,7 +225,7 @@ func (c *comparer) Compare(pos token.Position, value interface{}) (err error) {
         } else if c.updated == nil {
                 err = break_good(pos, "no need to update")
         } else {
-                target := &updatedtarget{c.target, c.updated}
+                target := newUpdatedTarget(c.target, c.updated)
                 err = break_updated(pos, target)
         }
         return
@@ -270,16 +282,16 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err er
         }
 
         if dt.After(tt) {
-                c.updated = append(c.updated, &updatedtarget{target:d})
+                c.updated = append(c.updated, newUpdatedTarget(d, nil))
 
                 // Update timestamps to depended file, so that
                 // further updates can happen.
-                //c.program.globe.timestamps[ts] = dt
-                //c.program.globe.timestamps[ds] = dt
+                c.program.globe.timestamps[ts] = dt
+                c.program.globe.timestamps[ds] = dt
         } else {
                 // Just save the timestamps to optimize further stats.
-                //c.program.globe.timestamps[ts] = tt
-                //c.program.globe.timestamps[ds] = tt
+                c.program.globe.timestamps[ts] = tt
+                c.program.globe.timestamps[ds] = dt //tt
 
                 //projects := c.program.callers[0].projects
                 //fmt.Printf("projects: %v\n", projects)
@@ -293,8 +305,9 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err er
 
 type preparemode int
 const (
-        updateMode preparemode = iota
+        defaultMode preparemode = iota
         compareMode 
+        updateMode
 )
 
 func (m preparemode) String() (s string) {
@@ -322,7 +335,6 @@ type preparer struct {
 
         targetDef, dependsDef, depend0Def, orderedDef, greppedDef, updatedDef, modifyBuf *Def
         preModifiers, postModifiers []*modifier
-        updating []Value
 }
 
 //type preparable interface {
@@ -423,6 +435,11 @@ func (pc *preparer) updateTargetValue(value Value) (err error) {
 }
 
 func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
+        if t := entry.target; !pc.isUpdatedTarget(t) {
+                pc.addTarget(t)
+                return
+        }
+
         var res Value
 
         // Push the context to the program, so that patterns will work.
@@ -467,6 +484,19 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                 }
         }
         return
+}
+
+func (pc *preparer) isUpdatedTarget(target Value) (res bool) {
+        if pc.mode == updateMode {
+                for _, updated := range pc.updated {
+                        if target.cmp(updated.target) == cmpEqual {
+                                res = true; break
+                        }
+                }
+        } else {
+                res = true
+        }
+        return 
 }
 
 func elementString(o Object, elem Value) (s string) {
@@ -1375,7 +1405,8 @@ func (p *Barefile) prepare(pc *preparer) error {
                 if s, e := p.Name.Strval(); e != nil {
                         return e
                 } else if s != p.File.name {
-                        p.File.name = s // Fix it in case of '$@.o' was parsed and became '.o'.
+                        // Fixes the case that '$@.o' is parsed and become '.o'.
+                        p.File.name = s
                 }
                 return p.File.prepare(pc)
         } else {
@@ -1852,7 +1883,7 @@ func (p *File) prepare(pc *preparer) (err error) {
 
         if pc.entry.target == p {
                 pc.tracef("error: target depends on itself")
-                unreachable()
+                unreachable(p, "target depends on itself")
         } else {
                 var s string
                 switch t := pc.entry.target.(type) {
@@ -1862,7 +1893,7 @@ func (p *File) prepare(pc *preparer) (err error) {
                 }
                 if s == p.name {
                         pc.tracef("error:%d: `%s` file depends on itself", pc.level, s)
-                        unreachable()
+                        unreachable(s, "file depends on itself")
                 }
         }
 
@@ -1915,7 +1946,7 @@ ForProjects:
 func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
         // Search into the upper projects for matched a rule.
 ForProjects:
-        for _, proj := range /*pc.projects*/execstack.projects(pc.program.project) {
+        for _, proj := range pc.projects/*execstack.projects(pc.program.project)*/ {
                 var pss []*StemmedEntry
                 if pss, err = proj.resolvePatterns(p.name); err != nil {
                         break ForProjects
@@ -1977,6 +2008,14 @@ func (p *File) cmp(v Value) (res cmpres) {
                 assert(ok, "value is not File")
                 if p.filebase == a.filebase {
                         res = cmpEqual
+                } else if p.FullName() == a.FullName() {
+                        s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.FullName())
+                        s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.FullName())
+                        unreachable("same files differ: ", p.name, " != ", a.name, s)
+                } else if p.dir != a.dir && p.sub == a.sub && p.name == a.name {
+                        s := fmt.Sprintf("\na: %s: %s", p.name, p.dir)
+                        s += fmt.Sprintf("\nb: %s: %s", a.name, a.dir)
+                        unreachable("same files differ: ", p.name, " != ", a.name, s)
                 }
         }
         return
@@ -2162,13 +2201,29 @@ func (p *List) dependcompare(c *comparer) (err error) {
 
 func (p *List) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
+        var updates, good *breaker
         for _, v := range p.Elems {
                 if p, ok := v.(prerequisite); ok {
-                        err = p.prepare(pc)
+                        if err = p.prepare(pc); err == nil { continue }
+                        if br, ok := err.(*breaker); ok {
+                                if br.what == breakUpdates {
+                                        if updates == nil { updates = br } else {
+                                                updates.updated = append(updates.updated, br.updated...)
+                                        }
+                                        err = nil
+                                } else if br.what == breakGood {
+                                        err, good = nil, br
+                                }
+                        }
                 } else {
                         err = fmt.Errorf("%s `%s` is not prerequisite", v.Type(), v)
                 }
                 if err != nil { break }
+        }
+        if updates != nil && err != updates {
+                err = updates
+        } else if err == nil && good != nil {
+                err = good
         }
         return
 }
@@ -2843,14 +2898,16 @@ func (p *selection) cmp(v Value) (res cmpres) {
 // Pattern
 type Pattern interface {
         Value
-        concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error)
+        //concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error)
         match(i interface{}) (matched bool, stem string, err error)
+        MakeString(stem string) (s string, err error)
 }
 
 type pattern struct {}
 func (p *pattern) True() bool { return false }
 func (p *pattern) Integer() (int64, error) { return 0, nil }
 func (p *pattern) Float() (float64, error) { return 0, nil }
+/*
 func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
         entry = new(RuleEntry)
         *entry = *patent // Copy the entry object bits
@@ -2868,6 +2925,7 @@ func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleE
         }
         return
 }
+*/
 
 // PercPattern represents percent pattern expressions (e.g. '%.o')
 type PercPattern struct {
@@ -2930,6 +2988,7 @@ func (p *PercPattern) MakeString(stem string) (s string, err error) {
         return
 }
 
+/*
 func (p *PercPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         var target string
         if target, err = p.MakeString(stem); err == nil {
@@ -2937,6 +2996,7 @@ func (p *PercPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry
         }
         return
 }
+*/
 
 func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
@@ -3059,6 +3119,7 @@ func (p *GlobPattern) MakeString(stem string) (s string, err error) {
         return
 }
 
+/*
 func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         var target string
         if target, err = p.MakeString(stem); err == nil {
@@ -3066,6 +3127,7 @@ func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry
         }
         return
 }
+*/
 
 func (p *GlobPattern) refs(v Value) (res bool) {
         for _, comp := range p.Components {
@@ -3148,8 +3210,14 @@ func (p *RegexpPattern) match(i interface{}) (matched bool, stem string, err err
         panic("TODO: regexp matching...")
         return
 }
+/*
 func (p *RegexpPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         panic("TODO: creating new match entry")
+        return
+}
+*/
+func (p *RegexpPattern) MakeString(stem string) (s string, err error) {
+        panic("TODO: regexp makestring...")
         return
 }
 func (p *RegexpPattern) cmp(v Value) (res cmpres) {

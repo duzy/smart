@@ -765,6 +765,9 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
                 return
         }
 
+        // Using the most derived context for correct &(...)
+        defer setclosure(setclosure(cloctx.unshift(proj.scope)))
+
         var filemaps = proj.filemaps()
 
 ForSources:
@@ -807,18 +810,35 @@ ForSources:
                         // Deal with special source value
                         switch t := src.(type) {
                         case *File:
-                                var name, sub string
+                                var name string
                                 if name, err = comp.Strval(); err != nil { break ForSources }
 
-                                var file = stat(name, sub, t.dir, nil/* okay missing */)
-                                if file.match == nil {
-                                        for _, m := range filemaps {
-                                                if m.Match(name) {
-                                                        file.match = m
-                                                        //sub, dir = ?, ?
-                                                        break
+                                var match *FileMap
+                                for _, m := range filemaps {
+                                        if m.Match(name) {
+                                                match = m
+                                                break
+                                        }
+                                }
+
+                                var file *File
+                                if match != nil {
+                                        if file = match.stat(t.dir, name); file != nil {
+                                                assert(file.name == name, "invalid file name")
+                                        } else if file = match.stat(proj.absPath, name); file != nil {
+                                                assert(file.name == name, "invalid file name")
+                                        } else if match.Paths != nil {
+                                                var ( path = match.Paths[0] ; sub string )
+                                                if sub, err = path.Strval(); err != nil { return }
+                                                if filepath.IsAbs(sub) {
+                                                        file = stat(name, "", sub, nil)
+                                                } else {
+                                                        file = stat(name, sub, t.dir, nil)
                                                 }
                                         }
+                                }
+                                if file == nil {
+                                        file = stat(name, t.sub, t.dir, nil/* okay missing */)
                                 }
 
                                 list = append(list, file)
