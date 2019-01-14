@@ -25,7 +25,7 @@ const (
         enable_assertions = true
         enable_grep_bench = true
         trace_compare = false //true //
-        trace_prepare = false //true //
+        trace_prepare = true //false //
         trace_entering = trace_prepare && false
 )
 

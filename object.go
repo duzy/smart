@@ -763,11 +763,10 @@ func (ps *StemmedEntry) concrete(stem string) (entry *RuleEntry, err error) {
                         assert(file.filebase == ps.file.filebase, "'%v' stemmed file is wrong (!= %v)", file, ps.file)
                 }
         } else {
-                if enable_assertions {
+                /*if enable_assertions {
                         assert(ps.target == "", "no stemmed target name")
                         assert(name == ps.target, "'%s' stemmed name is wrong (!= %s)", name, ps.target)
-                }
-
+                }*/
                 var project = mostDerived()
                 if project.isFileName(name) {
                         var file = project.search(name)
