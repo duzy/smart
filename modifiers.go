@@ -82,8 +82,8 @@ var (
                 `compare`:           modifierCompare,
                 `grep`:              modifierGrep,
                 `grep-files`:        modifierGrepFiles,
-                `grep-compare`:      modifierGrepCompare,
-                `grep-dependencies`: modifierGrepDependencies,
+                //`grep-compare`:      modifierGrepCompare,
+                //`grep-dependencies`: modifierGrepDependencies,
 
                 `check`:        modifierCheck,
                 
@@ -337,7 +337,7 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
                 err = scanner.Errorf(pos, "`%T` non-group grep option", optGrep)
                 return
         }
-        
+
         var ( rxs []*greprex ; vals []Value ; store Value )
         for _, elem := range grep.Elems {
                 switch a := elem.(type) {
@@ -465,12 +465,12 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 }
         }
 
+        var pc = prog.preparer
         var depends []Value
         depends = append(depends, prog.scope.Lookup("^"))
         depends = append(depends, prog.scope.Lookup("|"))
         depends = append(depends, prog.scope.Lookup("~"))
 
-        //if prog.preparer.mode == compareMode { return }
         if optGrep != nil {
                 var res []Value
                 if res, err = parseGrepOption(pos, prog, optGrep, optReportMissing, optDiscardMissing); err != nil {
@@ -480,7 +480,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 }
         }
 
-        if pc := prog.preparer; pc.mode == compareMode {
+        if pc.mode == compareMode {
                 var c *comparer
                 if c, err = newcompariation(prog, target); err == nil {
                         c.nomiss = optDiscardMissing
@@ -706,35 +706,56 @@ func grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value
         }
 
         var searchName = func(sys bool, linum, colnum int, name string) (file *File) {
-                if file = project.searchInDir(targetDir, name, sys); file != nil {
-                        if file.info == nil { unreachable() }
-                        if !isSameAsTarget(file) {
-                                list = append(list, file)
-                        }
-                        return
-                } else if sys {
-                        return // system files are not missing
-                } else if file == nil {
+                var isAbs, isRel bool
+                if isAbs = filepath.IsAbs(name); isAbs {
+                        file = stat(name, "", "", nil)
+                } else if isRel = isRelPath(name); isRel { // relative to target dir
+                        file = stat(name, "", targetDir, nil)
+                } else if file = project.matchFile(name); file == nil {
                         // file not found
-                } else if file.match != nil && len(file.match.Paths) == 1 {
-                        // system files defined by `files ((foo.xxx) => -)`
+                } else if !sys && file.match != nil && len(file.match.Paths) == 1 {
+                        // mark system files defined by `files ((foo.xxx) => -)`
                         if f, ok := file.match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
-                                return
+                                sys = true
                         }
-                } else if !discard && !isSameAsTarget(file) {
-                        // FIXME: file is nil if it's not found by searchInDir
-                        list = append(list, file) // add missing files
                 }
 
-                if report {
+                if !sys && !isAbs && !isRel && (file == nil || !file.exists()) {
+                        // Check for bare non-system sub-paths:
+                        //   foo/bar/name.xxx
+                        if s := filepath.Dir(name); s != "." {
+                                // Search 'name.xxx' and check dir for
+                                // 'foo/bar' suffix. We use it if found.
+                                alt := project.searchFile(filepath.Base(name))
+                                if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
+                                        dir := strings.TrimSuffix(alt.dir, PathSep+s)
+                                        ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
+                                        ok2 := alt.change(dir, "", name) // <dir>, "", foo/bar/name.xxx
+                                        file = alt
+                                        if enable_assertions {
+                                                assert(ok1, "unchanged: %s %s %s", dir, s, alt.name)
+                                                assert(ok2, "unchanged: %s %s", dir, alt.name)
+                                        }
+                                }
+                        }
+                }
+                if !sys && (file == nil || !file.exists()) && report {
+                        // system files are not treating as missing
                         fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s)\n", targetFileName, linum, colnum, name, project.name)
                 }
 
-                /* if filepath.IsAbs(name) || isRelPath(name) {
-                        // If it's absolute or relative.
-                } else if file.match == nil {
-                        // If it's not found in files database.
-                } */
+                // if file.match == nil { ... }
+                if file == nil {
+                        if !discard {
+                                // FIXME: missing-file error
+                        }
+                } else if !isSameAsTarget(file) {
+                        if !file.exists() && discard {
+                                // discard missing files
+                        } else {
+                                list = append(list, file)
+                        }
+                }
                 return
         }
 
@@ -982,7 +1003,7 @@ ForPairs:
                         var file *File
                         var project = mostDerived() // prog.project
                         if str, err = t.Value.Strval(); err != nil { return }
-                        if file := project.search(str); file == nil || !file.exists() {
+                        if file := project.searchFile(str); file == nil || !file.exists() {
                                 err = break_with(pos, optBreak, "`%v` no such file or directory", t.Value)
                                 break ForPairs
                         }

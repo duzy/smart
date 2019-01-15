@@ -769,7 +769,7 @@ func (ps *StemmedEntry) concrete(stem string) (entry *RuleEntry, err error) {
                 }*/
                 var project = mostDerived()
                 if project.isFileName(name) {
-                        var file = project.search(name)
+                        var file = project.searchFile(name)
                         if file == nil { // still stat non-existed file
                                 file = stat(name, "", project.absPath, nil)
                         }

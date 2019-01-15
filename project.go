@@ -235,52 +235,7 @@ ForPats:
         return
 }
 
-func (p *Project) search(name string) (file *File) {
-        for _, filemap := range p.filemaps() {
-                // Match the represented file name.
-                if filemap.Match(name) {
-                        if file = filemap.stat(p.absPath, name); file != nil {
-                                file.match = filemap
-                                if enable_assertions {
-                                        assert(file.exists(), "`%s` file not existed", file)
-                                }
-                                return
-                        }
-                }
-        }
-
-        if file = stat(name, "", p.absPath); file == nil {
-                for _, base := range p.bases {
-                        file = base.search(name)
-                        if file != nil && file.exists() {
-                                return
-                        }
-                }
-        }
-        return
-}
-
-func (p *Project) searchInDir(dir, name string, ignoreMissing bool) (file *File) {
-        var isAbs, isRel bool
-        if isAbs = filepath.IsAbs(name); isAbs {
-                file = stat(name, "", "")
-        } else if isRel = isRelPath(name); isRel {
-                file = stat(name, "", dir)
-        } else if file = p.search(name); file != nil {
-                // return
-        } else if ignoreMissing {
-                // ignore missing
-        } else if s := filepath.Dir(name); dir != "." {
-                // Check for bare non-system sub-path (e.g. foo/bar/name.xxx)
-                file = p.search(filepath.Base(name))
-                if file != nil && !strings.HasSuffix(file.dir, s) {
-                        file = nil // 
-                }
-        }
-        return
-}
-
-func (p *Project) matchFileName(name string) (file *File) {
+func (p *Project) searchFile(name string) (file *File) {
         for _, filemap := range p.filemaps() {
                 // Match the represented file name.
                 if filemap.Match(name) {
@@ -289,33 +244,44 @@ func (p *Project) matchFileName(name string) (file *File) {
                                 if enable_assertions {
                                         assert(file.exists(), "`%s` file not existed", file)
                                 }
-                                break
+                                return
+                        }
+                }
+        }
+        return
+}
+
+func (p *Project) matchFile(name string) (file *File) {
+        var first *File
+        for _, filemap := range p.filemaps() {
+                // Match the represented file name.
+                if filemap.Match(name) {
+                        if file = filemap.stat(p.absPath, name); file != nil {
+                                if file.match == nil { file.match = filemap }
+                                if enable_assertions {
+                                        assert(file.exists(), "`%s` file not existed", file)
+                                }
                         } else if len(filemap.Paths) > 0 {
-                                var ( dir, sub string ; err error )
-                                if sub, err = filemap.Paths[0].Strval(); err != nil {
-                                        return
-                                } else if filepath.IsAbs(sub) {
-                                        dir = sub
-                                        sub = ""
+                                sub, err := filemap.Paths[0].Strval() ; assert(err == nil, "%v", err)
+                                if filepath.IsAbs(sub) {
+                                        file = stat(name, "", sub, nil)
                                 } else {
-                                        dir = p.absPath
+                                        file = stat(name, sub, p.absPath, nil)
                                 }
-                                file = stat(name, sub, dir, nil)
                                 if file.match == nil { file.match = filemap }
-                                break
                         }
+                        if file.exists() { break }
+                        if first == nil { first = file }
                 }
         }
+        if file == nil || !file.exists() { file = first }
         return
 }
 
 func (p *Project) isFileName(s string) (res bool) {
         if len(s) > 0 {
-                for _, filemap := range p.filemap {
-                        if filemap.Match(s) { return true }
-                }
-                for _, base := range p.bases {
-                        if res = base.isFileName(s); res { break }
+                for _, filemap := range p.filemaps() {
+                        if res = filemap.Match(s); res { break }
                 }
         }
         return
@@ -323,7 +289,7 @@ func (p *Project) isFileName(s string) (res bool) {
 
 func (p *Project) file(s string) (file *File) {
         if okay := p.isFileName(s); okay {
-                file = p.search(s)
+                file = p.searchFile(s)
                 if file != nil && enable_assertions {
                         assert(file.exists(), "`%s` file not existed", file)
                         assert(file.name == s, "file name differs '%s' != '%s'", file.name, s)
@@ -425,6 +391,10 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
 
         err = targetNotFoundError{ p, target }
         //if trace_prepare { pc.tracef("%s", err) }
+        return
+}
+
+func (p *Project) updateFile(pc *preparer, target string) (err error) {
         return
 }
 

@@ -575,9 +575,9 @@ func (l *loader) exprBarecomp(x *ast.Barecomp) (res Value) {
 func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
         if file, _ := x.File.(*File); file != nil {
                 if x.Val != nil {
-                        v = MakeBarefile(x.Val.(Value), file)
+                        v = &Barefile{x.Val.(Value), file}
                 } else {
-                        v = MakeBarefile(l.expr(x.Name), file)
+                        v = &Barefile{l.expr(x.Name), file}
                 }
         }
         if v == nil {

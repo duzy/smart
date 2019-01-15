@@ -25,7 +25,7 @@ const (
         enable_assertions = true
         enable_grep_bench = true
         trace_compare = false //true //
-        trace_prepare = true //false //
+        trace_prepare = false //true //
         trace_entering = trace_prepare && false
 )
 
@@ -197,8 +197,8 @@ func (c *comparer) Compare(pos token.Position, value interface{}) (err error) {
                                 if br, ok := err.(*breaker); ok {
                                         switch br.what {
                                         case breakBad: c.trace("bad:", err)
-                                        case breakGood: c.trace("good:", err)
-                                        case breakUpdates: c.trace("updated:", br.updated)
+                                        case breakGood: //c.trace("good:", err)
+                                        case breakUpdates: //c.trace("updated:", br.updated)
                                         }
                                 } else {
                                         c.trace("error:", err)
@@ -413,7 +413,7 @@ func (pc *preparer) update(value interface{}) (err error) {
 }
 
 func (pc *preparer) updateTarget(target string) (err error) {
-        for _, project := range pc.projects/*execstack.projects(pc.program.project)*/ {
+        for _, project := range pc.projects {
                 err = project.updateTarget(pc, target)
                 if err == nil { break }
                 if trace_prepare { pc.tracef("%s", err) }
@@ -471,7 +471,7 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
                         return
                 } else if s == "" {
                         panic(fmt.Sprintf("%s `%v`", dd.Type(), dd))
-                } else if file := prog.project.search(s); file != nil {
+                } else if file := prog.project.searchFile(s); file != nil {
                         pc.addTarget(file)
                 }
         }
@@ -1424,10 +1424,6 @@ func (p *Barefile) cmp(v Value) (res cmpres) {
         return
 }
 
-func MakeBarefile(name Value, file *File) *Barefile {
-        return &Barefile{ name, file }
-}
-
 type GlobMeta struct { token.Token }
 func (p *GlobMeta) refs(o Value) bool { return false }
 func (p *GlobMeta) closured() bool { return false }
@@ -1573,7 +1569,7 @@ func (p *Path) prepare(pc *preparer) (err error) {
 
         if p.File == nil {
                 if pc.program.project.isFileName(filepath.Base(s)) || pc.program.project.isFileName(s) {
-                        if p.File = pc.program.project.search(s); p.File != nil {
+                        if p.File = pc.program.project.searchFile(s); p.File != nil {
                                 pc.addTarget(p)
                                 return
                         }
@@ -1598,14 +1594,14 @@ func (p *Path) prepare(pc *preparer) (err error) {
                         err = nil
                 } else if false {
                         // Search this path target as a file.
-                        p.File = pc.program.project.search(e.target)
+                        p.File = pc.program.project.searchFile(e.target)
                         if p.File != nil {
                                 pc.addTarget(p.File)
                                 err = nil
                         }
                 } else {
                         // Search this path target as a file.
-                        p.File = e.project.search(e.target)
+                        p.File = e.project.searchFile(e.target)
                         if p.File != nil {
                                 pc.addTarget(p.File)
                                 err = nil
@@ -1906,14 +1902,14 @@ func (p *File) prepare(pc *preparer) (err error) {
                 return
         }
         
-        for _, proj := range pc.projects/*execstack.projects(pc.program.project)*/ {
+        for _, proj := range pc.projects {
                 if p.match != nil {
                         if p.searchInMatchedPaths(proj) {
                                 pc.addTarget(p)
                                 return
                         }
                 }
-                if file := proj.search(p.name); file != nil {
+                if file := proj.searchFile(p.name); file != nil {
                         pc.addTarget(file)
                         return
                 }
@@ -1932,7 +1928,7 @@ func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
         // Find concrete entry (by file's represented name)
         // Search into the upper projects for matched a rule.
 ForProjects:
-        for _, proj := range pc.projects/*execstack.projects(pc.program.project)*/ {
+        for _, proj := range pc.projects {
                 if entry, err = proj.resolveEntry(p.name); err != nil {
                         break ForProjects
                 } else if entry != nil {
@@ -1946,7 +1942,7 @@ ForProjects:
 func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
         // Search into the upper projects for matched a rule.
 ForProjects:
-        for _, proj := range pc.projects/*execstack.projects(pc.program.project)*/ {
+        for _, proj := range pc.projects {
                 var pss []*StemmedEntry
                 if pss, err = proj.resolvePatterns(p.name); err != nil {
                         break ForProjects
@@ -2016,6 +2012,28 @@ func (p *File) cmp(v Value) (res cmpres) {
                         s := fmt.Sprintf("\na: %s: %s", p.name, p.dir)
                         s += fmt.Sprintf("\nb: %s: %s", a.name, a.dir)
                         unreachable("same files differ: ", p.name, " != ", a.name, s)
+                }
+        }
+        return
+}
+
+func (p *File) change(dir, sub, name string) (okay bool) {
+        var fullname = filepath.Join(dir, sub, name)
+        if p.FullName() == fullname {
+                var head = &p.filebase.stub
+                for stub := p.filestub; stub != nil; stub = stub.other {
+                        if stub.dir == dir && stub.sub == sub && stub.name == name {
+                                p.filestub, okay = stub, true
+                                return
+                        }
+                        if stub.other == head { break }
+                }
+                
+                p.filestub = &filestub{ dir, sub, name, nil, head.other }
+                head.other, okay = p.filestub, true
+                
+                if enable_assertions {
+                        assert(p.FullName() == fullname, "Changed invalid File")
                 }
         }
         return
@@ -2914,7 +2932,7 @@ func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleE
 
         var project = mostDerived()
         if project.isFileName(target) {
-                var file = project.search(target)
+                var file = project.searchFile(target)
                 if file == nil { // stat non-existed file
                         file = stat(target, "", project.absPath, nil)
                 }

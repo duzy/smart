@@ -293,17 +293,31 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         // select the right target value
         var realTarget Value = universalnone
+SwitchTargetType:
         switch t := pc.entry.target.(type) {
         case *File: realTarget = t
         default:
                 var s string
                 if s, err = pc.entry.target.Strval(); err != nil { return }
-                if file := prog.project.file(s); file == nil {
-                        realTarget = pc.entry.target
+                if true {
+                        if file := prog.project.file(s); file == nil {
+                                realTarget = pc.entry.target
+                        } else {
+                                realTarget = file
+                        }
                 } else {
-                        realTarget = file
+                        for _, proj := range pc.projects {
+                                /*if file := proj.file(s); file != nil {
+                                        realTarget = file
+                                        break SwitchTargetType
+                                }*/
+                                if file := proj.matchFile(s); file != nil {
+                                        realTarget = file
+                                        break SwitchTargetType
+                                }
+                        }
+                        realTarget = pc.entry.target
                 }
-                // FIXME: project.matchFileName(realTarget)
         }
 
         // set $@, $^, $<, etc before pre-modifiers.
@@ -421,17 +435,22 @@ PrePipe:
                                         var s string
                                         // Check target existence
                                         if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
+                                                // Switch into update mode to avoid further comparations
+                                                pc.mode = updateMode
                                                 break PrePipe
                                         } else if s, err = pc.targetDef.Value.Strval(); err != nil {
                                                 return
-                                        }
-                                        for _, proj := range pc.projects {
-                                                if file := proj.matchFileName(s); file != nil && !file.exists() {
-                                                        pc.targetDef.Value = file
-                                                        break PrePipe
+                                        } else {
+                                                for _, proj := range pc.projects {
+                                                        if file := proj.matchFile(s); file != nil && !file.exists() {
+                                                                // Switch into update mode to avoid further comparations
+                                                                pc.mode = updateMode
+                                                                pc.targetDef.Value = file
+                                                                break PrePipe
+                                                        }
                                                 }
                                         }
-                                        
+
                                         // Discard err and change dialect to avoid
                                         // default interpreter being called.
                                         err, preInterpreted = nil, "--"
@@ -439,30 +458,29 @@ PrePipe:
                                 case breakUpdates:
                                         pc.updated = append(pc.updated, br.updated...)
                                         if trace_prepare { pc.trace("(pre)", m.name, ":", pc.updated) }
-                                        if len(pc.updated) > 0 { break PrePipe }
+                                        if len(pc.updated) > 0 {
+                                                // Switch into update mode to avoid further comparations
+                                                pc.mode = updateMode
+                                                break PrePipe
+                                        }
                                 }
                         }
                         return
                 }
         }
 
-        // Update outdated targets
-        if len(pc.updated) > 0 {
-                // Switch into update mode to avoid further comparations
-                pc.mode = updateMode
-        } else if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
-                // Switch into update mode to update target
-                pc.mode = updateMode
+        pc.updatedDef.set(DefDefault, universalnone)
+        for _, updated := range pc.updated {
+                pc.updatedDef.append(updated.target)
         }
 
-        err = pc.updateall(pc.dependsDef)
-        if err != nil {
+        // Update outdated targets
+        pc.targets = nil // clear the target list
+        if err = pc.updateall(pc.dependsDef); err != nil {
                 if false { fmt.Fprintf(os.Stdout, "%s: %s\n", pc.entry.Position, err) }
                 return
         }
-
         if n := len(pc.targets); n == 0 {
-                //if trace_prepare { pc.tracef("prerequisites: (0)") }
                 pc.dependsDef.set(DefDefault, universalnone)
                 pc.depend0Def.set(DefDefault, universalnone)
         } else if n == 1 {
@@ -474,26 +492,32 @@ PrePipe:
                 pc.dependsDef.set(DefDefault, MakeList(pc.targets...))
                 pc.depend0Def.set(DefDefault, pc.targets[0])
         }
-        pc.updatedDef.set(DefDefault, universalnone)
-        for _, updated := range pc.updated { // pc.updated could change anytime
-                pc.updatedDef.append(updated.target)
-        }
-        pc.targets = nil
 
+        pc.targets = nil // clear the target list
         if err = pc.updateall(pc.orderedDef); err != nil {
                 if false { fmt.Fprintf(os.Stdout, "%s: %s\n", pc.entry.Position, err) }
                 return
         }
         if n := len(pc.targets); n == 0 {
-                //if trace_prepare { pc.tracef("ordered: (0)") }
                 pc.orderedDef.set(DefDefault, universalnone)
         } else {
                 if trace_prepare { pc.tracef("ordered: (%d) %v", n, pc.targets) }
                 pc.orderedDef.set(DefDefault, MakeList(pc.targets...))
         }
-        pc.targets = nil
 
-        if pc.greppedDef == nil {/*...*/}
+        pc.targets = nil // clear the target list
+        if err = pc.updateall(pc.greppedDef); err != nil {
+                if false { fmt.Fprintf(os.Stdout, "%s: %s\n", pc.entry.Position, err) }
+                return
+        }
+        if n := len(pc.targets); n == 0 {
+                pc.greppedDef.set(DefDefault, universalnone)
+        } else {
+                if trace_prepare { pc.tracef("grepped: (%d) %v", n, pc.targets) }
+                pc.greppedDef.set(DefDefault, MakeList(pc.targets...))
+        }
+
+        pc.targets = nil // clear the target list
 
 PostPipe:
         for _, m := range pc.postModifiers {
