@@ -1893,86 +1893,12 @@ func (p *File) prepare(pc *preparer) (err error) {
                 }
         }
 
-        var brk bool
-        if err, brk = p.explicitly(pc); err != nil || brk { return }
-        if err, brk = p.implicitly(pc); err != nil || brk { return }
-
-        if p.exists() {
-                pc.addTarget(p)
-                return
-        }
-        
+        var okay bool
         for _, proj := range pc.projects {
-                if p.match != nil {
-                        if p.searchInMatchedPaths(proj) {
-                                pc.addTarget(p)
-                                return
-                        }
-                }
-                if file := proj.searchFile(p.name); file != nil {
-                        pc.addTarget(file)
+                if okay, err = proj.updateFile(pc, p); err != nil {
                         return
-                }
-        }
-
-        err = fileNotFoundError{pc.program.project, p}
-        if trace_prepare {
-                //pc.tracef("execstack: %s", execstack)
-                pc.tracef("%s: %s", pc.program.project.name, err)
-        }
-        return
-}
-
-func (p *File) explicitly(pc *preparer) (err error, trybrk bool) {
-        var entry *RuleEntry
-        // Find concrete entry (by file's represented name)
-        // Search into the upper projects for matched a rule.
-ForProjects:
-        for _, proj := range pc.projects {
-                if entry, err = proj.resolveEntry(p.name); err != nil {
-                        break ForProjects
-                } else if entry != nil {
-                        err, trybrk = entry.prepare(pc), true
-                        break ForProjects
-                }
-        }
-        return
-}
-
-func (p *File) implicitly(pc *preparer) (err error, trybrk bool) {
-        // Search into the upper projects for matched a rule.
-ForProjects:
-        for _, proj := range pc.projects {
-                var pss []*StemmedEntry
-                if pss, err = proj.resolvePatterns(p.name); err != nil {
-                        break ForProjects
-                } else if len(pss) == 0 {
-                        continue ForProjects
-                }
-        ForPatterns:
-                for _, ps := range pss {
-                        for _, prog := range ps.Patent.programs {
-                                for _, dep := range prog.depends {
-                                        if g, ok := dep.(*PercPattern); ok && g != nil {
-                                                ok, err = p.checkPatternDepend(pc, proj, ps, prog, g)
-                                                if err != nil { break ForProjects }
-                                                if !ok { continue ForPatterns }
-                                        }
-                                }
-                        }
-                        ps.file = p // Bounds StemmedEntry with the File.
-                        if err = ps.prepare(pc); err == nil {
-                                trybrk = true
-                                break ForProjects // Updated successfully!
-                        } else if e, ok := err.(patternPrepareError); ok {
-                                if _, ok = e.error.(*breaker); ok {
-                                        trybrk = true
-                                        break ForProjects // Breaked!
-                                }
-                        } else {
-                                trybrk = true
-                                break ForProjects // Update failed!
-                        }
+                } else if okay {
+                        break // Good!
                 }
         }
         return

@@ -394,7 +394,68 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
         return
 }
 
-func (p *Project) updateFile(pc *preparer, target string) (err error) {
+func (p *Project) updateFile(pc *preparer, file *File) (trybrk bool, err error) {
+        var entry *RuleEntry
+        if entry, err = p.resolveEntry(file.name); err != nil {
+                return
+        } else if entry != nil {
+                err, trybrk = entry.prepare(pc), true
+                return
+        }
+
+        var pss []*StemmedEntry
+        if pss, err = p.resolvePatterns(file.name); err != nil {
+                return
+        } else if len(pss) == 0 {
+                goto SearchFile
+        }
+
+ForPatterns:
+        for _, ps := range pss {
+                for _, prog := range ps.Patent.programs {
+                        for _, dep := range prog.depends {
+                                if g, ok := dep.(*PercPattern); ok && g != nil {
+                                        ok, err = file.checkPatternDepend(pc, p, ps, prog, g)
+                                        if err != nil { return }
+                                        if !ok { continue ForPatterns }
+                                }
+                        }
+                }
+                ps.file = file // Bounds StemmedEntry with the File.
+                if err = ps.prepare(pc); err == nil {
+                        trybrk = true
+                        return // Updated successfully!
+                } else if e, ok := err.(patternPrepareError); ok {
+                        if _, ok = e.error.(*breaker); ok {
+                                trybrk = true
+                                return // Breaked!
+                        }
+                } else {
+                        trybrk = true
+                        return // Update failed!
+                }
+        }
+
+SearchFile:
+        if file.exists() {
+                pc.addTarget(file)
+                return
+        }
+
+        if file.match != nil {
+                if file.searchInMatchedPaths(p) {
+                        pc.addTarget(file)
+                        return
+                }
+        } else if alt := p.searchFile(file.name); alt != nil {
+                pc.addTarget(alt)
+        }
+
+        err = fileNotFoundError{pc.program.project, file}
+        if trace_prepare {
+                //pc.tracef("execstack: %s", execstack)
+                pc.tracef("%s: %s", pc.program.project.name, err)
+        }
         return
 }
 
