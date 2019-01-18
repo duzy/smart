@@ -142,7 +142,7 @@ func do_configuration() error {
                         default: errs = append(errs, &scanner.Error{ pos, e })
                         }
                 } else if s, err := entry.target.Strval(); err != nil {
-                        e := scanner.Errorf(pos, "%v (%v)", err, entry.target)
+                        e := scanner.WrapError(pos, err)
                         errs = append(errs, e.(*scanner.Error))
                 } else if def := project.scope.FindDef(s); def != nil {
                         if def.Value == nil {
@@ -382,7 +382,12 @@ func configureEntry(pos token.Position, prog *Program, s string, params... Value
         } else if entry == nil {
                 err = scanner.Errorf(pos, "unknown configuration `%v` (no such entry)", s)
         } else if res, err = prog.passExecution(pos, entry, params...); err != nil {
-                err = scanner.Errorf(pos, "execute %v: %v", s, err)
+                var n, en int
+                if n, err = fmt.Sscanf(err.Error(), "exit status %d", &en); err == nil && n == 1 {
+                        configured, err = true, nil
+                } else {
+                        err = scanner.Errorf(pos, "execute %v: %v", s, err)
+                }
         } else {
                 if res != nil { result = MakeListOrScalar(res) }
                 configured = true
@@ -552,18 +557,23 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
 //     config.h:[(compare) (configure-file)]: config.h.in
 //     
 func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if args, err = Disclose(args...); err != nil { return }
+        if m := prog.pc.mode; m != updateMode/*configMode*/ {
+                return /* only configure in update mode */
+        }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var target Value
         for _, arg := range args {
                 switch a := arg.(type) {
                 case *None, *Flag, *Pair:
-                default: if target == nil {
-                        target = a
-                } else {
-                        err = fmt.Errorf("too many configure files")
-                        return
-                }}
+                default:
+                        if target == nil {
+                                target = a
+                        } else {
+                                err = fmt.Errorf("too many configure files")
+                                return
+                        }
+                }
         }
 
         if target == nil {
@@ -592,7 +602,10 @@ func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (re
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
 func modifierExtractConfiguration(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if args, err = Disclose(args...); err != nil { return }
+        if m := prog.pc.mode; m != updateMode/*configMode*/ {
+                return /* only configure in update mode */
+        }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var target Value
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
@@ -762,7 +775,10 @@ ForSources:
 
 // configure - configures a variable, example usage:
 func modifierConfigure(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if args, err = Disclose(args...); err != nil { return }
+        if m := prog.pc.mode; m != updateMode/*configMode*/ {
+                return /* only configure in update mode */
+        }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var ( target Value; name string )
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
@@ -801,7 +817,8 @@ func modifierConfigure(pos token.Position, prog *Program, args... Value) (result
 
         if err = def.set(DefExecute, nil); err != nil { return }
 
-        ForConfig: for _, arg := range args {
+ForConfig:
+        for _, arg := range args {
                 switch a := arg.(type) {
                 case *Argumented:
                         var ( value Value; configured bool )

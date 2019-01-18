@@ -1511,25 +1511,26 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                         if name, pos = n.Value, n.Pos(); name != "var" { goto checkName }
                         // Parsing (var a=xxx,b=yyy) definitions
                         for _, elem := range group.Elems[1:] {
-                                kv, _ := elem.(*ast.KeyValueExpr)
-                                if  kv == nil {
+                                var kv, ok = elem.(*ast.KeyValueExpr)
+                                if !ok || kv == nil {
                                         p.error(elem.Pos(), "bad var form (%T)", elem)
                                         continue
                                 }
-                                v, e := p.eval(kv.Key, StringValue)
-                                if e == nil {
-                                        var name string
-                                        if name, e = v.Strval(); e != nil { p.error(p.pos, "%s", e) }
-                                        if def, alt := p.def(name); alt != nil {
-                                                p.error(elem.Pos(), "%s '%s' already existed", alt.Type(), name)
-                                        } else if def != nil {
-                                                def.set(DefDefault, v) // KeepClosures|KeepDelegates
-                                        } else {
-                                                // TODO: errors
-                                        }
+                                var name string
+                                var k, v = p.expr(kv.Key), p.expr(kv.Value)
+                                if name, err = k.Strval(); err != nil {
+                                        p.error(kv.Key.Pos(), "%s", err)
+                                } else if name == "" {
+                                        p.error(kv.Key.Pos(), "'%v' name is empty ", kv.Key)
                                 }
-                                if e != nil {
-                                        p.error(elem.Pos(), "bad var (%T, %v)", elem, e)
+                                if def, alt := p.def(name); alt != nil {
+                                        p.error(kv.Key.Pos(), "%s '%s' already existed", alt.Type(), name)
+                                } else if def != nil {
+                                        if g, ok := v.(*Group); ok {
+                                                def.set(DefDefault, g.ToList())
+                                        } else {
+                                                def.set(DefDefault, v)
+                                        }
                                 }
                         }
                         goto next
@@ -1667,7 +1668,7 @@ func parseRuleClause(p *parser, tok token.Token, special ruleSpecial, targets []
                 scopeComment = fmt.Sprintf("rule %v", targets)
         }
 
-        scope := p.openScope(scopeComment)
+        ls := p.openScope(scopeComment)
         for _, s := range automatics {
                 if sym, alt := p.def(s); alt != nil {
                         p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
@@ -1743,7 +1744,7 @@ func parseRuleClause(p *parser, tok token.Token, special ruleSpecial, targets []
                         Lang: 0, // FIXME: language definition
                         Params: params,
                         Recipes: recipes,
-                        Scope: scope,
+                        Scope: ls.scope,
                 },
                 Modifier: modifier,
                 Position: p.file.Position(pos),
@@ -1751,7 +1752,7 @@ func parseRuleClause(p *parser, tok token.Token, special ruleSpecial, targets []
 
         // Close the rule scope and go back to project scope. The current
         // scope must be project scope befor Rule.
-        p.closeScope(scope)
+        p.closeScope(ls)
         if special != ruleSpecialRec {
                 p.rule(clause, special)
         }
@@ -1865,10 +1866,10 @@ func (p *parser) parseFile() *ast.File {
                 pos = p.pos
         )
 
-        scope := p.openScope(fmt.Sprintf("file %s", filename))
-        if scope != nil {
-                defer p.closeScope(scope)
-                var (def *Def; s = scope.(*Scope))
+        ls := p.openScope(fmt.Sprintf("file %s", filename))
+        if ls.scope != nil {
+                defer p.closeScope(ls)
+                var ( def *Def ; s = ls.scope )
                 if p.mode&Flat == 0 {
                         def, _ = p.def("/")
                         def.set(DefExpand, MakePathStr(abs))
@@ -1950,12 +1951,13 @@ func (p *parser) parseFile() *ast.File {
 
                 var params []Value
                 if p.tok == token.LPAREN {
-                        value, err := p.eval(p.parseGroupExpr(false), StringValue)
+                        /*value, err := p.eval(p.parseGroupExpr(false), StringValue)
                         if err == nil {
                                 params = value.(*Group).Elems
                         } else {
                                 p.error(p.pos, err)
-                        }
+                        }*/
+                        params = p.expr(p.parseGroupExpr(false)).(*Group).Elems
                 }
 
                 p.expectLinend()
@@ -2019,7 +2021,7 @@ func (p *parser) parseFile() *ast.File {
 		KeyPos:     pos,
                 Keyword:    keyword,
 		Name:       ident,
-		Scope:      scope,
+		Scope:      ls.scope,
 		Clauses:    clauses,
 		Imports:    p.imports,
 		Comments:   p.comments,

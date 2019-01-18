@@ -45,6 +45,8 @@ var (
                 ProjectNameKind: {ProjectNameKind, IsProjectName, "project_name"},
                 BuiltinKind:     {BuiltinKind, IsBuiltin, "builtin"},
                 RuleEntryKind:   {RuleEntryKind, IsRuleEntry, "entry"},
+                PatternEntryKind:   {PatternEntryKind, IsPatternEntry, "pattern"},
+                StemmedEntryKind:   {StemmedEntryKind, IsStemmedEntry, "stemmed"},
         }
         
         BasicTypes = []*Basic {
@@ -106,6 +108,8 @@ var (
         ExecResultType   = CoreTypes[ExecResultKind]
         BuiltinType      = CoreTypes[BuiltinKind]
         RuleEntryType    = CoreTypes[RuleEntryKind]
+        PatternEntryType = CoreTypes[PatternEntryKind]
+        StemmedEntryType = CoreTypes[StemmedEntryKind]
         ScopeNameType    = CoreTypes[ScopeNameKind]
         ProjectNameType  = CoreTypes[ProjectNameKind]
 

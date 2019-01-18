@@ -7,6 +7,8 @@
 package smart
 
 import (
+        "extbit.io/smart/scanner"
+        "extbit.io/smart/token"
         "path/filepath"
         "os/exec"
         "strings"
@@ -29,6 +31,7 @@ var (
 
         errCompilation = `(.+?):(\d+):(\d+): error: (.+)`
         errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
+        rxNoContainer = regexp.MustCompile(errNoContainer)
         rxCompilation = regexp.MustCompile(errCompilation)
         rxFileNotFound = regexp.MustCompile(errFileNotFound)
         rxKnownErrors = regexp.MustCompile(strings.Join([]string{
@@ -91,18 +94,18 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
         return
 }
 
-func (p *ExecBuffer) parseKnownErrors(report bool) (err error, tag string, retry bool) {
+func (p *ExecBuffer) parseKnownErrors(pos token.Position, report bool) (err error, tag string, retry bool) {
         if p.Subm == nil {
                 return
         } else if str := string(p.Subm[0][0][0]); str == errNotTTYDevice {
                 retry = true
+        } else if m := rxNoContainer.FindAllStringSubmatch(str, -1); m != nil {
+                tag = m[0][1] // tag the container name
         } else if m := rxCompilation.FindAllStringSubmatch(str, -1); m != nil {
-                err = fmt.Errorf("%s", m[0][4])
+                err = scanner.Errorf(pos, "%s", m[0][4])
         } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
-                err = fmt.Errorf("`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
-                if report {
-                        fmt.Fprintf(os.Stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4])
-                }
+                err = scanner.Errorf(pos, "`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
+                if report { fmt.Fprintf(os.Stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
         } else if matched, _ := regexp.MatchString(errNoNetwork, str); matched {
                 // TODO: dealing with network not found error
         } else if false {
@@ -395,14 +398,14 @@ ForArgs:
         if verberr { exeres.Stderr.Tie = os.Stderr }
         exeres.Stderr.Line = rxKnownErrors
 
+        var target = prog.scope.Lookup("@").(*Def).Value
+        var targetName string
+        if targetName, err = target.Strval(); err != nil {
+                return
+        }
+
         printEnteringDirectory()
         if prompt {
-                var target = prog.scope.Lookup("@").(*Def).Value
-                var targetName string
-                if targetName, err = target.Strval(); err != nil {
-                        return
-                }
-
                 var proj = mostDerived()
                 var trims = []Value{
                         prog.scope.FindDef("CWD").Value,
@@ -529,8 +532,8 @@ ForArgs:
 
                 // Parse errors of execution
                 if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
-                        var ( tag string ; retry bool ; e = err )
-                        err, tag, retry = exeres.Stderr.parseKnownErrors(!verberr && !silent)
+                        var ( tag string ; retry bool; pos = prog.position )
+                        err, tag, retry = exeres.Stderr.parseKnownErrors(pos, !verberr && !silent)
                         if err == nil && retry {
                                 if num > 2 { break } // only retry once
                                 fmt.Printf("smart: good to retry (%s)\n", source)
@@ -538,24 +541,21 @@ ForArgs:
                                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                                 sh = c
                                 goto RunCommand // retry the command
-                        } else if err != nil && silent {
-                                err = nil
-                        } else if err == nil {
-                                err = fmt.Errorf("%v", e)
+                        } else if err != nil {
+                                if silent { err = nil }
                         } else if tag == "" {
-                                if promstr == "" {
-                                        err = fmt.Errorf("command execution failed")
-                                } else {
-                                        err = fmt.Errorf("%s: execution failed", promstr)
-                                }
-                        } else if v, ok := skips[tag]; false && !v && !ok && docks != nil {
+                                if tag = promstr; tag == "" { tag = targetName }
+                                err = fmt.Errorf("%s: command failed (status %v)", tag, exeres.Status)
+                        } else if v, ok := skips[tag]; !v && !ok && docks != nil {
                                 skips[tag] = true // save it to skip next time
                                 if err = p.runContainer(prog, docks); err == nil {
-                                        fmt.Printf("smart: started %s\n", tag) // name
+                                        fmt.Printf("smart: started %s\n", tag)
                                         c := exec.Command(sh.Path, sh.Args...)
                                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                                         sh = c; goto RunCommand
                                 }
+                        } else {
+                                err = scanner.Errorf(pos, "`%s` no such container", tag)
                         }
                 } else {
                         exeres.Status = -1 //values.String(s)

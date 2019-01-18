@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "encoding/base64"
         "path/filepath"
@@ -1802,7 +1803,7 @@ func builtinFileExists(pos token.Position, args... Value) (res Value, err error)
         for _, a := range args {
                 var (str string)
                 if str, err = a.Strval(); err != nil { return }
-                if file := proj.file(str); file != nil {
+                if file := proj.searchFile(str); file != nil {
                         if file.exists() {
                                 l = append(l, file)
                         }
@@ -1831,7 +1832,7 @@ func builtinFileSource(pos token.Position, args... Value) (res Value, err error)
         for _, a := range args {
                 var str string
                 if str, err = a.Strval(); err != nil { return }
-                if file := proj.file(str); file != nil {
+                if file := proj.searchFile(str); file != nil {
                         l = append(l, &String{file.sub})
                 }
         }
@@ -1860,7 +1861,7 @@ func builtinFile(pos token.Position, args... Value) (res Value, err error) {
                 if str, err = a.Strval(); err != nil {
                         fmt.Fprintf(os.Stdout, "%s: %v", pos, err)
                         return
-                } else if file := proj.file(str); file != nil {
+                } else if file := proj.searchFile(str); file != nil {
                         list = append(list, file)
                 } else {
                         fmt.Fprintf(os.Stdout, "%s: no such file `%v`", pos, a)
@@ -1928,6 +1929,10 @@ func builtinReadFile(pos token.Position, args... Value) (res Value, err error) {
                         str string
                 )
                 if str, err = a.Strval(); err != nil { return }
+                if str == "" {
+                        err = scanner.Errorf(pos, "`%v` empty file name", a)
+                        break
+                }
                 if s, err = ioutil.ReadFile(str); err == nil {
                         l = append(l, &String{string(s)})
                 } else {

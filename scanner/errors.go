@@ -148,28 +148,35 @@ func PrintError(w io.Writer, err error) {
 }
 
 func Errorf(pos token.Position, s string, args... interface{}) (err error) {
-        var errs Errors
-        for i, a := range args {
+        for _, a := range args {
                 switch e := a.(type) {
-                case *Error:
-                        /*p := Errorf(e.Pos, "\n%s", e.Err)
-                        switch t := e.Err.(type) {
-                        case Errors: errs = append(errs, t...)
-                        case *Error: errs = append(errs, t)
-                        }
-                        args[i] = p*/
-                        args[i] = e
-                        errs = append(errs, e)
-                case Errors:
-                        args[i] = fmt.Sprintf("(%d more errors)…\n", len(e))
-                        errs = append(errs, e...)
+                case *Error: panic(e)
+                case Errors: panic(e)
                 }
         }
-        var e = fmt.Errorf(s, args...)
-        if len(errs) > 0 {
-                err = append(Errors{&Error{pos, e}}, errs...)
-        } else {
-                err = &Error{pos, e}
+        err = &Error{pos, fmt.Errorf(s, args...)}
+        return
+}
+
+func WrapError(pos token.Position, args ...error) (err error) {
+        var errs Errors
+        for _, a := range args {
+                var t = &Error{Pos:pos}
+                switch e := a.(type) {
+                case *Error:
+                        t.Err = fmt.Errorf("(error)…")
+                        errs = append(Errors{t, e}, errs...)
+                case Errors:
+                        t.Err = fmt.Errorf("(%d more errors)…", len(e))
+                        errs = append(append(Errors{t}, e...), errs...)
+                default:
+                        t.Err = e
+                }
+        }
+        if n := len(errs); n == 1 {
+                err = errs[0]
+        } else if n > 1 {
+                err = errs
         }
         return
 }

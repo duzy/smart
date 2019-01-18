@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "fmt"
 )
@@ -39,16 +40,9 @@ func (p *using) expand(w expandwhat) (Value, error) {
 func (p *using) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
         if entry := p.project.DefaultEntry(); entry != nil {
-                /*
-                if flag, ok := entry.target.(*Flag); ok {
-                        if v := flag.Name; v == nil || v.Type() == NoneType {
-                                return
-                        }
-                }
-                */
                 if err = entry.prepare(pc); err != nil {
-                        s := entry.target.String()
-                        fmt.Printf("%v: using default entry `%s=>%s`: %v\n", entry.Position, p.project.name, s, err)
+                        //fmt.Printf("%v: `%s` using error (default entry '%s')\n", entry.Position, p.project.name, entry.target)
+                        err = scanner.WrapError(entry.Position, err)
                 }
         }
         return

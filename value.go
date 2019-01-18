@@ -24,8 +24,8 @@ const (
         enable_statcache = true
         enable_assertions = true
         enable_grep_bench = true
-        trace_compare = false //true //
-        trace_prepare = false //true //
+        trace_compare = false
+        trace_prepare = false
         trace_entering = trace_prepare && false
 )
 
@@ -120,6 +120,9 @@ type updatedtarget struct {
 }
 
 func (p *updatedtarget) String() string {
+        if len(p.prerequisites) > 0 {
+                return fmt.Sprintf("%v->%v", p.target, p.prerequisites)
+        }
         return p.target.String()
 }
 
@@ -139,7 +142,7 @@ type comparer struct {
         program *Program
         target Value
         updated []*updatedtarget // found updated dependencies
-        noexec bool // just checking existence
+        nocomp bool // just checking existence
         nomiss bool // all file dependencies must exist
         level int // compare/trace level
 }
@@ -226,7 +229,7 @@ func (c *comparer) Compare(pos token.Position, value interface{}) (err error) {
                 err = break_good(pos, "no need to update")
         } else {
                 target := newUpdatedTarget(c.target, c.updated)
-                err = break_updated(pos, target)
+                err = break_updates(pos, target)
         }
         return
 }
@@ -292,37 +295,49 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err er
                 // Just save the timestamps to optimize further stats.
                 c.program.globe.timestamps[ts] = tt
                 c.program.globe.timestamps[ds] = dt //tt
-
-                //projects := c.program.callers[0].projects
-                //fmt.Printf("projects: %v\n", projects)
-                //for _, proj := range projects {
-                //        TODO: proj.compareFurther(c, ds)
-                //        See: proj.updateTarget(...)
-                //}
         }
         return
 }
 
-type preparemode int
+// State machine:
+//
+//    default --> compare ---> update --> interpret
+//                         |
+//                         +-> visit
+//
+type traversemode int
 const (
-        defaultMode preparemode = iota
-        compareMode 
-        updateMode
+        defaultMode traversemode = iota
+        compareMode // compare to find updated targets
+        updateMode // work to update targets
+        //configMode // work in configure mode
+        visitMode // don't touch the target
 )
 
-func (m preparemode) String() (s string) {
+func (m traversemode) String() (s string) {
         if m == compareMode { s = "!" }
         return
 }
 
+func (m traversemode) name() (s string) {
+        switch m {
+        case defaultMode: s = "default"
+        case compareMode: s = "compare"
+        case updateMode: s = "update"
+        case visitMode: s = "visit"
+        }
+        return
+}
+
 type preparecontext struct {
-        mode preparemode
+        mode traversemode
         entry *RuleEntry // caller entry (target)
-        realTarget Value // the real target being selected
+        visitInsteadUpdate bool // target don't really need to update
         args, arguments []Value // target and argumented prerequisite args
         targets []Value // prerequisite targets ($^ $<)
         updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
-        projects []*Project
+        derived *Project // the most derived project
+        related []*Project // the related projects in the context
         stem string // set by StemmedEntry
         level int // prepare/trace level
 }
@@ -333,8 +348,18 @@ type preparer struct {
         preparecontext
         print bool // printing work directories (Entering/Leaving)
 
-        targetDef, dependsDef, depend0Def, orderedDef, greppedDef, updatedDef, modifyBuf *Def
+        targetDef  *Def // $@
+        dependsDef *Def // $^
+        depend0Def *Def // $<
+        orderedDef *Def // $|
+        greppedDef *Def // $~
+        updatedDef *Def // $?
+        modifyBuf  *Def // $-
+        stemDef    *Def // $*
+        params   []*Def
+
         preModifiers, postModifiers []*modifier
+        interpreted []interpreter
 }
 
 //type preparable interface {
@@ -381,28 +406,28 @@ func (pc *preparer) addTarget(target Value) {
         pc.targets = append(pc.targets, target)
 }
 
-func (pc *preparer) updateall(value interface{}) (err error) {
+func (pc *preparer) traverseAll(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
-                        if err = pc.update(v.Index(i).Interface()); err == nil {
+                        if err = pc.traverse(v.Index(i).Interface()); err == nil {
                                 // Good!
                         } else {
                                 break
                         }
                 }
         } else {
-                err = pc.update(value)
+                err = pc.traverse(value)
         }
         return
 }
 
-func (pc *preparer) update(value interface{}) (err error) {
+func (pc *preparer) traverse(value interface{}) (err error) {
         var pos = pc.entry.Position
         if value == nil {
                 err = scanner.Errorf(pos, "updating nil prerequisite")
         } else if p, ok := value.(prerequisite); ok {
                 if p != nil {
-                        err = p.prepare(pc)
+                        err = pc.checkUpdates(p.prepare(pc))
                 } else { // this could happen
                         err = scanner.Errorf(pos, "updating nil prerequisite")
                 }
@@ -413,13 +438,12 @@ func (pc *preparer) update(value interface{}) (err error) {
 }
 
 func (pc *preparer) updateTarget(target string) (err error) {
-        for _, project := range pc.projects {
+        for _, project := range pc.related {
                 err = project.updateTarget(pc, target)
                 if err == nil { break }
                 if trace_prepare { pc.tracef("%s", err) }
-                if _, ok := err.(targetNotFoundError); ok {
-                        continue
-                } else {
+                if _, ok := err.(targetNotFoundError); !ok {
+                        
                         break
                 }
         }
@@ -435,10 +459,13 @@ func (pc *preparer) updateTargetValue(value Value) (err error) {
 }
 
 func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
-        if t := entry.target; !pc.isUpdatedTarget(t) {
-                pc.addTarget(t)
-                return
-        }
+        /*if pc.mode == updateMode {
+                if t := entry.target; !pc.isUpdatedTarget(t) {
+                        if trace_prepare { pc.tracef("execute: already updated") }
+                        pc.addTarget(t)
+                        return
+                }
+        }*/
 
         var res Value
 
@@ -486,15 +513,11 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         return
 }
 
-func (pc *preparer) isUpdatedTarget(target Value) (res bool) {
-        if pc.mode == updateMode {
-                for _, updated := range pc.updated {
-                        if target.cmp(updated.target) == cmpEqual {
-                                res = true; break
-                        }
+func (pc *preparecontext) isUpdatedTarget(target Value) (res bool) {
+        for _, updated := range pc.updated {
+                if target.cmp(updated.target) == cmpEqual {
+                        res = true; break
                 }
-        } else {
-                res = true
         }
         return 
 }
@@ -604,7 +627,7 @@ func (p *Argumented) Strval() (s string, err error) {
 func (p *Argumented) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
         pc.arguments, err = mergeresult(ExpandAll(p.Args...))
-        if err == nil { err = pc.update(p.Val) }
+        if err == nil { err = pc.traverse(p.Val) }
         return
 }
 
@@ -1874,7 +1897,7 @@ func (p *File) dependcompare(c *comparer) (err error) {
 func (p *File) prepare(pc *preparer) (err error) {
         if trace_prepare {
                 defer prepun(preptrace(pc, p))
-                if p.exists() { pc.tracef("existed: %s{%s}", p.Type(), p) }
+                if p.exists() { pc.tracef("exists: %s{%s}", p.Type(), p) }
         }
 
         if pc.entry.target == p {
@@ -1893,12 +1916,15 @@ func (p *File) prepare(pc *preparer) (err error) {
                 }
         }
 
-        var okay bool
-        for _, proj := range pc.projects {
-                if okay, err = proj.updateFile(pc, p); err != nil {
-                        return
-                } else if okay {
-                        break // Good!
+        if false {
+                _, err = pc.derived.updateFile(pc, p)
+        } else {
+                for _, project := range pc.related {
+                        _, err = project.updateFile(pc, p)
+                        if err == nil { break }
+                        if _, ok := err.(fileNotFoundError); !ok {
+                                break
+                        }
                 }
         }
         return
@@ -1907,7 +1933,7 @@ func (p *File) prepare(pc *preparer) (err error) {
 func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEntry, prog *Program, g *PercPattern) (res bool, err error) {
         var name string
         if name, err = g.MakeString(ps.Stem); err != nil { return }
-        if file := project.file(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
+        if file := project.searchFile(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
                 if file.exists() {
                         res = true; return
                 }
@@ -1935,9 +1961,10 @@ func (p *File) cmp(v Value) (res cmpres) {
                         s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.FullName())
                         unreachable("same files differ: ", p.name, " != ", a.name, s)
                 } else if p.dir != a.dir && p.sub == a.sub && p.name == a.name {
-                        s := fmt.Sprintf("\na: %s: %s", p.name, p.dir)
-                        s += fmt.Sprintf("\nb: %s: %s", a.name, a.dir)
-                        unreachable("same files differ: ", p.name, " != ", a.name, s)
+                        s := fmt.Sprintf("\na: %s: %s %s", p.name, p.dir, p.sub)
+                        s += fmt.Sprintf("\nb: %s: %s %s", a.name, a.dir, a.sub)
+                        //unreachable("same files differ: ", p.name, " != ", a.name, s)
+                        fmt.Fprintf(os.Stderr, "warning: same files differ: %s != %s,%s\n", p.name, a.name, s)
                 }
         }
         return
@@ -2384,7 +2411,7 @@ func (p *delegate) reveal() (res Value, err error) {
         case Caller:
                 if res, err = o.Call(p.p, args...); err != nil {
                         if p.o.Name() != "error" {
-                                err = fmt.Errorf("%v (%s)", err, p)
+                                err = scanner.WrapError(p.p, err)
                         } else {
                                 return
                         }
@@ -2392,7 +2419,7 @@ func (p *delegate) reveal() (res Value, err error) {
         case Executer:
                 if args, err = o.Execute(p.p, args...); err != nil {
                         if p.o.Name() != "error" {
-                                err = fmt.Errorf("%v (%s)", err, p)
+                                err = scanner.WrapError(p.p, err)
                         } else {
                                 return
                         }
@@ -2474,7 +2501,7 @@ func (p *delegate) prepare(pc *preparer) (err error) {
         var val Value
         if val, err = p.expand(expandDelegate); err != nil { return }
         for _, d := range merge(val) {
-                if err = pc.update(d); err != nil { break }
+                if err = pc.traverse(d); err != nil { break }
         }
         return
 }
@@ -2589,6 +2616,12 @@ func (p *closure) disclose() (res Value, err error) {
         SeeL: switch name := p.o.Name(); p.l {
         case token.LPAREN, token.ILLEGAL:
                 for _, scope := range cloctx {
+                        if scope.project == nil {
+                                if _, o = scope.Find(name); o != nil {
+                                        changed = true; break SeeL
+                                }
+                                continue
+                        }
                         if scope != scope.project.scope {
                                 // inquire non-project scope first
                                 if _, o = scope.Find(name); o != nil {
@@ -2683,7 +2716,7 @@ func (p *closure) prepare(pc *preparer) (err error) {
                 err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
                 fmt.Fprintf(os.Stderr, "%s: %v\n", p.p, err)
         } else {
-                err = pc.update(v)
+                err = pc.traverse(v)
         }
         return
 }
@@ -2823,7 +2856,7 @@ func (p *selection) prepare(pc *preparer) (err error) {
         } else if v == nil {
                 err = fmt.Errorf("`%v` is nil", p)
         } else {
-                err = pc.update(v)
+                err = pc.traverse(v)
         }
         return
 }

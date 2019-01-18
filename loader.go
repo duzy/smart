@@ -110,6 +110,11 @@ func (li *loadinfo) absPath() string {
         return filepath.Join(li.absDir, li.baseName)
 }
 
+type loaderScope struct {
+        cc closurecontext
+        scope *Scope
+}
+
 type loader struct {
         *Context
         *parser
@@ -998,6 +1003,8 @@ func (l *loader) define(clause *ast.DefineClause) {
 }
 
 func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*RuleEntry) {
+        defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
+
         var (
                 depends []Value
                 ordered []Value
@@ -1070,7 +1077,7 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                         }
                 }
         }
-        
+
         for n, target := range l.exprs(clause.Targets) {
                 if target == nil {
                         l.parser.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])
@@ -1081,7 +1088,7 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                         default:
                                 if s, err := target.Strval(); err != nil {
                                         l.parser.error(clause.Targets[n].Pos(), "%v", err)
-                                } else if file := l.project.file(s); file != nil {
+                                } else if file := l.project.matchFile(s); file != nil {
                                         target = file
                                 }
                         case *File, *Path:
@@ -1169,18 +1176,21 @@ func includespec(l *loader, pos token.Pos, spec Value) {
         return
 }
 
-func (l *loader) openScope(comment string) ast.Scope {
+func (l *loader) openScope(comment string) loaderScope {
         l.scope = NewScope(l.scope, l.project, comment)
-        return l.scope
+        cc := setclosure(cloctx.unshift(l.scope))
+        return loaderScope{ cc, l.scope }
 }
 
-func (l *loader) closeScope(as ast.Scope) {
-        if scope, ok := as.(*Scope); ok {
-                l.scope = scope.Outer()
+func (l *loader) closeScope(ls loaderScope) {
+        if ls.scope != nil {
+                l.scope = ls.scope.Outer()
+                if ls.cc != nil { setclosure(ls.cc) }
+
                 // Must change the outer of dir scope to globe to avoid Finding symbols
                 // recursively.
-                if s := scope.Comment(); strings.HasPrefix(s, "dir ") /*|| strings.HasPrefix(s, "file ")*/ {
-                        l.globe.SetScopeOuter(scope)
+                if s := ls.scope.Comment(); strings.HasPrefix(s, "dir ") /*|| strings.HasPrefix(s, "file ")*/ {
+                        l.globe.SetScopeOuter(ls.scope)
                 }
         }
         return
@@ -1371,9 +1381,9 @@ func (l *loader) closeCurrent(ident *ast.Bareword) (err error) {
         return
 }
 
-func (l *loader) OpenNamedScope(name, comment string) (ast.Scope, error) {
+func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
         if l.scope == nil {
-                return nil, fmt.Errorf("no parent scope (%v)", comment)
+                return loaderScope{}, fmt.Errorf("no parent scope (%v)", comment)
         }
         
         var (
@@ -1385,10 +1395,13 @@ func (l *loader) OpenNamedScope(name, comment string) (ast.Scope, error) {
         }
 
         outer.ScopeName(l.project, name, scope)
-        l.scope = scope
-        return l.scope, nil
+
+        ls := loaderScope{ setclosure(cloctx.unshift(scope)), scope }
+        l.scope = ls.scope
+        return ls, nil
 }
 
+/*
 func (l *loader) eval(x ast.Expr, ec EvalBits) (res Value, err error) {
         if res = l.expr(x); res == nil {
                 l.parser.error(x.Pos(), "eval invalid expr `%T`", x)
@@ -1418,6 +1431,7 @@ func (l *loader) eval(x ast.Expr, ec EvalBits) (res Value, err error) {
         }
         return
 }
+*/
 
 func (l *loader) resolve(value Value) (obj Object, err error) {
         if sel, ok := value.(*selection); ok {
@@ -1555,11 +1569,9 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                 // source is not a valid source file - satisfy
                 // ParseFile API and return a valid (but) empty
                 // *ast.File
-                f = &ast.File{
-                        Name:  new(ast.Bareword),
-                        Scope: l.openScope(fmt.Sprintf("file %s", filename)),
-                }
-                l.closeScope(f.Scope)
+                ls := l.openScope(fmt.Sprintf("file %s", filename))
+                f = &ast.File{ Name: new(ast.Bareword), Scope: ls.scope }
+                l.closeScope(ls)
         }
 	return
 }
@@ -1581,9 +1593,9 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
                 return
         }
 
-        scope, err := l.OpenNamedScope(ident, fmt.Sprintf("config %s", pathname))
+        ls, err := l.OpenNamedScope(ident, fmt.Sprintf("config %s", pathname))
         if err != nil { return }
-        defer l.closeScope(scope)
+        defer l.closeScope(ls)
 
         var def *Def
 ListLoop:
@@ -1658,8 +1670,8 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
                 }
         }
 
-        scope := l.openScope(fmt.Sprintf("dir %s", path))
-        defer l.closeScope(scope)
+        ls := l.openScope(fmt.Sprintf("dir %s", path))
+        defer l.closeScope(ls)
 
 	mods = make(map[string]*ast.Project)
 	ListLoop: for _, d := range list {
@@ -1709,7 +1721,7 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
 				if !found {
 					mod = &ast.Project{
                                                 Name:    name,
-                                                Scope:   scope,
+                                                Scope:   ls.scope,
                                                 Files:   make(map[string]*ast.File),
                                         }
 					mods[name] = mod

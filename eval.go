@@ -65,7 +65,7 @@ ForRecipes:
                                         err = nil
                                         break ForRecipes
                                 } else {
-                                        fmt.Fprintf(os.Stderr, "eval: %v\n", err)
+                                        //fmt.Fprintf(os.Stderr, "eval: %v\n", err)
                                         break ForRecipes
                                 }
                         }

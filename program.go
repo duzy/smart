@@ -75,6 +75,7 @@ func (m *modifier) String() (s string) {
 }
 
 type Program struct {
+        pc *preparer // current prepare context
         globe   *Globe
         project *Project
         scope   *Scope
@@ -84,7 +85,6 @@ type Program struct {
         recipes []Value
         pipline []*modifier
         callers []*preparecontext
-        preparer *preparer
         position token.Position
 }
 
@@ -118,28 +118,30 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
         return
 }
 
-func (prog *Program) interpret(i interpreter, print bool, out *Def, params []Value) (err error) {
-        var target, value Value
-        if prog.preparer.mode == compareMode { return }
+func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err error) {
+        var mode = prog.pc.mode
+        if mode != updateMode { return }
+        if trace_prepare { pc.tracef("%s: %s", mode.name(), intername(i)) }
+
+        var value Value
         if value, err = i.Evaluate(prog, params); err == nil {
-                if value != nil {
-                        out.set(DefDefault, value)
-                }
-                def := prog.scope.Lookup("@").(*Def)
-                if target, err = def.Call(prog.position); err == nil {
+                if value != nil { pc.modifyBuf.set(DefDefault, value) }
+                if value, err = prog.pc.targetDef.Call(prog.position); err == nil {
                         var strings []string
                         for _, recipe := range prog.recipes {
                                 // Avoids calling recipe.Strval() twice, so that it won't be
                                 // evaluated more than once.
                                 strings = append(strings, recipe.String())
                         }
-                        _, _, err = prog.project.UpdateCmdHash(target, strings)
+                        _, _, err = prog.project.UpdateCmdHash(value, strings)
                 }
         }
+
+        pc.interpreted = append(pc.interpreted, i)
         return
 }
 
-func (prog *Program) modify(m *modifier, post, print bool, interpreted *string, out *Def) (err error) {
+func (prog *Program) modify(pc *preparer, m *modifier, post bool) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -155,22 +157,20 @@ func (prog *Program) modify(m *modifier, post, print bool, interpreted *string, 
 
         if f, ok := modifiers[name]; ok {
                 // Special modifier processing (implicit interpretation)
-                switch name {
-                case "configure": if post && *interpreted == "" {
+                if post && name == "configure" && pc.interpreted == nil {
+                        // Evaluate for configure modifier
                         if i, ok := dialects["eval"]; ok && i != nil {
-                                err = prog.interpret(i, print, out, v)
-                                *interpreted = "eval"
+                                err = prog.interpret(pc, i, v)
                         }
-                }}
+                }
                 if err == nil {
                         var value Value
                         if value, err = f(prog.position, prog, v...); err == nil && value != nil {
-                                out.set(DefDefault, value)
+                                pc.modifyBuf.set(DefDefault, value)
                         }
                 }
         } else if i, _ := dialects[name]; i != nil {
-                err = prog.interpret(i, print, out, v)
-                *interpreted = name // return dialect name
+                err = prog.interpret(pc, i, v)
         } else {
                 err = fmt.Errorf("no modifier or dialect '%s'", name)
         }
@@ -203,21 +203,20 @@ func (prog *Program) hasCDDash() (res bool) {
         return
 }
 
-func (prog *Program) prerequisites(pc *preparer, args []Value) (result []Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
+        // IMPORTANT: don't expand the args here. The prerequisites like
+        // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
+        //      xxx: mergeresult(ExpandAll(args...))
         for _, arg := range args {
                 switch a := arg.(type) {
                 case *PercPattern:
-                        var ( s string ; v Value )
-                        if s, err = a.MakeString(pc.stem); err != nil { return }
-                        for _, proj := range pc.projects {
-                                if file := proj.file(s); file != nil {
-                                        v = file ; break
-                                }
+                        var s string
+                        if s, err = a.MakeString(prog.pc.stem); err != nil { return }
+                        if file := prog.pc.derived.matchFile(s); file != nil {
+                                result = append(result, file)
+                                break
                         }
-                        if v != nil {
-                                result = append(result, v)
-                        } else if true {
+                        if true {
                                 result = append(result, a)
                         } else if false {
                                 result = append(result, &String{s})
@@ -254,32 +253,46 @@ func (prog *Program) modifiers() (preModifiers, postModifiers []*modifier) {
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
-        ctx := preparecontext{ entry:entry, args:args }
-        ctx.projects = execstack.projects(prog.project)
+        ctx := preparecontext{entry:entry, args:args, derived:mostDerived()}
         if len(prog.callers) > 0 {
-                p := prog.callers[0]
-                ctx.level = p.level
-                ctx.mode = p.mode
-                ctx.stem = p.stem
-        }
-
-        var pc = &preparer{ program:prog, preparecontext:ctx, print:true }
-
-        // Flag targets (-foo) turn off printing
-        if _, ok := pc.entry.target.(*Flag); ok { pc.print = false }
-        if pc.print {
-                if t, ok := pc.entry.target.(*Bareword); ok {
-                        if t.string == "use" { pc.print = false }
+                var caller = prog.callers[0]
+                ctx.level = caller.level
+                ctx.mode = caller.mode
+                ctx.stem = caller.stem
+                if caller.mode == updateMode {
+                        // Only update if the caller found it updated.
+                        if !caller.isUpdatedTarget(entry.target) {
+                                ctx.visitInsteadUpdate = true
+                        }
                 }
         }
-        //if print && prog.getModifier("cd") != nil { pc.print = false }
-        if pc.print && prog.getModifier("configure") != nil { pc.print = false }
+
+        // Build related project list from derived.
+        if owner := entry.OwnerProject(); ctx.derived == nil {
+                ctx.related = append(ctx.related, owner)
+        } else if ctx.derived.isa(owner) {
+                ctx.related = append(ctx.related, ctx.derived)
+        } else {
+                ctx.related = append(ctx.related, owner, ctx.derived)
+        }
+
+        defer func(pc *preparer) { prog.pc = pc } (prog.pc)
+        prog.pc = &preparer{program:prog, preparecontext:ctx, print:true}
+
+        // Flag targets (-foo) turn off printing
+        if _, ok := prog.pc.entry.target.(*Flag); ok { prog.pc.print = false }
+        if prog.pc.print {
+                if t, ok := prog.pc.entry.target.(*Bareword); ok {
+                        if t.string == "use" { prog.pc.print = false }
+                }
+        }
+        if prog.pc.print && prog.getModifier("configure") != nil { prog.pc.print = false }
 
         // cd before setting execstack, because cd reads execstack
         // before changes.
         var lenEnters = len(cd.stack)
         if err = enter(prog, prog.project.absPath); err != nil { return }
-        cd.stack[0].silent = !pc.print
+        cd.stack[0].silent = !prog.pc.print
 
         // must set execstack after entering project
         defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
@@ -287,63 +300,48 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         defer func() { // leaving after setting execstack to meet the FIFO order of execstack
                 e := leave(prog, lenEnters)
                 if err == nil { err = e } else if e != nil {
-                        fmt.Fprintf(os.Stderr, "%s: leaving: %s\n", pc.entry.Position, e)
+                        fmt.Fprintf(os.Stderr, "%s: leaving: %s\n", prog.pc.entry.Position, e)
                 }
         } ()
 
-        // select the right target value
-        var realTarget Value = universalnone
-SwitchTargetType:
-        switch t := pc.entry.target.(type) {
-        case *File: realTarget = t
+        // set $@, $^, $<, $|, $~, $?, etc
+        if prog.pc.targetDef,  err = prog.auto("@", universalnone); err != nil { return }
+        if prog.pc.dependsDef, err = prog.auto("^", universalnone); err != nil { return }
+        if prog.pc.depend0Def, err = prog.auto("<", universalnone); err != nil { return }
+        if prog.pc.orderedDef, err = prog.auto("|", universalnone); err != nil { return }
+        if prog.pc.greppedDef, err = prog.auto("~", universalnone); err != nil { return }
+        if prog.pc.updatedDef, err = prog.auto("?", universalnone); err != nil { return }
+        if prog.pc.stemDef,    err = prog.auto("*", universalnone); err != nil { return }
+        if prog.pc.modifyBuf,  err = prog.auto("-", universalnone); err != nil { return }
+
+        // Select the right target value before setting parameters,
+        // because the target could be overrided by parameters.
+        switch t := prog.pc.entry.target.(type) {
+        case *File: prog.pc.targetDef.set(DefDefault, t)
         default:
-                var s string
-                if s, err = pc.entry.target.Strval(); err != nil { return }
-                if true {
-                        if file := prog.project.file(s); file == nil {
-                                realTarget = pc.entry.target
-                        } else {
-                                realTarget = file
-                        }
-                } else {
-                        for _, proj := range pc.projects {
-                                /*if file := proj.file(s); file != nil {
-                                        realTarget = file
-                                        break SwitchTargetType
-                                }*/
-                                if file := proj.matchFile(s); file != nil {
-                                        realTarget = file
-                                        break SwitchTargetType
-                                }
-                        }
-                        realTarget = pc.entry.target
+                var name string
+                var target = prog.pc.entry.target
+                if name, err = target.Strval(); err != nil { return }
+                if file := prog.project.searchFile(name); file != nil {
+                        target = file
                 }
+                prog.pc.targetDef.set(DefDefault, target)
         }
 
-        // set $@, $^, $<, etc before pre-modifiers.
-        if pc.targetDef, err = prog.auto("@", realTarget); err != nil {
-                return
-        } else if pc.targetDef == nil {
-                err = scanner.Errorf(prog.position, "undefined target automatic")
-                return
-        }
-
-        var params []*Def
+        defer func() {
+                for _, param := range prog.pc.params {
+                        param.set(DefDefault, universalnone)
+                }
+                prog.pc.params = nil
+        } ()
         for i, param := range prog.params {
                 var def *Def
                 if def, err = prog.auto(param, universalnone); err != nil { return }
                 prog.scope.replace(strconv.Itoa(i+1), def)
-                params = append(params, def)
+                prog.pc.params = append(prog.pc.params, def)
         }
-        defer func() {
-                for _, param := range params {
-                        param.set(DefDefault, universalnone)
-                }
-        } ()
-
-        // setup named/number parameters ($1, $2, ..., $9, etc.)
-        var argnum int
-        for _, a := range pc.args {
+        var argnum int // setup named/number parameters ($1, $2, etc.)
+        for _, a := range prog.pc.args {
                 var def *Def
                 switch t := a.(type) {
                 case *Flag:
@@ -359,196 +357,187 @@ SwitchTargetType:
                                 }
                         }
                 default:
-                        if argnum < len(params) {
-                                def = params[argnum]
+                        if argnum < len(prog.pc.params) {
+                                def = prog.pc.params[argnum]
                                 def.set(DefDefault, a)
                         } else {
                                 name := strconv.Itoa(argnum+1)
                                 if def, err = prog.auto(name, a); err == nil {
-                                        params = append(params, def)
+                                        prog.pc.params = append(prog.pc.params, def)
                                 }
                         }
                         argnum += 1
                 }
-                if err != nil {
-                        return
-                }
+                if err != nil { return }
         }
-
-        var stemDef *Def
-        if stemDef, err = prog.auto("*", universalnone); err != nil {
-                return
-        }
-        if pc.stem != "" {
-                stemDef.set(DefDefault, &String{pc.stem})
-        } else {
-                stemDef.set(DefDefault, universalnone)
-        }
-
-        defer func(a *preparer) { prog.preparer = a } (prog.preparer)
-        prog.preparer = pc
 
         // Expanding all dependencies after pre-modifiers.
         var depends, ordered []Value
-        if depends, err = prog.prerequisites(pc, prog.depends); err != nil { return }
-        if ordered, err = prog.prerequisites(pc, prog.ordered); err != nil { return }
-
-        if pc.dependsDef, err = prog.auto("^", universalnone); err != nil { return }
-        if pc.depend0Def, err = prog.auto("<", universalnone); err != nil { return }
-        if pc.orderedDef, err = prog.auto("|", universalnone); err != nil { return }
-        if pc.greppedDef, err = prog.auto("~", universalnone); err != nil { return }
-        if pc.updatedDef, err = prog.auto("?", universalnone); err != nil { return }
+        if depends, err = prog.prerequisites(prog.depends); err != nil { return }
+        if ordered, err = prog.prerequisites(prog.ordered); err != nil { return }
         if len(depends) > 0 {
-                pc.dependsDef.append(depends...)
-                pc.depend0Def.append(depends[0])
+                prog.pc.dependsDef.append(depends...)
+                prog.pc.depend0Def.append(depends[0])
         }
         if len(ordered) > 0 {
-                pc.orderedDef.append(ordered...)
+                prog.pc.orderedDef.append(ordered...)
         }
 
-        // Modifier buffer.
-        if pc.modifyBuf, err = prog.auto("-", universalnone); err != nil { return }
-        defer func() { result = pc.modifyBuf.Value } ()
+        if prog.pc.stem != "" {
+                prog.pc.stemDef.set(DefDefault, &String{prog.pc.stem})
+        }
 
-        pc.preModifiers, pc.postModifiers = prog.modifiers()
-        return pc.exec(prog)
+        defer func() { result = prog.pc.modifyBuf.Value } ()
+        prog.pc.preModifiers, prog.pc.postModifiers = prog.modifiers()
+        return prog.pc.exec(prog)
 }
 
-type execer interface {
-        exec(prog *Program) (result Value, err error)
+func (pc *preparer) checkUpdates(src error) (err error) {
+        if src != nil {
+                var br, ok = src.(*breaker)
+                if ok && br.what == breakUpdates {
+                        pc.updated = append(pc.updated, br.updated...)
+                        for _, updated := range br.updated {
+                                pc.updatedDef.append(updated.target)
+                        }
+                } else {
+                        err = src
+                }
+        }
+        return
+}
+
+func (pc *preparer) checkTargetMode() (err error) {
+        // Check (file) target existence
+        var s string
+        if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
+                pc.mode = updateMode // switch into update mode
+        } else if s, err = pc.targetDef.Value.Strval(); err != nil {
+                return
+        } else if file := pc.derived.matchFile(s); file != nil && !file.exists() {
+                pc.mode = updateMode // switch into update mode
+                pc.targetDef.Value = file
+        }
+        return
+}
+
+func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done bool, err error) {
+        switch tag = fmt.Sprintf("(%s) %s:", tag, name); br.what {
+        case breakBad:
+                if trace_prepare { pc.trace(tag, "(bad)", br.message) }
+                err = scanner.Errorf(br.pos, br.message)
+        case breakGood:
+                if trace_prepare { pc.trace(tag, "(good)") }
+                if done = pc.mode == compareMode; done { err = nil } else {
+                        err = pc.checkTargetMode()
+                }
+        case breakUpdates:
+                if trace_prepare { pc.trace(tag, "(updates)", br.updated) }
+
+                // Collect updates, so that the updated targets could be
+                // returned to the caller.
+                pc.updated = append(pc.updated, br.updated...)
+                for _, updated := range br.updated {
+                        pc.updatedDef.append(updated.target)
+                }
+
+                if len(br.updated) > 0 && pc.mode != compareMode {
+                        pc.mode = updateMode // switch into update mode
+                }
+        }
+        return
+}
+
+func (pc *preparer) preModify(prog *Program) (done bool, err error) {
+        for _, m := range pc.preModifiers {
+                if m.name == modifierbar { continue }
+                if err = prog.modify(pc, m, false); err == nil { continue }
+                if br, ok := err.(*breaker); ok /*&& pc.mode == defaultMode*/ {
+                        done, err = pc.checkMode4Breaker("pre", m.name, br)
+                }
+                if err != nil { break }
+        }
+        return
+}
+
+func (pc *preparer) postModify(prog *Program) (done bool, err error) {
+        for _, m := range pc.postModifiers {
+                if m.name == modifierbar { continue }
+                if err = prog.modify(pc, m, true); err == nil { continue }
+                if br, ok := err.(*breaker); ok /*&& pc.mode == defaultMode*/ {
+                        done, err = pc.checkMode4Breaker("post", m.name, br)
+                }
+                if err != nil { break }
+        }
+        return
 }
 
 func (pc *preparer) exec(prog *Program) (result Value, err error) {
-        var preInterpreted, postInterpreted string
-        // Pre-modifiers could change $@, $^, $<, $|, etc.
-PrePipe:
-        for _, m := range pc.preModifiers {
-                if m.name == modifierbar { continue }
-                if err = prog.modify(m, false, pc.print, &preInterpreted, pc.modifyBuf); err != nil {
-                        if pc.mode == compareMode {
-                                //if trace_prepare { pc.trace("(pre)", m.name, ":", err) }
-                                return
-                        }
-                        if br, ok := err.(*breaker); ok {
-                                switch br.what {
-                                case breakGood:
-                                        var s string
-                                        // Check target existence
-                                        if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
-                                                // Switch into update mode to avoid further comparations
-                                                pc.mode = updateMode
-                                                break PrePipe
-                                        } else if s, err = pc.targetDef.Value.Strval(); err != nil {
-                                                return
-                                        } else {
-                                                for _, proj := range pc.projects {
-                                                        if file := proj.matchFile(s); file != nil && !file.exists() {
-                                                                // Switch into update mode to avoid further comparations
-                                                                pc.mode = updateMode
-                                                                pc.targetDef.Value = file
-                                                                break PrePipe
-                                                        }
-                                                }
-                                        }
-
-                                        // Discard err and change dialect to avoid
-                                        // default interpreter being called.
-                                        err, preInterpreted = nil, "--"
-                                        goto FinalInterpretation
-                                case breakUpdates:
-                                        pc.updated = append(pc.updated, br.updated...)
-                                        if trace_prepare { pc.trace("(pre)", m.name, ":", pc.updated) }
-                                        if len(pc.updated) > 0 {
-                                                // Switch into update mode to avoid further comparations
-                                                pc.mode = updateMode
-                                                break PrePipe
-                                        }
-                                }
-                        }
-                        return
-                }
-        }
-
         pc.updatedDef.set(DefDefault, universalnone)
-        for _, updated := range pc.updated {
-                pc.updatedDef.append(updated.target)
+
+        // Defers to collect all updates.
+        defer func() {
+                if err == nil && pc.updated != nil {
+                        // Return the updates to caller program.
+                        err = break_updates(prog.position, pc.updated...)
+                }
+        } ()
+
+        var done bool
+
+        // Pre-modifying could change $@, $^, $<, $|, etc.
+        if done, err = pc.preModify(prog); err != nil || done { return }
+        if pc.visitInsteadUpdate && pc.mode == updateMode {
+                if trace_prepare { pc.trace("visit:", pc.updated) }
+                // Work in visit mode to ensure all it's dependencies will
+                // be updated.
+                pc.mode = visitMode
         }
 
-        // Update outdated targets
+        // Updating $^
         pc.targets = nil // clear the target list
-        if err = pc.updateall(pc.dependsDef); err != nil {
-                if false { fmt.Fprintf(os.Stdout, "%s: %s\n", pc.entry.Position, err) }
-                return
-        }
+        if err = pc.traverseAll(pc.dependsDef); err != nil { return }
         if n := len(pc.targets); n == 0 {
                 pc.dependsDef.set(DefDefault, universalnone)
                 pc.depend0Def.set(DefDefault, universalnone)
         } else if n == 1 {
-                if trace_prepare { pc.tracef("prerequisite: %v", pc.targets[0]) }
+                if trace_prepare { pc.tracef("$^: %v", pc.targets[0]) }
                 pc.dependsDef.set(DefDefault, pc.targets[0])
                 pc.depend0Def.set(DefDefault, pc.targets[0])
         } else if n > 1 {
-                if trace_prepare { pc.tracef("prerequisites: (%d) %v", n, pc.targets) }
+                if trace_prepare { pc.tracef("$^: (%d) %v", n, pc.targets) }
                 pc.dependsDef.set(DefDefault, MakeList(pc.targets...))
                 pc.depend0Def.set(DefDefault, pc.targets[0])
         }
 
+        // Updating $|
         pc.targets = nil // clear the target list
-        if err = pc.updateall(pc.orderedDef); err != nil {
-                if false { fmt.Fprintf(os.Stdout, "%s: %s\n", pc.entry.Position, err) }
-                return
-        }
+        if err = pc.traverseAll(pc.orderedDef); err != nil { return }
         if n := len(pc.targets); n == 0 {
                 pc.orderedDef.set(DefDefault, universalnone)
         } else {
-                if trace_prepare { pc.tracef("ordered: (%d) %v", n, pc.targets) }
+                if trace_prepare { pc.tracef("$|: (%d) %v", n, pc.targets) }
                 pc.orderedDef.set(DefDefault, MakeList(pc.targets...))
         }
 
+        // Updating $~
         pc.targets = nil // clear the target list
-        if err = pc.updateall(pc.greppedDef); err != nil {
-                if false { fmt.Fprintf(os.Stdout, "%s: %s\n", pc.entry.Position, err) }
-                return
-        }
+        if err = pc.traverseAll(pc.greppedDef); err != nil { return }
         if n := len(pc.targets); n == 0 {
                 pc.greppedDef.set(DefDefault, universalnone)
         } else {
-                if trace_prepare { pc.tracef("grepped: (%d) %v", n, pc.targets) }
+                if trace_prepare { pc.tracef("$~: (%d) %v", n, pc.targets) }
                 pc.greppedDef.set(DefDefault, MakeList(pc.targets...))
         }
 
         pc.targets = nil // clear the target list
 
-PostPipe:
-        for _, m := range pc.postModifiers {
-                if m.name == modifierbar { continue }
-                if err = prog.modify(m, true, pc.print, &postInterpreted, pc.modifyBuf); err != nil {
-                        if pc.mode == compareMode {
-                                //if trace_prepare { pc.trace("(post)", m.name, ":", err) }
-                                return
-                        }
-                        if br, ok := err.(*breaker); ok {
-                                switch br.what {
-                                case breakGood:
-                                        // Discard err and change dialect to avoid
-                                        // default interpreter being called.
-                                        err, postInterpreted = nil, "--"
-                                        goto FinalInterpretation
-                                case breakUpdates:
-                                        pc.updated = append(pc.updated, br.updated...)
-                                        if trace_prepare { pc.trace("(post)", m.name, ":", pc.updated) }
-                                        if len(pc.updated) > 0 { break PostPipe }
-                                }
-                        }
-                        return
-                }
-        }
-
-FinalInterpretation:
-        if err == nil && preInterpreted == "" && postInterpreted == "" {
+        // Post modifying
+        if done, err = pc.postModify(prog); err != nil || done { return }
+        if pc.interpreted == nil {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
-                        err = prog.interpret(i, pc.print, pc.modifyBuf, nil)
+                        err = prog.interpret(pc, i, nil)
                 } else {
                         err = fmt.Errorf("no default dialect")
                 }

@@ -57,12 +57,12 @@ func break_good(pos token.Position, s string, a... interface{}) *breaker {
         return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil }
 }
 
-func break_with(pos token.Position, w breakind, s string, a... interface{}) *breaker {
-        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil }
+func break_updates(pos token.Position, v ...*updatedtarget) *breaker {
+        return &breaker{ pos, breakUpdates, "", v }
 }
 
-func break_updated(pos token.Position, v ...*updatedtarget) *breaker {
-        return &breaker{ pos, breakUpdates, "", v }
+func break_with(pos token.Position, w breakind, s string, a... interface{}) *breaker {
+        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil }
 }
 
 type modifierFunc func(pos token.Position, prog *Program, args... Value) (Value, error)
@@ -73,6 +73,7 @@ var (
 
                 //`args`:         modifierSetArgs, // interpreter args
                 `env`:          modifierSetEnv,  // interpreter environments
+                `set`:          modifierSetVar,
 
                 `unclose`:      modifierUnclose,
 
@@ -163,6 +164,27 @@ func modifierSetEnv(pos token.Position, prog *Program, args... Value) (result Va
                 }
         }
         result = envars
+        return
+}
+
+func modifierSetVar(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        for _, arg := range args {
+                p, ok := arg.(*Pair)
+                if !ok {
+                        err = scanner.Errorf(pos, "%s `%s` is unsupported (try: foo=value)", arg.Type(), arg)
+                        break
+                }
+                var name string
+                if name, err = p.Key.Strval(); err != nil { return }
+                if def := prog.scope.FindDef(name); def == nil {
+                        err = scanner.Errorf(pos, "`%s` no such def", name)
+                        break
+                } else {
+                        def.set(DefDefault, p.Value)
+                }
+        }
+        //result = <all defs changed>
         return
 }
 
@@ -376,7 +398,7 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
 
         for _, val := range vals {
                 var files Value
-                if files, err = grepFiles(val, rxs, optReportMissing, optDiscardMissing); err == nil {
+                if files, err = prog.pc.derived.grepFiles(val, rxs, optReportMissing, optDiscardMissing); err == nil {
                         result = append(result, files)
                 } else {
                         return
@@ -397,7 +419,10 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
 }
 
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if prog.preparer.mode == updateMode { return/* no comparation in update mode */ }
+        if m := prog.pc.mode; m != defaultMode && m != compareMode {
+                prog.pc.trace("modifiercompare:", prog.pc.mode.name())
+                return /* only works in default & compare mode */
+        }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var optReportMissing = true
@@ -408,7 +433,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 "p,path",
                 "e,report",
                 "i,ignore",
-                "n,no-update",
+                "n,no-time",
                 "g,grep", // -grep=(regexp=(sys='...' '...') $^)
                 //"s,store", // -store='^' - store results
         }
@@ -449,27 +474,38 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 args = va // reset args
         }
 
-        var target = prog.scope.Lookup("@").(*Def)
+        var targetDef = prog.pc.targetDef
         if n := len(args); n == 1 {
-                target.set(DefDefault, args[0])
+                // Change $@ to args[0]
+                targetDef.set(DefDefault, args[0])
         } else if n > 1 {
                 err = break_bad(pos, "two many targets (%v)", args)
                 return
         }
 
-        if optPath && target.Value != nil {
+        var target = targetDef.Value
+        if target == nil || target.Type() == NoneType {
+                err = break_bad(pos, "`%s` target type invalid", target.Type())
+                return
+        }
+
+        if optPath {
                 var s string
-                if s, err = target.Value.Strval(); err != nil { return }
+                if s, err = target.Strval(); err != nil { return }
                 if s = filepath.Dir(s); s != "." && s != ".." && s != PathSep {
                         if err = os.MkdirAll(s, os.FileMode(0755)); err != nil { return }
                 }
         }
 
-        var pc = prog.preparer
         var depends []Value
-        depends = append(depends, prog.scope.Lookup("^"))
-        depends = append(depends, prog.scope.Lookup("|"))
-        depends = append(depends, prog.scope.Lookup("~"))
+        depends = append(depends, prog.pc.dependsDef.Value) // $^
+        depends = append(depends, prog.pc.orderedDef.Value) // $|
+        depends = append(depends, prog.pc.greppedDef.Value) // $~
+        if false {
+                depends, err = mergeresult(ExpandAll(depends...))
+                if err != nil { return }
+                // for _, dep := range depends { ... }
+        }
 
         if optGrep != nil {
                 var res []Value
@@ -480,11 +516,27 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 }
         }
 
-        if pc.mode == compareMode {
+        if prog.pc.mode == defaultMode {
+                //defer func(m preparemode) { prog.pc.mode = m } (prog.pc.mode)
+                prog.pc.mode = compareMode // update in test mode
+                if err = prog.pc.traverseAll(depends); err != nil {
+                        result = universaltrue
+                } else {
+                        result = universalfalse
+                }
+                if trace_prepare {
+                        prog.pc.trace("modifiercompare:", depends, prog.pc.updated)
+                }
+                if len(prog.pc.updated) > 0 {
+                        prog.pc.mode = updateMode
+                } else {
+                        prog.pc.mode = defaultMode
+                }
+        } else if prog.pc.mode == compareMode {
                 var c *comparer
                 if c, err = newcompariation(prog, target); err == nil {
                         c.nomiss = optDiscardMissing
-                        c.noexec = optNoUpdate
+                        c.nocomp = optNoUpdate
                         if err = c.Compare(pos, depends); err == nil {
                                 result = universaltrue
                         } else {
@@ -503,16 +555,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                                         //       assert(preq == c.updated[i], "updated target differs")
                                         //}
                                 }
-                                if trace_prepare { pc.trace("updated:", c.target, c.updated) }
                         }
-                }
-        } else if pc.mode == defaultMode {
-                defer func(m preparemode) { pc.mode = m } (pc.mode)
-                pc.mode = compareMode // update in test mode
-                if err = pc.updateall(depends); err != nil {
-                        result = universaltrue
-                } else {
-                        result = universalfalse
                 }
         } else {
                 unreachable("compare in unsupported mode")
@@ -591,7 +634,7 @@ func modifierGrepCompare(pos token.Position, prog *Program, args... Value) (resu
                 var c *comparer
                 if c, err = newcompariation(prog, target); err == nil {
                         c.nomiss = optDisMiss
-                        c.noexec = optNoUpdate
+                        c.nocomp = optNoUpdate
                         if err = c.Compare(pos, v); err == nil {
                                 result = universaltrue //MakeListOrScalar(c.result)
                         } else {
@@ -665,8 +708,7 @@ func saveGrepCache() {
         }
 }
 
-func grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value, err error) {
-        var project = mostDerived() // prog.project
+func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value, err error) {
         var targetDir, targetName, targetFileName string
         switch t := target.(type) {
         case *File:
@@ -674,7 +716,7 @@ func grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value
                 targetFileName = t.FullName()
                 targetDir = filepath.Dir(targetFileName)
         default:
-                targetDir = project.absPath
+                targetDir = p.absPath
                 if targetName, err = t.Strval(); err != nil { return }
                 if filepath.IsAbs(targetName) {
                         targetFileName = targetName
@@ -711,7 +753,7 @@ func grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value
                         file = stat(name, "", "", nil)
                 } else if isRel = isRelPath(name); isRel { // relative to target dir
                         file = stat(name, "", targetDir, nil)
-                } else if file = project.matchFile(name); file == nil {
+                } else if file = p.matchFile(name); file == nil {
                         // file not found
                 } else if !sys && file.match != nil && len(file.match.Paths) == 1 {
                         // mark system files defined by `files ((foo.xxx) => -)`
@@ -720,13 +762,18 @@ func grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value
                         }
                 }
 
-                if !sys && !isAbs && !isRel && (file == nil || !file.exists()) {
+                // System files are not treated as missing nor collected
+                // for further updating, just discard them immediately.
+                if sys { return }
+
+                if !isAbs && !isRel && (file == nil || !file.exists()) {
                         // Check for bare non-system sub-paths:
                         //   foo/bar/name.xxx
+                        // We search base name 'name.xxx' again:
                         if s := filepath.Dir(name); s != "." {
                                 // Search 'name.xxx' and check dir for
                                 // 'foo/bar' suffix. We use it if found.
-                                alt := project.searchFile(filepath.Base(name))
+                                alt := p.searchFile(filepath.Base(name))
                                 if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
                                         dir := strings.TrimSuffix(alt.dir, PathSep+s)
                                         ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
@@ -739,21 +786,26 @@ func grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value
                                 }
                         }
                 }
-                if !sys && (file == nil || !file.exists()) && report {
-                        // system files are not treating as missing
-                        fmt.Fprintf(os.Stderr, "%s:%d:%d: `%s` not found (project %s)\n", targetFileName, linum, colnum, name, project.name)
+                
+                if file == nil {
+                        // The 'name' is not matching the files database.
+                        if discard { return }
+                        // FIXME: missing-file error
+                } else if isSameAsTarget(file) {
+                        return
+                } else {
+                        if !file.exists() && discard { return }
+                        list = append(list, file)
+                        return
                 }
 
-                // if file.match == nil { ... }
-                if file == nil {
-                        if !discard {
-                                // FIXME: missing-file error
-                        }
-                } else if !isSameAsTarget(file) {
-                        if !file.exists() && discard {
-                                // discard missing files
-                        } else {
-                                list = append(list, file)
+                // Report missing files, but system files are not treated
+                // as missing.
+                if report {
+                        if file == nil {
+                                fmt.Fprintf(os.Stderr, "%s:%d:%d: %s: `%s` not found\n", targetFileName, linum, colnum, p.name, name)
+                        } else if !file.exists() {
+                                fmt.Fprintf(os.Stderr, "%s:%d:%d: %s: `%s` file not existed\n", targetFileName, linum, colnum, p.name, name)
                         }
                 }
                 return
@@ -770,7 +822,7 @@ func grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value
                 //if strings.HasPrefix(s, "..") { s = filepath.Join("_", s) }
                 s = strings.Replace(s, "..", "_", -1)
                 // TODO: deal with foo/bar/name.xxx
-                savedGrepFileName = joinTmpPath(project.absPath, s)
+                savedGrepFileName = joinTmpPath(p.absPath, s)
         }
         if file1 := stat(savedGrepFileName, "", ""); file1 != nil {
                 if file2 := stat(targetFileName, "", ""); file2 != nil {
@@ -901,7 +953,7 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
         }
 
         var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
-        result, err = grepFiles(target, rxs, optReportMissing, optDiscardMissing)
+        result, err = prog.pc.derived.grepFiles(target, rxs, optReportMissing, optDiscardMissing)
         return
 }
 
@@ -1001,7 +1053,7 @@ ForPairs:
                         }
                 case "file", "dir":
                         var file *File
-                        var project = mostDerived() // prog.project
+                        var project = prog.pc.derived //mostDerived() // prog.project
                         if str, err = t.Value.Strval(); err != nil { return }
                         if file := project.searchFile(str); file == nil || !file.exists() {
                                 err = break_with(pos, optBreak, "`%v` no such file or directory", t.Value)
@@ -1100,6 +1152,9 @@ func modifierWriteFile(pos token.Position, prog *Program, args... Value) (result
 }
 
 func modifierUpdateFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+        if m := prog.pc.mode; m != updateMode {
+                return /* only work in update mode */
+        }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var target Value

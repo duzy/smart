@@ -80,6 +80,8 @@ const (
         DefKind
         UndeterminedKind
         RuleEntryKind
+        PatternEntryKind
+        StemmedEntryKind
         ProjectNameKind
         ScopeNameKind
 
@@ -143,6 +145,8 @@ var (
                 DefKind:        "Def",
                 UndeterminedKind: "Undetermined",
                 RuleEntryKind:  "RuleEntry",
+                PatternEntryKind:  "PatternEntry",
+                StemmedEntryKind:  "StemmedEntry",
                 ProjectNameKind: "ProjectName",
                 ScopeNameKind:  "ScopeName",
                 UsingKind:      "Using",
@@ -221,6 +225,8 @@ const (
         IsDef
         IsUndetermined
         IsRuleEntry
+        IsPatternEntry
+        IsStemmedEntry
         IsScopeName
         IsProjectName
 
@@ -244,8 +250,8 @@ const (
         IsConstType = IsBasic
 
         IsInternal  = IsUnknownObject | IsKnownObject | IsUnresolvedObject | IsClosure | IsDelegate
-        IsCore      = IsInternal | IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName | IsDefiner
-        IsObject    = IsInternal | IsBuiltin | IsDef | IsRuleEntry | IsProjectName | IsScopeName
+        IsCore      = IsInternal | IsBuiltin | IsDef | IsRuleEntry | IsPatternEntry | IsStemmedEntry | IsProjectName | IsScopeName | IsDefiner
+        IsObject    = IsInternal | IsBuiltin | IsDef | IsRuleEntry | IsPatternEntry | IsStemmedEntry | IsProjectName | IsScopeName
 
         // Custom type
         IsNamed     = IsObject | IsPair | IsProjectName | IsScopeName

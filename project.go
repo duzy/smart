@@ -244,9 +244,16 @@ func (p *Project) searchFile(name string) (file *File) {
                                 if enable_assertions {
                                         assert(file.exists(), "`%s` file not existed", file)
                                 }
-                                return
+                                break
                         }
                 }
+        }
+        if file != nil && enable_assertions {
+                assert(file.exists(), "`%s` file not existed", file)
+                assert(file.name == name, "file name differs '%s' != '%s'", file.name, name)
+                //assert(file.match != nil, "`%s` not matched file", name)
+                assert(file.info != nil, "`%v` found nil file info", name)
+                assert(file.dir != "", "`%v` found empty file dir", name)
         }
         return
 }
@@ -282,20 +289,6 @@ func (p *Project) isFileName(s string) (res bool) {
         if len(s) > 0 {
                 for _, filemap := range p.filemaps() {
                         if res = filemap.Match(s); res { break }
-                }
-        }
-        return
-}
-
-func (p *Project) file(s string) (file *File) {
-        if okay := p.isFileName(s); okay {
-                file = p.searchFile(s)
-                if file != nil && enable_assertions {
-                        assert(file.exists(), "`%s` file not existed", file)
-                        assert(file.name == s, "file name differs '%s' != '%s'", file.name, s)
-                        //assert(file.match != nil, "`%s` not matched file", s)
-                        assert(file.info != nil, "`%v` found nil file info", s)
-                        assert(file.dir != "", "`%v` found empty file dir", s)
                 }
         }
         return
@@ -364,7 +357,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 //if trace_prepare { pc.tracef("%s", err) }
                 return
         } else if entry != nil {
-                err = pc.update(entry)
+                err = pc.traverse(entry)
                 return
         }
 
@@ -382,24 +375,82 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                         }
                 }
         }
+       
+        if file := p.matchFile(target); file != nil {
+                if enable_assertions {
+                        assert(file.match != nil, "`%s` nil match", target)
+                }
 
-        if file := p.file(target); file != nil {
-                if trace_prepare { pc.tracef("file: %s", file) }
-                pc.addTarget(file)
+                // Invoke file rules no matter if it existed or not.
+                var okay bool // true if doing good
+                if okay, err = p.updateFile(pc, file); err != nil || okay {
+                        if trace_prepare {
+                                if okay {
+                                        pc.tracef("%s: updateTarget(file{%s}) (okay)", p.name, file)
+                                } else {
+                                        pc.tracef("%s: updateTarget(file{%s}): %v", p.name, file, err)
+                                }
+                        }
+                        return
+                } else if enable_assertions {
+                        assert(err == nil, "got error: %v", err)
+                        assert(!file.exists(), "`%s` file exists", file)
+                }
+
+                err = fileNotFoundError{p, file}
+                if trace_prepare {
+                        pc.tracef("%s: `updateTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
+                }
                 return
         }
 
         err = targetNotFoundError{ p, target }
-        //if trace_prepare { pc.tracef("%s", err) }
+        if trace_prepare {
+                pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)
+        }
         return
 }
 
-func (p *Project) updateFile(pc *preparer, file *File) (trybrk bool, err error) {
+func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
+        for head := file.filestub; true; file.filestub = file.other {
+                okay, err = p.updateFileStub(pc, file)
+                if err != nil || okay { return }
+                if file.other == head { break }
+                break
+        }
+
+        if file.exists() {
+                pc.addTarget(file)
+                okay = true
+                return
+        }
+
+        if file.match != nil {
+                if file.searchInMatchedPaths(p) {
+                        pc.addTarget(file)
+                        okay = true
+                        return
+                }
+        } else if alt := p.searchFile(file.name); alt != nil {
+                pc.addTarget(alt)
+                okay = true
+                return
+        }
+
+        err = fileNotFoundError{p, file}
+        if trace_prepare {
+                //pc.tracef("execstack: %s", execstack)
+                pc.tracef("%s: `updateFile({%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
+        }
+        return
+}
+
+func (p *Project) updateFileStub(pc *preparer, file *File) (okay bool, err error) {
         var entry *RuleEntry
         if entry, err = p.resolveEntry(file.name); err != nil {
                 return
         } else if entry != nil {
-                err, trybrk = entry.prepare(pc), true
+                err, okay = entry.prepare(pc), true
                 return
         }
 
@@ -407,12 +458,12 @@ func (p *Project) updateFile(pc *preparer, file *File) (trybrk bool, err error) 
         if pss, err = p.resolvePatterns(file.name); err != nil {
                 return
         } else if len(pss) == 0 {
-                goto SearchFile
+                return //goto SearchFile
         }
 
 ForPatterns:
         for _, ps := range pss {
-                for _, prog := range ps.Patent.programs {
+                for _, prog := range ps.programs {
                         for _, dep := range prog.depends {
                                 if g, ok := dep.(*PercPattern); ok && g != nil {
                                         ok, err = file.checkPatternDepend(pc, p, ps, prog, g)
@@ -423,38 +474,17 @@ ForPatterns:
                 }
                 ps.file = file // Bounds StemmedEntry with the File.
                 if err = ps.prepare(pc); err == nil {
-                        trybrk = true
+                        okay = true
                         return // Updated successfully!
                 } else if e, ok := err.(patternPrepareError); ok {
                         if _, ok = e.error.(*breaker); ok {
-                                trybrk = true
+                                okay = true
                                 return // Breaked!
                         }
                 } else {
-                        trybrk = true
+                        okay = true
                         return // Update failed!
                 }
-        }
-
-SearchFile:
-        if file.exists() {
-                pc.addTarget(file)
-                return
-        }
-
-        if file.match != nil {
-                if file.searchInMatchedPaths(p) {
-                        pc.addTarget(file)
-                        return
-                }
-        } else if alt := p.searchFile(file.name); alt != nil {
-                pc.addTarget(alt)
-        }
-
-        err = fileNotFoundError{pc.program.project, file}
-        if trace_prepare {
-                //pc.tracef("execstack: %s", execstack)
-                pc.tracef("%s: %s", pc.program.project.name, err)
         }
         return
 }
@@ -494,29 +524,12 @@ func (p *Project) entry(special ruleSpecial, target Value, prog *Program) (entry
 
         // Looking for pattern rule entries.
         if pat, ok := target.(*PercPattern); ok {
-                if pat == nil { /* FIXME: error */ }
-                /*for _, pat := range p.patterns {
-                        var sv string
-                        if closured && pat.RuleEntry.String() == name {
-                                entry = pat.RuleEntry; break
-                        } else if sv, err = pat.RuleEntry.Strval(); err != nil {
-                                return
-                        } else if sv == strval {
-                                entry = pat.RuleEntry; break
-                        }
-                }
-                if entry == nil {
-                        entry = &RuleEntry{
-                                class: GlobRuleEntry,
-                                target: target,
-                        }
-                        p.patterns = append(p.patterns, &PatternEntry{ entry, glob })
-                }*/
+                assert(pat != nil, "nil pattern")
                 entry = &RuleEntry{
                         class: GlobRuleEntry,
                         target: target,
                 }
-                p.patterns = append(p.patterns, &PatternEntry{ entry, pat })
+                p.patterns = append(p.patterns, &PatternEntry{ pat, entry })
                 return
         }
 

@@ -23,3 +23,10 @@ var dialects = map[string]interpreter{
         "xml":    &_xml{ whitespace:false },
         "yaml":   &_yaml{ whitespace:false },
 }
+
+func intername(i interpreter) (s string) {
+        for k, d := range dialects {
+                if d == i { s = k; break }
+        }
+        return
+}

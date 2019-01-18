@@ -548,13 +548,7 @@ func (entry *RuleEntry) Name() string {
         return s
 }
 func (entry *RuleEntry) Strval() (string, error) { return entry.target.Strval() }
-func (entry *RuleEntry) String() string {
-        if s, e := entry.Strval(); e == nil {
-                return s
-        } else {
-                return fmt.Sprintf("{RuleEntry '%s' !(%+v)}", s, e)
-        }
-}
+func (entry *RuleEntry) String() string { return entry.target.String() }
 func (entry *RuleEntry) Class() RuleEntryClass { return entry.class }
 func (entry *RuleEntry) SetClass(class RuleEntryClass) { entry.class = class }
 func (entry *RuleEntry) Programs() []*Program { return entry.programs }
@@ -687,7 +681,6 @@ func (entry *RuleEntry) dependcompare(c *comparer) (err error) {
 
 func (entry *RuleEntry) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, entry.target)) }
-
 ForPrograms:
         for _, prog := range entry.programs {
                 if false && prog == pc.program {
@@ -719,86 +712,118 @@ func (entry *RuleEntry) cmp(v Value) (res cmpres) {
 }
 
 type PatternEntry struct {
-        *RuleEntry
         Pattern Pattern
+        *RuleEntry
 }
 
-/*
-func (p *PatternEntry) concrete(stem string) (entry *RuleEntry, err error) {
-        if entry, err = p.Pattern.concrete(p.RuleEntry, stem); err == nil && entry != nil {
-                // entry.creator = p
+func (p *PatternEntry) Type() Type { return PatternEntryType }
+func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
+        var v Value
+        if v, err = p.RuleEntry.expand(w); err != nil {
+                return
+        } else if v != p.RuleEntry {
+                res = &PatternEntry{p.Pattern, v.(*RuleEntry)}
         }
         return
 }
-*/
+func (p *PatternEntry) cmp(v Value) (res cmpres) {
+        if v.Type() == PatternEntryType {
+                a, ok := v.(*PatternEntry)
+                assert(ok, "value is not PatternEntry")
+                // FIXME: p.Pattern.cmp(p.Pattern)
+                if p.RuleEntry.cmp(a.RuleEntry) == cmpEqual {
+                        res = cmpEqual
+                }
+        }
+        return
+}
 
 type StemmedEntry struct {
-        Patent *PatternEntry
+        *PatternEntry
         Stem string // stem string
         target string // source target matching the pattern
         file *File // source file matching the pattern
 }
 
-//func (ps *StemmedEntry) Strval() (string, error) {return ps.target, nil }
-func (ps *StemmedEntry) String() (s string) {
-        return fmt.Sprintf("StemmedEntry{%s,%s,%s,%s}", ps.Patent, ps.Stem, ps.target, ps.file)
+func (p *StemmedEntry) Type() Type { return StemmedEntryType }
+func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
+        var v Value
+        if v, err = p.PatternEntry.expand(w); err != nil {
+                return
+        } else if v != p.PatternEntry {
+                res = &StemmedEntry{v.(*PatternEntry),p.Stem,p.target,p.file}
+        }
+        return
+}
+func (p *StemmedEntry) cmp(v Value) (res cmpres) {
+        if v.Type() == PatternEntryType {
+                a, ok := v.(*StemmedEntry)
+                assert(ok, "value is not StemmedEntry")
+                if p.Stem == a.Stem {
+                        res = p.PatternEntry.cmp(a.PatternEntry)
+                }
+        }
+        return
 }
 
-func (ps *StemmedEntry) concrete(stem string) (entry *RuleEntry, err error) {
+func (p *StemmedEntry) String() (s string) {
+        return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stem)
+}
+
+func (p *StemmedEntry) concrete(pc *preparer, stem string) (entry *RuleEntry, err error) {
         entry = new(RuleEntry)
 
         // Copy the rule entry bits
-        *entry = *ps.Patent.RuleEntry
+        *entry = *p.RuleEntry
 
         var name string
-        if name, err = ps.Patent.Pattern.MakeString(stem); err != nil {
+        if name, err = p.Pattern.MakeString(stem); err != nil {
                 return
         }
 
-        if ps.file != nil {
-                file := stat(name, ps.file.sub, ps.file.dir, nil)
+        if p.file != nil {
+                file := stat(name, p.file.sub, p.file.dir, nil)
                 entry.target = file
                 if enable_assertions {
-                        assert(name == ps.file.name, "'%s' stemmed name is wrong (!= %s)", name, ps.file.name)
-                        assert(file.filebase == ps.file.filebase, "'%v' stemmed file is wrong (!= %v)", file, ps.file)
+                        assert(name == p.file.name, "'%s' stemmed name is wrong (!= %s)", name, p.file.name)
+                        assert(file.filebase == p.file.filebase, "'%v' stemmed file is wrong (!= %v)", file, p.file)
                 }
         } else {
-                /*if enable_assertions {
-                        assert(ps.target == "", "no stemmed target name")
-                        assert(name == ps.target, "'%s' stemmed name is wrong (!= %s)", name, ps.target)
-                }*/
-                var project = mostDerived()
-                if project.isFileName(name) {
-                        var file = project.searchFile(name)
-                        if file == nil { // still stat non-existed file
-                                file = stat(name, "", project.absPath, nil)
+                if enable_assertions && p.target != "" {
+                        assert(name == p.target, "'%s' stemmed name is wrong (!= %s)", name, p.target)
+                }
+
+                if file := pc.derived.matchFile(name); file != nil {
+                        if enable_assertions {
+                                assert(pc.derived.isFileName(name), "`%s` is not file", name)
                         }
-                        assert(file != nil, "`%s` nil file", name)
                         entry.target = file
                 } else {
+                        if enable_assertions {
+                                assert(!pc.derived.isFileName(name), "`%s` is file", name)
+                        }
                         entry.target = &String{ name }
                 }
         }
         return
 }
 
-func (ps *StemmedEntry) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, ps.Patent)) }
+func (p *StemmedEntry) prepare(pc *preparer) (err error) {
+        if trace_prepare { defer prepun(preptrace(pc, p)) }
 
-        var stems = []string{ ps.Stem }
-        var sources = []string{ ps.target }
-        var entry *RuleEntry
-        if ps.file != nil {
-                sources = append(sources, ps.file.name)
+        var names = []string{ p.target }
+        if p.file != nil {
+                names = append(names, p.file.name)
         }
 
         // Find all useful stems.
-ForSources:
-        for _, source := range sources {
+        var stems = []string{ p.Stem }
+ForNames:
+        for _, source := range names {
                 var ( stem string; ok bool )
                 if source == "" { continue }
-                if ok, stem, err = ps.Patent.Pattern.match(source); ok && stem != "" {
-                        for _, s := range stems { if s == stem { continue ForSources } }
+                if ok, stem, err = p.Pattern.match(source); ok && stem != "" {
+                        for _, s := range stems { if s == stem { continue ForNames } }
                         stems = append(stems, stem)
                 }
         }
@@ -809,17 +834,16 @@ ForSources:
         // Try preparing target with all stems.
 ForStems:
         for _, stem := range stems {
-                if entry, err = ps.concrete(stem); err != nil {
-                        return
-                }
+                var entry *RuleEntry
+                if entry, err = p.concrete(pc, stem); err != nil { return }
 
-                pc.stem = stem // set for the current stem.
+                pc.stem = stem // set current stem string
                 if err = entry.prepare(pc); err == nil {
                         break ForStems // Good!
                 } else if ute, ok := err.(targetNotFoundError); ok {
-                        fmt.Printf("FIXME: stemmed unknown target %v\n", ute.target)
+                        if trace_prepare { pc.trace("stemmed: unknown target:", ute.target) }
                 } else if ufe, ok := err.(fileNotFoundError); ok {
-                        fmt.Printf("FIXME: stemmed unknown file %v\n", ufe.file)
+                        if trace_prepare { pc.trace("stemmed: unknown file:", ufe.file) }
                 }
         }
         return
