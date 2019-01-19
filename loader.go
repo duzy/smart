@@ -808,11 +808,9 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
                 defer prog.setUser(prog.setUser(l.project))
         }
 
-        //defer func(v bool) { printcd = v } (printcd)
-        //printcd = false // turn off printing 'Entering/Leaving'
-
         position := l.parser.file.Position(pos)
         results, err := mergeresult(usee.userule.Execute(position, params...))
+
         if err != nil { return }
 
         for _, elem := range results {
@@ -1077,7 +1075,6 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                         }
                 }
         }
-
         for n, target := range l.exprs(clause.Targets) {
                 if target == nil {
                         l.parser.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])

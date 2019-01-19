@@ -1408,9 +1408,7 @@ func (p *parser) parseRecipeRuleClause(elems []ast.Expr) (x ast.Expr) {
 }
 
 func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Recipe"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Recipe")) }
         
         var (
                 comment *ast.CommentGroup

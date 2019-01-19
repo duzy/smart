@@ -542,7 +542,7 @@ type (
 		Doc     *CommentGroup // associated documentation; or nil
 		TokPos  token.Pos     // position of Tok
 		Tok     token.Token   // '=', ':=', '+=', '?=', etc.
-                Sym     Symbol        // the symbol created for definition
+                //Sym     Symbol        // the symbol created for definition
 		Name    Expr          // name for the defining symbol
                 Value   Expr          // value of the definition
 		Comment *CommentGroup // line comments; or nil
@@ -586,6 +586,14 @@ func (d *GenericClause) End() token.Pos {
 }
 func (d *DefineClause) End() token.Pos { return d.Name.Pos() }
 func (d *RuleClause) End() token.Pos { return d.TokPos }
+
+func (d *DefineClause) String() string {
+        return fmt.Sprintf("%s %s %s", d.Name, d.Tok, d.Value)
+}
+
+func (d *RecipeDefineClause) String() string {
+        return "\t" + d.DefineClause.String()
+}
 
 func (d *RuleClause) String() string {
         var targets []string

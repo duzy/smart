@@ -29,7 +29,7 @@ ForRecipes:
                         }
                         continue ForRecipes
                 }
-                
+
                 switch stmt := recipe.(type) {
                 case *None:
                 case *List:

@@ -119,8 +119,9 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
 }
 
 func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err error) {
+        var isUseProg = prog.scope.comment == usecomment
         var mode = prog.pc.mode
-        if mode != updateMode { return }
+        if !isUseProg && mode != updateMode { return }
         if trace_prepare { pc.tracef("%s: %s", mode.name(), intername(i)) }
 
         var value Value
