@@ -262,9 +262,6 @@ func modifierSudo(pos token.Position, prog *Program, args... Value) (result Valu
 func parseDependList(pos token.Position, prog *Program, dependList *List) (depends *List, err error) {
         depends = new(List)
         for _, depend := range dependList.Elems {
-                if trace_compare {
-                        fmt.Printf("compare:Depend: %v (%T)\n", depend, depend)
-                }
                 switch d := depend.(type) {
                 case *List:
                         if dl, e := parseDependList(pos, prog, d); e != nil {
@@ -522,9 +519,6 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                         result = universaltrue
                 } else {
                         result = universalfalse
-                }
-                if trace_prepare {
-                        prog.pc.trace("modifiercompare:", prog.pc.updated)
                 }
                 if len(prog.pc.updated) > 0 {
                         prog.pc.mode = updateMode

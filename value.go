@@ -243,13 +243,13 @@ func (c *comparer) compareDepend(value interface{}) (err error) {
         return
 }
 
-func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err error) {
-        var k = strings.ToLower(d.Type().String())
-        if trace_compare { c.trace(k+":", ds) }
-
+func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err error) {
         var tt, dt time.Time
 
-        if t, ok := c.program.globe.timestamps[ds]; ok {
+        if ds == "" {
+                err = break_bad(c.program.position, "'%v' unknown depend", d)
+                return
+        } else if t, ok := c.program.globe.timestamps[ds]; ok {
                 dt = t
         } else if di != nil {
                 dt = di.ModTime()
@@ -259,42 +259,51 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err er
         } else if di, _ = os.Stat(ds); di != nil {
                 dt = di.ModTime()
         } else if c.nomiss {
-                err =  break_bad(c.program.position, "no required %s '%v'", k, ds)
-                return
+                //err =  break_bad(c.program.position, "no required %s '%v'", d.Type(), ds)
+                //return
         } else {
                 //return
         }
 
         var ts string
-        var ti os.FileInfo
-        if t, ok := c.program.globe.timestamps[ts]; ok {
+        if ts, err = c.target.Strval(); err != nil {
+                return
+        } else if ts == "" {
+                err = break_bad(c.program.position, "'%v' unknown target", c.target)
+                return
+        } else if t, ok := c.program.globe.timestamps[ts]; ok {
                 tt = t
-        } else if ti != nil {
-                tt = ti.ModTime()
         } else if f, ok := c.target.(*File); ok && f.info != nil {
                 ts, tt = f.FullName(), f.info.ModTime()
-        } else if ts, err = c.target.Strval(); err != nil {
-                return
-        } else if ti, _ = os.Stat(ts); ti != nil {
+        } else if ti, _ := os.Stat(ts); ti != nil {
                 tt = ti.ModTime()
         } else if c.nomiss {
-                err = break_bad(c.program.position, "no target %s '%v'", k, ds)
-                return
+                //err = break_bad(c.program.position, "no target %s '%v'", d.Type(), ds)
+                //return
         } else {
                 //return
         }
 
-        if dt.After(tt) {
+        if trace_compare {
+                c.trace("compare-stat:", tt, ";", c.target)
+                c.trace("compare-stat:", dt, ";", d)
+        }
+
+        if tt.IsZero() {
+                err = break_bad(c.program.position, "%s '%v' is missing", c.target.Type(), c.target)
+        } else if dt.IsZero() || dt.After(tt) {
                 c.updated = append(c.updated, newUpdatedTarget(d, nil))
 
                 // Update timestamps to depended file, so that
                 // further updates can happen.
-                c.program.globe.timestamps[ts] = dt
-                c.program.globe.timestamps[ds] = dt
+                if !dt.IsZero() {
+                        c.program.globe.timestamps[ts] = dt
+                        c.program.globe.timestamps[ds] = dt
+                }
         } else {
                 // Just save the timestamps to optimize further stats.
-                c.program.globe.timestamps[ts] = tt
-                c.program.globe.timestamps[ds] = dt //tt
+                if !tt.IsZero() { c.program.globe.timestamps[ts] = tt }
+                if !dt.IsZero() { c.program.globe.timestamps[ds] = dt } //tt
         }
         return
 }
@@ -1198,7 +1207,7 @@ func (p *String) String() string { return fmt.Sprintf("'%s'", p.string) }
 func (p *String) Strval() (string, error) { return p.string, nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-func (p *String) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, nil, p.string) }
+func (p *String) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, p.string, nil) }
 func (p *String) prepare(pc *preparer) error {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
          return pc.updateTarget(p.string)
@@ -1235,7 +1244,7 @@ func (p *Bareword) String() string { return p.string }
 func (p *Bareword) Strval() (string, error) { return p.string, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-func (p *Bareword) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, nil, p.string) }
+func (p *Bareword) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, p.string, nil) }
 func (p *Bareword) prepare(pc *preparer) error {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
         return pc.updateTarget(p.string)
@@ -1354,7 +1363,7 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
 
 func (p *Barecomp) dependcompare(c *comparer) (err error) {
         if ds, err := p.Strval(); err == nil {
-                err =  c.compareStatDepend(p, nil, ds)
+                err =  c.compareStatDepend(p, ds, nil)
         }
         return
 }
@@ -1577,7 +1586,7 @@ func (p *Path) dependcompare(c *comparer) (err error) {
         if ds, err := p.Strval(); err == nil {
                 var di os.FileInfo
                 if p.File != nil { di = p.File.info }
-                err =  c.compareStatDepend(p, di, ds)
+                err =  c.compareStatDepend(p, ds, di)
         }
         return
 }
@@ -1889,7 +1898,7 @@ func (p *File) dependcompare(c *comparer) (err error) {
         if trace_compare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
         if ds, err := p.Strval(); err == nil {
-                err =  c.compareStatDepend(p, p.info, ds)
+                err =  c.compareStatDepend(p, ds, p.info)
         }
         return
 }

@@ -429,9 +429,10 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
                 if trace_prepare { pc.trace(tag, "(bad)", br.message) }
                 err = scanner.Errorf(br.pos, br.message)
         case breakGood:
-                if trace_prepare { pc.trace(tag, "(good)") }
-                if done = pc.mode == compareMode; done { err = nil } else {
+                //if trace_prepare { pc.trace(tag, "(good)") }
+                if done = pc.mode == compareMode; true /*!done*/ {
                         err = pc.checkTargetMode()
+                        fmt.Printf("debug: %v %v\n", pc.entry, pc.dependsDef)
                 }
         case breakUpdates:
                 if trace_prepare { pc.trace(tag, "(updates)", br.updated) }
