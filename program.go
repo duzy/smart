@@ -122,8 +122,8 @@ func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err
         var mode = prog.pc.mode
         if prog.scope.comment != usecomment {
                 if mode != updateMode { return }
+                if trace_prepare { pc.tracef("interpret: %s (mode=%s)", intername(i), mode.name()) }
         }
-        if trace_prepare { pc.tracef("%s: %s", mode.name(), intername(i)) }
 
         var value Value
         if value, err = i.Evaluate(prog, params); err == nil {

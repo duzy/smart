@@ -255,7 +255,7 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err er
                 dt = di.ModTime()
         } else if f, ok := d.(*File); ok && f.info != nil {
                 // Note that this case should not happen!
-                ds, di = f.FullName(), f.info
+                ds, di, dt = f.FullName(), f.info, f.info.ModTime()
         } else if di, _ = os.Stat(ds); di != nil {
                 dt = di.ModTime()
         } else if c.nomiss {
@@ -272,7 +272,7 @@ func (c *comparer) compareStatDepend(d Value, di os.FileInfo, ds string) (err er
         } else if ti != nil {
                 tt = ti.ModTime()
         } else if f, ok := c.target.(*File); ok && f.info != nil {
-                ts, ti = f.FullName(), f.info
+                ts, tt = f.FullName(), f.info.ModTime()
         } else if ts, err = c.target.Strval(); err != nil {
                 return
         } else if ti, _ = os.Stat(ts); ti != nil {
