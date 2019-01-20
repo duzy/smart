@@ -253,16 +253,25 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 dt = t
         } else if di != nil {
                 dt = di.ModTime()
-        } else if f, ok := d.(*File); ok && f.info != nil {
-                // Note that this case should not happen!
-                ds, di, dt = f.FullName(), f.info, f.info.ModTime()
-        } else if di, _ = os.Stat(ds); di != nil {
-                dt = di.ModTime()
-        } else if c.nomiss {
-                //err =  break_bad(c.program.position, "no required %s '%v'", d.Type(), ds)
-                //return
+        } else if f, ok := d.(*File); ok {
+                if f.info == nil { f.info, _ = os.Stat(f.FullName()) }
+                if f.info != nil { dt = f.info.ModTime() }
+                ds = f.FullName()
         } else {
-                //return
+                for _, project := range c.program.pc.related {
+                        if f = project.matchFile(ds); f != nil {
+                                if f.info == nil { f.info, _ = os.Stat(f.FullName()) }
+                                if f.info != nil { dt = f.info.ModTime() }
+                                d, ds = f, f.FullName()
+                                break
+                        }
+                }
+                /*
+                if (f == nil || !f.exists()) && c.nomiss {
+                        err =  break_bad(c.program.position, "no required %s '%v'", d.Type(), ds)
+                        return
+                }
+                */
         }
 
         var ts string
@@ -273,26 +282,32 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 return
         } else if t, ok := c.program.globe.timestamps[ts]; ok {
                 tt = t
-        } else if f, ok := c.target.(*File); ok && f.info != nil {
-                ts, tt = f.FullName(), f.info.ModTime()
-        } else if ti, _ := os.Stat(ts); ti != nil {
-                tt = ti.ModTime()
-        } else if c.nomiss {
-                //err = break_bad(c.program.position, "no target %s '%v'", d.Type(), ds)
-                //return
+        } else if f, ok := c.target.(*File); ok {
+                if f.info == nil { f.info, _ = os.Stat(f.FullName()) }
+                if f.info != nil { tt = f.info.ModTime() }
+                ts = f.FullName()
         } else {
-                //return
+                for _, project := range c.program.pc.related {
+                        if f = project.matchFile(ts); f != nil {
+                                if f.info == nil { f.info, _ = os.Stat(f.FullName()) }
+                                if f.info != nil { tt = f.info.ModTime() }
+                                ts = f.FullName()
+                                break
+                        }
+                }
         }
 
         if trace_compare {
-                c.trace("compare-stat:", tt, ";", c.target)
-                c.trace("compare-stat:", dt, ";", d)
+                c.trace("compare-stat:", tt, ";", c.target, "("+ts+")")
+                c.trace("compare-stat:", dt, ";", d, "("+ds+")")
         }
 
         if tt.IsZero() {
                 err = break_bad(c.program.position, "%s '%v' is missing", c.target.Type(), c.target)
         } else if dt.IsZero() || dt.After(tt) {
                 c.updated = append(c.updated, newUpdatedTarget(d, nil))
+
+                // FIXME: if dt.IsZero() { request to update 'd' }
 
                 // Update timestamps to depended file, so that
                 // further updates can happen.

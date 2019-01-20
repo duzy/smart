@@ -416,7 +416,7 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
 }
 
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m != defaultMode && m != compareMode {
+        if m := prog.pc.mode; m != defaultMode && m != compareMode && false {
                 return /* only works in default & compare mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
@@ -512,7 +512,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 }
         }
 
-        if prog.pc.mode == defaultMode {
+        if false /*prog.pc.mode == defaultMode*/ {
                 //defer func(m preparemode) { prog.pc.mode = m } (prog.pc.mode)
                 prog.pc.mode = compareMode // update in test mode
                 if err = prog.pc.traverseAll(depends); err != nil {
@@ -523,9 +523,9 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 if len(prog.pc.updated) > 0 {
                         prog.pc.mode = updateMode
                 } else {
-                        prog.pc.mode = defaultMode
+                        prog.pc.mode = visitMode //defaultMode
                 }
-        } else if prog.pc.mode == compareMode {
+        } else if true /*prog.pc.mode == compareMode*/ {
                 var c *comparer
                 if c, err = newcompariation(prog, target); err == nil {
                         c.nomiss = optDiscardMissing
@@ -551,7 +551,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                         }
                 }
         } else {
-                unreachable("compare in unsupported mode")
+                unreachable("compare in", prog.pc.mode.name(), "mode")
         }
         return
 }

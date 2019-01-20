@@ -259,7 +259,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         if len(prog.callers) > 0 {
                 var caller = prog.callers[0]
                 ctx.level = caller.level
-                ctx.mode = caller.mode
+                //ctx.mode = caller.mode
                 ctx.stem = caller.stem
                 if caller.mode == updateMode {
                         // Only update if the caller found it updated.
@@ -344,21 +344,21 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
         var argnum int // setup named/number parameters ($1, $2, etc.)
         for _, a := range prog.pc.args {
-                var def *Def
+                //<!IMPORTANT: Don't translate Flag, Flag values are valid
+                //             regular arguments. Don't Pair values are
+                //             special.
                 switch t := a.(type) {
-                case *Flag:
-                        // TODO: parsing flags
                 case *Pair:
                         var s string
                         if s, err = t.Key.Strval(); err == nil {
                                 if o := prog.scope.Lookup(s); o != nil {
-                                        def = o.(*Def)
-                                        def.set(DefDefault, t.Value)
+                                        o.(*Def).set(DefDefault, t.Value)
                                 } else {
                                         err = scanner.Errorf(prog.position, "`%s` no such named parameter", s)
                                 }
                         }
                 default:
+                        var def *Def
                         if argnum < len(prog.pc.params) {
                                 def = prog.pc.params[argnum]
                                 def.set(DefDefault, a)
@@ -430,9 +430,8 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
                 err = scanner.Errorf(br.pos, br.message)
         case breakGood:
                 //if trace_prepare { pc.trace(tag, "(good)") }
-                if done = pc.mode == compareMode; true /*!done*/ {
+                if done = pc.mode == compareMode; !done {
                         err = pc.checkTargetMode()
-                        fmt.Printf("debug: %v %v\n", pc.entry, pc.dependsDef)
                 }
         case breakUpdates:
                 if trace_prepare { pc.trace(tag, "(updates)", br.updated) }
@@ -491,10 +490,11 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         // Pre-modifying could change $@, $^, $<, $|, etc.
         if done, err = pc.preModify(prog); err != nil || done { return }
         if pc.visitInsteadUpdate && pc.mode == updateMode {
-                if trace_prepare { pc.trace("visit:", pc.updated) }
+                if trace_prepare { pc.trace("switch: update -> visit:", pc.entry.target) }
                 // Work in visit mode to ensure all it's dependencies will
                 // be updated.
-                pc.mode = visitMode
+                //pc.mode = visitMode
+                fmt.Printf("debug: visit switch: %v\n", pc.entry.target)
         }
 
         // Updating $^

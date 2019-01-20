@@ -31,15 +31,19 @@ var (
 
         errCompilation = `(.+?):(\d+):(\d+): error: (.+)`
         errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
+        errArNoSuchFile = `ar: (.+?): No such file or directory`
+        
         rxNoContainer = regexp.MustCompile(errNoContainer)
         rxCompilation = regexp.MustCompile(errCompilation)
         rxFileNotFound = regexp.MustCompile(errFileNotFound)
+        rxArNoSuchFile = regexp.MustCompile(errArNoSuchFile)
         rxKnownErrors = regexp.MustCompile(strings.Join([]string{
                 errNotTTYDevice,
                 errNoContainer,
                 errNoNetwork,
                 errCompilation,
                 errFileNotFound,
+                errArNoSuchFile,
         }, "|"))
 )
 
@@ -94,7 +98,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
         return
 }
 
-func (p *ExecBuffer) parseKnownErrors(pos token.Position, report bool) (err error, tag string, retry bool) {
+func (p *ExecBuffer) parseKnownErrors(pos token.Position, target string, report bool) (err error, tag string, retry bool) {
         if p.Subm == nil {
                 return
         } else if str := string(p.Subm[0][0][0]); str == errNotTTYDevice {
@@ -106,6 +110,9 @@ func (p *ExecBuffer) parseKnownErrors(pos token.Position, report bool) (err erro
         } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
                 err = scanner.Errorf(pos, "`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
                 if report { fmt.Fprintf(os.Stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
+        } else if m := rxArNoSuchFile.FindAllStringSubmatch(str, -1); m != nil {
+                err = scanner.Errorf(pos, "`%v` file not found, required by `%s`", filepath.Base(m[0][1]), filepath.Base(target))
+                if report { fmt.Fprintf(os.Stderr, "ar: '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
         } else if matched, _ := regexp.MatchString(errNoNetwork, str); matched {
                 // TODO: dealing with network not found error
         } else if false {
@@ -398,7 +405,8 @@ ForArgs:
         if verberr { exeres.Stderr.Tie = os.Stderr }
         exeres.Stderr.Line = rxKnownErrors
 
-        var target = prog.scope.Lookup("@").(*Def).Value
+        //var target = prog.scope.Lookup("@").(*Def).Value
+        var target = prog.pc.targetDef.Value
         var targetName string
         if targetName, err = target.Strval(); err != nil {
                 return
@@ -533,7 +541,7 @@ ForArgs:
                 // Parse errors of execution
                 if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
                         var ( tag string ; retry bool; pos = prog.position )
-                        err, tag, retry = exeres.Stderr.parseKnownErrors(pos, !verberr && !silent)
+                        err, tag, retry = exeres.Stderr.parseKnownErrors(pos, targetName, !verberr && !silent)
                         if err == nil && retry {
                                 if num > 2 { break } // only retry once
                                 fmt.Printf("smart: good to retry (%s)\n", source)
