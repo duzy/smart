@@ -430,9 +430,7 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
                 err = scanner.Errorf(br.pos, br.message)
         case breakGood:
                 //if trace_prepare { pc.trace(tag, "(good)") }
-                if done = pc.mode == compareMode; !done {
-                        err = pc.checkTargetMode()
-                }
+                err = pc.checkTargetMode()
         case breakUpdates:
                 if trace_prepare { pc.trace(tag, "(updates)", br.updated) }
 
@@ -443,7 +441,7 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
                         pc.updatedDef.append(updated.target)
                 }
 
-                if len(br.updated) > 0 && pc.mode != compareMode {
+                if len(br.updated) > 0 && pc.mode == defaultMode {
                         pc.mode = updateMode // switch into update mode
                 }
         }
@@ -490,11 +488,9 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         // Pre-modifying could change $@, $^, $<, $|, etc.
         if done, err = pc.preModify(prog); err != nil || done { return }
         if pc.visitInsteadUpdate && pc.mode == updateMode {
-                if trace_prepare { pc.trace("switch: update -> visit:", pc.entry.target) }
                 // Work in visit mode to ensure all it's dependencies will
                 // be updated.
                 //pc.mode = visitMode
-                fmt.Printf("debug: visit switch: %v\n", pc.entry.target)
         }
 
         // Updating $^

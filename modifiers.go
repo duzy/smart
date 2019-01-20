@@ -416,9 +416,6 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
 }
 
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m != defaultMode && m != compareMode && false {
-                return /* only works in default & compare mode */
-        }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var optReportMissing = true
@@ -512,20 +509,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 }
         }
 
-        if false /*prog.pc.mode == defaultMode*/ {
-                //defer func(m preparemode) { prog.pc.mode = m } (prog.pc.mode)
-                prog.pc.mode = compareMode // update in test mode
-                if err = prog.pc.traverseAll(depends); err != nil {
-                        result = universaltrue
-                } else {
-                        result = universalfalse
-                }
-                if len(prog.pc.updated) > 0 {
-                        prog.pc.mode = updateMode
-                } else {
-                        prog.pc.mode = visitMode //defaultMode
-                }
-        } else if true /*prog.pc.mode == compareMode*/ {
+        if true /*prog.pc.mode == compareMode*/ {
                 var c *comparer
                 if c, err = newcompariation(prog, target); err == nil {
                         c.nomiss = optDiscardMissing

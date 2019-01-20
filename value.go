@@ -325,30 +325,25 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
 
 // State machine:
 //
-//    default --> compare ---> update --> interpret
+//    default ---> update --> interpret
 //                         |
 //                         +-> visit
 //
 type traversemode int
 const (
         defaultMode traversemode = iota
-        compareMode // compare to find updated targets
         updateMode // work to update targets
-        //configMode // work in configure mode
-        visitMode // don't touch the target
 )
 
 func (m traversemode) String() (s string) {
-        if m == compareMode { s = "!" }
+        s = m.name()
         return
 }
 
 func (m traversemode) name() (s string) {
         switch m {
         case defaultMode: s = "default"
-        case compareMode: s = "compare"
         case updateMode: s = "update"
-        case visitMode: s = "visit"
         }
         return
 }
@@ -401,11 +396,7 @@ func preptrace(pc *preparer, i Value) *preparer {
                 a = fmt.Sprintf("%s{%v}", t.Type(), t)
         }
         b := fmt.Sprintf("%s{%v}", i.Type(), i)
-        if pc.mode == compareMode {
-                pc.trace("!", a, ":", b, "(")
-        } else {
-                pc.trace(a, ":", b, "(")
-        }
+        pc.trace(a, ":", b, "(")
         pc.level += 1
         return pc
 }
