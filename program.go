@@ -121,7 +121,16 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
 func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err error) {
         var mode = prog.pc.mode
         if prog.scope.comment != usecomment {
-                if mode != updateMode { return }
+                if len(prog.depends) == 0 {
+                        // If the program has no prerequisites and not
+                        // updated yet, we force to update it, e.g.:
+                        //
+                        //      foobar.cpp:; println "name: $@"
+                        //
+                        // As it's supposed to be invoked alone.
+                } else if mode != updateMode {
+                        return
+                }
         }
 
         var value Value
