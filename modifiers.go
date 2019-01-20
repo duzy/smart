@@ -349,7 +349,7 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
 // 
 //   (regexp=(sys='...' '...') $^)
 //   (regexp='...' sys='...' $^)
-//   (regexp='...' s='|' $^)
+//   (regexp='...' s='~' $^)
 func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReportMissing, optDiscardMissing bool) (result []Value, err error) {
         var grep *Group
         if g, ok := optGrep.(*Group); ok { grep = g } else {
@@ -402,15 +402,16 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
                 }
         }
 
+        var s string
         if store != nil {
-                var s string //= "~"
                 if s, err = store.Strval(); err != nil { return }
-                if def := prog.scope.FindDef(s); def != nil {
-                        def.append(result...)
-                        result = nil
-                } else {
-                        err = scanner.Errorf(pos, "`%s` no such Def", s)
-                }
+        }
+        if s == "" { s = "~" } // append to $~ by default
+        if def := prog.scope.FindDef(s); def != nil {
+                def.append(result...)
+                result = nil
+        } else {
+                err = scanner.Errorf(pos, "`%s` no such Def", s)
         }
         return
 }
@@ -490,23 +491,25 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 }
         }
 
-        var depends []Value
-        depends = append(depends, prog.pc.dependsDef.Value) // $^
-        depends = append(depends, prog.pc.orderedDef.Value) // $|
-        depends = append(depends, prog.pc.greppedDef.Value) // $~
-        if false {
-                depends, err = mergeresult(ExpandAll(depends...))
-                if err != nil { return }
-                // for _, dep := range depends { ... }
-        }
-
+        // Grep files first if enabled to ensure that the $~ is updated.
+        var grepped Value
         if optGrep != nil {
                 var res []Value
                 if res, err = parseGrepOption(pos, prog, optGrep, optReportMissing, optDiscardMissing); err != nil {
                         return
                 } else if res != nil {
-                        depends = append(depends, MakeListOrScalar(res))
+                        grepped = MakeListOrScalar(res)
                 }
+        }
+
+        var depends []Value
+        depends = append(depends, prog.pc.dependsDef.Value) // $^
+        depends = append(depends, prog.pc.orderedDef.Value) // $|
+        depends = append(depends, prog.pc.greppedDef.Value) // $~
+        if grepped != nil { depends = append(depends, grepped) }
+        if false {
+                depends, err = mergeresult(ExpandAll(depends...))
+                if err != nil { return }
         }
 
         if true /*prog.pc.mode == compareMode*/ {

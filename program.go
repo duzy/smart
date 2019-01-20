@@ -122,7 +122,6 @@ func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err
         var mode = prog.pc.mode
         if prog.scope.comment != usecomment {
                 if mode != updateMode { return }
-                if trace_prepare { pc.tracef("interpret: %s (mode=%s)", intername(i), mode.name()) }
         }
 
         var value Value
@@ -402,6 +401,13 @@ func (pc *preparer) checkUpdates(src error) (err error) {
                         for _, updated := range br.updated {
                                 pc.updatedDef.append(updated.target)
                         }
+
+                        if len(pc.updated) > 0 {
+                                // switch into update mode
+                                pc.mode = updateMode
+                        } else {
+                                err = pc.checkTargetMode()
+                        }
                 } else {
                         err = src
                 }
@@ -414,6 +420,10 @@ func (pc *preparer) checkTargetMode() (err error) {
         var s string
         if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
                 pc.mode = updateMode // switch into update mode
+                //if len(prog.callers) > 0 {
+                //        var caller = prog.callers[0]
+                //        caller.updated = append(...)
+                //}
         } else if s, err = pc.targetDef.Value.Strval(); err != nil {
                 return
         } else if file := pc.derived.matchFile(s); file != nil && !file.exists() {
@@ -441,8 +451,10 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
                         pc.updatedDef.append(updated.target)
                 }
 
-                if len(br.updated) > 0 && pc.mode == defaultMode {
+                if len(br.updated) > 0 {
                         pc.mode = updateMode // switch into update mode
+                } else {
+                        err = pc.checkTargetMode()
                 }
         }
         return

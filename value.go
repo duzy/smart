@@ -455,10 +455,9 @@ func (pc *preparer) traverse(value interface{}) (err error) {
 func (pc *preparer) updateTarget(target string) (err error) {
         for _, project := range pc.related {
                 err = project.updateTarget(pc, target)
-                if err == nil { break }
+                if err == nil { /*break*/continue }
                 if trace_prepare { pc.tracef("%s", err) }
                 if _, ok := err.(targetNotFoundError); !ok {
-                        
                         break
                 }
         }
@@ -1974,12 +1973,11 @@ func (p *File) cmp(v Value) (res cmpres) {
                 } else if p.FullName() == a.FullName() {
                         s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.FullName())
                         s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.FullName())
-                        unreachable("same files differ: ", p.name, " != ", a.name, s)
+                        unreachable("same files differed: ", p.name, " != ", a.name, s)
                 } else if p.dir != a.dir && p.sub == a.sub && p.name == a.name {
-                        s := fmt.Sprintf("\na: %s: %s %s", p.name, p.dir, p.sub)
-                        s += fmt.Sprintf("\nb: %s: %s %s", a.name, a.dir, a.sub)
-                        //unreachable("same files differ: ", p.name, " != ", a.name, s)
-                        fmt.Fprintf(os.Stderr, "warning: same files differ: %s != %s,%s\n", p.name, a.name, s)
+                        s := fmt.Sprintf("\n      a: %s: %s %s", p.name, p.dir, p.sub)
+                        s += fmt.Sprintf("\n      b: %s: %s %s", a.name, a.dir, a.sub)
+                        fmt.Fprintf(os.Stderr, "warning: files may differ: %s != %s :%s\n", p.name, a.name, s)
                 }
         }
         return

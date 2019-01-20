@@ -352,30 +352,6 @@ func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
 }
 
 func (p *Project) updateTarget(pc *preparer, target string) (err error) {
-        var entry *RuleEntry
-        if entry, err = p.resolveEntry(target); err != nil {
-                //if trace_prepare { pc.tracef("%s", err) }
-                return
-        } else if entry != nil {
-                err = pc.traverse(entry)
-                return
-        }
-
-        var pss []*StemmedEntry
-        if pss, err = p.resolvePatterns(target); err == nil {
-                for _, ps := range pss {
-                        ps.target = target // Bounds StemmedEntry with the source.
-                        if err = ps.prepare(pc); err == nil {
-                                return // Updated successfully!
-                        } else if _, ok := err.(patternPrepareError); ok {
-                                // Discard pattern unfit errors and caller stack.
-                                err = nil
-                        } else {
-                                break // Update failed!
-                        }
-                }
-        }
-       
         if file := p.matchFile(target); file != nil {
                 if enable_assertions {
                         assert(file.match != nil, "`%s` nil match", target)
@@ -404,6 +380,30 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 return
         }
 
+        var entry *RuleEntry
+        if entry, err = p.resolveEntry(target); err != nil {
+                //if trace_prepare { pc.tracef("%s", err) }
+                return
+        } else if entry != nil {
+                err = pc.traverse(entry)
+                return
+        }
+
+        var pss []*StemmedEntry
+        if pss, err = p.resolvePatterns(target); err == nil {
+                for _, ps := range pss {
+                        ps.target = target // Bounds StemmedEntry with the source.
+                        if err = ps.prepare(pc); err == nil {
+                                return // Updated successfully!
+                        } else if _, ok := err.(patternPrepareError); ok {
+                                // Discard pattern unfit errors and caller stack.
+                                err = nil
+                        } else {
+                                break // Update failed!
+                        }
+                }
+        }
+       
         err = targetNotFoundError{ p, target }
         if trace_prepare {
                 pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)
