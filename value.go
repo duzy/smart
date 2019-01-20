@@ -455,7 +455,7 @@ func (pc *preparer) traverse(value interface{}) (err error) {
 func (pc *preparer) updateTarget(target string) (err error) {
         for _, project := range pc.related {
                 err = project.updateTarget(pc, target)
-                if err == nil { /*break*/continue }
+                if err == nil { break/*continue*/ }
                 if trace_prepare { pc.tracef("%s", err) }
                 if _, ok := err.(targetNotFoundError); !ok {
                         break
