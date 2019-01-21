@@ -1864,7 +1864,7 @@ func builtinFile(pos token.Position, args... Value) (res Value, err error) {
                 } else if file := proj.searchFile(str); file != nil {
                         list = append(list, file)
                 } else {
-                        fmt.Fprintf(os.Stdout, "%s: no such file `%v`", pos, a)
+                        fmt.Fprintf(os.Stderr, "%s: no such file `%v`\n", pos, a)
                 }
         }
         if err == nil {
