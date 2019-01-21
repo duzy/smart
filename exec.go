@@ -30,6 +30,7 @@ var (
         errNoNetwork = `Error.*: network (.*) not found\.`
 
         errCompilation = `(.+?):(\d+):(\d+): error: (.+)`
+        errIncludedFrom = `In file included from (.+?):(\d+):(\d+):`
         errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
         errArNoSuchFile = `ar: (.+?): No such file or directory`
         

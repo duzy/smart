@@ -350,17 +350,40 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
 //   (regexp=(sys='...' '...') $^)
 //   (regexp='...' sys='...' $^)
 //   (regexp='...' s='~' $^)
-func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReportMissing, optDiscardMissing bool) (result []Value, err error) {
-        var grep *Group
-        if g, ok := optGrep.(*Group); ok { grep = g } else {
+func parseGrepOption(pos token.Position, prog *Program, optGrep Value) (result []Value, err error) {
+        var group *Group
+        if g, ok := optGrep.(*Group); ok { group = g } else {
                 err = scanner.Errorf(pos, "`%T` non-group grep option", optGrep)
                 return
         }
 
-        var ( rxs []*greprex ; vals []Value ; store Value )
-        for _, elem := range grep.Elems {
+        var (
+                rxs []*greprex
+                vals []Value
+                store Value
+                opts = []string{
+                        "e,report",
+                        "i,ignore",
+                        "r,recursive",
+                }
+                optReportMissing bool = true
+                optDiscardMissing bool
+                optRecursive bool
+        )
+ForGroupElems:
+        for _, elem := range group.Elems {
+                var ( runes []rune ; names []string ; v Value )
                 switch a := elem.(type) {
+                case *Flag:
+                        if runes, names, err = a.opts(opts...); err != nil { return }
+                        v = nil // no flag value
                 case *Pair:
+                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                if runes, names, err = flag.opts(opts...); err != nil { return }
+                                v = a.Value // got flag value
+                                break
+                        }
+
                         var s string
                         if s, err = a.Key.Strval(); err != nil { return }
                         switch s {
@@ -388,19 +411,50 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
                         case "s":
                                 store = a.Value
                         }
+                        continue ForGroupElems
                 default:
                         vals = append(vals, merge(a)...)
+                        continue ForGroupElems
+                }
+                if enable_assertions {
+                        assert(len(runes) == len(names), "Flag.opts(...) error")
+                }
+                for _, ru := range runes {
+                        switch ru {
+                        case 'e':
+                                if v == nil {
+                                        optReportMissing = true
+                                } else {
+                                        optReportMissing = v.True()
+                                }
+                        case 'i':
+                                if v == nil {
+                                        optDiscardMissing = true
+                                } else {
+                                        optDiscardMissing = v.True()
+                                }
+                        case 'r':
+                                if v == nil {
+                                        optRecursive = true
+                                } else {
+                                        optRecursive = v.True()
+                                }
+                        }
                 }
         }
 
-        for _, val := range vals {
-                var files Value
-                if files, err = prog.pc.derived.grepFiles(val, rxs, optReportMissing, optDiscardMissing); err == nil {
+        var grep func(vals []Value)
+        grep = func(vals []Value) {
+                for _, val := range vals {
+                        var files Value
+                        if val.Type() == NoneType { continue }
+                        files, err = prog.pc.derived.grepFiles(val, rxs, optReportMissing, optDiscardMissing)
+                        if err != nil { return }
                         result = append(result, files)
-                } else {
-                        return
+                        if optRecursive { grep(merge(files)) }
                 }
         }
+        grep(vals)
 
         var s string
         if store != nil {
@@ -419,7 +473,6 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value, optReport
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var optReportMissing = true
         var optDiscardMissing bool
         var optPath, optNoUpdate bool
         var optGrep Value
@@ -429,7 +482,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 "i,ignore",
                 "n,no-time",
                 "g,grep", // -grep=(regexp=(sys='...' '...') $^)
-                //"s,store", // -store='^' - store results
+                "r,recursive",
         }
         if len(args) > 0 {
                 var va []Value
@@ -457,9 +510,8 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                         }
                         for _, ru := range runes {
                                 switch ru {
-                                case 'p': optPath = true
-                                case 'e': optReportMissing = true
                                 case 'i': optDiscardMissing = true
+                                case 'p': optPath = true
                                 case 'n': optNoUpdate = true
                                 case 'g': optGrep = v
                                 }
@@ -495,7 +547,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
         var grepped Value
         if optGrep != nil {
                 var res []Value
-                if res, err = parseGrepOption(pos, prog, optGrep, optReportMissing, optDiscardMissing); err != nil {
+                if res, err = parseGrepOption(pos, prog, optGrep); err != nil {
                         return
                 } else if res != nil {
                         grepped = MakeListOrScalar(res)

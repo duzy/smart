@@ -164,10 +164,10 @@ func WrapError(pos token.Position, args ...error) (err error) {
                 var t = &Error{Pos:pos}
                 switch e := a.(type) {
                 case *Error:
-                        t.Err = fmt.Errorf("(error)…")
+                        t.Err = fmt.Errorf("(error)") //…
                         errs = append(Errors{t, e}, errs...)
                 case Errors:
-                        t.Err = fmt.Errorf("(%d more errors)…", len(e))
+                        t.Err = fmt.Errorf("(%d more errors)", len(e))
                         errs = append(append(Errors{t}, e...), errs...)
                 default:
                         t.Err = e
