@@ -826,7 +826,7 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                 } else {
                         if !file.exists() && discard { return }
                         list = append(list, file)
-                        return
+                        //return
                 }
 
                 // Report missing files, but system files are not treated
