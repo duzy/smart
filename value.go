@@ -1933,6 +1933,7 @@ func (p *File) prepare(pc *preparer) (err error) {
         var errs scanner.Errors
         for _, project := range pc.related {
                 if _, err = project.updateFile(pc, p); err == nil { break }
+                if _, ok := err.(*breaker); ok { return }
                 switch e := scanner.WrapError(pc.program.position, err).(type) {
                 case *scanner.Error: errs = append(errs, e)
                 case scanner.Errors: errs = append(errs, e...)

@@ -797,13 +797,18 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                 if sys { return }
 
                 if !isAbs && !isRel && (file == nil || !file.exists()) {
+                        // relative to target directory
+                        var alt = stat(name, "", targetDir)
+                        if alt != nil { file = alt }
+
                         // Check for bare non-system sub-paths:
                         //   foo/bar/name.xxx
                         // We search base name 'name.xxx' again:
-                        if s := filepath.Dir(name); s != "." {
+                        if alt == nil {// got sub-name like 'foo/bar'
+                                var s = filepath.Dir(name)
                                 // Search 'name.xxx' and check dir for
                                 // 'foo/bar' suffix. We use it if found.
-                                alt := p.searchFile(filepath.Base(name))
+                                alt = p.searchFile(filepath.Base(name))
                                 if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
                                         dir := strings.TrimSuffix(alt.dir, PathSep+s)
                                         ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
