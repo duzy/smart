@@ -473,6 +473,7 @@ ForGroupElems:
 func modifierCompare(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
+        var va []Value
         var optDiscardMissing bool
         var optPath, optNoUpdate bool
         var optGrep Value
@@ -484,41 +485,38 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 "g,grep", // -grep=(regexp=(sys='...' '...') $^)
                 "r,recursive",
         }
-        if len(args) > 0 {
-                var va []Value
-        ForArgs:
-                for _, v := range args {
-                        var ( runes []rune ; names []string )
-                        switch a := v.(type) {
-                        case *Flag:
-                                if runes, names, err = a.opts(opts...); err != nil { return }
-                                v = nil // no flag value
-                        case *Pair:
-                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                        if runes, names, err = flag.opts(opts...); err != nil { return }
-                                        v = a.Value // use flag value
-                                } else {
-                                        err = fmt.Errorf("`%v` unknown argument", a)
-                                        return
-                                }
-                        default:
-                                va = append(va, a)
-                                continue ForArgs
+ForArgs:
+        for _, v := range args {
+                var ( runes []rune ; names []string )
+                switch a := v.(type) {
+                case *Flag:
+                        if runes, names, err = a.opts(opts...); err != nil { return }
+                        v = nil // no flag value
+                case *Pair:
+                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                if runes, names, err = flag.opts(opts...); err != nil { return }
+                                v = a.Value // use flag value
+                        } else {
+                                err = fmt.Errorf("`%v` unknown argument", a)
+                                return
                         }
-                        if enable_assertions {
-                                assert(len(runes) == len(names), "Flag.opts(...) error")
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'i': optDiscardMissing = true
-                                case 'p': optPath = true
-                                case 'n': optNoUpdate = true
-                                case 'g': optGrep = v
-                                }
+                default:
+                        va = append(va, a)
+                        continue ForArgs
+                }
+                if enable_assertions {
+                        assert(len(runes) == len(names), "Flag.opts(...) error")
+                }
+                for _, ru := range runes {
+                        switch ru {
+                        case 'i': optDiscardMissing = true
+                        case 'p': optPath = true
+                        case 'n': optNoUpdate = true
+                        case 'g': optGrep = v
                         }
                 }
-                args = va // reset args
         }
+        args = va // reset args
 
         var targetDef = prog.pc.targetDef
         if n := len(args); n == 1 {

@@ -161,16 +161,16 @@ func Errorf(pos token.Position, s string, args... interface{}) (err error) {
 func WrapError(pos token.Position, args ...error) (err error) {
         var errs Errors
         for _, a := range args {
-                var t = &Error{Pos:pos}
                 switch e := a.(type) {
                 case *Error:
-                        t.Err = fmt.Errorf("(error)") //…
-                        errs = append(Errors{t, e}, errs...)
+                        errs = append(Errors{e}, errs...)
                 case Errors:
-                        t.Err = fmt.Errorf("(%d more errors)", len(e))
-                        errs = append(append(Errors{t}, e...), errs...)
+                        if len(e) == 0 { continue }
+                        var t = &Error{pos, fmt.Errorf("…from here")}
+                        errs = append(append(e, t), errs...)
                 default:
-                        t.Err = e
+                        var t = &Error{pos, e}
+                        errs = append(Errors{t}, errs...)
                 }
         }
         if n := len(errs); n == 1 {

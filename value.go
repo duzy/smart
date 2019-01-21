@@ -1930,17 +1930,16 @@ func (p *File) prepare(pc *preparer) (err error) {
                 }
         }
 
-        if false {
-                _, err = pc.derived.updateFile(pc, p)
-        } else {
-                for _, project := range pc.related {
-                        _, err = project.updateFile(pc, p)
-                        if err == nil { break }
-                        if _, ok := err.(fileNotFoundError); !ok {
-                                break
-                        }
+        var errs scanner.Errors
+        for _, project := range pc.related {
+                if _, err = project.updateFile(pc, p); err == nil { break }
+                switch e := scanner.WrapError(pc.program.position, err).(type) {
+                case *scanner.Error: errs = append(errs, e)
+                case scanner.Errors: errs = append(errs, e...)
                 }
+                if _, ok := err.(fileNotFoundError); !ok { break }
         }
+        if errs != nil { err = errs }
         return
 }
 
