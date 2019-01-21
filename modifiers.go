@@ -345,6 +345,12 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
         return
 }
 
+type grepCacheFiles struct {
+        file *File
+        list []*File
+}
+var grepCacheFilebase = make(map[*filebase]*grepCacheFiles)
+
 // parseGrepOption - parses grep options
 // 
 //   (regexp=(sys='...' '...') $^)
@@ -444,17 +450,46 @@ ForGroupElems:
         }
 
         var grep func(vals []Value)
+        var unique = make(map[*filebase]int) // to remove duplications 
         grep = func(vals []Value) {
                 for _, val := range vals {
-                        var files Value
-                        if val.Type() == NoneType { continue }
-                        files, err = prog.pc.derived.grepFiles(val, rxs, optReportMissing, optDiscardMissing)
-                        if err != nil { return }
-                        result = append(result, files)
-                        if optRecursive { grep(merge(files)) }
+                        switch t := val.(type) {
+                        case *None: continue
+                        case *File:
+                                var files []Value
+                                if info, ok := grepCacheFilebase[t.filebase]; ok {
+                                        for _, file := range info.list {
+                                                if _, ok = unique[file.filebase]; !ok {
+                                                        files = append(files, file)
+                                                }
+                                                unique[file.filebase] += 1
+                                        }
+                                } else {
+                                        var list []Value
+                                        list, err = prog.pc.derived.grepFiles(val, rxs, optReportMissing, optDiscardMissing)
+                                        if err != nil { return }
+                                        info = &grepCacheFiles{ file:t }
+                                        grepCacheFilebase[t.filebase] = info
+                                        for _, v := range list {
+                                                var file = v.(*File)
+                                                info.list = append(info.list, file)
+                                                if _, ok := unique[file.filebase]; !ok {
+                                                        files = append(files, file)
+                                                }
+                                                unique[file.filebase] += 1
+                                        }
+                                }
+                                result = append(result, t)
+                                if optRecursive { grep(files) } else {
+                                        result = append(result, files...)
+                                }
+                        default:
+                                err = scanner.Errorf(pos, "'%v' cant grep this type", t)
+                                return
+                        }
                 }
         }
-        grep(vals)
+        if grep(vals); err != nil { return }
 
         var s string
         if store != nil {
@@ -738,7 +773,7 @@ func saveGrepCache() {
         }
 }
 
-func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) (result Value, err error) {
+func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) (result []Value, err error) {
         var targetDir, targetName, targetFileName string
         switch t := target.(type) {
         case *File:
@@ -758,12 +793,11 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                 unreachable(targetFileName, " is not abs")
         }
 
-        var ( list []Value ; cached bool )
-        if list, cached = grepcache[targetFileName]; cached {
-                result = MakeListOrScalar(list)
+        var cached bool
+        if result, cached = grepcache[targetFileName]; cached {
                 return
         } else {
-                defer func() { grepcache[targetFileName] = list } ()
+                defer func() { grepcache[targetFileName] = result } ()
         }
 
         var isSameAsTarget = func(file *File) (res bool) {
@@ -830,7 +864,7 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                         return
                 } else {
                         if !file.exists() && discard { return }
-                        list = append(list, file)
+                        result = append(result, file)
                         //return
                 }
 
@@ -881,7 +915,6 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                                         }
                                 }
                         }
-                        result = MakeListOrScalar(list)
                         file1.info, _ = savedGrepOSFile.Stat()
                         return
                 }
@@ -938,14 +971,13 @@ ForScan:
                 }
         }
         if enable_assertions {
-                for _, v := range list {
+                for _, v := range result {
                         if v == nil { unreachable() }
                         if f, ok := v.(*File); ok && f == nil {
                                 unreachable()
                         }
                 }
         }
-        result = MakeListOrScalar(list)
         return
 }
 
@@ -987,8 +1019,10 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                 return
         }
 
+        var list []Value
         var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
-        result, err = prog.pc.derived.grepFiles(target, rxs, optReportMissing, optDiscardMissing)
+        list, err = prog.pc.derived.grepFiles(target, rxs, optReportMissing, optDiscardMissing)
+        result = MakeListOrScalar(list)
         return
 }
 
