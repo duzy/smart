@@ -326,10 +326,11 @@ func CommandLine() {
         } else if optionConfigure {
                 report(do_configuration())
         } else if result, err := context.run(works...); err != nil {
-                report(err)
-                printLeavingDirectory()
                 if _, ok := err.(*breaker); ok {
                         panic(err)
+                } else {
+                        report(err)
+                        printLeavingDirectory()
                 }
         } else if result != nil {
                 for _, v := range result {
