@@ -486,7 +486,10 @@ ForGroupElems:
                                                 }
                                                 //unique[file.filebase] += 1
                                         }
-                                } else {
+                                } else if t.exists() {
+                                        if strings.Index(t.name, "IntrinsicImpl") > 0 {
+                                                fmt.Printf("%s: %s\n", t, t.exists())
+                                        }
                                         var list []Value
                                         list, err = prog.pc.derived.grepFiles(val, rxs, optReportMissing, optDiscardMissing)
                                         if err != nil { return }
@@ -503,9 +506,10 @@ ForGroupElems:
                                 }
                                 unique[t.filebase] += 1
                                 result = append(result, t)
-                                if files == nil { break }
-                                if optRecursive { grep(files) } else {
-                                        result = append(result, files...)
+                                if files != nil {
+                                        if optRecursive { grep(files) } else {
+                                                result = append(result, files...)
+                                        }
                                 }
                         default:
                                 err = scanner.Errorf(pos, "'%v' cant grep this type", t)

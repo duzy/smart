@@ -1777,8 +1777,11 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                 } else if false {
                         dir, sub = filepath.Dir(fullname), ""
                         name = filepath.Base(fullname)
+                } else if false {
+                        dir, sub = filepath.Dir(fullname), ""
                 } else if true {
-                        dir, sub = "", ""
+                        dir = "" //dir = filepath.Dir(fullname)
+                        sub = ""
                 } else {
                         unreachable("conflicted dir prefix: ", dir, " ", sub, " ", name)
                 }
@@ -1915,8 +1918,16 @@ func (p *File) BaseName() (s string) {
         return
 }
 func (p *File) FullName() (s string) {
-        s = filepath.Join(p.dir, p.sub, p.name)
-        return
+        /*if filepath.IsAbs(p.name) {
+                s = p.name
+                if enable_assertions {
+                        assert(strings.HasPrefix(p.name, filepath.Join(p.dir, p.sub)), "invalid file{%s %s %s}", p.dir, p.sub, p.name)
+                }
+        } else {
+                s = filepath.Join(p.dir, p.sub, p.name)
+        }
+        return*/
+        return filepath.Join(p.dir, p.sub, p.name)
 }
 
 func (p *File) searchInMatchedPaths(proj *Project) (res bool) {

@@ -328,6 +328,9 @@ func CommandLine() {
         } else if result, err := context.run(works...); err != nil {
                 report(err)
                 printLeavingDirectory()
+                if _, ok := err.(*breaker); ok {
+                        panic(err)
+                }
         } else if result != nil {
                 for _, v := range result {
                         var s string
