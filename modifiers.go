@@ -345,6 +345,25 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
         return
 }
 
+type langInfoT struct {
+        rxs []string
+}
+
+var langInfos = map[string]*langInfoT{
+        "c": &langInfoT{
+                []string{
+                        `^\s*#\s*include\s*<(.*)>`,
+                        `^\s*#\s*include\s*"(.*)"`,
+                },
+        },
+}
+
+func init () {
+        info, _ := langInfos["c"]
+        langInfos["c++"] = info
+        langInfos["clang"] = info
+}
+
 type grepCacheFiles struct {
         file *File
         list []*File
@@ -371,10 +390,13 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value) (result [
                         "e,report",
                         "i,ignore",
                         "r,recursive",
+                        "l,lang", // TODO: -lang=c|c++|go|java|...
+                        "c,clang", // TODO: same as -lang=c
                 }
                 optReportMissing bool = true
                 optDiscardMissing bool
                 optRecursive bool
+                // TODO: optLang string
         )
 ForGroupElems:
         for _, elem := range group.Elems {
@@ -462,7 +484,7 @@ ForGroupElems:
                                                 if _, ok = unique[file.filebase]; !ok {
                                                         files = append(files, file)
                                                 }
-                                                unique[file.filebase] += 1
+                                                //unique[file.filebase] += 1
                                         }
                                 } else {
                                         var list []Value
@@ -476,10 +498,12 @@ ForGroupElems:
                                                 if _, ok := unique[file.filebase]; !ok {
                                                         files = append(files, file)
                                                 }
-                                                unique[file.filebase] += 1
+                                                //unique[file.filebase] += 1
                                         }
                                 }
+                                unique[t.filebase] += 1
                                 result = append(result, t)
+                                if files == nil { break }
                                 if optRecursive { grep(files) } else {
                                         result = append(result, files...)
                                 }
@@ -489,7 +513,9 @@ ForGroupElems:
                         }
                 }
         }
-        if grep(vals); err != nil { return }
+
+        grep(vals) ; unique = nil
+        if err != nil { return }
 
         var s string
         if store != nil {
@@ -592,7 +618,7 @@ ForArgs:
         depends = append(depends, prog.pc.orderedDef.Value) // $|
         depends = append(depends, prog.pc.greppedDef.Value) // $~
         if grepped != nil { depends = append(depends, grepped) }
-        if false {
+        if true { // 'false' is okay here
                 depends, err = mergeresult(ExpandAll(depends...))
                 if err != nil { return }
         }
@@ -862,10 +888,10 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                         // FIXME: missing-file error
                 } else if isSameAsTarget(file) {
                         return
+                } else if !file.exists() && discard {
+                        return
                 } else {
-                        if !file.exists() && discard { return }
                         result = append(result, file)
-                        //return
                 }
 
                 // Report missing files, but system files are not treated

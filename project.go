@@ -26,7 +26,7 @@ type FileMap struct {
 }
 
 // Match split filename into list and match each part with the pattern correspondingly.
-func (filemap *FileMap) Match(filename string) bool {
+func (filemap *FileMap) Match(filename string) (bool, string) {
         return globMatch(filemap.Pattern, filename)
 }
 
@@ -50,28 +50,32 @@ func (filemap *FileMap) stat(base, name string) (file *File) {
         return
 }
 
-func globMatch(patval Value, filename string) (matched bool) {
+// globMatch - Glob matching each component of the filename against the
+// glob value. It checks in two different ways. If the filename and the
+// glob pattern has the some number of components (splitted by PathSep),
+// all components are compared. If the pattern has only one component,
+// the last filename component is compared with the pattern, and the prefix
+// components are returned in 'pre'.
+func globMatch(patval Value, filename string) (matched bool, pre string) {
         pattern, err := patval.Strval()
-        if err != nil { return false }
+        if err != nil { return false, "" }
 
-        list0 := strings.Split(pattern, PathSep)
-        list1 := strings.Split(filename, PathSep)
+        list0 := strings.Split(filepath.Clean(pattern), PathSep)
+        list1 := strings.Split(filepath.Clean(filename), PathSep)
         if n := len(list0); n == 0 {
                 // FIXME: match any?
         } else if m := len(list1); n == m { // foo/*.o  <->  src/foo.o
+                // Matching all components
                 for i, pat := range list0 {
-                        var s = list1[i]
-                        /*if s[0]=='.' && pat[0]=='*' {
-                                s = s[1:] // .foo.o|*.o  =>  foo.o|*.o
-                        }*/
-                        if v, _ := filepath.Match(pat, s); !v {
-                                return false
-                        }
+                        matched, _ = filepath.Match(pat, list1[i])
+                        if !matched { return }
                 }
-                matched = true
-        } else if n == 1 && m > 1 { // *.o  <->  src/foo.o
-                var ( pat = list0[0]; s = list1[m-1] )
-                matched, _ = filepath.Match(pat, s)
+        } else if n == 1 && m > 1 { // *.o|foo.o  <->  src/foo.o
+                // Matching the last component of filename and returns
+                // the prefix if matched.
+                if matched, _ = filepath.Match(list0[0], list1[m-1]); matched {
+                        pre = filepath.Join(list1[:m-1]...)
+                }
         }
         return
 }
@@ -161,20 +165,20 @@ func (p *Project) wildcard(patterns ...Value) (files []*File, err error) {
         var filemaps = p.filemaps()
 ForPats:
         for _, pat := range patterns {
-                var ( str string; matched, breakAbsRel bool )
+                var ( pre, str string; matched, breakAbsRel bool )
                 if str, err = pat.Strval(); err != nil { break ForPats }
                 // The 'str' value could be GlobPattern or just
                 // regular file/path names. PercPattern is not
                 // supported yet.
         ForFilemaps:
                 for _, fm := range filemaps {
-                        if matched = globMatch(fm.Pattern, str); !matched {
+                        if matched, pre = globMatch(fm.Pattern, str); !matched {
                                 // Flip glob matching order.
                                 if _, yes := pat.(*GlobPattern); !yes {
                                         continue ForFilemaps
                                 } else if str, err = fm.Pattern.Strval(); err != nil {
                                         break ForPats
-                                } else if matched = globMatch(pat, str); !matched {
+                                } else if matched, pre = globMatch(pat, str); !matched {
                                         continue ForFilemaps
                                 } else {
                                         // using the arg glob
@@ -182,9 +186,7 @@ ForPats:
                                 }
                         }
 
-                        /*if p.name == "..." {
-                                fmt.Printf("wildcard: (%v %T %v) -> %v\n", pat, fm.Pattern, fm.Pattern, str)
-                        }*/
+                        if pre != "" { /* FIXME: ... */ }
 
                         var names []string
 
@@ -194,8 +196,10 @@ ForPats:
                                 if names, err = filepath.Glob(str); err != nil { break ForPats }
                                 for _, s := range names {
                                         file := stat(filepath.Base(s), "", filepath.Dir(s))
-                                        assert(file != nil, "`%s` missing", s)
                                         files = append(files, file)
+                                        if enable_assertions {
+                                                assert(file != nil, "`%s` missing", s)
+                                        }
                                 }
                                 if breakAbsRel {
                                         continue ForPats
@@ -238,14 +242,15 @@ ForPats:
 func (p *Project) searchFile(name string) (file *File) {
         for _, filemap := range p.filemaps() {
                 // Match the represented file name.
-                if filemap.Match(name) {
-                        if file = filemap.stat(p.absPath, name); file != nil {
-                                if file.match == nil { file.match = filemap }
-                                if enable_assertions {
-                                        assert(file.exists(), "`%s` file not existed", file)
-                                }
-                                break
+                matched, pre := filemap.Match(name)
+                if !matched { continue }
+                if file = filemap.stat(p.absPath, name); file != nil {
+                        if file.match == nil { file.match = filemap }
+                        if pre != "" { /* FIXME: file.change(...pre) */ }
+                        if enable_assertions {
+                                assert(file.exists(), "`%s` file not existed", file)
                         }
+                        break
                 }
         }
         if file != nil && enable_assertions {
@@ -253,7 +258,12 @@ func (p *Project) searchFile(name string) (file *File) {
                 assert(file.name == name, "file name differs '%s' != '%s'", file.name, name)
                 //assert(file.match != nil, "`%s` not matched file", name)
                 assert(file.info != nil, "`%v` found nil file info", name)
-                assert(file.dir != "", "`%v` found empty file dir", name)
+                //assert(file.dir != "", "`%v` found empty file dir", name)
+                if file.dir == "" {
+                        assert(filepath.IsAbs(file.name) || filepath.IsAbs(file.sub), "not abs file{%s %s %s}", file.dir, file.sub, file.name)
+                } else {
+                        assert(filepath.IsAbs(file.dir), "not abs file{%s %s %s}", file.dir, file.sub, file.name)
+                }
         }
         return
 }
@@ -262,24 +272,79 @@ func (p *Project) matchFile(name string) (file *File) {
         var first *File
         for _, filemap := range p.filemaps() {
                 // Match the represented file name.
-                if filemap.Match(name) {
-                        if file = filemap.stat(p.absPath, name); file != nil {
-                                if file.match == nil { file.match = filemap }
-                                if enable_assertions {
-                                        assert(file.exists(), "`%s` file not existed", file)
-                                }
-                        } else if len(filemap.Paths) > 0 {
-                                sub, err := filemap.Paths[0].Strval() ; assert(err == nil, "%v", err)
-                                if filepath.IsAbs(sub) {
-                                        file = stat(name, "", sub, nil)
-                                } else {
-                                        file = stat(name, sub, p.absPath, nil)
-                                }
-                                if file.match == nil { file.match = filemap }
+                matched, pre := filemap.Match(name)
+                if !matched { continue }
+                if file = filemap.stat(p.absPath, name); file != nil {
+                        if file.match == nil { file.match = filemap }
+                        if pre != "" { /* FIXME: file.change(...pre) */ }
+                        if enable_assertions {
+                                assert(file.exists(), "`%s` file not existed", file)
                         }
-                        if file.exists() { break }
-                        if first == nil { first = file }
+                } else if len(filemap.Paths) > 0 {
+                        var sub, err = filemap.Paths[0].Strval()
+                        sub = filepath.Clean(sub) // clean path
+                        if filepath.IsAbs(sub) {
+                                if pre == "" {
+                                        // For example of:
+                                        //   xxx.c  <->  (*.c => /path/to/source)
+                                        // Became:
+                                        //   /path/to/source  ""  xxx.c
+                                        file = stat(name, "", sub, nil)
+                                } else if strings.HasSuffix(sub, PathSep+pre) {
+                                        // For example of:
+                                        //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
+                                        // Became:
+                                        //   /path/to/source  foo/bar  xxx.c
+                                        s := strings.TrimSuffix(sub, PathSep+pre)
+                                        n := strings.TrimPrefix(name, pre+PathSep)
+                                        file = stat(n, pre, s, nil)
+                                } else {
+                                        // For example of:
+                                        //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
+                                        // Became:
+                                        //   /path/to/source  foo/bar  xxx.c
+                                        n := strings.TrimPrefix(name, pre+PathSep)
+                                        file = stat(n, pre, sub, nil)
+                                }
+                        } else {
+                                if pre == "" {
+                                        // For example of:
+                                        //   xxx.c  <->  (*.c => source)
+                                        // Became:
+                                        //   <p.absPath>  source  xxx.c
+                                        file = stat(name, sub, p.absPath, nil)
+                                } else if sub == pre {
+                                        // For example of:
+                                        //   foo/bar/xxx.c  <->  (*.c => foo/bar)
+                                        // Became:
+                                        //   <p.absPath>  foo/bar  xxx.c
+                                        n := strings.TrimPrefix(name, pre+PathSep)
+                                        file = stat(n, sub, p.absPath, nil)
+                                } else if strings.HasSuffix(sub, PathSep+pre) {
+                                        // For example of:
+                                        //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
+                                        // Became:
+                                        //   <p.absPath>  source/foo/bar  xxx.c
+                                        s := strings.TrimSuffix(sub, PathSep+pre)
+                                        n := strings.TrimPrefix(name, pre+PathSep)
+                                        file = stat(n, pre, s, nil)
+                                } else {
+                                        // For example of:
+                                        //   foo/bar/xxx.c  <->  (*.c => source)
+                                        // Became:
+                                        //   <p.absPath>  source/foo/bar  xxx.c
+                                        s := filepath.Join(sub, pre)
+                                        n := strings.TrimPrefix(name, pre+PathSep)
+                                        file = stat(n, s, p.absPath, nil)
+                                }
+                        }
+                        if file.match == nil { file.match = filemap }
+                        if enable_assertions {
+                                assert(err == nil, "%v", err)
+                        }
                 }
+                if file.exists() { break }
+                if first == nil { first = file }
         }
         if file == nil || !file.exists() { file = first }
         return
@@ -288,7 +353,7 @@ func (p *Project) matchFile(name string) (file *File) {
 func (p *Project) isFileName(s string) (res bool) {
         if len(s) > 0 {
                 for _, filemap := range p.filemaps() {
-                        if res = filemap.Match(s); res { break }
+                        if res, _ = filemap.Match(s); res { break }
                 }
         }
         return
@@ -412,12 +477,36 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
 }
 
 func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
-        for head := file.filestub; true; file.filestub = file.other {
-                okay, err = p.updateFileStub(pc, file)
-                if err != nil || okay { return }
-                if file.other == head { break }
-                break
+        var names = make(map[string]int)
+        for stub := file.filestub; true; stub = stub.other {
+                if strings.Index(stub.name, "IntrinsicEnums") > 0 {
+                        fmt.Printf("update: %v : file{%v %v %v}\n", pc.entry.target, stub.dir, stub.sub, stub.name)
+                }
+                names[stub.name] += 1 // mark to avoid retrying later
+                okay, err = p.updateFileStub(pc, stub)
+                if err != nil || okay { file.filestub = stub; return }
+                if stub.other == file.filestub { break }
         }
+
+        // Try other shorter names
+        var name string
+        for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i > 0; {
+                name = filepath.Join(s[i+1:], name)
+                s = s[:i] // slice out the prefix 
+                if _, tried := names[name]; !tried {
+                        names[name] += 1 // mark to avoid duplication
+
+                        var sub = filepath.Join(file.sub, s)
+                        var stub = &filestub{ file.dir, sub, name, file.match, file.filestub.other }
+                        file.filestub.other = stub
+
+                        okay, err = p.updateFileStub(pc, stub)
+                        if err != nil || okay { file.filestub = stub; return }
+                }
+                i = strings.LastIndex(s, PathSep)
+        }
+
+        names = nil // clean names cache
 
         if file.exists() {
                 pc.addTarget(file)
@@ -437,6 +526,17 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
                 return
         }
 
+        /*
+        for _, other := range pc.related {
+                if other == p { continue }
+                if alt := other.searchFile(file.name); alt != nil {
+                        pc.addTarget(alt)
+                        okay = true
+                        return
+                }
+        }
+        */
+
         err = fileNotFoundError{p, file}
         if trace_prepare {
                 //pc.tracef("execstack: %s", execstack)
@@ -445,9 +545,9 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
         return
 }
 
-func (p *Project) updateFileStub(pc *preparer, file *File) (okay bool, err error) {
+func (p *Project) updateFileStub(pc *preparer, stub *filestub) (okay bool, err error) {
         var entry *RuleEntry
-        if entry, err = p.resolveEntry(file.name); err != nil {
+        if entry, err = p.resolveEntry(stub.name); err != nil {
                 return
         } else if entry != nil {
                 err, okay = entry.prepare(pc), true
@@ -455,7 +555,7 @@ func (p *Project) updateFileStub(pc *preparer, file *File) (okay bool, err error
         }
 
         var pss []*StemmedEntry
-        if pss, err = p.resolvePatterns(file.name); err != nil {
+        if pss, err = p.resolvePatterns(stub.name); err != nil {
                 return
         } else if len(pss) == 0 {
                 return //goto SearchFile
@@ -466,13 +566,13 @@ ForPatterns:
                 for _, prog := range ps.programs {
                         for _, dep := range prog.depends {
                                 if g, ok := dep.(*PercPattern); ok && g != nil {
-                                        ok, err = file.checkPatternDepend(pc, p, ps, prog, g)
+                                        ok, err = checkPatternFileDepend(pc, p, ps, prog, g)
                                         if err != nil { return }
                                         if !ok { continue ForPatterns }
                                 }
                         }
                 }
-                ps.file = file // Bounds StemmedEntry with the File.
+                ps.stub = stub // Bounds StemmedEntry with the File.
                 if err = ps.prepare(pc); err == nil {
                         okay = true
                         return // Updated successfully!

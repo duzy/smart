@@ -794,7 +794,7 @@ ForSources:
 
                                 var match *FileMap
                                 for _, m := range filemaps {
-                                        if m.Match(name) {
+                                        if ok, _ := m.Match(name); ok {
                                                 match = m
                                                 break
                                         }

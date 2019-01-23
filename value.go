@@ -249,29 +249,20 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         if ds == "" {
                 err = break_bad(c.program.position, "'%v' unknown depend", d)
                 return
-        } else if t, ok := c.program.globe.timestamps[ds]; ok {
+        } else if t, ok := c.program.globe.timestamps[ds]; ok && !t.IsZero() {
                 dt = t
         } else if di != nil {
                 dt = di.ModTime()
-        } else if f, ok := d.(*File); ok {
-                if f.info == nil { f.info, _ = os.Stat(f.FullName()) }
-                if f.info != nil { dt = f.info.ModTime() }
-                ds = f.FullName()
+        } else if f, ok := d.(*File); ok && f.info != nil {
+                d, ds, dt = f, f.FullName(), f.info.ModTime()
         } else {
                 for _, project := range c.program.pc.related {
-                        if f = project.matchFile(ds); f != nil {
-                                if f.info == nil { f.info, _ = os.Stat(f.FullName()) }
-                                if f.info != nil { dt = f.info.ModTime() }
-                                d, ds = f, f.FullName()
+                        if t := project.searchFile(ds); t != nil {
+                                d, ds, dt = t, t.FullName(), t.info.ModTime()
+                                if f != nil { *f = *t } // replace the file 
                                 break
                         }
                 }
-                /*
-                if (f == nil || !f.exists()) && c.nomiss {
-                        err =  break_bad(c.program.position, "no required %s '%v'", d.Type(), ds)
-                        return
-                }
-                */
         }
 
         var ts string
@@ -280,18 +271,15 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         } else if ts == "" {
                 err = break_bad(c.program.position, "'%v' unknown target", c.target)
                 return
-        } else if t, ok := c.program.globe.timestamps[ts]; ok {
+        } else if t, ok := c.program.globe.timestamps[ts]; ok && !t.IsZero() {
                 tt = t
-        } else if f, ok := c.target.(*File); ok {
-                if f.info == nil { f.info, _ = os.Stat(f.FullName()) }
-                if f.info != nil { tt = f.info.ModTime() }
-                ts = f.FullName()
+        } else if f, ok := c.target.(*File); ok && f.info != nil {
+                ts, tt = f.FullName(), f.info.ModTime()
         } else {
                 for _, project := range c.program.pc.related {
-                        if f = project.matchFile(ts); f != nil {
-                                if f.info == nil { f.info, _ = os.Stat(f.FullName()) }
-                                if f.info != nil { tt = f.info.ModTime() }
-                                ts = f.FullName()
+                        if t := project.searchFile(ts); t != nil {
+                                ts, tt = t.FullName(), t.info.ModTime()
+                                if f != nil { *f = *t } // replace the file
                                 break
                         }
                 }
@@ -306,8 +294,6 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 err = break_bad(c.program.position, "%s '%v' is missing", c.target.Type(), c.target)
         } else if dt.IsZero() || dt.After(tt) {
                 c.updated = append(c.updated, newUpdatedTarget(d, nil))
-
-                // FIXME: if dt.IsZero() { request to update 'd' }
 
                 // Update timestamps to depended file, so that
                 // further updates can happen.
@@ -326,8 +312,6 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
 // State machine:
 //
 //    default ---> update --> interpret
-//                         |
-//                         +-> visit
 //
 type traversemode int
 const (
@@ -452,15 +436,51 @@ func (pc *preparer) traverse(value interface{}) (err error) {
         return
 }
 
-func (pc *preparer) updateTarget(target string) (err error) {
-        for _, project := range pc.related {
-                err = project.updateTarget(pc, target)
-                if err == nil { break/*continue*/ }
-                if trace_prepare { pc.tracef("%s", err) }
-                if _, ok := err.(targetNotFoundError); !ok {
-                        break
+func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, error, bool) {
+        var pos = pc.program.position
+        if br, done := err.(*breaker); done {
+                if n := len(errs); n == 0 {
+                        return nil, err, done
+                } else if n == 1 {
+                        fmt.Fprintf(os.Stderr, "%s: break with error (reason=%d):\n", pos, br.what)
+                } else {
+                        fmt.Fprintf(os.Stderr, "%s: break with %d errors (reason=%d):\n", pos, n, br.what)
                 }
+                for _, e := range errs {
+                        fmt.Fprintf(os.Stderr, "%s\n", e.Error())
+                }
+                return nil, err, done
+        } else {
+                switch e := scanner.WrapError(pos, err).(type) {
+                case *scanner.Error: errs = append(errs, e)
+                case scanner.Errors: errs = append(errs, e...)
+                }
+                switch err.(type) {
+                case fileNotFoundError: // will retry
+                case targetNotFoundError: // will retry
+                default: done = true
+                }
+                return errs, err, done
         }
+}
+
+func (pc *preparer) updateFile(file *File) (err error) {
+        var ( errs scanner.Errors ; done bool )
+        for _, project := range pc.related {
+                if _, err = project.updateFile(pc, file); err == nil { break }
+                if errs, err, done = pc.updateErrs(errs, err); done { break }
+        }
+        if errs != nil && err != nil { err = errs }
+        return
+}
+
+func (pc *preparer) updateTarget(target string) (err error) {
+        var ( errs scanner.Errors ; done bool )
+        for _, project := range pc.related {
+                if err = project.updateTarget(pc, target); err == nil { break }
+                if errs, err, done = pc.updateErrs(errs, err); done { break }
+        }
+        if errs != nil && err != nil { err = errs }
         return
 }
 
@@ -1754,8 +1774,13 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                         if enable_assertions {
                                 assert(filepath.Join(dir, sub, name) == fullname, "(%s %s %s) components conflicted: %s", fullname)
                         }
+                } else if false {
+                        dir, sub = filepath.Dir(fullname), ""
+                        name = filepath.Base(fullname)
+                } else if true {
+                        dir, sub = "", ""
                 } else {
-                        unreachable("prefix dir differred: ", dir, " ", sub, " ", name)
+                        unreachable("conflicted dir prefix: ", dir, " ", sub, " ", name)
                 }
         } else if filepath.IsAbs(sub) {
                 fullname = filepath.Join(sub, name)
@@ -1768,6 +1793,9 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                         sub = strings.TrimPrefix(sub, dir)
                         sub = strings.TrimPrefix(sub, PathSep)
                         sub = filepath.Clean(sub)
+                } else if false {
+                        dir = sub
+                        sub = ""
                 } else {
                         unreachable("conflicted sub/dir: ", sub, " ", dir) //return
                 }
@@ -1930,21 +1958,10 @@ func (p *File) prepare(pc *preparer) (err error) {
                 }
         }
 
-        var errs scanner.Errors
-        for _, project := range pc.related {
-                if _, err = project.updateFile(pc, p); err == nil { break }
-                if _, ok := err.(*breaker); ok { return }
-                switch e := scanner.WrapError(pc.program.position, err).(type) {
-                case *scanner.Error: errs = append(errs, e)
-                case scanner.Errors: errs = append(errs, e...)
-                }
-                if _, ok := err.(fileNotFoundError); !ok { break }
-        }
-        if errs != nil { err = errs }
-        return
+        return pc.updateFile(p)
 }
 
-func (p *File) checkPatternDepend(pc *preparer, project *Project, ps *StemmedEntry, prog *Program, g *PercPattern) (res bool, err error) {
+func checkPatternFileDepend(pc *preparer, project *Project, ps *StemmedEntry, prog *Program, g *PercPattern) (res bool, err error) {
         var name string
         if name, err = g.MakeString(ps.Stem); err != nil { return }
         if file := project.searchFile(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
@@ -1974,7 +1991,7 @@ func (p *File) cmp(v Value) (res cmpres) {
                         s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.FullName())
                         s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.FullName())
                         unreachable("same files differed: ", p.name, " != ", a.name, s)
-                } else if p.dir != a.dir && p.sub == a.sub && p.name == a.name {
+                } else if false /*p.dir != a.dir && p.sub == a.sub && p.name == a.name*/ {
                         s := fmt.Sprintf("\n      a: %s: %s %s", p.name, p.dir, p.sub)
                         s += fmt.Sprintf("\n      b: %s: %s %s", a.name, a.dir, a.sub)
                         fmt.Fprintf(os.Stderr, "warning: files may differ: %s != %s :%s\n", p.name, a.name, s)

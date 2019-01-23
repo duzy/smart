@@ -742,7 +742,7 @@ type StemmedEntry struct {
         *PatternEntry
         Stem string // stem string
         target string // source target matching the pattern
-        file *File // source file matching the pattern
+        stub *filestub // source file matching the pattern
 }
 
 func (p *StemmedEntry) Type() Type { return StemmedEntryType }
@@ -751,7 +751,7 @@ func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
         if v, err = p.PatternEntry.expand(w); err != nil {
                 return
         } else if v != p.PatternEntry {
-                res = &StemmedEntry{v.(*PatternEntry),p.Stem,p.target,p.file}
+                res = &StemmedEntry{v.(*PatternEntry),p.Stem,p.target,p.stub}
         }
         return
 }
@@ -781,12 +781,12 @@ func (p *StemmedEntry) concrete(pc *preparer, stem string) (entry *RuleEntry, er
                 return
         }
 
-        if p.file != nil {
-                file := stat(name, p.file.sub, p.file.dir, nil)
+        if p.stub != nil {
+                file := stat(name, p.stub.sub, p.stub.dir, nil)
                 entry.target = file
                 if enable_assertions {
-                        assert(name == p.file.name, "'%s' stemmed name is wrong (!= %s)", name, p.file.name)
-                        assert(file.filebase == p.file.filebase, "'%v' stemmed file is wrong (!= %v)", file, p.file)
+                        assert(name == p.stub.name, "'%s' stemmed name is wrong (!= %s)", name, p.stub.name)
+                        //assert(file.filebase == p.file.filebase, "'%v' stemmed file is wrong (!= %v)", file, p.file)
                 }
         } else {
                 if enable_assertions && p.target != "" {
@@ -812,8 +812,8 @@ func (p *StemmedEntry) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
 
         var names = []string{ p.target }
-        if p.file != nil {
-                names = append(names, p.file.name)
+        if p.stub != nil {
+                names = append(names, p.stub.name)
         }
 
         // Find all useful stems.
