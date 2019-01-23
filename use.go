@@ -41,7 +41,13 @@ func (p *using) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
         if entry := p.project.DefaultEntry(); entry != nil {
                 if err = entry.prepare(pc); err != nil {
-                        //fmt.Printf("%v: `%s` using error (default entry '%s')\n", entry.Position, p.project.name, entry.target)
+                        //fmt.Fprintf(os.Stderr, "%s: `%s` using error: %s (default entry '%s')\n", entry.Position, p.project.name, err, entry.target)
+                        if br, ok := err.(*breaker); ok {
+                                switch br.what {
+                                case breakGood, breakUpdates:
+                                        return nil
+                                }
+                        }
                         err = scanner.WrapError(entry.Position, err)
                 }
         }
