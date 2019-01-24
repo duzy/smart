@@ -1902,7 +1902,7 @@ GotFile:
                         }
                 }
                 assert(file.dir == dir, "(%s %s %s).dir != %s", file.name, file.sub, file.dir, dir)
-                assert(file.dir != "", "(%s %s %s) empty dir", file.name, file.sub, file.dir)
+                //assert(file.dir != "", "(%s %s %s) empty dir", file.name, file.sub, file.dir)
                 if file.exists() {
                         assert(file.info != nil, "(%s %s %s) info is nil", file.name, file.sub, file.dir)
                         assert(file.info.Name() == filepath.Base(file.name), "(%s %s %s) name conflicted", file.name, file.sub, file.dir)
