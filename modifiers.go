@@ -1255,8 +1255,8 @@ func modifierWriteFile(pos token.Position, prog *Program, args... Value) (result
 }
 
 func modifierUpdateFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m != updateMode {
-                return /* only work in update mode */
+        if m := prog.pc.mode; m == compareMode {
+                return /* not working in compare mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 

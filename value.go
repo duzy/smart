@@ -1772,10 +1772,10 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
 
         if filepath.IsAbs(name) {
                 if fullname = name; dir == "" {
-                        dir = filepath.Dir(fullname)
+                        dir, sub = filepath.Dir(fullname), ""
                         name = filepath.Base(fullname)
                         if enable_assertions {
-                                assert(sub == "", "`%s` sub for fullname", sub)
+                                assert(sub == "", "invalid file{%s %s %s}", dir, sub, name)
                         }
                 } else if strings.HasPrefix(fullname, dir+PathSep) {
                         //tail := strings.TrimPrefix(fullname, dir)

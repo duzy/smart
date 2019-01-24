@@ -557,7 +557,7 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
 //     config.h:[(compare) (configure-file)]: config.h.in
 //     
 func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m != updateMode/*configMode*/ {
+        if m := prog.pc.mode; m != updateMode {
                 return /* only configure in update mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
@@ -602,7 +602,7 @@ func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (re
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
 func modifierExtractConfiguration(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m != updateMode/*configMode*/ {
+        if m := prog.pc.mode; m != updateMode {
                 return /* only configure in update mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
@@ -775,7 +775,7 @@ ForSources:
 
 // configure - configures a variable, example usage:
 func modifierConfigure(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m != updateMode/*configMode*/ {
+        if m := prog.pc.mode; m != updateMode {
                 return /* only configure in update mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }

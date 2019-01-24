@@ -259,8 +259,9 @@ func (p *Project) searchFile(name string) (file *File) {
                 assert(file.info != nil, "`%v` found nil file info", name)
                 if filepath.IsAbs(name) {
                         if strings.HasPrefix(name, file.dir+PathSep) {
-                                assert(file.name == filepath.Base(name), "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, filepath.Base(name))
-                                assert(file.dir != "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
+                                //assert(file.name == filepath.Base(name), "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, filepath.Base(name))
+                                //assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
+                                //assert(file.dir != "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
                         } else {
                                 assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
                                 assert(file.dir == "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
