@@ -128,8 +128,10 @@ func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err
                         //      foobar.cpp:; println "name: $@"
                         //
                         // As it's supposed to be invoked alone.
-                } else if mode != updateMode {
-                        return
+                } else if mode == compareMode {
+                        return // Compared and no updated targets was found.
+                } else if mode == defaultMode && mode == updateMode {
+                        // Interpret the recipes...
                 }
         }
 

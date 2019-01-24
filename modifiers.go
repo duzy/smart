@@ -86,13 +86,13 @@ var (
                 //`grep-compare`:      modifierGrepCompare,
                 //`grep-dependencies`: modifierGrepDependencies,
 
-                `check`:        modifierCheck,
+                `check`:          modifierCheck,
                 
-                `write-file`:   modifierWriteFile,
-                `update-file`:  modifierUpdateFile,
+                `write-file`:     modifierWriteFile,
+                `update-file`:    modifierUpdateFile,
                 `configure-file`: modifierConfigureFile,
 
-                `configure`: modifierConfigure,
+                `configure`:             modifierConfigure,
                 `extract-configuration`: modifierExtractConfiguration,
         }
 
@@ -627,7 +627,11 @@ ForArgs:
                 if err != nil { return }
         }
 
-        if true /*prog.pc.mode == compareMode*/ {
+        // Change into compare mode to avoid interpretion if there're
+        // no targets are updated
+        prog.pc.mode = compareMode
+
+        if true {
                 var c *comparer
                 if c, err = newcompariation(prog, target); err == nil {
                         c.nomiss = optDiscardMissing

@@ -311,11 +311,16 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
 
 // State machine:
 //
-//    default ---> update --> interpret
+//    default ---> compare ---> update --> interpret
+//             |      |
+//             |      +--> <done>
+//             |
+//             +-> interpret
 //
 type traversemode int
 const (
         defaultMode traversemode = iota
+        compareMode // compared but no updated targets
         updateMode // work to update targets
 )
 
@@ -660,7 +665,11 @@ func (p *Argumented) Strval() (s string, err error) {
 
 func (p *Argumented) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
-        pc.arguments, err = mergeresult(ExpandAll(p.Args...))
+        if true {
+                pc.arguments, err = mergeresult(ExpandAll(p.Args...))
+        } else {
+                pc.arguments = p.Args
+        }
         if err == nil { err = pc.traverse(p.Val) }
         return
 }
@@ -1810,12 +1819,16 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
 
         if enable_assertions {
                 assert(filepath.IsAbs(fullname), "`%s` is not abs", fullname)
-                assert(dir != "", "`%s` empty dir (sub=%s)", fullname, sub)
+                if filepath.IsAbs(name) {
+                        assert(dir == "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
+                        assert(sub == "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
+                } else {
+                        assert(dir != "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
+                }
                 assert(!filepath.IsAbs(sub), "`%s` sub is abs", sub)
-                assert(!filepath.IsAbs(name), "`%s` name is abs", name)
                 
                 s := filepath.Join(dir, sub, name)
-                assert(fullname == s, "`%s` fullname conflicted (%s)", fullname, s)
+                assert(fullname == s, "`%s` conflicted fullname (%s)", fullname, s)
         }
 
         var addNotExisted bool
