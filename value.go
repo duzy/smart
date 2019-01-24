@@ -665,9 +665,12 @@ func (p *Argumented) Strval() (s string, err error) {
 
 func (p *Argumented) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
-        if true {
+        if false {
                 pc.arguments, err = mergeresult(ExpandAll(p.Args...))
         } else {
+                //<!IMPORTANT! - Don't merge-expand arguments here!
+                // Arguments should be passed to Execute as it's
+                // represented.
                 pc.arguments = p.Args
         }
         if err == nil { err = pc.traverse(p.Val) }
