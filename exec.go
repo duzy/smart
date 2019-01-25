@@ -47,21 +47,26 @@ var (
                 errArNoSuchFile,
         }, "|"))
 
-        stdout = stdWriter{ std:os.Stdout }
-        stderr = stdWriter{ std:os.Stderr }
+        stdout = &stdWriter{ std:os.Stdout }
+        stderr = &stdWriter{ std:os.Stderr }
         dots = []byte("…")
 )
 
 type stdWriter struct {
         std io.Writer
-        autoNL bool
+        suffixDots bool
 }
 
-func (w stdWriter) Write(p []byte) (n int, err error) {
-        if w.autoNL && bytes.HasPrefix(p, dots) { w.autoNL = false }
-        if w.autoNL { w.std.Write([]byte("\n")) }
-        if bytes.HasSuffix(p, dots) { w.autoNL = true }
-        return w.std.Write(p)
+func (w *stdWriter) Write(p []byte) (n int, err error) {
+        if w.suffixDots && !bytes.HasPrefix(p, dots) {
+                w.std.Write([]byte("\n"))
+                w.suffixDots = false
+        }
+        n, err = w.std.Write(p)
+        if bytes.HasSuffix(p, dots) {
+                w.suffixDots = true
+        }
+        return
 }
 
 type ExecBuffer struct {
