@@ -488,7 +488,7 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
         var names = make(map[string]int)
         for stub := file.filestub; true; stub = stub.other {
                 if strings.Index(stub.name, "IntrinsicEnums") > 0 {
-                        fmt.Printf("update: %v : file{%v %v %v}\n", pc.entry.target, stub.dir, stub.sub, stub.name)
+                        fmt.Fprintf(stderr, "update: %v : file{%v %v %v}\n", pc.entry.target, stub.dir, stub.sub, stub.name)
                 }
                 names[stub.name] += 1 // mark to avoid retrying later
                 okay, err = p.updateFileStub(pc, stub)
@@ -709,7 +709,7 @@ func (p *Project) CheckCmdHash(target Value, recipes []string) (same bool, err e
                         err = e; return
                 } else if n == 1 {
                         same = bytes.Equal(v[:], h)
-                        //fmt.Printf("CheckCmdHash: %x -> %x (%x)\n", k, v, h)
+                        //fmt.Fprintf(stderr, "CheckCmdHash: %x -> %x (%x)\n", k, v, h)
                 }
                 err = f.Close()
         } else {
@@ -727,7 +727,7 @@ func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes,
                 return
         }
         if f, e := os.Create(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
-                //fmt.Printf("UpdateCmdHash: %x -> %x (%s)\n", k, v, target.Strval())
+                //fmt.Fprintf(stderr, "UpdateCmdHash: %x -> %x (%s)\n", k, v, target.Strval())
                 fmt.Fprintf(f, "%x", v)
                 err = f.Close()
         } else {
@@ -738,7 +738,7 @@ func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes,
 
 func enter(prog *Program, dir string) (err error) {
         if trace_entering {
-                fmt.Printf("entering: %v (%v)\n", dir, prog.project.name)
+                fmt.Fprintf(stderr, "entering: %v (%v)\n", dir, prog.project.name)
         }
 
         var wd string
@@ -759,7 +759,7 @@ func enter(prog *Program, dir string) (err error) {
 
 func leave(prog *Program, top int) (err error) {
         if trace_entering {
-                fmt.Printf("leaving: %v (%v)\n", top, prog.project.name)
+                fmt.Fprintf(stderr, "leaving: %v (%v)\n", top, prog.project.name)
         }
 
         if enable_assertions {
@@ -769,7 +769,7 @@ func leave(prog *Program, top int) (err error) {
         var stop = len(cd.stack) - top
         for i, enter := range cd.stack {
                 /* if enter.print {
-                        fmt.Printf("smart:  Leaving directory '%s'\n", enter.dir)
+                        fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
                         enter.print = false
                 } */
                 enter.num -= 1
@@ -788,13 +788,13 @@ func printEnteringDirectory() {
                 if enter.silent { return }
                 for _, p := range cd.stack {
                         if p.print && p != enter {
-                                fmt.Printf("smart:  Leaving directory '%s'\n", p.dir)
+                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", p.dir)
                                 p.print = false
                         }
                 }
                 if !enter.print {
-                        fmt.Printf("smart: Entering directory '%s'\n", enter.dir)
-                        //fmt.Printf("smart: %d %v\n", l, cd.stack)
+                        fmt.Fprintf(stderr, "smart: Entering directory '%s'\n", enter.dir)
+                        //fmt.Fprintf(stderr, "smart: %d %v\n", l, cd.stack)
                         enter.print = true
                 }
         }
@@ -804,7 +804,7 @@ func printLeavingDirectory() {
         if l := len(cd.stack); l > 0 {
                 for _, p := range cd.stack {
                         if p.print {
-                                fmt.Printf("smart:  Leaving directory '%s'\n", p.dir)
+                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", p.dir)
                                 p.print = false
                         }
                 }

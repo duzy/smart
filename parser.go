@@ -216,7 +216,7 @@ func (p *parser) consumeCommentGroup(n int) (comments *ast.CommentGroup, endline
 //
 func (p *parser) next() {
         /* if p.lineComment != nil {
-                fmt.Printf("next: %v", p.lineComment.Text())
+                fmt.Fprintf(stderr, "next: %v", p.lineComment.Text())
                 p.lineComment = nil
                 p.tok = token.LINEND
                 return
@@ -261,16 +261,16 @@ func (p *parser) info(pos token.Pos, s string, a... interface{}) {
         if !strings.HasSuffix(s, "\n") {
                 s += "\n"
         }
-        fmt.Printf("%s:info: ", p.file.Position(pos))
-        fmt.Printf(s, a...)
+        fmt.Fprintf(stderr, "%s:info: ", p.file.Position(pos))
+        fmt.Fprintf(stderr, s, a...)
 }
 
 func (p *parser) warn(pos token.Pos, s string, a... interface{}) {
         if !strings.HasSuffix(s, "\n") {
                 s += "\n"
         }
-        fmt.Printf("%s: ", p.file.Position(pos))
-        fmt.Printf(s, a...)
+        fmt.Fprintf(stderr, "%s: ", p.file.Position(pos))
+        fmt.Fprintf(stderr, s, a...)
 }
 
 func (p *parser) errorExpected(pos token.Pos, msg string, a... interface{}) {
@@ -1128,7 +1128,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                         } else {
                                 comp.Elems = append(comp.Elems, y)
                         }
-                        // fmt.Printf("composed: %v (%v)\n", x, y)
+                        // fmt.Fprintf(stderr, "composed: %v (%v)\n", x, y)
                 }}
         }
         return x

@@ -168,9 +168,9 @@ func restoreLoadingInfo(l *loader) {
         }
 
         if loader := linfo.loader; loader != nil {
-                fmt.Printf("exit: %v from '%s' -> %v\n", names, loader.Name(), linfo.scope)
+                fmt.Fprintf(stderr, "exit: %v from '%s' -> %v\n", names, loader.Name(), linfo.scope)
         } else {
-                fmt.Printf("exit: %v -> %v\n", names, linfo.scope)
+                fmt.Fprintf(stderr, "exit: %v -> %v\n", names, linfo.scope)
         } */
 }
 
@@ -1219,7 +1219,7 @@ func (l *loader) loadProjectBases(linfo *loadinfo, params []Value) (err error) {
                 // check err after chainning
                 if err != nil {
                         if _, ok := err.(scanner.Errors); ok {
-                                //fmt.Printf("%v\n", err)
+                                //fmt.Fprintf(stderr, "%v\n", err)
                         }
                         break ParamsLoop
                 }

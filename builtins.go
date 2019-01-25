@@ -669,7 +669,7 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
                                 if m, s, err = p.match(v); err != nil { break }
                                 if m && s != "" { return true }
                         default:
-                                fmt.Printf("todo: %v (%T) (%v)\n", pat, pat, v)
+                                fmt.Fprintf(stderr, "todo: %v (%T) (%v)\n", pat, pat, v)
                         }
                 }
                 return false
@@ -1554,7 +1554,6 @@ func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
                         break
                 } else {
                         for _, s := range names {
-                                //fmt.Printf("remove %s\n", s)
                                 if err = os.Remove(s); err != nil {
                                         break ArgsLoop
                                 }
@@ -1585,7 +1584,6 @@ func builtinRemoveAll(pos token.Position, args... Value) (res Value, err error) 
                         break
                 } else {
                         for _, s := range names {
-                                //fmt.Printf("remove-all %s\n", s)
                                 if err = os.RemoveAll(s); err != nil {
                                         break ArgsLoop
                                 }
@@ -2165,12 +2163,12 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
         var status string
         if optVerb {
                 printEnteringDirectory()
-                fmt.Printf("configure file %v …", file)
+                fmt.Fprintf(stderr, "configure file %v …", file)
                 defer func() {
                         if err != nil { status = "error!" } else {
                                 if status == "" { status = "done." }
                         }
-                        fmt.Printf("… %s\n", status)
+                        fmt.Fprintf(stderr, "… %s\n", status)
                 } ()
         }
 

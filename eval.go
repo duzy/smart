@@ -77,7 +77,7 @@ ForRecipes:
                                                 if str, err = s.Strval(); err != nil { return }
                                                 if num, err = c.Integer(); err != nil { return }
                                                 if str == "shell" && num != 0 {
-                                                        //fmt.Printf("evaluate: %v\n", v)
+                                                        //fmt.Fprintf(stderr, "evaluate: %v\n", v)
                                                         break ForRecipes
                                                 }
                                         }

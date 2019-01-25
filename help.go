@@ -11,7 +11,7 @@ import (
 )
 
 func do_helpscreen() {
-        fmt.Printf(`Build your projects smartly.
+        fmt.Fprintf(stderr, `Build your projects smartly.
 
 Usage:
 

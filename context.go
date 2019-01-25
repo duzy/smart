@@ -336,12 +336,12 @@ func CommandLine() {
                 for _, v := range result {
                         var s string
                         if s, err = v.Strval(); err != nil {
-                                fmt.Printf("%s [%s]", v, err)
+                                fmt.Fprintf(stderr, "%s [%s]", v, err)
                         } else {
-                                fmt.Printf("%s", s)
+                                fmt.Fprintf(stderr, "%s", s)
                         }
                 }
-                fmt.Printf("\n")
+                fmt.Fprintf(stderr, "\n")
                 printLeavingDirectory()
         }
 }

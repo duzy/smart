@@ -64,7 +64,7 @@ const (
 )
 
 func DecodeJSON(source string) (result Value, err error) {
-        //fmt.Printf("json: %v\n", source)
+        //fmt.Fprintf(stderr, "json: %v\n", source)
         var (
                 stack []*Group
                 nodes []Value
@@ -77,7 +77,7 @@ func DecodeJSON(source string) (result Value, err error) {
         LoopJSON: for {
                 if t, err = jd.Token(); err != nil { break }
                 x := len(stack)
-                //fmt.Printf("%T: %v\n", t, t)
+                //fmt.Fprintf(stderr, "%T: %v\n", t, t)
         SwitchNodeType:
                 switch node, value = nil, nil; d := t.(type) {
                 case json.Delim:
@@ -168,7 +168,7 @@ func DecodeJSON(source string) (result Value, err error) {
                         default:
                                 err = ErrorIllJson; break LoopJSON
                         }
-                        //fmt.Printf("node: %v\n", node)
+                        //fmt.Fprintf(stderr, "node: %v\n", node)
                 case float64:
                         if v := Value(&Float{d}); x == 0 {
                                 nodes = append(nodes, v)

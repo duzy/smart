@@ -117,9 +117,9 @@ func promptShellResult(value Value, n int) (err error) {
                                         if str, err = elem.Strval(); err != nil {
                                                 return
                                         } else if strings.HasSuffix(str, "\n") {
-                                                fmt.Printf("%s", str)
+                                                fmt.Fprintf(stderr, "%s", str)
                                         } else if str != "" {
-                                                fmt.Printf("%s\n", str)
+                                                fmt.Fprintf(stderr, "%s\n", str)
                                         }
                                 }
                         }
@@ -337,10 +337,10 @@ func compareTargetDepend(pos token.Position, prog *Program, target, depend Value
                 }
                 if !outdated {
                         //ent, _ := prog.project.Entry(depend.Strval())
-                        //fmt.Printf("compare: %v\n", ent)
+                        //fmt.Fprintf(stderr, "compare: %v\n", ent)
                 }
         } else {
-                fmt.Printf("compare: todo: %v -> %v (%T)\n", target, depend, depend)
+                fmt.Fprintf(stderr, "compare: todo: %v -> %v (%T)\n", target, depend, depend)
         }
         return
 }
@@ -488,7 +488,7 @@ ForGroupElems:
                                         }
                                 } else if t.exists() {
                                         if strings.Index(t.name, "IntrinsicImpl") > 0 {
-                                                fmt.Printf("%s: %s\n", t, t.exists())
+                                                fmt.Fprintf(stderr, "%s: %s\n", t, t.exists())
                                         }
                                         var list []Value
                                         list, err = prog.pc.derived.grepFiles(val, rxs, optReportMissing, optDiscardMissing)
@@ -1337,7 +1337,7 @@ func modifierUpdateFile(pos token.Position, prog *Program, args... Value) (resul
 
         if !optSilent {
                 printEnteringDirectory()
-                fmt.Printf("update file '%v' …", filename)
+                fmt.Fprintf(stderr, "update file '%v' …", filename)
         }
 
         // Create or update the file with new content
@@ -1347,13 +1347,13 @@ func modifierUpdateFile(pos token.Position, prog *Program, args... Value) (resul
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
                         result = stat(filename, "", "")
-                        if !optSilent { fmt.Printf("… (ok)\n") }
+                        if !optSilent { fmt.Fprintf(stderr, "… (ok)\n") }
                 } else {
                         os.Remove(filename)
-                        if !optSilent { fmt.Printf("… (%s)\n", err) }
+                        if !optSilent { fmt.Fprintf(stderr, "… (%s)\n", err) }
                 }
         } else {
-                if !optSilent { fmt.Printf("… (%s)\n", err) }
+                if !optSilent { fmt.Fprintf(stderr, "… (%s)\n", err) }
                 err = break_bad(pos, "file %s not updated", target)
         }
         return

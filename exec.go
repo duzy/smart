@@ -49,6 +49,7 @@ var (
 
         stdout = stdWriter{ std:os.Stdout }
         stderr = stdWriter{ std:os.Stderr }
+        dots = []byte("…")
 )
 
 type stdWriter struct {
@@ -56,13 +57,11 @@ type stdWriter struct {
         autoNL bool
 }
 
-func (w stdWriter) Write(p []byte) (n int, err error)  {
-        var dots = []byte("…")
+func (w stdWriter) Write(p []byte) (n int, err error) {
         if w.autoNL && bytes.HasPrefix(p, dots) { w.autoNL = false }
         if w.autoNL { w.std.Write([]byte("\n")) }
         if bytes.HasSuffix(p, dots) { w.autoNL = true }
-        n, err = w.std.Write(p)
-        return
+        return w.std.Write(p)
 }
 
 type ExecBuffer struct {
@@ -252,7 +251,7 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
                         if e != nil {
                                 break
                         }
-                        fmt.Printf("%s", s)
+                        fmt.Fprintf(stderr, "%s", s)
                 }
         } (stderrR)
 
@@ -389,8 +388,8 @@ ForArgs:
                                                 if str, err = v.Strval(); str == "-" {
                                                         /*if v, err = def.DiscloseValue(docks); err == nil && v != nil {
                                                         if str, err = v.Strval(); str == "" { str = "-" }
-                                                        fmt.Printf("%v: %v (%v)\n", name, str, def)
-                                                }*/
+                                                        fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
+                                                        }*/
                                                 }
                                         }
                                 }
@@ -449,15 +448,15 @@ ForArgs:
                 }
                 
                 if promstr == "" {
-                        fmt.Printf("smart: gen %s …", targetName)
+                        fmt.Fprintf(stderr, "smart: gen %s …", targetName)
                 } else {
-                        fmt.Printf("%s: %s …", promstr, targetName)
+                        fmt.Fprintf(stderr, "%s: %s …", promstr, targetName)
                 }
                 defer func() {
                         if err == nil {
-                                fmt.Printf("… ok\n")
+                                fmt.Fprintf(stderr, "… ok\n")
                         } else {
-                                fmt.Printf("… error: %v\n", err)
+                                fmt.Fprintf(stderr, "… error: %v\n", err)
                         }
                 } ()
         }
@@ -483,7 +482,7 @@ ForArgs:
                         var s = source
                         s = strings.Replace(s, "\n", "\\n", -1)
                         s = strings.Replace(s, "\\\\n", "\\\n", -1)
-                        fmt.Printf("%s\n", s)
+                        fmt.Fprintf(stderr, "%s\n", s)
                 }
 
                 var src = source
@@ -505,7 +504,7 @@ ForArgs:
                 if str, err = wd.Strval(); err != nil { return }
                 if str != "" || nocd {
                         if false {
-                                fmt.Printf("dock.evaluate: %s\n", str)
+                                fmt.Fprintf(stderr, "dock.evaluate: %s\n", str)
                         }
                         if t := strings.TrimSpace(source); t == "" {
                                 src = fmt.Sprintf("cd '%s'", str)
@@ -562,7 +561,7 @@ ForArgs:
                         err, tag, retry = exeres.Stderr.parseKnownErrors(pos, targetName, !verberr && !silent)
                         if err == nil && retry {
                                 if num > 2 { break } // only retry once
-                                fmt.Printf("smart: good to retry (%s)\n", source)
+                                fmt.Fprintf(stderr, "smart: good to retry (%s)\n", source)
                                 c := exec.Command(sh.Path, sh.Args...)
                                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                                 sh = c
@@ -575,7 +574,7 @@ ForArgs:
                         } else if v, ok := skips[tag]; !v && !ok && docks != nil {
                                 skips[tag] = true // save it to skip next time
                                 if err = p.runContainer(prog, docks); err == nil {
-                                        fmt.Printf("smart: started %s\n", tag)
+                                        fmt.Fprintf(stderr, "smart: started %s\n", tag)
                                         c := exec.Command(sh.Path, sh.Args...)
                                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                                         sh = c; goto RunCommand

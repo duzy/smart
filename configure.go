@@ -104,7 +104,7 @@ func do_configuration() error {
         var ( errs scanner.Errors; project *Project; num int )
         var reportConfiguredNum = func() {
                 if project != nil {
-                        fmt.Printf("configure: Project %v configured %v items.\n", project.name, num)
+                        fmt.Fprintf(stderr, "configure: Project %v configured %v items.\n", project.name, num)
                 }
         }
 
@@ -130,7 +130,7 @@ func do_configuration() error {
                                 return err
                         }
                         reportConfiguredNum()
-                        fmt.Printf("configure: Project %v …… (%v)\n", p.name, p.relPath)
+                        fmt.Fprintf(stderr, "configure: Project %v …… (%v)\n", p.name, p.relPath)
                         project, num = p, 0
                 }
 
@@ -175,7 +175,7 @@ func configinfo(pos token.Position, str string, args... interface{}) {
         var debug bool
         if o := configuration.scope.Lookup("DEBUG"); o != nil { debug = o.True() }
         if debug { str = fmt.Sprintf("%v:info: %s", pos, str) }
-        fmt.Printf(str, args...)
+        fmt.Fprintf(stderr, str, args...)
 }
 
 func configinfon(pos token.Position, str string, args... interface{}) {

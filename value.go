@@ -1897,7 +1897,7 @@ GotFile:
                 if file.dir != dir {
                         var head = &base.stub
                         for stub := head; stub != nil; stub = stub.other {
-                                fmt.Printf("stat: %s %s %s\n", stub.dir, stub.sub, stub.name)
+                                fmt.Fprintf(stderr, "stat: %s %s %s\n", stub.dir, stub.sub, stub.name)
                                 if stub.other == head { break }
                         }
                 }
@@ -2486,7 +2486,7 @@ func (p *delegate) reveal() (res Value, err error) {
         }
 
         if err != nil {
-                //fmt.Printf("%v: %v\n", p.p, err)
+                //fmt.Fprintf(stderr, "%v: %v\n", p.p, err)
         } else if res == nil {
                 res = universalnone
         }
@@ -2846,7 +2846,7 @@ func (p *selection) value() (v Value, err error) {
                                         v = entry
                                 }
                         } else if v, err = o.Get(s); err != nil {
-                                //fmt.Printf("selection: %v: %v\n", p, err)
+                                //fmt.Fprintf(stderr, "selection: %v: %v\n", p, err)
                         }
                 }
         } else /*if o == nil*/ {

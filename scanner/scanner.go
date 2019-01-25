@@ -225,7 +225,6 @@ func (s *Scanner) skipUselessWhitespace(lf bool) {
                                         s.next()
                                 }
                         } else {
-                                //fmt.Printf("escape: %v\n", string(s.ch))
                                 // TODO: escape character
                                 s.next()//; break loopSkip
                         }
@@ -391,7 +390,6 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                         s.next()
                 }
         }
-        //fmt.Printf("line: %v\n", string(s.src[offs:s.offset]))
 	return token.RAW, string(s.src[offs:s.offset])
 }
 
@@ -559,7 +557,6 @@ checkNumOffset:
         o += 5 // consume 00:00
 
 success:
-        //fmt.Printf("datetime: %v\n", string(s.src[s.offset:o]))
         for i := s.offset; i < o; i++ {
                 s.next()
         }
@@ -615,7 +612,6 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			// octal int or float
 			seenDecimalDigit := false
 			s.scanMantissa(8)
-                        //fmt.Printf("oct: %s\n", string(s.src[offs:s.offset]))
 			if s.ch == '8' || s.ch == '9' {
 				// illegal octal int or float
 				seenDecimalDigit = true
@@ -809,7 +805,6 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 //yaml:[((name port hosts)) (plain yaml)]
                 //	$(indent 4,$(join 'names:',$(names),"\n- "))
                 //
-                //fmt.Printf("context: '%v' (%v)\n", string(s.ch), (s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace)))
                 if s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace) == 0 {
                         switch {
                         case s.context&isCompoundLine != 0:
@@ -919,7 +914,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.PCON
                         /*
                 case '\\':
-                        fmt.Printf("escape:%s %s\n", string(ch), string(s.ch))
+                        fmt.Fprintf(stderr, "escape:%s %s\n", string(ch), string(s.ch))
                         if s.ch == '\n' {
                                 goto scanAgain
                         } */
@@ -1003,7 +998,6 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.parenDepth--
                         }
                         if s.context&isCompoundCallParen != 0 {
-                                //fmt.Printf("call-paren: %v %v\n", s.callPdepth, s.parenDepth)
                                 var (
                                         l = len(s.callParenDepths)
                                         callDepth = s.callParenDepths[l-1]
