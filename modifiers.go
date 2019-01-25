@@ -906,9 +906,9 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                 // as missing.
                 if report {
                         if file == nil {
-                                fmt.Fprintf(os.Stderr, "%s:%d:%d: %s: `%s` not found\n", targetFileName, linum, colnum, p.name, name)
+                                fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", targetFileName, linum, colnum, p.name, name)
                         } else if !file.exists() {
-                                fmt.Fprintf(os.Stderr, "%s:%d:%d: %s: `%s` file not existed\n", targetFileName, linum, colnum, p.name, name)
+                                fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", targetFileName, linum, colnum, p.name, name)
                         }
                 }
                 return

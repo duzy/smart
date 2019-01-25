@@ -11,7 +11,6 @@ import (
         "runtime"
         "errors"
         "fmt"
-        "os"
 )
 
 var (
@@ -97,7 +96,7 @@ func (e fileNotFoundError) Error() string {
 
 func report(err error) error {
         if err != nil {
-                scanner.PrintError(os.Stderr, err)
+                scanner.PrintError(stderr, err)
         }
         return err
 }

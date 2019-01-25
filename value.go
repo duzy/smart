@@ -447,12 +447,12 @@ func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, 
                 if n := len(errs); n == 0 {
                         return nil, err, done
                 } else if n == 1 {
-                        fmt.Fprintf(os.Stderr, "%s: break with error (reason=%d):\n", pos, br.what)
+                        fmt.Fprintf(stderr, "%s: break with error (reason=%d):\n", pos, br.what)
                 } else {
-                        fmt.Fprintf(os.Stderr, "%s: break with %d errors (reason=%d):\n", pos, n, br.what)
+                        fmt.Fprintf(stderr, "%s: break with %d errors (reason=%d):\n", pos, n, br.what)
                 }
                 for _, e := range errs {
-                        fmt.Fprintf(os.Stderr, "%s\n", e.Error())
+                        fmt.Fprintf(stderr, "%s\n", e.Error())
                 }
                 return nil, err, done
         } else {
@@ -516,7 +516,7 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         if res, err = prog.Execute(entry, pc.arguments); err != nil {
                 //if trace_prepare { pc.tracef("%s: %s", entry, err) }
                 if br, ok := err.(*breaker); ok && br.what == breakBad {
-                        fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
+                        fmt.Fprintf(stderr, "%s: %v\n", prog.position, err)
                 }
                 return
         }
@@ -2021,7 +2021,7 @@ func (p *File) cmp(v Value) (res cmpres) {
                 } else if false /*p.dir != a.dir && p.sub == a.sub && p.name == a.name*/ {
                         s := fmt.Sprintf("\n      a: %s: %s %s", p.name, p.dir, p.sub)
                         s += fmt.Sprintf("\n      b: %s: %s %s", a.name, a.dir, a.sub)
-                        fmt.Fprintf(os.Stderr, "warning: files may differ: %s != %s :%s\n", p.name, a.name, s)
+                        fmt.Fprintf(stderr, "warning: files may differ: %s != %s :%s\n", p.name, a.name, s)
                 }
         }
         return
@@ -2771,7 +2771,7 @@ func (p *closure) prepare(pc *preparer) (err error) {
                 err = e
         } else if v == nil {
                 err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
-                fmt.Fprintf(os.Stderr, "%s: %v\n", p.p, err)
+                fmt.Fprintf(stderr, "%s: %v\n", p.p, err)
         } else {
                 err = pc.traverse(v)
         }

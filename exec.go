@@ -46,7 +46,24 @@ var (
                 errFileNotFound,
                 errArNoSuchFile,
         }, "|"))
+
+        stdout = stdWriter{ std:os.Stdout }
+        stderr = stdWriter{ std:os.Stderr }
 )
+
+type stdWriter struct {
+        std io.Writer
+        autoNL bool
+}
+
+func (w stdWriter) Write(p []byte) (n int, err error)  {
+        var dots = []byte("…")
+        if w.autoNL && bytes.HasPrefix(p, dots) { w.autoNL = false }
+        if w.autoNL { w.std.Write([]byte("\n")) }
+        if bytes.HasSuffix(p, dots) { w.autoNL = true }
+        n, err = w.std.Write(p)
+        return
+}
 
 type ExecBuffer struct {
         Tie io.Writer
@@ -110,10 +127,10 @@ func (p *ExecBuffer) parseKnownErrors(pos token.Position, target string, report 
                 err = scanner.Errorf(pos, "%s", m[0][4])
         } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
                 err = scanner.Errorf(pos, "`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
-                if report { fmt.Fprintf(os.Stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
+                if report { fmt.Fprintf(stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
         } else if m := rxArNoSuchFile.FindAllStringSubmatch(str, -1); m != nil {
                 err = scanner.Errorf(pos, "`%v` file not found, required by `%s`", filepath.Base(m[0][1]), filepath.Base(target))
-                if report { fmt.Fprintf(os.Stderr, "ar: '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
+                if report { fmt.Fprintf(stderr, "ar: '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
         } else if matched, _ := regexp.MatchString(errNoNetwork, str); matched {
                 // TODO: dealing with network not found error
         } else if false {
@@ -402,8 +419,8 @@ ForArgs:
         var exeres = new(ExecResult)
         if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
         if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
-        if verbout { exeres.Stdout.Tie = os.Stdout }
-        if verberr { exeres.Stderr.Tie = os.Stderr }
+        if verbout { exeres.Stdout.Tie = stdout }
+        if verberr { exeres.Stderr.Tie = stderr }
         exeres.Stderr.Line = rxKnownErrors
 
         //var target = prog.scope.Lookup("@").(*Def).Value

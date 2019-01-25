@@ -78,7 +78,7 @@ func (ctx *Context) run(targets... Value) (result []Value, err error) {
                 for _, target := range targets {
                         var ( entry *RuleEntry; ok bool )
                         if entry, ok = target.(*RuleEntry); !ok || entry == nil {
-                                fmt.Fprintf(os.Stderr, "`%v` is not an entry", target)
+                                fmt.Fprintf(stderr, "`%v` is not an entry", target)
                                 break
                         }
 
@@ -228,7 +228,7 @@ AtLookupLoop:
                                         break AtLookupLoop
                                 }
                         } else {
-                                fmt.Fprintf(os.Stderr, "@.smart is not a regular")
+                                fmt.Fprintf(stderr, "@.smart is not a regular")
                         }
                 } else if fi, _ = os.Stat(s2); fi != nil {
                         if m := fi.Mode(); m.IsDir() {
@@ -240,7 +240,7 @@ AtLookupLoop:
                                         break AtLookupLoop
                                 }
                         } else {
-                                fmt.Fprintf(os.Stderr, "@ is not a directory")
+                                fmt.Fprintf(stderr, "@ is not a directory")
                         }
                 }
                 if ab == "/" { break }
@@ -256,37 +256,37 @@ AtLookupLoop:
                 switch t := target.(type) {
                 case *Flag:
                         if err = processCommandOption(t); err != nil {
-                                fmt.Fprintf(os.Stderr, "%s\n", err)
+                                fmt.Fprintf(stderr, "%s\n", err)
                         }
                 case *Pair:
                         switch k := t.Key.(type) {
                         case *Flag:
                                 if err = processCommandOption(k, t.Value); err != nil {
-                                        fmt.Fprintf(os.Stderr, "%s\n", err)
+                                        fmt.Fprintf(stderr, "%s\n", err)
                                 }
                         default:
-                                fmt.Fprintf(os.Stderr, "unknown target `%v`\n", t)
+                                fmt.Fprintf(stderr, "unknown target `%v`\n", t)
                         }
                 case *Bareword:
                         if entry, err := ctx.loader.project.resolveEntry(t.string); err != nil {
-                                fmt.Fprintf(os.Stderr, "%s\n", err)
+                                fmt.Fprintf(stderr, "%s\n", err)
                         } else if entry == nil {
-                                fmt.Fprintf(os.Stderr, "no such entry `%s`\n", t)
+                                fmt.Fprintf(stderr, "no such entry `%s`\n", t)
                         } else {
                                 targets = append(targets, entry)
                         }
                 case *delegate:
                         if s, err := t.Strval(); err != nil {
-                                fmt.Fprintf(os.Stderr, "%s\n", err)
+                                fmt.Fprintf(stderr, "%s\n", err)
                         } else if entry, err := ctx.loader.project.resolveEntry(s); err != nil {
-                                fmt.Fprintf(os.Stderr, "%s\n", err)
+                                fmt.Fprintf(stderr, "%s\n", err)
                         } else if entry == nil {
-                                fmt.Fprintf(os.Stderr, "no such entry `%s` (via `%v`)\n", s, t)
+                                fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)
                         } else {
                                 targets = append(targets, entry)
                         }
                 default:
-                        fmt.Fprintf(os.Stderr, "unknown target `%s` (of %T)\n", target, target)
+                        fmt.Fprintf(stderr, "unknown target `%s` (of %T)\n", target, target)
                 }
         }
         return

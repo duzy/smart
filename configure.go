@@ -345,7 +345,7 @@ func configurePackage(pos token.Position, prog *Program, args... Value) (result 
                                         return
                                 }
                         default:
-                                fmt.Fprintf(os.Stderr, "%v: package: `%v` unknown option\n", key)
+                                fmt.Fprintf(stderr, "%v: package: `%v` unknown option\n", key)
                         }
                 default:
                         var name string
@@ -362,7 +362,7 @@ func configurePackage(pos token.Position, prog *Program, args... Value) (result 
                         case packageConfig:
                                 if info, err = loadPackageConfigInfo(pos, name); err != nil { return }
                         case packageUnknown:
-                                fmt.Fprintf(os.Stderr, "%v: package `%v`: unknown type\n", name)
+                                fmt.Fprintf(stderr, "%v: package `%v`: unknown type\n", name)
                         }
                         if info != nil {
                                 configuration.packages[name] = info
@@ -737,7 +737,7 @@ ForSources:
                         }
                 }
                 if f, err = os.Open(s); err != nil {
-                        fmt.Fprintf(os.Stderr, "%v: %v: %v\n", pos, source, err)
+                        fmt.Fprintf(stderr, "%v: %v: %v\n", pos, source, err)
                         continue ForSources
                 }
                 scanner := bufio.NewScanner(f)

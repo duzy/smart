@@ -239,12 +239,12 @@ func builtinError(pos token.Position, args... Value) (res Value, err error) {
                 if v, err = a.Strval(); err == nil {
                         fmt.Fprintf(&s, "%s", v)
                 } else {
-                        fmt.Fprintf(os.Stderr, "%s: %v\n", pos, err)
+                        fmt.Fprintf(stderr, "%s: %v\n", pos, err)
                         return
                 }
         }
         err = fmt.Errorf("%v", s.String())
-        fmt.Fprintf(os.Stderr, "%s: %v\n", pos, s.String())
+        fmt.Fprintf(stderr, "%s: %v\n", pos, s.String())
         return
 }
 
@@ -395,7 +395,7 @@ func builtinPrint(pos token.Position, args... Value) (res Value, err error) {
                 } else if s, err = EscapedString(a); err == nil {
                         if s != "" { fmt.Printf("%s", s) }
                 } else {
-                        fmt.Fprintf(os.Stderr, "%s: %s", pos, err)
+                        fmt.Fprintf(stderr, "%s: %s", pos, err)
                         break
                 }
         }
@@ -1550,7 +1550,7 @@ func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
                         return
                 }
                 if names, err = filepath.Glob(str); err != nil {
-                        fmt.Fprintf(os.Stderr, "error: remove: %s\n", err)
+                        fmt.Fprintf(stderr, "error: remove: %s\n", err)
                         break
                 } else {
                         for _, s := range names {
@@ -1581,7 +1581,7 @@ func builtinRemoveAll(pos token.Position, args... Value) (res Value, err error) 
                         return
                 }
                 if names, err = filepath.Glob(str); err != nil {
-                        fmt.Fprintf(os.Stderr, "error: remove-all: %s\n", err)
+                        fmt.Fprintf(stderr, "error: remove-all: %s\n", err)
                         break
                 } else {
                         for _, s := range names {
@@ -1829,18 +1829,18 @@ ForArgs:
                 var str string
                 if file, ok := a.(*File); ok {
                         if !file.exists() && optReportMissing {
-                                fmt.Fprintf(os.Stderr, "%s: `%v` no such file\n", pos, a)
+                                fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
                         }
                 } else if str, err = a.Strval(); err != nil {
-                        fmt.Fprintf(os.Stdout, "%s: %v", pos, err)
+                        fmt.Fprintf(stderr, "%s: %v", pos, err)
                         return
                 } else if file = proj.matchFile(str); file != nil {
                         list = append(list, file)
                         if optReportMissing {
-                                fmt.Fprintf(os.Stderr, "%s: `%v` no such file\n", pos, a)
+                                fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
                         }
                 } else {
-                        fmt.Fprintf(os.Stderr, "%s: `%v` is not a file\n", pos, a)
+                        fmt.Fprintf(stderr, "%s: `%v` is not a file\n", pos, a)
                 }
         }
         if err == nil {

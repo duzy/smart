@@ -8,7 +8,6 @@ package smart
 
 import (
         "fmt"
-        "os"
 )
 
 // evaluer evaluates smart statements
@@ -65,7 +64,7 @@ ForRecipes:
                                         err = nil
                                         break ForRecipes
                                 } else {
-                                        //fmt.Fprintf(os.Stderr, "eval: %v\n", err)
+                                        //fmt.Fprintf(stderr, "eval: %v\n", err)
                                         break ForRecipes
                                 }
                         }
@@ -86,7 +85,7 @@ ForRecipes:
                         }
 
                 default:
-                        fmt.Fprintf(os.Stderr, "fatal: unsupported recipe: %v (%T)\n", recipe, recipe)
+                        fmt.Fprintf(stderr, "fatal: unsupported recipe: %v (%T)\n", recipe, recipe)
                         unreachable()
                 }
         }

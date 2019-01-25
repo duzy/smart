@@ -12,7 +12,6 @@ import (
         "strings"
         "bytes"
         "fmt"
-        "os"
 )
 
 // Object is a value defined in a scope.
@@ -540,7 +539,7 @@ func (entry *RuleEntry) Name() string {
         if entry == nil {
                 panic("entry is nil")
         } else if entry.target == nil {
-                fmt.Fprintf(os.Stderr, "%v: nil target", entry.Position)
+                fmt.Fprintf(stderr, "%v: nil target", entry.Position)
                 panic("entry target is nil")
         }
         s, err := entry.target.Strval()
@@ -685,8 +684,8 @@ ForPrograms:
         for _, prog := range entry.programs {
                 if false && prog == pc.program {
                         //err = fmt.Errorf("%v: depended on itself", entry.target)
-                        //fmt.Fprintf(os.Stdout, "%s: %v\n", prog.position, err)
-                        fmt.Fprintf(os.Stderr, "%s: %v: depended on itself\n", prog.position, entry.target)
+                        //fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
+                        fmt.Fprintf(stderr, "%s: %v: depended on itself\n", prog.position, entry.target)
                         //continue //break ForPrograms
                 }
                 if err = pc.execute(entry, prog); err == nil {

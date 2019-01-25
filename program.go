@@ -11,7 +11,6 @@ import (
         "extbit.io/smart/token"
         "strconv"
         "fmt"
-        "os"
 )
 
 type dependPatternUnfit struct {
@@ -312,7 +311,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         defer func() { // leaving after setting execstack to meet the FIFO order of execstack
                 e := leave(prog, lenEnters)
                 if err == nil { err = e } else if e != nil {
-                        fmt.Fprintf(os.Stderr, "%s: leaving: %s\n", prog.pc.entry.Position, e)
+                        fmt.Fprintf(stderr, "%s: leaving: %s\n", prog.pc.entry.Position, e)
                 }
         } ()
 
@@ -575,7 +574,6 @@ func (prog *Program) pipe(position token.Position, operation Value) (m *modifier
                 m = &modifier{ position, g, nil }
         default:
                 err = fmt.Errorf("unknown modifier (%T `%v`)", operation, operation)
-                //fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
         }
         if m != nil && err == nil {
                 prog.pipline = append(prog.pipline, m)
