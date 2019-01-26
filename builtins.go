@@ -747,7 +747,7 @@ func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
         // Using the most derived context for correct &(...)
         defer setclosure(setclosure(cloctx.unshift(proj.scope)))
 
-        var filemaps = proj.filemaps()
+        var filemaps = proj.filemaps(false)
 
 ForSources:
         for _, src := range sources {

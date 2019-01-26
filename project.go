@@ -153,16 +153,30 @@ func (p *Project) mapfile(pat Value, paths []Value) {
         p.filemap = append(p.filemap, &FileMap{ pat, paths })
 }
 
-func (p *Project) filemaps() (filemaps []*FileMap) {
-        filemaps = append(filemaps, p.filemap...)
-        for _, base := range p.bases {
-                filemaps = append(filemaps, base.filemaps()...)
+func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
+        var unique = make(map[*FileMap]int)
+        var app = func(a []*FileMap) {
+                for _, m := range a {
+                        if _, ok := unique[m]; ok { continue }
+                        filemaps = append(filemaps, m)
+                        unique[m] += 1
+                }
         }
+        app(p.filemap)
+        for _, base := range p.bases {
+                app(base.filemaps(using))
+        }
+        if using {
+                for _, u := range p.usings.list {
+                        app(u.project.filemaps(using))
+                }
+        }
+        unique = nil
         return
 }
 
 func (p *Project) wildcard(patterns ...Value) (files []*File, err error) {
-        var filemaps = p.filemaps()
+        var filemaps = p.filemaps(false)
 ForPats:
         for _, pat := range patterns {
                 var ( pre, str string; matched, breakAbsRel bool )
@@ -240,7 +254,7 @@ ForPats:
 }
 
 func (p *Project) searchFile(name string) (file *File) {
-        for _, filemap := range p.filemaps() {
+        for _, filemap := range p.filemaps(true) {
                 // Match the represented file name.
                 matched, pre := filemap.Match(name)
                 if !matched { continue }
@@ -278,7 +292,7 @@ func (p *Project) searchFile(name string) (file *File) {
 
 func (p *Project) matchFile(name string) (file *File) {
         var first *File
-        for _, filemap := range p.filemaps() {
+        for _, filemap := range p.filemaps(true) {
                 // Match the represented file name.
                 matched, pre := filemap.Match(name)
                 if !matched { continue }
@@ -360,7 +374,7 @@ func (p *Project) matchFile(name string) (file *File) {
 
 func (p *Project) isFileName(s string) (res bool) {
         if len(s) > 0 {
-                for _, filemap := range p.filemaps() {
+                for _, filemap := range p.filemaps(true) {
                         if res, _ = filemap.Match(s); res { break }
                 }
         }
