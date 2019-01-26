@@ -58,8 +58,10 @@ type stdWriter struct {
 }
 
 func (w *stdWriter) Write(p []byte) (n int, err error) {
-        if w.suffixDots && !bytes.HasPrefix(p, dots) {
-                w.std.Write([]byte("\n"))
+        if w.suffixDots {
+                if !bytes.HasPrefix(p, dots) {
+                        w.std.Write([]byte("\n"))
+                }
                 w.suffixDots = false
         }
         n, err = w.std.Write(p)
@@ -460,6 +462,10 @@ ForArgs:
                 defer func() {
                         if err == nil {
                                 fmt.Fprintf(stderr, "… ok\n")
+                        } else if _, ok := err.(*scanner.Error); ok {
+                                fmt.Fprintf(stderr, "… error:\n%v\n", err)
+                        } else if _, ok := err.(*scanner.Errors); ok {
+                                fmt.Fprintf(stderr, "… errors:\n%v\n", err)
                         } else {
                                 fmt.Fprintf(stderr, "… error: %v\n", err)
                         }

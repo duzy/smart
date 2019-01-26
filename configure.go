@@ -603,7 +603,7 @@ func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (re
 //
 func modifierExtractConfiguration(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if m := prog.pc.mode; m != updateMode {
-                return /* only configure in update mode */
+                return /* configure in update mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
@@ -775,8 +775,8 @@ ForSources:
 
 // configure - configures a variable, example usage:
 func modifierConfigure(pos token.Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m != updateMode {
-                return /* only configure in update mode */
+        if m := prog.pc.mode; m == compareMode {
+                return /* don't configure in compare mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
