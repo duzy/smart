@@ -463,11 +463,11 @@ ForArgs:
                         if err == nil {
                                 fmt.Fprintf(stderr, "… ok\n")
                         } else if _, ok := err.(*scanner.Error); ok {
-                                fmt.Fprintf(stderr, "… error:\n%v\n", err)
+                                fmt.Fprintf(stderr, "\n%v\n", err)
                         } else if _, ok := err.(*scanner.Errors); ok {
-                                fmt.Fprintf(stderr, "… errors:\n%v\n", err)
+                                fmt.Fprintf(stderr, "\n%v\n", err)
                         } else {
-                                fmt.Fprintf(stderr, "… error: %v\n", err)
+                                fmt.Fprintf(stderr, "error: %v\n", err)
                         }
                 } ()
         }
