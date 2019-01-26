@@ -1167,7 +1167,7 @@ func dirx(pos token.Position, n int, args... Value) (res Value, err error) {
                 for i := n-1; 0 < i; i -= 1 {
                         s = filepath.Dir(s)
                 }
-                l = append(l, &String{s})
+                l = append(l, MakePathStr(s))
         }
         res = MakeListOrScalar(l)
         return
@@ -1190,7 +1190,7 @@ func undirx(pos token.Position, n int, args... Value) (res Value, err error) {
                 } else {
                         v = v[i-1:] // empty
                 }
-                l = append(l, &String{filepath.Join(v...)})
+                l = append(l, MakePathStr(filepath.Join(v...)))
         }
         res = MakeListOrScalar(l)
         return
@@ -1206,7 +1206,7 @@ func builtinDir(pos token.Position, args... Value) (res Value, err error) {
                         return
                 }
                 s = filepath.Dir(s)
-                l = append(l, &String{s})
+                l = append(l, MakePathStr(s))
         }
         res = MakeListOrScalar(l)
         return
