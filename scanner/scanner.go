@@ -924,10 +924,10 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.next()
                                 if s.ch == '\'' { // '''
                                         lit = s.scanRawString(true)
-                                } else {
-                                        // got empty string ''
-                                        offs := s.offset - 2
+                                } else if offs := s.offset - 2; false {
                                         lit = string(s.src[offs:s.offset])
+                                } else {
+                                        lit = "" // empty string ''
                                 }
                         } else {
                                 lit = s.scanRawString(false)

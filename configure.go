@@ -149,22 +149,12 @@ func do_configuration() error {
                                 // Set <nil> value with exec-assigning ('!=')
                                 // to a None value.
                                 fmt.Fprintf(writer, "%v !=\n", def.name)
-                                /*
-                        } else if d, ok := def.Value.(*Def); ok {
-                                if p := d.OwnerProject(); p == def.OwnerProject() {
-                                        fmt.Fprintf(writer, "%s = $(%s)\n", def.name, d.name)
-                                } else {
-                                        fmt.Fprintf(writer, "%s = $(%s->%s)\n", def.name, p.name, d.name)
-                                }
-                        } else if true {
-                                fmt.Fprintf(writer, "%s = %s\n", def.name, def.Value)
-                                */
                         } else {
                                 fmt.Fprintf(writer, "%v = %v\n", def.name, elementString(def, def.Value))
                         }
                         num += 1
                 } else {
-                        e := scanner.Errorf(pos, "`%s` not configured", s)
+                        e := scanner.Errorf(pos, "`%s` unconfigured", s)
                         errs = append(errs, e.(*scanner.Error))
                 }
         }
@@ -303,9 +293,7 @@ func loadPackageSmartInfo(pos token.Position, name string) (info *packageinfo, e
         }
 
         var filename = file.FullName()
-        if err = l.loadFile(filename, nil); err != nil {
-                return
-        }
+        if err = l.loadFile(filename, nil); err != nil { return }
         if project, _ := l.loaded[filename]; project == nil {
                 err = scanner.Errorf(pos, "unloaded package %v (%v)\n", name, file)
         } else if project.name != name {
@@ -842,7 +830,7 @@ ForConfig:
                         if s, err = a.Name.Strval(); err != nil { break ForConfig }
                         switch s {
                         case "check":
-                                
+                                unreachable("todo: check: ", s)
                         default:
                                 err = scanner.Errorf(pos, "unknown configuration `-%v`\n", a.Name)
                                 break ForConfig

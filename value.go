@@ -1240,7 +1240,7 @@ func (_ *String) closured() bool { return false }
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *String) Type() Type { return StringType }
 func (p *String) True() bool { return p.string != "" }
-func (p *String) String() string { return fmt.Sprintf("'%s'", p.string) }
+func (p *String) String() string { return "'"+p.string+"'" }
 func (p *String) Strval() (string, error) { return p.string, nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
