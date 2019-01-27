@@ -714,9 +714,7 @@ func (p *Project) CheckCmdHash(target Value, recipes []string) (same bool, err e
                 k, v HashBytes
                 dir = p.hashDir(k[:])
         )
-        if k, v, err = p.CmdHash(target, recipes); err != nil {
-                return
-        }
+        if k, v, err = p.CmdHash(target, recipes); err != nil { return }
         if f, e := os.Open(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
                 var h []byte
                 if n, e := fmt.Fscanf(f, "%x", &h); e != nil {

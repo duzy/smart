@@ -874,9 +874,20 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                         // We search base name 'name.xxx' again:
                         if alt == nil {// got sub-name like 'foo/bar'
                                 var s = filepath.Dir(name)
+
+                                /* FIXME: try all names
+                                s, i := file.name, strings.LastIndex(file.name, PathSep)
+                                for ; s != "" && i > 0; {
+                                        name = filepath.Join(s[i+1:], name)
+                                        s = s[:i] // slice out the prefix 
+                                        // matchFile(name)
+                                        i = strings.LastIndex(s, PathSep)
+                                }
+                                */
+
                                 // Search 'name.xxx' and check dir for
                                 // 'foo/bar' suffix. We use it if found.
-                                alt = p.searchFile(filepath.Base(name))
+                                alt = p.matchFile(filepath.Base(name))
                                 if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
                                         dir := strings.TrimSuffix(alt.dir, PathSep+s)
                                         ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
