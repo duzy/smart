@@ -78,6 +78,8 @@ var builtins = map[string]BuiltinFunc {
 
         `indent`:       builtinIndent,
 
+        `substring`:    builtinSubstring,
+
         // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
         `subst`:        builtinSubst,
         `patsubst`:     builtinPatsubst,
@@ -723,15 +725,11 @@ func builtinFields(pos token.Position, args... Value) (Value, error) {
 }
 
 func builtinString(pos token.Position, args... Value) (result Value, err error) {
-        var (
-                s bytes.Buffer
-                v string
-        )
+        var s bytes.Buffer
         for i, a := range args {
+                var v string
                 if i > 0 { s.WriteString(" ") }
-                if v, err = a.Strval(); err != nil {
-                        return
-                }
+                if v, err = a.Strval(); err != nil { return }
                 s.WriteString(v)
         }
         result = &String{s.String()}
@@ -784,6 +782,55 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
         return
 }
 
+func builtinSubstring(pos token.Position, args... Value) (res Value, err error) {
+        var list []Value
+        if n := len(args); n > 1 {
+                var ( v Value ; i1, i2 int64 )
+
+                if v, err = args[0].expand(expandAll); err != nil { return }
+                if t := Scalar(v, IntType); t != nil {
+                        args = args[1:] // remove the first element
+                        if i1, err = t.Integer(); err != nil { return }
+                        if l, ok := t.(*List); ok && len(l.Elems) > 1 && l.Elems[1].Type() == IntType {
+                                if i2, err = l.Elems[1].Integer(); err != nil { return }
+                                goto CheckRange
+                        }
+                } else {
+                        err = scanner.Errorf(pos, "'%v' is not integer", args[0])
+                        return
+                }
+
+                if v, err = args[0].expand(expandAll); err != nil { return }
+                if v = Scalar(v, IntType); v != nil {
+                        args = args[1:] // remove the first element again
+                        if i2, err = v.Integer(); err != nil { return }
+                } else {
+                        i2 = i1; i1 = 0 // [:i2]
+                }
+
+        CheckRange:
+                if i1 > i2 { t := i1; i1 = i2; i2 = t } // swap the wrong order
+                
+                var a, b = int(i1), int(i2)
+                for _, arg := range args {
+                        var s string
+                        if s, err = arg.Strval(); err != nil { return }
+                        if i := len(s); a < i {
+                                if b < i {
+                                        s = s[a:b]
+                                } else {
+                                        s = s[a:]
+                                }
+                        } else {
+                                s = ""
+                        }
+                        list = append(list, &String{s})
+                }
+        }
+        res = MakeListOrScalar(list)
+        return
+}
+
 // $(subst from,to,text)
 func builtinSubst(pos token.Position, args... Value) (res Value, err error) {
         var list []Value
@@ -792,7 +839,6 @@ func builtinSubst(pos token.Position, args... Value) (res Value, err error) {
                 if s1, err = args[0].Strval(); err != nil { return }
                 if s2, err = args[1].Strval(); err != nil { return }
                 var a []Value
-                //if a, err = Reveal(Merge(args[2:]...)...); err != nil { return }
                 if a, err = mergeresult(Reveal(args[2:]...)); err != nil { return }
                 for _, arg := range a {
                         if s, err = arg.Strval(); err != nil { return }
