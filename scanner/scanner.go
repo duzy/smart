@@ -967,6 +967,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         case ch == '7': tok = token.CLOSURE_7
                         case ch == '8': tok = token.CLOSURE_8
                         case ch == '9': tok = token.CLOSURE_9
+                        case ch == '_': tok = token.CLOSURE__
                         }
                         if token.CLOSURE < tok {
                                 lit = string(ch)

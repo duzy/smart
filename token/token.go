@@ -91,6 +91,7 @@ const (
         CLOSURE_7    // &7
         CLOSURE_8    // &8
         CLOSURE_9    // &9
+        CLOSURE__    // &_
         closure_end
         delegate_beg
         DELEGATE      // $
@@ -113,6 +114,7 @@ const (
         DELEGATE_7    // $7
         DELEGATE_8    // $8
         DELEGATE_9    // $9
+        DELEGATE__    // $_
         delegate_end
 
         assign_beg
@@ -224,6 +226,7 @@ var tokens = [...]string{
         CLOSURE_7:    "&7",
         CLOSURE_8:    "&8",
         CLOSURE_9:    "&9",
+        CLOSURE__:    "&_",
 
 	DELEGATE:      "$",
         DELEGATE_R:    "$/",
@@ -245,6 +248,7 @@ var tokens = [...]string{
         DELEGATE_7:    "$7",
         DELEGATE_8:    "$8",
         DELEGATE_9:    "$9",
+        DELEGATE__:    "$_",
 
         ASSIGN:     "=",
         ADD_ASSIGN: "+=",

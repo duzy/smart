@@ -9,10 +9,13 @@
 package smart
 
 import (
+        "strconv"
         "time"
         "fmt"
         "os"
 )
+
+const maxNumVarVal = 9
 
 var (
 	universe *Scope
@@ -229,15 +232,26 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
                         }
                         outer = outer.outer
                 }
+
                 g.main = m
+                // m = g.unsafe
+
+                def, _ := g.scope.Def(m, "_", universalnone)
+                if enable_assertions { assert(def != nil, "'$_' is nil") }
+
+                for i := 1; i <= maxNumVarVal; i += 1 {
+                        def, _ := g.scope.Def(m, strconv.Itoa(i), universalnone)
+                        if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
+                }
         }
         return
 }
 
 // NewGlobe creates a new Globe context.
-func NewGlobe(name string) *Globe {
-        return &Globe{
+func NewGlobe(name string) (g *Globe) {
+        g = &Globe{
                 scope: NewScope(universe, nil, fmt.Sprintf("globe %q", name)),
                 timestamps: make(map[string]time.Time),
         }
+        return g
 }

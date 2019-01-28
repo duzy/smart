@@ -42,6 +42,8 @@ var builtins = map[string]BuiltinFunc {
         `ifeq`:         builtinBranchIfEq,
         `ifne`:         builtinBranchIfNE,
 
+        `foreach`:      builtinForEach,
+
         `env`:          builtinEnv,
         `var`:          builtinVar,
         
@@ -59,7 +61,7 @@ var builtins = map[string]BuiltinFunc {
         `split-quote-join`: builtinSplitQuoteJoin,
         `split-join-quote`: builtinSplitJoinQuote,
         `unique`:       builtinUnique,
-        `join`:         builtinJoin,
+        `join`:         builtinJoin, // concat
         `field`:        builtinField,
         `fields`:       builtinFields,
 
@@ -345,6 +347,80 @@ func builtinBranchIfNE(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
+func builtinFor(pos token.Position, args... Value) (res Value, err error) {
+        if n := len(args); n < 2 {
+                err = scanner.Errorf(pos, "not enough arguments ($(foreach <list>,<template>))", n)
+        } else {
+                var ( defs []*Def ; vals, values []Value )
+                if values, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+
+                scope := context.globe.scope
+                for i := 1; i <= maxNumVarVal; i += 1 {
+                        def := scope.Lookup(strconv.Itoa(i)).(*Def)
+                        defs = append(defs, def)
+                        vals = append(vals, def.Value)
+                        if i-1 < len(values) {
+                                def.Value = values[i-1]
+                        }
+                }
+                defer func() {
+                        for i, def := range defs {
+                                def.Value = vals[i]
+                        }
+                } ()
+
+                var list []Value
+                for _, a := range args[1:] {
+                        if values, err = mergeresult(ExpandAll(a)); err != nil { return }
+                        if len(values) == 0 {
+                                list = append(list, universalnone)
+                        } else if len(values) == 1 {
+                                list = append(list, values[0])
+                        } else {
+                                list = append(list, &List{elements{values}})
+                        }
+                }
+                res = MakeListOrScalar(list)
+        }
+        return
+}
+
+func builtinForEach(pos token.Position, args... Value) (res Value, err error) {
+        if n := len(args); n < 2 {
+                err = scanner.Errorf(pos, "not enough arguments ($(foreach <list>,<template>))", n)
+        } else {
+                def := context.globe.scope.Lookup("_").(*Def)
+                defer func(v Value) { def.Value = v } (def.Value)
+
+                var values Value
+                if values, err = args[0].expand(expandAll); err != nil { return }
+
+                // FIXME: remove the second expandAll
+                if values, err = values.expand(expandAll); err != nil { return }
+
+                var resList []Value
+                for _, val := range merge(values) {
+                        def.Value = val // set value
+
+                        var list []Value
+                        for _, a := range args[1:] {
+                                var v Value
+                                if v, err = a.expand(expandAll); err != nil { return }
+                                list = append(list, v)
+                        }
+                        if n = len(list); n == 0 {
+                                resList = append(resList, universalnone)
+                        } else if n == 1 {
+                                resList = append(resList, list[0])
+                        } else {
+                                resList = append(resList, &List{elements{list}})
+                        }
+                }
+                res = MakeListOrScalar(resList)
+        }
+        return
+}
+
 func builtinEnv(pos token.Position, args... Value) (res Value, err error) {
         var (
                 vals []Value
@@ -470,18 +546,20 @@ ForArgs:
 }
 
 func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        if l := len(args); l >= 2 {
-                var (
-                        fields []string
-                        v string
-                )
-                for _, a := range args[:l-1] {
+        if l := len(args); l > 0 {
+                var ( vals []Value ; fields []string ; sep string )
+                if l < 2 {
+                        if vals, err = mergeresult(ExpandAll(args...)); err != nil { return }
+                } else {
+                        if vals, err = mergeresult(ExpandAll(args[:l-1]...)); err != nil { return }
+                        if sep, err = args[l-1].Strval(); err != nil { return }
+                }
+                for _, a := range vals {
+                        var v string
                         if v, err = a.Strval(); err != nil { return }
                         if v != "" { fields = append(fields, v) }
                 }
-                if v, err = args[l-1].Strval(); err != nil { return }
-                res = &String{strings.Join(fields, v)}
+                res = &String{strings.Join(fields, sep)}
         }
         return
 }
@@ -2015,6 +2093,7 @@ func (scope *Scope) expand(s string) (res string) {
 
 func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error) {
         var index = 0
+        str = scope.expand(str)
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
                 if _, err = out.WriteString(str[index:m[0]]); err != nil { return }
 
@@ -2028,7 +2107,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
                         //        s = fmt.Sprintf("/* #undef %s */", name)
                         //} else
                         if hasv && !(def == nil || def.Value == nil) {
-                                v := scope.expand(str[m[6]:m[7]])
+                                v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
                                 s = fmt.Sprintf("#define %s %s", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s", name)
@@ -2037,7 +2116,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
                         if def == nil || def.Value == nil || !def.Value.True() {
                                 s = fmt.Sprintf("/* #undef %s */", name)
                         } else if hasv {
-                                v := scope.expand(str[m[6]:m[7]])
+                                v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
                                 s = fmt.Sprintf("#define %s %s", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s", name)
@@ -2046,7 +2125,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
                         if def == nil || def.Value == nil || !def.Value.True() {
                                 s = fmt.Sprintf("#define %s 0", name)
                         } else if hasv {
-                                v := scope.expand(str[m[6]:m[7]])
+                                v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
                                 s = fmt.Sprintf("#define %s 1 /* %s */", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s 1", name)

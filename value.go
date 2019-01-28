@@ -32,10 +32,11 @@ const (
 type expandwhat int
 
 const (
-        expandDelegate expandwhat = 1<<iota // $(...) -> ...
-        expandClosure // &(...) -> $(...)
-        expandPath // $(...)/foo -> /path/to/foo
-        expandAll = expandDelegate | expandClosure | expandPath
+        expandDelegate expandwhat = 1<<iota // $(...)  ->  ......
+        expandClosure // &(...)   ->  $(...)
+        expandCaller // foo=...   ->  ...
+        expandPath // $(...)/foo  ->  /path/to/foo
+        expandAll = expandDelegate | expandClosure | expandCaller | expandPath
 )
 
 type cmpres int

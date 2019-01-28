@@ -244,8 +244,10 @@ ForPats:
                                 for _, s := range names {
                                         name := strings.TrimPrefix(s, prefix)
                                         file := stat(name, sub, prefix)
-                                        assert(file != nil, "`%s` missing (%s)", s, name)
                                         files = append(files, file)
+                                        if enable_assertions {
+                                                assert(file != nil, "`%s` missing (%s)", s, name)
+                                        }
                                 }
                         }
                 }

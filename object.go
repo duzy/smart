@@ -262,11 +262,19 @@ func (d *Def) closured() bool { return d.Value.closured() }
 func (d *Def) expand(w expandwhat) (res Value, err error) {
         if res = d; d.Value != nil {
                 var value Value
-                if value, err = d.Value.expand(w); err == nil {
-                        if value != d.Value {
+                if value, err = d.Value.expand(w); err != nil {
+                        res = nil ; return
+                } else if value != d.Value {
+                        if w&expandCaller != 0 {
+                                res = value
+                        } else {
                                 res = &Def{ d.knownobject, d.origin, value }
                         }
+                } else if w&expandCaller != 0 {
+                        res = d.Value
                 }
+        } else if w&expandCaller != 0 {
+                res = nil
         }
         return
 }
