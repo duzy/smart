@@ -515,10 +515,6 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                 //pc.mode = visitMode
         }*/
 
-        if pc.mode == updateMode {
-                fmt.Printf("update: %v\n", pc.entry.target)
-        }
-
         // Updating $^
         pc.targets = nil // clear the target list
         if err = pc.traverseAll(pc.dependsDef); err != nil { return }

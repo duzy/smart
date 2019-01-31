@@ -539,7 +539,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var va []Value
-        var optDiscardMissing bool
+        var optDiscardMissing, optVerbose bool
         var optPath, optNoUpdate bool
         var optGrep Value
         var opts = []string{
@@ -549,6 +549,7 @@ func modifierCompare(pos token.Position, prog *Program, args... Value) (result V
                 "n,no-time",
                 "g,grep", // -grep=(regexp=(sys='...' '...') $^)
                 "r,recursive",
+                "v,verbose",
         }
 ForArgs:
         for _, v := range args {
@@ -574,6 +575,7 @@ ForArgs:
                 }
                 for _, ru := range runes {
                         switch ru {
+                        case 'v': optVerbose = true
                         case 'i': optDiscardMissing = true
                         case 'p': optPath = true
                         case 'n': optNoUpdate = true
@@ -598,11 +600,14 @@ ForArgs:
                 return
         }
 
+        var targetStr string
+        if targetStr, err = target.Strval(); err != nil { return }
         if optPath {
-                var s string
-                if s, err = target.Strval(); err != nil { return }
-                if s = filepath.Dir(s); s != "." && s != ".." && s != PathSep {
-                        if err = os.MkdirAll(s, os.FileMode(0755)); err != nil { return }
+                var s string = filepath.Dir(targetStr)
+                if s != "." && s != ".." && s != PathSep {
+                        if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+                                return
+                        }
                 }
         }
 
@@ -610,11 +615,8 @@ ForArgs:
         var grepped Value
         if optGrep != nil {
                 var res []Value
-                if res, err = parseGrepOption(pos, prog, optGrep); err != nil {
-                        return
-                } else if res != nil {
-                        grepped = MakeListOrScalar(res)
-                }
+                if res, err = parseGrepOption(pos, prog, optGrep); err != nil { return }
+                if res != nil { grepped = MakeListOrScalar(res) }
         }
 
         var depends []Value
@@ -640,6 +642,16 @@ ForArgs:
                                 result = universaltrue
                         } else {
                                 result = universalfalse
+                        }
+                        if optVerbose && err != nil {
+                                var s, _ = filepath.Rel(prog.project.absPath, targetStr)
+                                if br, ok := err.(*breaker); ok {
+                                        switch br.what {
+                                        case breakBad: fmt.Fprintf(stderr, "smart: Bad: %s (%s)\n", s, br)
+                                        case breakGood: fmt.Fprintf(stderr, "smart: Good: %s\n", s)
+                                        //case breakUpdates: fmt.Fprintf(stderr, "smart: Update: %s\n", s)
+                                        }
+                                }
                         }
                         if len(c.updated) > 0 {
                                 if enable_assertions {

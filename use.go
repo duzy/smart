@@ -12,6 +12,9 @@ import (
         "fmt"
 )
 
+// FIXME: locking for MT processing
+var usingPrepared = make(map[*Project]int)
+
 type using struct {
         project *Project
         params []Value
@@ -39,6 +42,11 @@ func (p *using) expand(w expandwhat) (Value, error) {
 }
 func (p *using) prepare(pc *preparer) (err error) {
         if trace_prepare { defer prepun(preptrace(pc, p)) }
+        if _, done := usingPrepared[p.project]; done {
+                usingPrepared[p.project] += 1
+                // FIXME: allow re-using the project
+                return
+        }
         if entry := p.project.DefaultEntry(); entry != nil {
                 if err = entry.prepare(pc); err != nil {
                         //fmt.Fprintf(os.Stderr, "%s: `%s` using error: %s (default entry '%s')\n", entry.Position, p.project.name, err, entry.target)
@@ -49,6 +57,8 @@ func (p *using) prepare(pc *preparer) (err error) {
                                 }
                         }
                         err = scanner.WrapError(entry.Position, err)
+                } else {
+                        usingPrepared[p.project] += 1
                 }
         }
         return
