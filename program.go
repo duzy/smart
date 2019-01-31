@@ -270,12 +270,12 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 ctx.level = caller.level
                 //ctx.mode = caller.mode
                 ctx.stem = caller.stem
-                if caller.mode == updateMode {
+                /*if caller.mode == updateMode {
                         // Only update if the caller found it updated.
                         if !caller.isUpdatedTarget(entry.target) {
                                 ctx.visitInsteadUpdate = true
                         }
-                }
+                }*/
         }
 
         // Build related project list from derived.
@@ -509,10 +509,14 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Pre-modifying could change $@, $^, $<, $|, etc.
         if done, err = pc.preModify(prog); err != nil || done { return }
-        if pc.visitInsteadUpdate && pc.mode == updateMode {
+        /*if pc.visitInsteadUpdate && pc.mode == updateMode {
                 // Work in visit mode to ensure all it's dependencies will
                 // be updated.
                 //pc.mode = visitMode
+        }*/
+
+        if pc.mode == updateMode {
+                fmt.Printf("update: %v\n", pc.entry.target)
         }
 
         // Updating $^

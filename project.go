@@ -782,12 +782,11 @@ func leave(prog *Program, top int) (err error) {
 
         var stop = len(cd.stack) - top
         for i, enter := range cd.stack {
-                /* if enter.print {
-                        fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
-                        enter.print = false
-                } */
-                enter.num -= 1
-                if i == stop {
+                if enter.num -= 1; i == stop {
+                        /*if enter.print {
+                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
+                                enter.print = false
+                        }*/
                         err = os.Chdir(enter.wd)
                         cd.stack = cd.stack[i:]
                         break

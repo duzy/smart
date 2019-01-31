@@ -341,7 +341,7 @@ func (m traversemode) name() (s string) {
 type preparecontext struct {
         mode traversemode
         entry *RuleEntry // caller entry (target)
-        visitInsteadUpdate bool // target don't really need to update
+        //visitInsteadUpdate bool // target don't really need to update
         args, arguments []Value // target and argumented prerequisite args
         targets []Value // prerequisite targets ($^ $<)
         updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)

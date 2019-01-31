@@ -212,10 +212,10 @@ func findBacktrackDir() (dir string) {
 func modifierCD(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var (optPath bool; n = len(args))
+        var optPath bool
         //var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
         //if _, ok := target.(*Flag); ok { optPrint = false }
-        if n > 0 {
+        if len(args) > 0 {
                 var v []Value
                 for _, arg := range args {
                         switch a := arg.(type) {
@@ -234,14 +234,14 @@ func modifierCD(pos token.Position, prog *Program, args... Value) (result Value,
                                 }
                         }
                 }
-                args, n = v, len(v) // Reset args
+                args = v // Reset args
         }
-        if n == 1 {
+        if len(args) == 1 {
                 var dir string
                 if dir, err = args[0].Strval(); err != nil {
                         return
                 } else if dir == "" {
-                        err = fmt.Errorf("no trackback (tracks=%v)", len(execstack))
+                        err = scanner.Errorf(pos, "no trackback (tracks=%v)", len(execstack))
                         return
                 }
                 if optPath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
@@ -249,7 +249,7 @@ func modifierCD(pos token.Position, prog *Program, args... Value) (result Value,
                 }
                 err = enter(prog, dir)
         } else {
-                err = fmt.Errorf("wrong number of args (%v)", n)
+                err = scanner.Errorf(pos, "wrong number of args (%v)", args)
         }
         return
 }
@@ -286,7 +286,7 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
                         case GeneralRuleEntry, GlobRuleEntry:
                                 depends.Append(d)
                         default:
-                                err = fmt.Errorf("unsupported entry depend `%v' (%v)", d, d.Class())
+                                err = scanner.Errorf(pos, "unsupported entry depend `%v' (%v)", d, d.Class())
                         }
                 case *String:
                         /*if prog.project.IsFile(d.Strval()) {
@@ -297,7 +297,7 @@ func parseDependList(pos token.Position, prog *Program, dependList *List) (depen
                 case *File:
                         depends.Append(d)
                 default:
-                        err = fmt.Errorf("unsupported entry depend `%v' (%v)", depend, prog.depends)
+                        err = scanner.Errorf(pos, "unsupported entry depend `%v' (%v)", depend, prog.depends)
                 }
         }
         return
@@ -562,7 +562,7 @@ ForArgs:
                                 if runes, names, err = flag.opts(opts...); err != nil { return }
                                 v = a.Value // use flag value
                         } else {
-                                err = fmt.Errorf("`%v` unknown argument", a)
+                                err = scanner.Errorf(pos, "`%v` unknown argument", a)
                                 return
                         }
                 default:
@@ -1111,7 +1111,7 @@ func modifierCheck(pos token.Position, prog *Program, args... Value) (result Val
                 if opt, err = t.is('s', "silent"); err != nil { return } else if opt { optSilent = opt }
                 if opt, err = t.is('g', "good"); err != nil { return } else if opt { optBreak = breakGood }
         default:
-                err = fmt.Errorf("unknown check '%v' (%T)", arg, arg)
+                err = scanner.Errorf(pos, "unknown check '%v' (%T)", arg, arg)
                 return
         }}
 
@@ -1223,7 +1223,7 @@ ForPairs:
                                 }
                         }
                 default:
-                        err = fmt.Errorf("unknown check '%v'", t.Key)
+                        err = scanner.Errorf(pos, "unknown check '%v'", t.Key)
                         break ForPairs
                 }
         }

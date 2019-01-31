@@ -35,8 +35,10 @@ var builtins = map[string]BuiltinFunc {
 
         `or`:           builtinLogicalOr,
         `and`:          builtinLogicalAnd,
-        /*`xor`:   builtinLogicalXor,
-        `not`:   builtinLogicalNot, */
+        /*
+        `xor`:          builtinLogicalXor,
+        `not`:          builtinLogicalNot,
+        */
 
         `if`:           builtinBranchIf,
         `ifeq`:         builtinBranchIfEq,

@@ -800,14 +800,19 @@ func (p *StemmedEntry) concrete(pc *preparer, stem string) (entry *RuleEntry, er
                         assert(name == p.target, "'%s' stemmed name is wrong (!= %s)", name, p.target)
                 }
 
-                if file := pc.derived.matchFile(name); file != nil {
+                var proj = pc.derived
+                if proj == nil {
+                        proj = pc.related[0]
+                }
+
+                if file := proj.matchFile(name); file != nil {
                         if enable_assertions {
-                                assert(pc.derived.isFileName(name), "`%s` is not file", name)
+                                assert(proj.isFileName(name), "`%s` is not file", name)
                         }
                         entry.target = file
                 } else {
                         if enable_assertions {
-                                assert(!pc.derived.isFileName(name), "`%s` is file", name)
+                                assert(!proj.isFileName(name), "`%s` is file", name)
                         }
                         entry.target = &String{ name }
                 }
