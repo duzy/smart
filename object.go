@@ -10,6 +10,7 @@ import (
         "extbit.io/smart/token"
         "os/exec"
         "strings"
+        "strconv"
         "bytes"
         "fmt"
 )
@@ -383,10 +384,23 @@ func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
         case DefSimple, DefExpand, DefExecute:
                 res = d.Value
         case DefDefault:
-                // TODO: parameterization, e.g. $1, $2, $3, $4, $5
-                res, err = d.Value.expand(expandDelegate)
+                // TODO: parameterization, e.g. $1, $2, $3, $4, $5 (see foreach)
+                for i := 0; i < len(a) && i < maxNumVarVal; i += 1 {
+                        var def = context.globe.scope.Lookup(strconv.Itoa(i)).(*Def)
+                        defer func(v Value) { def.Value = v } (def.Value)
+                        def.Value = a[i]
+                }
+                res, err = d.Value.expand(expandClosure|expandDelegate)
         default:
                 unreachable()
+        }
+        if res != nil && res.Type() == ListType {
+                var list = res.(*List)
+                if n := len(list.Elems); n == 0 {
+                        res = universalnone
+                } else if n == 1 {
+                        res = list.Elems[0] 
+                }
         }
         return
 }

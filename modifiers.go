@@ -49,6 +49,13 @@ func (p *breaker) Error() string {
         return p.message
 }
 
+func (p *breaker) prerequisites() (res []*updatedtarget) {
+        for _, u := range p.updated {
+                res = append(res, u.prerequisites...)
+        }
+        return
+}
+
 func break_bad(pos token.Position, s string, a... interface{}) *breaker {
         return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil }
 }
@@ -356,12 +363,20 @@ var langInfos = map[string]*langInfoT{
                         `^\s*#\s*include\s*"(.*)"`,
                 },
         },
+        "i": &langInfoT{
+                []string{
+                        `^\s*include\s*"(.*)"`,
+                },
+        },
 }
-
 func init () {
-        info, _ := langInfos["c"]
-        langInfos["c++"] = info
-        langInfos["clang"] = info
+        if info, ok := langInfos["c"]; ok {
+                langInfos["c++"] = info
+                langInfos["clang"] = info
+        }
+        if info, ok := langInfos["i"]; ok {
+                langInfos["include"] = info
+        }
 }
 
 type grepCacheFiles struct {
@@ -383,6 +398,7 @@ func parseGrepOption(pos token.Position, prog *Program, optGrep Value) (result [
         }
 
         var (
+                top []Value
                 rxs []*greprex
                 vals []Value
                 store Value
@@ -420,10 +436,17 @@ ForGroupElems:
                                 case *Group: for _, v := range v.Elems {
                                         if p, ok := v.(*Pair); ok {
                                                 if s, err = p.Key.Strval(); err != nil { return }
-                                                if s == "sys" {
+                                                switch s {
+                                                case "sys":
                                                         if s, err = p.Value.Strval(); err != nil { return }
                                                         rxs = append(rxs, &greprex{s, true, nil})
-                                                } else {
+                                                case "top":
+                                                        if g, ok := p.Value.(*Group); ok {
+                                                                top = merge(g.Elems...)
+                                                        } else {
+                                                                top = merge(a.Value)
+                                                        }
+                                                default:
                                                         err = scanner.Errorf(pos, "`%s` unknown regexp (%v)", s, p.Value)
                                                         return
                                                 }
@@ -471,8 +494,15 @@ ForGroupElems:
                 }
         }
 
-        var grep func(vals []Value)
+        var tops []string
+        for _, v := range top {
+                var s string
+                if s, err = v.Strval(); err != nil { return }
+                tops = append(tops, s)
+        }
+
         var unique = make(map[*filebase]int) // to remove duplications 
+        var grep func(vals []Value)
         grep = func(vals []Value) {
                 for _, val := range vals {
                         switch t := val.(type) {
@@ -491,7 +521,7 @@ ForGroupElems:
                                                 fmt.Fprintf(stderr, "%s: %s\n", t, t.exists())
                                         }
                                         var list []Value
-                                        list, err = prog.pc.derived.grepFiles(val, rxs, optReportMissing, optDiscardMissing)
+                                        list, err = prog.pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
                                         if err != nil { return }
                                         info = &grepCacheFiles{ file:t }
                                         grepCacheFilebase[t.filebase] = info
@@ -594,11 +624,55 @@ ForArgs:
                 return
         }
 
+        /*
         var target = targetDef.Value
         if target == nil || target.Type() == NoneType {
                 err = break_bad(pos, "`%s` target type invalid", target.Type())
                 return
+        } else if target.Type() == ListType {
+                var list = target.(*List)
+                if len(list.Elems) == 1 {
+                       target = list.Elems[0] 
+                } else {
+                        err = break_bad(pos, "comparing multiple targets %v", list.Elems)
+                        return
+                }
         }
+        switch t := target.(type) {
+        case *closure:
+                var v Value
+                if v, err = t.expand(expandClosure|expandDelegate); err == nil {
+                        target = v
+                } else {
+                        err = break_bad(pos, "comparing closure %v: %v", target, err)
+                        return
+                }
+        case *delegate:
+                var v Value
+                if v, err = t.expand(expandDelegate); err == nil {
+                        target = v
+                } else {
+                        err = break_bad(pos, "comparing delegate %v: %v", target, err)
+                        return
+                }
+        }
+        */
+        var target Value
+        if target, err = targetDef.Call(pos); err != nil {
+                err = break_bad(pos, "comparing %v: %v", targetDef, err)
+                return
+        } else if target == nil || target.Type() == NoneType {
+                err = break_bad(pos, "`%s` target type invalid", target.Type())
+                return
+        } /*else if target.Type() == ListType {
+                var list = target.(*List)
+                if len(list.Elems) == 1 {
+                       target = list.Elems[0] 
+                } else {
+                        err = break_bad(pos, "comparing multiple targets %v", list.Elems)
+                        return
+                }
+        }*/
 
         var targetStr string
         if targetStr, err = target.Strval(); err != nil { return }
@@ -636,22 +710,31 @@ ForArgs:
         if true {
                 var c *comparer
                 if c, err = newcompariation(prog, target); err == nil {
-                        c.nomiss = optDiscardMissing
-                        c.nocomp = optNoUpdate
+                        if optVerbose {
+                                if true {
+                                        fmt.Fprintf(stderr, "smart: Compare %s …", target)
+                                } else {
+                                        tar, _ := filepath.Rel(prog.project.absPath, targetStr)
+                                        fmt.Fprintf(stderr, "smart: Compare %s …", tar)
+                                }
+                        }
+                        c.nomiss, c.nocomp = optDiscardMissing, optNoUpdate
                         if err = c.Compare(pos, depends); err == nil {
                                 result = universaltrue
                         } else {
                                 result = universalfalse
                         }
-                        if optVerbose && err != nil {
-                                var s, _ = filepath.Rel(prog.project.absPath, targetStr)
-                                if br, ok := err.(*breaker); ok {
+                        if optVerbose {
+                                if err == nil {
+                                        fmt.Fprintf(stderr, "… (done)")
+                                } else if br, ok := err.(*breaker); ok {
                                         switch br.what {
-                                        case breakBad: fmt.Fprintf(stderr, "smart: Bad: %s (%s)\n", s, br)
-                                        case breakGood: fmt.Fprintf(stderr, "smart: Good: %s\n", s)
-                                        //case breakUpdates: fmt.Fprintf(stderr, "smart: Update: %s\n", s)
+                                        case breakBad: fmt.Fprintf(stderr, "… Bad (%s)", br)
+                                        case breakGood: fmt.Fprintf(stderr, "… Good")
+                                        case breakUpdates: fmt.Fprintf(stderr, "… %v", br.prerequisites())
                                         }
                                 }
+                                fmt.Fprintf(stderr, "\n")
                         }
                         if len(c.updated) > 0 {
                                 if enable_assertions {
@@ -819,7 +902,7 @@ func saveGrepCache() {
         }
 }
 
-func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) (result []Value, err error) {
+func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report, discard bool) (result []Value, err error) {
         var targetDir, targetName, targetFileName string
         switch t := target.(type) {
         case *File:
@@ -944,11 +1027,31 @@ func (p *Project) grepFiles(target Value, rxs []*greprex, report, discard bool) 
                 dir := filepath.Dir(s)
                 s = filepath.Join("_", filepath.Base(s))
                 savedGrepFileName = joinTmpPath(dir, s)
+        } else if t := p.absPath; t != "" && t != "." && len(tops) > 0 {
+                ////if strings.HasPrefix(s, "..") { s = filepath.Join("_", s) }
+                //s = strings.Replace(s, "..", "_", -1)
+                istop := func(s string) (res bool) {
+                        for _, t := range tops {
+                                if res = s == t; res { break }
+                        }
+                        return
+                }
+
+                // Change "/foo/bar/.smart/.../a/b/c/x":"a/b/c/x" into
+                // "/foo/bar/.smart/...":"a/b/c/x"
+                v1 := strings.Split(t, PathSep)
+                v2 := strings.Split(s, PathSep)
+                t2 := istop(v2[0])
+                for i := len(v1)-1; i >= 0; i -= 1 {
+                        if t2 && istop(v1[i]) {
+                                t = filepath.Join(v1[:i]...)
+                                break
+                        }
+                }
+                savedGrepFileName = joinTmpPath(t, s)
         } else {
-                //if strings.HasPrefix(s, "..") { s = filepath.Join("_", s) }
-                s = strings.Replace(s, "..", "_", -1)
-                // TODO: deal with foo/bar/name.xxx
-                savedGrepFileName = joinTmpPath(p.absPath, s)
+                //s = strings.Replace(s, "..", "_", -1)
+                savedGrepFileName = joinTmpPath(t, s)
         }
         if file1 := stat(savedGrepFileName, "", ""); file1 != nil {
                 if file2 := stat(targetFileName, "", ""); file2 != nil {
@@ -1046,6 +1149,7 @@ ForScan:
 func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
+        var top []Value
         var rxs []*greprex
         var optReportMissing = true // TODO: option "e,report" 
         var optDiscardMissing = false // TODO: option "i,ignore"
@@ -1062,6 +1166,12 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                                 // FIXME: if a.Value.(*Group) ...
                                 if s, err = a.Value.Strval(); err != nil { return }
                                 rxs = append(rxs, &greprex{s, true, nil})
+                        case "top":
+                                if g, ok := a.Value.(*Group); ok {
+                                        top = merge(g.Elems...)
+                                } else {
+                                        top = merge(a.Value)
+                                }
                         default:
                                 err = scanner.Errorf(pos, "`%v` unsupported argument (%s)", a, s)
                                 return
@@ -1076,9 +1186,16 @@ func modifierGrepFiles(pos token.Position, prog *Program, args... Value) (result
                 return
         }
 
+        var tops []string
+        for _, v := range top {
+                var s string
+                if s, err = v.Strval(); err != nil { return }
+                tops = append(tops, s)
+        }
+
         var list []Value
         var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
-        list, err = prog.pc.derived.grepFiles(target, rxs, optReportMissing, optDiscardMissing)
+        list, err = prog.pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
         result = MakeListOrScalar(list)
         return
 }

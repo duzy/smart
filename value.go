@@ -122,7 +122,7 @@ type updatedtarget struct {
 
 func (p *updatedtarget) String() string {
         if len(p.prerequisites) > 0 {
-                return fmt.Sprintf("%v->%v", p.target, p.prerequisites)
+                return fmt.Sprintf("%v→%v", p.target, p.prerequisites)
         }
         return p.target.String()
 }

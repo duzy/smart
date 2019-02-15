@@ -131,6 +131,24 @@ func joinTmpPath(base, rel string) string {
                 }
                 baseTmpPath = s
         }
+        if s := filepath.Dir(rel); s != "" {
+                if strings.HasSuffix(base, s) {
+                        // In case like '/foo/bar/a/b/c/x'+'a/b/c/x', we set
+                        // rel to 'x' to produce 'foo/bar/.smart/tmp/a/b/c/x'.
+                        rel = filepath.Base(rel)
+                } else if t, _ := filepath.Rel(baseTmpPath, base); strings.HasPrefix(t, ".smart"+PathSep) {
+                        // In case like '/foo/bar/.smart/a/b/x'+'a/e/f/x', we set
+                        // base to '/foo/bar/.smart' to produce 'foo/bar/.smart/tmp/a/e/f/x'.
+                        v1 := strings.Split(t, PathSep)
+                        v2 := strings.Split(s, PathSep)
+                        for i := len(v1)-1; i >= 0; i -= 1 {
+                                if v1[i] == v2[0] {
+                                        base = filepath.Join(v1[i-1:]...)
+                                        break
+                                }
+                        }
+                }
+        }
         if s, err := filepath.Rel(baseTmpPath, filepath.Join(base, rel)); err == nil {
                 rel = s
         }
