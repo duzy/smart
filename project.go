@@ -11,6 +11,7 @@ import (
         "crypto/sha256"
         "path/filepath"
         "strings"
+        "plugin"
         "bytes"
         "fmt"
         "os"
@@ -120,11 +121,18 @@ type Project struct {
 
         // TODO: printEntering() ...
         // TODO: printLeaving() ...
+
+        plugin *plugin.Plugin
+        pluginScope *Scope
 }
 
 func (p *Project) String() string {
         //return fmt.Sprintf("<project %s>", p.name)
         return p.name
+}
+
+func (p *Project) NewScope(comment string) *Scope {
+        return NewScope(p.scope, p, comment)
 }
 
 func (p *Project) AbsPath() string { return p.absPath }

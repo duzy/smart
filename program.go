@@ -59,7 +59,7 @@ func (xs executestack) String() (s string) {
 }
 
 type modifier struct {
-        position token.Position
+        position Position
         name Value
         args []Value
 }
@@ -84,10 +84,10 @@ type Program struct {
         recipes []Value
         pipline []*modifier
         callers []*preparecontext
-        position token.Position
+        position Position
 }
 
-func (prog *Program) Position() token.Position { return prog.position }
+func (prog *Program) Position() Position { return prog.position }
 func (prog *Program) Project() *Project { return prog.project }
 func (prog *Program) Scope() *Scope { return prog.scope }
 
@@ -232,7 +232,7 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                         } else if false {
                                 result = append(result, &String{s})
                         } else {
-                                err = scanner.Errorf(prog.position, "`%s` unknown target (via %s)", s, a)
+                                err = scanner.Errorf(token.Position(prog.position), "`%s` unknown target (via %s)", s, a)
                         }
                 case *GlobPattern:
                         unreachable("`%s` glob pattern unsupported", a)
@@ -363,7 +363,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                                 if o := prog.scope.Lookup(s); o != nil {
                                         o.(*Def).set(DefDefault, t.Value)
                                 } else {
-                                        err = scanner.Errorf(prog.position, "`%s` no such named parameter", s)
+                                        err = scanner.Errorf(token.Position(prog.position), "`%s` no such named parameter", s)
                                 }
                         }
                 default:
@@ -447,7 +447,7 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
         switch tag = fmt.Sprintf("(%s) %s:", tag, name); br.what {
         case breakBad:
                 if trace_prepare { pc.trace(tag, "(bad)", br.message) }
-                err = scanner.Errorf(br.pos, br.message)
+                err = scanner.Errorf(token.Position(br.pos), br.message)
         case breakGood:
                 //if trace_prepare { pc.trace(tag, "(good)") }
                 err = pc.checkTargetMode()
@@ -566,7 +566,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         return
 }
 
-func (prog *Program) pipe(position token.Position, operation Value) (m *modifier, err error) {
+func (prog *Program) pipe(position Position, operation Value) (m *modifier, err error) {
         switch g := operation.(type) {
         case *Group:
                 m = &modifier{ position, g.Get(0), g.Slice(1) }
@@ -581,7 +581,7 @@ func (prog *Program) pipe(position token.Position, operation Value) (m *modifier
         return
 }
 
-func (prog *Program) passExecution(position token.Position, entry *RuleEntry, args... Value) (result []Value, err error) {
+func (prog *Program) passExecution(position Position, entry *RuleEntry, args... Value) (result []Value, err error) {
         result, err = Executer(entry).Execute(position, args...)
         return
 }

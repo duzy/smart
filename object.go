@@ -116,8 +116,8 @@ func (p *unresolvedobject) Strval() (string, error) {
         // unresolved &(var) is stringed to ""
         return /*p.name.Strval()*/"", nil
 }
-func (p *unresolvedobject) Call(pos token.Position, a... Value) (result Value, err error) { result = p; return }
-func (p *unresolvedobject) Execute(pos token.Position, a... Value) (result []Value, err error) { result = []Value{p}; return }
+func (p *unresolvedobject) Call(pos Position, a... Value) (result Value, err error) { result = p; return }
+func (p *unresolvedobject) Execute(pos Position, a... Value) (result []Value, err error) { result = []Value{p}; return }
 func (p *unresolvedobject) redecl(scope *Scope) {
         if p.scope != scope {
                 name, err := p.name.Strval()
@@ -173,7 +173,7 @@ func (p *ProjectName) Get(name string) (value Value, err error) {
 }
 
 // Call a ProjectName returns the project name.
-func (p *ProjectName) Call(pos token.Position, a... Value) (value Value, err error) {
+func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
         if p.project != nil {
                 value = &String{ p.project.name }
         }
@@ -379,7 +379,7 @@ func (d *Def) append(va... Value) (err error) {
         return
 }
 
-func (d *Def) Call(pos token.Position, a... Value) (res Value, err error) {
+func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
         switch d.origin {
         case DefSimple, DefExpand, DefExecute:
                 res = d.Value
@@ -507,7 +507,7 @@ func (p *Builtin) Type() Type { return BuiltinType }
 func (p *Builtin) True() bool { return p.f != nil }
 func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
-func (p *Builtin) Call(pos token.Position, a... Value) (Value, error) { return p.f(pos, a...) }
+func (p *Builtin) Call(pos Position, a... Value) (Value, error) { return p.f(pos, a...) }
 func (p *Builtin) cmp(v Value) (res cmpres) {
         if v.Type() == BuiltinType {
                 a, ok := v.(*Builtin)
@@ -548,7 +548,7 @@ type RuleEntry struct {
         class RuleEntryClass
         target Value
         programs []*Program
-        Position token.Position
+        Position Position
 }
 
 func (entry *RuleEntry) Type() Type { return RuleEntryType }
@@ -609,7 +609,7 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) {
 }
 
 // RuleEntry.Execute executes the rule program only if the target is outdated.
-func (entry *RuleEntry) Execute(pos token.Position, a... Value) (result []Value, err error) {
+func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err error) {
         if entry.class == GlobRuleEntry /*|| entry.class == StemmedFileEntry*/ {
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }

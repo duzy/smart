@@ -19,6 +19,7 @@ var (
         optionClean = false
         optionReconfig = false
         optionConfigure = false
+        optionAlwaysBuildPlugins = false
 )
 
 type Context struct {
@@ -176,6 +177,9 @@ func processCommandOption(flag *Flag, args... Value) (err error) {
         if opt, err = flag.is('r', "reconfigure"); err != nil { return } else if opt {
                 optionConfigure, optionReconfig = true, true; return
         }
+        if opt, err = flag.is('b', "build-plugins"); err != nil { return } else if opt {
+                optionAlwaysBuildPlugins = true; return
+        }
         err = fmt.Errorf("`%v` unknown command option", flag.Name)
         return
 }
@@ -267,9 +271,19 @@ AtLookupLoop:
 
         restoreLoadingInfo(ctx.loader)
 
+        var args []string
+        for _, a := range os.Args[1:] {
+                switch a {
+                case "-b", "-build-plugins":
+                        optionAlwaysBuildPlugins = true
+                default:
+                        args = append(args, a)
+                }
+        }
+
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
 
-        text := strings.Join(os.Args[1:], " ")
+        text := strings.Join(args, " ")
         for _, target := range ctx.loader.loadText("@", text) {
                 switch t := target.(type) {
                 case *Flag:

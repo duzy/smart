@@ -15,9 +15,11 @@ import (
         "unicode/utf8"
 	"path/filepath"
 	"strings"
+        "plugin"
         "errors"
         "flag"
         "fmt"
+        "os/exec"
 	"os"
 )
 
@@ -346,6 +348,56 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                         return
                 }
                 err = l.useProject(spec.Props[0].Pos(), loaded, params)
+        }       
+        return
+}
+
+func (l *loader) loadPlugin() (err error) {
+        g := stat("smart.go", "", l.project.absPath)
+        if g == nil { return /* smart.go was not presented */ }
+
+        var src string
+        if src, err = g.Strval(); err != nil { return }
+
+        s := strings.Replace(l.project.relPath, "..", "_", -1)
+        s = filepath.Join(filepath.Dir(joinTmpPath("", "")), "plugins", s)
+
+        var build = true
+
+        so := stat(l.project.name+".so", "", s, nil)
+        if s, err = so.Strval(); err != nil { return }
+        if so.exists() && !optionAlwaysBuildPlugins {
+                if so.info.ModTime().After(g.info.ModTime()) {
+                        build = false // Plugin already updated.
+                }
+        }
+        if build {
+                fmt.Fprintf(stderr, "smart: Build %v …", src)
+                o := &bytes.Buffer{}
+                c := exec.Command("go", "build", "-buildmode=plugin", "-o", s, src)
+                c.Stdout, c.Stderr = o, o
+                if err = c.Run(); err == nil {
+                        fmt.Fprintf(stderr, "… ok\n")
+                } else {
+                        fmt.Fprintf(stderr, "… error\n")
+                        fmt.Fprintf(stderr, "%s", o)
+                }
+        }
+
+        if err != nil { return }
+
+        // Once plugin is opened, there's no need/way to close it.
+        if l.project.plugin, err = plugin.Open(s); err == nil {
+                var p plugin.Symbol
+                if p, err = l.project.plugin.Lookup("Init"); err != nil {
+                        return
+                } else if p == nil {
+                        // no initialization (optional)
+                } else if f, ok := p.(func(*Project) (*Scope, error)); ok {
+                        l.project.pluginScope, err = f(l.project)
+                }
+        } else {
+                // FIXME: err == "plugin was built with a different version"
         }
         return
 }
@@ -405,13 +457,14 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                 resolved = x.Resolved.(Object)
         }
 
+        s, err := name.Strval()
+        if err != nil {
+                l.parser.error(x.Name.Pos(), "%v", err)
+                return
+        }
+
         switch tok {
         case token.COLON:
-                s, err := name.Strval()
-                if err != nil {
-                        l.parser.error(x.Name.Pos(), "%v", err)
-                        return
-                }
                 switch s {
                 case "use": obj = l.project.usings;
                 default:
@@ -464,6 +517,11 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                 }
                 obj = resolved
         }
+        if obj == nil && l.project.plugin != nil {
+                if l.project.pluginScope != nil {
+                        obj = l.project.pluginScope.Lookup(s)
+                }
+        }
         for i, x := range x.Args {
                 if a := l.expr(x); a != nil {
                         args = append(args, a)
@@ -479,10 +537,10 @@ func (l *loader) exprClosure(x *ast.ClosureExpr) (v Value) {
         if name, obj, args := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
                 l.parser.error(x.Name.Pos(), "invalid closure name `%T`", x.Name)
         } else if obj != nil {
-                v = MakeClosure(x.Position, x.TokLp, obj, args...)
+                v = MakeClosure(Position(x.Position), x.TokLp, obj, args...)
         } else if true {
                 obj = unresolved(l.project, name)
-                v = MakeClosure(x.Position, x.TokLp, obj, args...)
+                v = MakeClosure(Position(x.Position), x.TokLp, obj, args...)
         } else {
                 l.parser.error(x.Pos(), "closure nil object (name `%v`, `%v`)", name, l.scope.comment)
         }
@@ -493,11 +551,11 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
         if name, obj, args := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
                 l.parser.error(x.Name.Pos(), "invalid delegate name `%T`", x.Name)
         } else if obj != nil {
-                v = MakeDelegate(x.Position, x.TokLp, obj, args...)
+                v = MakeDelegate(Position(x.Position), x.TokLp, obj, args...)
         } else if sel, ok := name.(*selection); ok {
                 if o, err := sel.object(); err == nil && o.DeclScope().comment == usecomment {
                         obj = unresolved(l.project, name)
-                        v = MakeDelegate(x.Position, x.TokLp, obj, args...)
+                        v = MakeDelegate(Position(x.Position), x.TokLp, obj, args...)
                 } else if err != nil {
                         l.parser.error(x.Name.Pos(), "delegate selection `%v`: %v", name, err)
                 } else if o == nil {
@@ -809,7 +867,7 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
         }
 
         position := l.parser.file.Position(pos)
-        results, err := mergeresult(usee.userule.Execute(position, params...))
+        results, err := mergeresult(usee.userule.Execute(Position(position), params...))
 
         if err != nil { return }
 
@@ -824,7 +882,7 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
                                 var ( val Value; def *Def )
                                 if val, err = sel.value(); err != nil { return }
                                 if def, ok = val.(*Def); !ok && def == nil {
-                                        err = scanner.Errorf(position, "`%v` not a def", t.identifier)
+                                        err = scanner.Errorf(token.Position(position), "`%v` not a def", t.identifier)
                                         return
                                 }
 
@@ -898,7 +956,7 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 // If it's the first time this name was determined.
                 if d, _ := derived.(*Def); d != nil && !def.Value.refs(d) {
                         // Unshift the delegation to derive value.
-                        position := l.parser.file.Position(pos)
+                        position := Position(l.parser.file.Position(pos))
                         if err := def.append(MakeDelegate(position, token.LPAREN, d)); err != nil {
                                 l.parser.error(pos, "%v", err)
                                 return
@@ -974,7 +1032,7 @@ func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
                 defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
                 var id = spec.Props[0]
-                var position = l.parser.file.Position(id.Pos())
+                var position = Position(l.parser.file.Position(id.Pos()))
                 switch op := l.expr(id).(type) {
                 case Caller:
                         res, _ = op.Call(position, l.exprs(spec.Props[1:])...)
@@ -1059,11 +1117,11 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                 depends:  depends,
                 ordered:  ordered,
                 recipes:  recipes,
-                position: clause.Position,
+                position: Position(clause.Position),
         }
         for i, m := range modifiers {
                 position := l.parser.file.Position(clause.Modifier.Elems[i].Pos())
-                if p, err := prog.pipe(position, m); err != nil {
+                if p, err := prog.pipe(Position(position), m); err != nil {
                         l.parser.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
                         return
                 } else if !configure {
@@ -1097,7 +1155,7 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                         l.parser.error(clause.Targets[n].Pos(), "%v", err)
                         return
                 } else /*if entry != nil*/ {
-                        entry.Position = l.parser.file.Position(clause.Targets[n].Pos())
+                        entry.Position = Position(l.parser.file.Position(clause.Targets[n].Pos()))
                         entries = append(entries, entry)
                 }
                 if configure {
@@ -1308,6 +1366,9 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, params []Valu
         dec.backscope = l.scope
         l.project = dec.project
         l.scope = l.project.scope
+        if err = l.loadPlugin(); err != nil {
+                return
+        }
 
         // no bases or docking for external packages
         if keyword == token.PACKAGE { return }

@@ -24,7 +24,8 @@ import (
         "io"
 )
 
-type BuiltinFunc func(pos token.Position, args... Value) (Value, error)
+type Position token.Position
+type BuiltinFunc func(pos Position, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
         `typeof`:       builtinTypeOf,
@@ -158,6 +159,18 @@ var builtins = map[string]BuiltinFunc {
         `return`:     builtinReturn,
 }
 
+func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {
+        for s, f := range m {
+                if _, existed := builtins[s]; existed {
+                        err = fmt.Errorf("Builtin '%s' already existed", s)
+                        break
+                } else {
+                        builtins[s] = f
+                }
+        }
+        return
+}
+
 func EscapedString(v Value) (s string, e error) {
         if v.Type() == StringType {
                 var sv string
@@ -201,7 +214,7 @@ func trimRightSpaces(s string) string {
         return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
-func builtinTypeOf(pos token.Position, args... Value) (res Value, err error) {
+func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
                 // Arguments are passed in a list:
@@ -235,7 +248,7 @@ func builtinTypeOf(pos token.Position, args... Value) (res Value, err error) {
         return MakeListOrScalar(elems), nil
 }
 
-func builtinError(pos token.Position, args... Value) (res Value, err error) {
+func builtinError(pos Position, args... Value) (res Value, err error) {
         var (
                 s bytes.Buffer
                 v string
@@ -254,7 +267,7 @@ func builtinError(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinAssertValid(pos token.Position, args... Value) (Value, error) {
+func builtinAssertValid(pos Position, args... Value) (Value, error) {
         for _, a := range args {
                 if s, e := a.Strval(); e != nil {
                         return nil, e
@@ -265,7 +278,7 @@ func builtinAssertValid(pos token.Position, args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinLogicalOr(pos token.Position, args... Value) (res Value, err error) {
+func builtinLogicalOr(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 /*var s string
                 if s, err = a.Strval(); err != nil { return }
@@ -277,7 +290,7 @@ func builtinLogicalOr(pos token.Position, args... Value) (res Value, err error) 
         return
 }
 
-func builtinLogicalAnd(pos token.Position, args... Value) (res Value, err error) {
+func builtinLogicalAnd(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 /*var s string
                 if s, err = a.Strval(); err != nil { return }
@@ -289,7 +302,7 @@ func builtinLogicalAnd(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
-func builtinBranchIf(pos token.Position, args... Value) (res Value, err error) {
+func builtinBranchIf(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n > 1 {
                 /*var (
                         cond Value
@@ -313,7 +326,7 @@ func builtinBranchIf(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinBranchIfEq(pos token.Position, args... Value) (res Value, err error) {
+func builtinBranchIfEq(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n > 2 {
                 var (
                         a, b Value
@@ -332,7 +345,7 @@ func builtinBranchIfEq(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
-func builtinBranchIfNE(pos token.Position, args... Value) (res Value, err error) {
+func builtinBranchIfNE(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n > 2 {
                 var (
                         a, b Value
@@ -351,9 +364,9 @@ func builtinBranchIfNE(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
-func builtinFor(pos token.Position, args... Value) (res Value, err error) {
+func builtinFor(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n < 2 {
-                err = scanner.Errorf(pos, "not enough arguments ($(foreach <list>,<template>))", n)
+                err = scanner.Errorf(token.Position(pos), "not enough arguments ($(foreach <list>,<template>))", n)
         } else {
                 var ( defs []*Def ; vals, values []Value )
                 if values, err = mergeresult(ExpandAll(args[0])); err != nil { return }
@@ -389,9 +402,9 @@ func builtinFor(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinForEach(pos token.Position, args... Value) (res Value, err error) {
+func builtinForEach(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n < 2 {
-                err = scanner.Errorf(pos, "not enough arguments ($(foreach <list>,<template>))", n)
+                err = scanner.Errorf(token.Position(pos), "not enough arguments ($(foreach <list>,<template>))", n)
         } else {
                 def := context.globe.scope.Lookup("_").(*Def)
                 defer func(v Value) { def.Value = v } (def.Value)
@@ -425,7 +438,7 @@ func builtinForEach(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinEnv(pos token.Position, args... Value) (res Value, err error) {
+func builtinEnv(pos Position, args... Value) (res Value, err error) {
         var (
                 vals []Value
                 val Value
@@ -446,7 +459,7 @@ func builtinEnv(pos token.Position, args... Value) (res Value, err error) {
         return MakeListOrScalar(vals), nil
 }
 
-func builtinVar(pos token.Position, args... Value) (res Value, err error) {
+func builtinVar(pos Position, args... Value) (res Value, err error) {
         var scope *Scope
         switch {
         case len(execstack) > 0: scope = execstack[0].scope
@@ -465,7 +478,7 @@ func builtinVar(pos token.Position, args... Value) (res Value, err error) {
         return MakeListOrScalar(vals), nil
 }
 
-func builtinPrint(pos token.Position, args... Value) (res Value, err error) {
+func builtinPrint(pos Position, args... Value) (res Value, err error) {
         var x = len(args)
         for i, a := range args {
                 var s string
@@ -482,7 +495,7 @@ func builtinPrint(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinPrintl(pos token.Position, args... Value) (res Value, err error) {
+func builtinPrintl(pos Position, args... Value) (res Value, err error) {
         var x = len(args)
         for i, a := range args {
                 var s string
@@ -496,13 +509,13 @@ func builtinPrintl(pos token.Position, args... Value) (res Value, err error) {
         return nil, nil
 }
 
-func builtinPrintln(pos token.Position, args... Value) (Value, error) {
+func builtinPrintln(pos Position, args... Value) (Value, error) {
         builtinPrint(pos, args...)
         fmt.Printf("\n")
         return nil, nil
 }
 
-func builtinPlus(pos token.Position, args... Value) (result Value, err error) {
+func builtinPlus(pos Position, args... Value) (result Value, err error) {
         var num, v int64
         for _, a := range args {
                 if v, err = a.Integer(); err != nil {
@@ -513,7 +526,7 @@ func builtinPlus(pos token.Position, args... Value) (result Value, err error) {
         return &Int{integer{num}}, nil
 }
 
-func builtinMinus(pos token.Position, args... Value) (result Value, err error) {
+func builtinMinus(pos Position, args... Value) (result Value, err error) {
         var num, v int64
         for i, a := range args {
                 if v, err = a.Integer(); err != nil {
@@ -528,7 +541,7 @@ func builtinMinus(pos token.Position, args... Value) (result Value, err error) {
         return &Int{integer{num}}, nil
 }
 
-func builtinUnique(pos token.Position, args... Value) (res Value, err error) {
+func builtinUnique(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var list []Value
@@ -549,7 +562,7 @@ ForArgs:
         return
 }
 
-func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
+func builtinJoin(pos Position, args... Value) (res Value, err error) {
         if l := len(args); l > 0 {
                 var ( vals []Value ; fields []string ; sep string )
                 if l < 2 {
@@ -568,7 +581,7 @@ func builtinJoin(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
+func builtinQuote(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         if l := len(args); l > 0 {
                 var fields []string
@@ -584,7 +597,7 @@ func builtinQuote(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) {
+func builtinQuoteJoin(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var sep string
@@ -608,7 +621,7 @@ func builtinQuoteJoin(pos token.Position, args... Value) (res Value, err error) 
         return
 }
 
-func builtinSplitString(pos token.Position, args... Value) (res Value, err error) {
+func builtinSplitString(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         if l := len(args); l > 0 {
                 var fields []Value
@@ -654,14 +667,14 @@ func joinstrings(value Value, sep string) (res Value, err error) {
         return
 }
 
-func builtinSplitQuote(pos token.Position, args... Value) (res Value, err error) {
+func builtinSplitQuote(pos Position, args... Value) (res Value, err error) {
         if res, err = builtinSplitString(pos, args...); err == nil {
                 quotestrings(res)
         }
         return
 }
 
-func builtinSplitQuoteJoin(pos token.Position, args... Value) (res Value, err error) {
+func builtinSplitQuoteJoin(pos Position, args... Value) (res Value, err error) {
         var sep string
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(); err != nil {
@@ -675,7 +688,7 @@ func builtinSplitQuoteJoin(pos token.Position, args... Value) (res Value, err er
         return
 }
 
-func builtinSplitJoinQuote(pos token.Position, args... Value) (res Value, err error) {
+func builtinSplitJoinQuote(pos Position, args... Value) (res Value, err error) {
         var sep string
         if l := len(args); l > 1 {
                 if sep, err = args[l-1].Strval(); err != nil {
@@ -695,7 +708,7 @@ func builtinSplitJoinQuote(pos token.Position, args... Value) (res Value, err er
         return
 }
 
-func builtinField(pos token.Position, args... Value) (res Value, err error) {
+func builtinField(pos Position, args... Value) (res Value, err error) {
         if l := len(args); l >= 2 {
                 var (
                         i int64
@@ -721,12 +734,12 @@ func builtinField(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFields(pos token.Position, args... Value) (Value, error) {
+func builtinFields(pos Position, args... Value) (Value, error) {
         // TODO: ...
         return nil, nil
 }
 
-func builtinString(pos token.Position, args... Value) (result Value, err error) {
+func builtinString(pos Position, args... Value) (result Value, err error) {
         var s bytes.Buffer
         for i, a := range args {
                 var v string
@@ -762,7 +775,7 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
         return
 }
 
-func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value, err error) {
+func builtinFilterValues(pos Position, neg bool, args... Value) (res Value, err error) {
         if len(args) > 1 {
                 var pats []Value
                 switch pat := args[0].(type) {
@@ -784,7 +797,7 @@ func builtinFilterValues(pos token.Position, neg bool, args... Value) (res Value
         return
 }
 
-func builtinSubstring(pos token.Position, args... Value) (res Value, err error) {
+func builtinSubstring(pos Position, args... Value) (res Value, err error) {
         var list []Value
         if n := len(args); n > 1 {
                 var ( v Value ; i1, i2 int64 )
@@ -798,7 +811,7 @@ func builtinSubstring(pos token.Position, args... Value) (res Value, err error) 
                                 goto CheckRange
                         }
                 } else {
-                        err = scanner.Errorf(pos, "'%v' is not integer", args[0])
+                        err = scanner.Errorf(token.Position(pos), "'%v' is not integer", args[0])
                         return
                 }
 
@@ -834,7 +847,7 @@ func builtinSubstring(pos token.Position, args... Value) (res Value, err error) 
 }
 
 // $(subst from,to,text)
-func builtinSubst(pos token.Position, args... Value) (res Value, err error) {
+func builtinSubst(pos Position, args... Value) (res Value, err error) {
         var list []Value
         if nargs := len(args); nargs > 2 {
                 var s, s1, s2 string
@@ -854,7 +867,7 @@ func builtinSubst(pos token.Position, args... Value) (res Value, err error) {
 // TODO:
 //   $(var:pattern=replacement)
 //   $(var:suffix=replacement)
-func builtinPatsubst(pos token.Position, args... Value) (res Value, err error) {
+func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
         // $(patsubst pattern,replacement,text)
         var ( list []Value ; nargs = len(args) )
         if nargs < 3 { return }
@@ -960,15 +973,15 @@ ForSources:
         return
 }
 
-func builtinStrip(pos token.Position, args... Value) (res Value, err error) {
+func builtinStrip(pos Position, args... Value) (res Value, err error) {
         return builtinTrimSpace(pos, args...)
 }
 
-func builtinTrimSpace(pos token.Position, args... Value) (res Value, err error) {
+func builtinTrimSpace(pos Position, args... Value) (res Value, err error) {
         return builtinTrim(pos, append([]Value{ universalnone }, args...)...)
 }
 
-func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
+func builtinTitle(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -988,7 +1001,7 @@ func builtinTitle(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
+func builtinTrim(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -1014,7 +1027,7 @@ func builtinTrim(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
+func builtinTrimLeft(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -1040,7 +1053,7 @@ func builtinTrimLeft(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) {
+func builtinTrimRight(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -1066,7 +1079,7 @@ func builtinTrimRight(pos token.Position, args... Value) (res Value, err error) 
         return
 }
 
-func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error) {
+func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -1092,7 +1105,7 @@ func builtinTrimPrefix(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
-func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error) {
+func builtinTrimSuffix(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -1118,7 +1131,7 @@ func builtinTrimSuffix(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
-func builtinTrimExt(pos token.Position, args... Value) (res Value, err error) {
+func builtinTrimExt(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -1144,7 +1157,7 @@ func builtinTrimExt(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinIndent(pos token.Position, args... Value) (res Value, err error) {
+func builtinIndent(pos Position, args... Value) (res Value, err error) {
         var (
                 l []Value
                 s string // indent
@@ -1177,54 +1190,54 @@ func builtinIndent(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFindstring(pos token.Position, args... Value) (res Value, err error) {
+func builtinFindstring(pos Position, args... Value) (res Value, err error) {
         // $(findstring find,text)
         return
 }
 
-func builtinFilter(pos token.Position, args... Value) (res Value, err error) {
+func builtinFilter(pos Position, args... Value) (res Value, err error) {
         // $(filter pattern…,text)
         res, err = builtinFilterValues(pos, false, args...)
         return
 }
 
-func builtinFilterOut(pos token.Position, args... Value) (res Value, err error) {
+func builtinFilterOut(pos Position, args... Value) (res Value, err error) {
         // $(filter-out pattern…,text)
         res, err = builtinFilterValues(pos, true, args...)
         return
 }
 
-func builtinSort(pos token.Position, args... Value) (res Value, err error) {
+func builtinSort(pos Position, args... Value) (res Value, err error) {
         // $(sort list)
         return
 }
 
-func builtinWord(pos token.Position, args... Value) (res Value, err error) {
+func builtinWord(pos Position, args... Value) (res Value, err error) {
         // $(word n,text)
         return
 }
 
-func builtinWordList(pos token.Position, args... Value) (res Value, err error) {
+func builtinWordList(pos Position, args... Value) (res Value, err error) {
         // $(wordlist s,e,text)
         return
 }
 
-func builtinWords(pos token.Position, args... Value) (res Value, err error) {
+func builtinWords(pos Position, args... Value) (res Value, err error) {
         // $(words n,text)
         return
 }
 
-func builtinFirstWord(pos token.Position, args... Value) (res Value, err error) {
+func builtinFirstWord(pos Position, args... Value) (res Value, err error) {
         // $(firstword names...)
         return
 }
 
-func builtinLastWord(pos token.Position, args... Value) (res Value, err error) {
+func builtinLastWord(pos Position, args... Value) (res Value, err error) {
         // $(lastword names...)
         return
 }
 
-func builtinEncodeBase64(pos token.Position, args... Value) (res Value, err error) {
+func builtinEncodeBase64(pos Position, args... Value) (res Value, err error) {
         if len(args) > 0 {
                 buf := new(bytes.Buffer)
                 enc := base64.NewEncoder(base64.StdEncoding, buf)
@@ -1241,7 +1254,7 @@ func builtinEncodeBase64(pos token.Position, args... Value) (res Value, err erro
         return
 }
 
-func builtinDecodeBase64(pos token.Position, args... Value) (res Value, err error) {
+func builtinDecodeBase64(pos Position, args... Value) (res Value, err error) {
         if len(args) > 0 {
                 var list []Value
                 for _, a := range args {
@@ -1264,7 +1277,7 @@ func builtinDecodeBase64(pos token.Position, args... Value) (res Value, err erro
         return
 }
 
-func builtinBase(pos token.Position, args... Value) (res Value, err error) {
+func builtinBase(pos Position, args... Value) (res Value, err error) {
         var (
                 l []Value
                 s string
@@ -1280,7 +1293,7 @@ func builtinBase(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func dirx(pos token.Position, n int, args... Value) (res Value, err error) {
+func dirx(pos Position, n int, args... Value) (res Value, err error) {
         var (
                 l []Value
                 s string
@@ -1299,7 +1312,7 @@ func dirx(pos token.Position, n int, args... Value) (res Value, err error) {
         return
 }
 
-func undirx(pos token.Position, n int, args... Value) (res Value, err error) {
+func undirx(pos Position, n int, args... Value) (res Value, err error) {
         var (
                 l []Value
                 s string
@@ -1322,7 +1335,7 @@ func undirx(pos token.Position, n int, args... Value) (res Value, err error) {
         return
 }
 
-func builtinDir(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir(pos Position, args... Value) (res Value, err error) {
         var (
                 l []Value
                 s string
@@ -1338,39 +1351,39 @@ func builtinDir(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinDir2(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir2(pos Position, args... Value) (res Value, err error) {
         return dirx(pos, 2, args...)
 }
 
-func builtinDir3(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir3(pos Position, args... Value) (res Value, err error) {
         return dirx(pos, 3, args...)
 }
 
-func builtinDir4(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir4(pos Position, args... Value) (res Value, err error) {
         return dirx(pos, 4, args...)
 }
 
-func builtinDir5(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir5(pos Position, args... Value) (res Value, err error) {
         return dirx(pos, 5, args...)
 }
 
-func builtinDir6(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir6(pos Position, args... Value) (res Value, err error) {
         return dirx(pos, 6, args...)
 }
 
-func builtinDir7(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir7(pos Position, args... Value) (res Value, err error) {
         return dirx(pos, 7, args...)
 }
 
-func builtinDir8(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir8(pos Position, args... Value) (res Value, err error) {
         return dirx(pos, 8, args...)
 }
 
-func builtinDir9(pos token.Position, args... Value) (res Value, err error) {
+func builtinDir9(pos Position, args... Value) (res Value, err error) {
         return dirx(pos, 9, args...)
 }
 
-func builtinDirs(pos token.Position, args... Value) (res Value, err error) {
+func builtinDirs(pos Position, args... Value) (res Value, err error) {
         var (
                 i int64
                 n = 0
@@ -1394,43 +1407,43 @@ func builtinDirs(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinUndir(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 1, args...)
 }
 
-func builtinUndir2(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir2(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 2, args...)
 }
 
-func builtinUndir3(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir3(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 3, args...)
 }
 
-func builtinUndir4(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir4(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 4, args...)
 }
 
-func builtinUndir5(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir5(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 5, args...)
 }
 
-func builtinUndir6(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir6(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 6, args...)
 }
 
-func builtinUndir7(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir7(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 7, args...)
 }
 
-func builtinUndir8(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir8(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 8, args...)
 }
 
-func builtinUndir9(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndir9(pos Position, args... Value) (res Value, err error) {
         return undirx(pos, 9, args...)
 }
 
-func builtinUndirs(pos token.Position, args... Value) (res Value, err error) {
+func builtinUndirs(pos Position, args... Value) (res Value, err error) {
         var (
                 i int64
                 n = 0
@@ -1453,7 +1466,7 @@ func builtinUndirs(pos token.Position, args... Value) (res Value, err error) {
         return undirx(pos, n, args...)
 }
 
-func builtinDirChop(pos token.Position, args... Value) (res Value, err error) {
+func builtinDirChop(pos Position, args... Value) (res Value, err error) {
         var (
                 l []Value
                 n = 0
@@ -1497,7 +1510,7 @@ func builtinDirChop(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRelativeDir(pos token.Position, args... Value) (res Value, err error) {
+func builtinRelativeDir(pos Position, args... Value) (res Value, err error) {
         var (
                 l []Value
                 t, s string
@@ -1518,7 +1531,7 @@ func builtinRelativeDir(pos token.Position, args... Value) (res Value, err error
         return
 }
 
-func builtinMkdir(pos token.Position, args... Value) (res Value, err error) {
+func builtinMkdir(pos Position, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1564,7 +1577,7 @@ func builtinMkdir(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinMkdirAll(pos token.Position, args... Value) (res Value, err error) {
+func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1610,7 +1623,7 @@ func builtinMkdirAll(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinChdir(pos token.Position, args... Value) (res Value, err error) {
+func builtinChdir(pos Position, args... Value) (res Value, err error) {
         if len(args) == 1 {
                 var str string
                 if str, err = args[0].Strval(); err != nil { return }
@@ -1621,7 +1634,7 @@ func builtinChdir(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRename(pos token.Position, args... Value) (res Value, err error) {
+func builtinRename(pos Position, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1664,7 +1677,7 @@ func builtinRename(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
+func builtinRemove(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -1689,7 +1702,7 @@ func builtinRemove(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinRemoveAll(pos token.Position, args... Value) (res Value, err error) {
+func builtinRemoveAll(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         /*for _, a := range args {
@@ -1719,7 +1732,7 @@ func builtinRemoveAll(pos token.Position, args... Value) (res Value, err error) 
         return
 }
 
-func builtinTruncate(pos token.Position, args... Value) (res Value, err error) {
+func builtinTruncate(pos Position, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1763,7 +1776,7 @@ func builtinTruncate(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinLink(pos token.Position, args... Value) (res Value, err error) {
+func builtinLink(pos Position, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1806,7 +1819,7 @@ func builtinLink(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinSymlink(pos token.Position, args... Value) (res Value, err error) {
+func builtinSymlink(pos Position, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -1849,7 +1862,7 @@ func builtinSymlink(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinFileExists(pos token.Position, args... Value) (res Value, err error) {
+func builtinFileExists(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         // TODO: $(file-exists -f filename)
@@ -1877,7 +1890,7 @@ func builtinFileExists(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
-func builtinFileSource(pos token.Position, args... Value) (res Value, err error) {
+func builtinFileSource(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var proj = current()
@@ -1900,7 +1913,7 @@ func builtinFileSource(pos token.Position, args... Value) (res Value, err error)
         return
 }
 
-func builtinFile(pos token.Position, args... Value) (res Value, err error) {
+func builtinFile(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var proj = current()
@@ -1973,7 +1986,7 @@ ForArgs:
         return
 }
 
-func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
+func builtinWildcard(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var proj = mostDerived()
@@ -1993,7 +2006,7 @@ func builtinWildcard(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinReadDir(pos token.Position, args... Value) (res Value, err error) {
+func builtinReadDir(pos Position, args... Value) (res Value, err error) {
         var l []Value
         for _, a := range args {
                 var (
@@ -2017,7 +2030,7 @@ func builtinReadDir(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinReadFile(pos token.Position, args... Value) (res Value, err error) {
+func builtinReadFile(pos Position, args... Value) (res Value, err error) {
         var l []Value
         for _, a := range args {
                 var (
@@ -2026,7 +2039,7 @@ func builtinReadFile(pos token.Position, args... Value) (res Value, err error) {
                 )
                 if str, err = a.Strval(); err != nil { return }
                 if str == "" {
-                        err = scanner.Errorf(pos, "`%v` empty file name", a)
+                        err = scanner.Errorf(token.Position(pos), "`%v` empty file name", a)
                         break
                 }
                 if s, err = ioutil.ReadFile(str); err == nil {
@@ -2041,7 +2054,7 @@ func builtinReadFile(pos token.Position, args... Value) (res Value, err error) {
         return
 }
 
-func builtinWriteFile(pos token.Position, args... Value) (res Value, err error) {
+func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -2195,7 +2208,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
 //      config.h:[(compare)]: config.h.in
 //      	configure-file -p -m=0600 $@ $(read-file $<)
 //     
-func builtinConfigureFile(pos token.Position, args... Value) (res Value, err error) {
+func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var optVerb = true
@@ -2310,7 +2323,7 @@ func builtinConfigureFile(pos token.Position, args... Value) (res Value, err err
         return
 }
 
-func builtinReturn(pos token.Position, args... Value) (res Value, err error) {
+func builtinReturn(pos Position, args... Value) (res Value, err error) {
         var value Value
         if x := len(args); x == 0 {
                 value = args[x]

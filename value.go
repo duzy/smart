@@ -191,7 +191,7 @@ func (c *comparer) trace(a ...interface{}) {
         printIndentDots(c.level, a...)
 }
 
-func (c *comparer) Compare(pos token.Position, value interface{}) (err error) {
+func (c *comparer) Compare(pos Position, value interface{}) (err error) {
         if trace_compare {
                 s := fmt.Sprintf("%s{%s}", c.target.Type(), c.target)
                 c.trace("compare:", s, ":", value, "(")
@@ -210,6 +210,10 @@ func (c *comparer) Compare(pos token.Position, value interface{}) (err error) {
                         }
                         compun(c)
                 } ()
+        }
+        if f, ok := c.target.(*File); ok && f.info == nil {
+                err = break_updates(pos, newUpdatedTarget(c.target, nil))
+                return
         }
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
@@ -287,8 +291,14 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         }
 
         if trace_compare {
-                c.trace("compare-stat:", tt, ";", c.target, "("+ts+")")
-                c.trace("compare-stat:", dt, ";", d, "("+ds+")")
+                if false {
+                        c.trace("compare-stat:", tt, ";", c.target, "("+ts+")")
+                        c.trace("compare-stat:", dt, ";", d, "("+ds+")")
+                } else if false {
+                        c.trace("compare-stat:", tt, dt, ";", c.target, d, ";", ts, ds)
+                } else {
+                        c.trace("compare-stat:", c.target, d, '\t', '\t', tt, ":", dt)
+                }
         }
 
         if tt.IsZero() {
@@ -427,7 +437,7 @@ func (pc *preparer) traverseAll(value interface{}) (err error) {
 }
 
 func (pc *preparer) traverse(value interface{}) (err error) {
-        var pos = pc.entry.Position
+        var pos = token.Position(pc.entry.Position)
         if value == nil {
                 err = scanner.Errorf(pos, "updating nil prerequisite")
         } else if p, ok := value.(prerequisite); ok {
@@ -443,7 +453,7 @@ func (pc *preparer) traverse(value interface{}) (err error) {
 }
 
 func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, error, bool) {
-        var pos = pc.program.position
+        var pos = token.Position(pc.program.position)
         if br, done := err.(*breaker); done {
                 if n := len(errs); n == 0 {
                         return nil, err, done
@@ -954,9 +964,6 @@ func (p *answer) cmp(v Value) (res cmpres) {
         return
 }
 
-func MakeAnswer(v bool) Value { if v { return universalyes } else { return universalno } }
-func MakeBoolean(v bool) Value { if v { return universaltrue } else { return universalfalse } }
-
 type integer struct { int64 }
 func (p *integer) refs(_ Value) bool { return false }
 func (p *integer) closured() bool { return false }
@@ -985,18 +992,6 @@ func (p *Bin) Type() Type { return BinType }
 func (p *Bin) String() string { return fmt.Sprintf("0b%s", strconv.FormatInt(int64(p.int64),2)) }
 func (p *Bin) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),2), nil }
 
-func MakeBin(i int64) *Bin { return &Bin{integer{i}} }
-func ParseBin(s string) *Bin {
-        if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
-                s = s[2:]
-        }
-        if i, e := strconv.ParseInt(s, 2, 64); e == nil {
-                return MakeBin(i)
-        } else {
-                panic(e)
-        }
-}
-
 type Oct struct { integer }
 func (p *Oct) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Oct) Type() Type { return OctType }
@@ -1005,50 +1000,17 @@ func (p *Oct) String() string {
 }
 func (p *Oct) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),8), nil }
 
-func MakeOct(i int64) *Oct { return &Oct{integer{i}} }
-func ParseOct(s string) *Oct {
-        if strings.HasPrefix(s, "0") {
-                s = s[1:]
-        }
-        if i, e := strconv.ParseInt(s, 8, 64); e == nil {
-                return MakeOct(i)
-        } else {
-                panic(e)
-        }
-}
-
 type Int struct { integer }
 func (p *Int) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Int) Type() Type { return IntType }
 func (p *Int) String() string { return strconv.FormatInt(int64(p.int64),10) }
 func (p *Int) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),10), nil }
 
-func MakeInt(i int64) *Int { return &Int{integer{i}} }
-func ParseInt(s string) *Int {
-        if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-                return MakeInt(i)
-        } else {
-                panic(e)
-        }
-}
-
 type Hex struct { integer }
 func (p *Hex) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Hex) Type() Type { return HexType }
 func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int64(p.int64),16)) }
 func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),16), nil }
-
-func MakeHex(i int64) *Hex { return &Hex{integer{i}} }
-func ParseHex(s string) *Hex {
-        if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
-                s = s[2:]
-        }
-        if i, e := strconv.ParseInt(s, 16, 64); e == nil {
-                return MakeHex(i)
-        } else {
-                panic(e)
-        }
-}
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
 type Float struct { float64 } // IEEE-754 64-bit binary floating-point
@@ -1075,16 +1037,6 @@ func (p *Float) cmp(v Value) (res cmpres) {
         }
         return
 }
-
-func MakeFloat(f float64) *Float { return &Float{f} }
-func ParseFloat(s string) *Float {
-        if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
-                return MakeFloat(f)
-        } else {
-                panic(e)
-        }
-}
-
 
 type DateTime struct { Value time.Time }
 func (_ *DateTime) refs(_ Value) bool { return false }
@@ -1151,15 +1103,6 @@ func (p *Date) Strval() (string, error) { return time.Time(p.Value).Format("2006
 func (p *Date) Integer() (int64, error) { return p.Value.Unix(), nil }
 func (p *Date) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
-func MakeDate(s time.Time) *Date { return &Date{DateTime{s}} }
-func ParseDate(s string) *Date {
-        if t, e := time.Parse("2006-01-02", s); e == nil {
-                return MakeDate(t)
-        } else {
-                panic(e)
-        }
-}
-
 type Time struct { DateTime }
 func (p *Time) Type() Type { return TimeType }
 func (p *Time) String() string {
@@ -1172,15 +1115,6 @@ func (p *Time) String() string {
 func (p *Time) Strval() (string, error) { return time.Time(p.Value).Format("15:04:05.999999999Z07:00"), nil }
 func (p *Time) Integer() (int64, error) { return p.Value.Unix(), nil }
 func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-
-func MakeTime(t time.Time) *Time { return &Time{DateTime{t}} }
-func ParseTime(s string) *Time {
-        if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
-                return MakeTime(t)
-        } else {
-                panic(e)
-        }
-}
 
 type URL struct { url.URL }
 func (_ *URL) refs(_ Value) bool { return false }
@@ -1202,15 +1136,6 @@ func (p *URL) cmp(v Value) (res cmpres) {
                    p.Fragment == a.Fragment { res = cmpEqual }
         }
         return
-}
-
-func MakeURL(s *url.URL) *URL { return &URL{ *s } }
-func ParseURL(s string) *URL {
-        if u, e := url.Parse(s); e == nil {
-                return MakeURL(u)
-        } else {
-                panic(e)
-        }
 }
 
 type Raw struct { string }
@@ -1420,10 +1345,6 @@ func (p *Barecomp) cmp(v Value) (res cmpres) {
         return
 }
 
-func MakeBarecomp(elems... Value) *Barecomp {
-        return &Barecomp{elements{elems}}
-}
-
 type Barefile struct {
         Name Value
         File *File
@@ -1549,9 +1470,6 @@ func (p *GlobRange) cmp(v Value) (res cmpres) {
         }
         return
 }
-
-func MakeGlobMeta(tok token.Token) *GlobMeta { return &GlobMeta{tok} }
-func MakeGlobRange(v Value) *GlobRange { return &GlobRange{v} }
 
 type Path struct {
         elements
@@ -1690,17 +1608,6 @@ func (p *Path) cmp(v Value) (res cmpres) {
         return
 }
 
-func MakePath(segments... Value) (v *Path) {
-        return &Path{elements{segments}, nil}
-}
-func MakePathStr(str string) (v *Path) {
-        var segments []Value
-        for _, s := range strings.Split(str, PathSep) {
-                segments = append(segments, &Bareword{s})
-        }
-        return MakePath(segments...)
-}
-
 type PathSeg struct { rune }
 func (p *PathSeg) refs(_ Value) bool { return false }
 func (p *PathSeg) closured() bool { return false }
@@ -1735,8 +1642,6 @@ func (p *PathSeg) cmp(v Value) (res cmpres) {
         }
         return
 }
-
-func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
 
 type filestub struct {
         dir string       // full directory where the file was or should be found
@@ -2179,7 +2084,6 @@ func (p *Compound) cmp(v Value) (res cmpres) {
         }
         return
 }
-func MakeCompound(elems... Value) *Compound { return &Compound{elements{elems}} }
 
 type List struct { elements }
 func (p *List) Type() Type { return ListType }
@@ -2266,8 +2170,6 @@ func (p *List) cmp(v Value) (res cmpres) {
         return
 }
 
-func MakeList(elems... Value) *List { return &List{elements{elems}} }
-
 type Group struct { List }
 func (p *Group) Type() Type { return GroupType }
 func (p *Group) String() string {
@@ -2303,10 +2205,6 @@ func (p *Group) cmp(v Value) (res cmpres) {
                 res = p.cmpElems(a.Elems)
         }
         return
-}
-
-func MakeGroup(elems... Value) (v *Group) {
-        return &Group{List{elements{elems}}}
 }
 
 //type Map struct {
@@ -2382,25 +2280,15 @@ func (p *Pair) cmp(v Value) (res cmpres) {
         }
         return
 }
-func MakePair(k, v Value) (p *Pair) {
-        if k.Type().Bits()&IsKeyName != 0 {
-                p = &Pair{nil, nil}
-                p.SetKey(k)
-                p.SetValue(v)
-        } else {
-                panic(fmt.Errorf("%s '%v' is not key name type", k.Type(), k))
-        }
-        return
-}
 
 type closuredelegate struct {
-        p token.Position
+        p Position
         l token.Token
         o Object
         a []Value
 }
 
-func (p *closuredelegate) Position() token.Position { return p.p }
+func (p *closuredelegate) Position() Position { return p.p }
 func (p *closuredelegate) string(t string) (s string) { // source representation
         for i, a := range p.a {
                 if i == 0 { s = " " } else { s += "," }
@@ -2469,7 +2357,7 @@ func (p *delegate) reveal() (res Value, err error) {
         case Caller:
                 if res, err = o.Call(p.p, args...); err != nil {
                         if p.o.Name() != "error" {
-                                err = scanner.WrapError(p.p, err)
+                                err = scanner.WrapError(token.Position(p.p), err)
                         } else {
                                 return
                         }
@@ -2477,7 +2365,7 @@ func (p *delegate) reveal() (res Value, err error) {
         case Executer:
                 if args, err = o.Execute(p.p, args...); err != nil {
                         if p.o.Name() != "error" {
-                                err = scanner.WrapError(p.p, err)
+                                err = scanner.WrapError(token.Position(p.p), err)
                         } else {
                                 return
                         }
@@ -3085,15 +2973,6 @@ func (p *PercPattern) cmp(v Value) (res cmpres) {
         return
 }
 
-func MakePercPattern(prefix, suffix Value) Pattern {
-        if prefix == nil { prefix = universalnone }
-        if suffix == nil { suffix = universalnone }
-        return &PercPattern{
-                Prefix: prefix,
-                Suffix: suffix,
-        }
-}
-
 // GlobPattern represents glob pattern expressions (e.g. '*.o', '[a-z].o', 'a?a.o')
 // 
 // The pattern syntax is:
@@ -3229,10 +3108,6 @@ func (p *GlobPattern) cmp(v Value) (res cmpres) {
         return
 }
 
-func MakeGlobPattern(components... Value) Pattern {
-        return &GlobPattern{Components:components}
-}
-
 // TODO: implement regexp pattern
 type RegexpPattern struct { pattern }
 func (p *RegexpPattern) refs(_ Value) bool { return false }
@@ -3273,15 +3148,15 @@ type Valuer interface {
 }
 
 type Caller interface {
-        Call(pos token.Position, args... Value) (Value, error)
+        Call(pos Position, args... Value) (Value, error)
 }
 
 type Executer interface {
-        Execute(pos token.Position, a... Value) (result []Value, err error)
+        Execute(pos Position, a... Value) (result []Value, err error)
 }
 
 type Positioner interface {
-        Position() token.Position
+        Position() Position
 }
 
 type Namer interface {
@@ -3299,14 +3174,14 @@ type NameScoper interface {
 
 type positional struct {
         Value
-        pos token.Position
+        pos Position
 }
 
 // Position() returns the position of the value occurs position in file or nil.
-func (p *positional) Position() token.Position { return p.pos }
+func (p *positional) Position() Position { return p.pos }
 
 // Positional wraps a value with a valid position
-func Positional(v Value, pos token.Position) Positioner {
+func Positional(v Value, pos Position) Positioner {
         if p, ok := v.(*positional); ok {
                 p.pos = pos
                 return p
@@ -3394,27 +3269,7 @@ func ExpandAll(values ...Value) (res []Value, err error) {
         return
 }
 
-func MakeDelegate(pos token.Position, tok token.Token, obj Object, args... Value) Value {
-        return &delegate{closuredelegate{ pos, tok, obj, args }}
-}
-
-func MakeClosure(pos token.Position, tok token.Token, obj Object, args... Value) Value {
-        if obj == nil { panic("closure of nil") }
-        return &closure{closuredelegate{ pos, tok, obj, args }}
-}
-
 func Refs(a Value, v Value) bool { return a.refs(v) }
-
-func MakeListOrScalar(elems []Value) (res Value) {
-        if x := len(elems); x > 1 {
-                res = &List{elements{elems}}
-        } else if x == 1 {
-                res = elems[0]
-        } else {
-                res = universalnone
-        }
-        return
-}
 
 func Scalar(v Value, t Type) (res Value) {
         if v.Type() == t {
@@ -3442,6 +3297,71 @@ func EscapeChar(s string) string {
         return s
 }
 
+func MakeAnswer(v bool) Value { if v { return universalyes } else { return universalno } }
+func MakeBoolean(v bool) Value { if v { return universaltrue } else { return universalfalse } }
+func MakeBin(i int64) *Bin { return &Bin{integer{i}} }
+func MakeOct(i int64) *Oct { return &Oct{integer{i}} }
+func MakeInt(i int64) *Int { return &Int{integer{i}} }
+func MakeHex(i int64) *Hex { return &Hex{integer{i}} }
+func MakeFloat(f float64) *Float { return &Float{f} }
+func MakeDate(s time.Time) *Date { return &Date{DateTime{s}} }
+func MakeTime(t time.Time) *Time { return &Time{DateTime{t}} }
+func MakeString(s string) *String { return &String{s} }
+func MakeURL(s *url.URL) *URL { return &URL{ *s } }
+func MakeBarecomp(elems... Value) *Barecomp { return &Barecomp{elements{elems}} }
+func MakeCompound(elems... Value) *Compound { return &Compound{elements{elems}} }
+func MakeList(elems... Value) *List { return &List{elements{elems}} }
+func MakeGroup(elems... Value) (v *Group) { return &Group{List{elements{elems}}} }
+func MakeGlobMeta(tok token.Token) *GlobMeta { return &GlobMeta{tok} }
+func MakeGlobRange(v Value) *GlobRange { return &GlobRange{v} }
+func MakePath(segments... Value) (v *Path) { return &Path{elements{segments}, nil} }
+func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
+func MakePathStr(str string) (v *Path) {
+        var segments []Value
+        for _, s := range strings.Split(str, PathSep) {
+                segments = append(segments, &Bareword{s})
+        }
+        return MakePath(segments...)
+}
+func MakePair(k, v Value) (p *Pair) {
+        if k.Type().Bits()&IsKeyName != 0 {
+                p = &Pair{nil, nil}
+                p.SetKey(k)
+                p.SetValue(v)
+        } else {
+                panic(fmt.Errorf("%s '%v' is not key name type", k.Type(), k))
+        }
+        return
+}
+func MakePercPattern(prefix, suffix Value) Pattern {
+        if prefix == nil { prefix = universalnone }
+        if suffix == nil { suffix = universalnone }
+        return &PercPattern{
+                Prefix: prefix,
+                Suffix: suffix,
+        }
+}
+func MakeGlobPattern(components... Value) Pattern {
+        return &GlobPattern{Components:components}
+}
+func MakeDelegate(pos Position, tok token.Token, obj Object, args... Value) Value {
+        return &delegate{closuredelegate{ pos, tok, obj, args }}
+}
+func MakeClosure(pos Position, tok token.Token, obj Object, args... Value) Value {
+        if obj == nil { panic("closure of nil") }
+        return &closure{closuredelegate{ pos, tok, obj, args }}
+}
+func MakeListOrScalar(elems []Value) (res Value) {
+        if x := len(elems); x > 1 {
+                res = &List{elements{elems}}
+        } else if x == 1 {
+                res = elems[0]
+        } else {
+                res = universalnone
+        }
+        return
+}
+
 func Make(in interface{}) (out Value) {
         switch v := in.(type) {
         case int:       out = MakeInt(int64(v))
@@ -3462,4 +3382,77 @@ func MakeAll(in... interface{}) (out []Value) {
                 out = append(out, Make(v))
         }
         return
+}
+
+func ParseBin(s string) *Bin {
+        if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
+                s = s[2:]
+        }
+        if i, e := strconv.ParseInt(s, 2, 64); e == nil {
+                return MakeBin(i)
+        } else {
+                panic(e)
+        }
+}
+
+func ParseOct(s string) *Oct {
+        if strings.HasPrefix(s, "0") {
+                s = s[1:]
+        }
+        if i, e := strconv.ParseInt(s, 8, 64); e == nil {
+                return MakeOct(i)
+        } else {
+                panic(e)
+        }
+}
+
+func ParseInt(s string) *Int {
+        if i, e := strconv.ParseInt(s, 10, 64); e == nil {
+                return MakeInt(i)
+        } else {
+                panic(e)
+        }
+}
+
+func ParseHex(s string) *Hex {
+        if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+                s = s[2:]
+        }
+        if i, e := strconv.ParseInt(s, 16, 64); e == nil {
+                return MakeHex(i)
+        } else {
+                panic(e)
+        }
+}
+
+func ParseFloat(s string) *Float {
+        if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
+                return MakeFloat(f)
+        } else {
+                panic(e)
+        }
+}
+
+func ParseDate(s string) *Date {
+        if t, e := time.Parse("2006-01-02", s); e == nil {
+                return MakeDate(t)
+        } else {
+                panic(e)
+        }
+}
+
+func ParseTime(s string) *Time {
+        if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
+                return MakeTime(t)
+        } else {
+                panic(e)
+        }
+}
+
+func ParseURL(s string) *URL {
+        if u, e := url.Parse(s); e == nil {
+                return MakeURL(u)
+        } else {
+                panic(e)
+        }
 }

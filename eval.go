@@ -40,7 +40,7 @@ ForRecipes:
                                 // Noop, just return v to the caller.
 
                         case Caller:
-                                v, err = t.Call(prog.Position(), stmt.Slice(1)...)
+                                v, err = t.Call(prog.position, stmt.Slice(1)...)
 
                         case Executer:
                                 var a []Value

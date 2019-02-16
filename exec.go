@@ -122,7 +122,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
         return
 }
 
-func (p *ExecBuffer) parseKnownErrors(pos token.Position, target string, report bool) (err error, tag string, retry bool) {
+func (p *ExecBuffer) parseKnownErrors(pos Position, target string, report bool) (err error, tag string, retry bool) {
         if p.Subm == nil {
                 return
         } else if str := string(p.Subm[0][0][0]); str == errNotTTYDevice {
@@ -130,12 +130,12 @@ func (p *ExecBuffer) parseKnownErrors(pos token.Position, target string, report 
         } else if m := rxNoContainer.FindAllStringSubmatch(str, -1); m != nil {
                 tag = m[0][1] // tag the container name
         } else if m := rxCompilation.FindAllStringSubmatch(str, -1); m != nil {
-                err = scanner.Errorf(pos, "%s", m[0][4])
+                err = scanner.Errorf(token.Position(pos), "%s", m[0][4])
         } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
-                err = scanner.Errorf(pos, "`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
+                err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
                 if report { fmt.Fprintf(stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
         } else if m := rxArNoSuchFile.FindAllStringSubmatch(str, -1); m != nil {
-                err = scanner.Errorf(pos, "`%v` file not found, required by `%s`", filepath.Base(m[0][1]), filepath.Base(target))
+                err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s`", filepath.Base(m[0][1]), filepath.Base(target))
                 if report { fmt.Fprintf(stderr, "ar: '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
         } else if matched, _ := regexp.MatchString(errNoNetwork, str); matched {
                 // TODO: dealing with network not found error
@@ -591,7 +591,7 @@ ForArgs:
                                         sh = c; goto RunCommand
                                 }
                         } else {
-                                err = scanner.Errorf(pos, "`%s` no such container", tag)
+                                err = scanner.Errorf(token.Position(pos), "`%s` no such container", tag)
                         }
                 } else {
                         exeres.Status = -1 //values.String(s)

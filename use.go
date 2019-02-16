@@ -56,7 +56,7 @@ func (p *using) prepare(pc *preparer) (err error) {
                                         return nil
                                 }
                         }
-                        err = scanner.WrapError(entry.Position, err)
+                        err = scanner.WrapError(token.Position(entry.Position), err)
                 } else {
                         usingPrepared[p.project] += 1
                 }
@@ -183,7 +183,7 @@ func (p *usinglist) Get(name string) (Value, error) {
         return nil, fmt.Errorf("no such property `%s`", name)
 }
 
-func (p *usinglist) Call(pos token.Position, a... Value) (res Value, err error) {
+func (p *usinglist) Call(pos Position, a... Value) (res Value, err error) {
         if false {
                 list := new(List)
                 for _, elem := range p.list {

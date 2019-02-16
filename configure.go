@@ -53,7 +53,7 @@ var configuration = &struct{
         done: make(map[*Def]bool),
 }
 
-var configurationOps = map[string] func(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+var configurationOps = map[string] func(pos Position, prog *Program, args... Value) (result Value, err error) {
         "include":      configureInclude,
         "option":       configureOption,
         "package":      configurePackage,
@@ -139,10 +139,10 @@ func do_configuration() error {
                         switch e := err.(type) {
                         case *scanner.Error: errs = append(errs, e)
                         case scanner.Errors: errs = append(errs, e...)
-                        default: errs = append(errs, &scanner.Error{ pos, e })
+                        default: errs = append(errs, &scanner.Error{ token.Position(pos), e })
                         }
                 } else if s, err := entry.target.Strval(); err != nil {
-                        e := scanner.WrapError(pos, err)
+                        e := scanner.WrapError(token.Position(pos), err)
                         errs = append(errs, e.(*scanner.Error))
                 } else if def := project.scope.FindDef(s); def != nil {
                         if def.Value == nil {
@@ -154,26 +154,26 @@ func do_configuration() error {
                         }
                         num += 1
                 } else {
-                        e := scanner.Errorf(pos, "`%s` unconfigured", s)
+                        e := scanner.Errorf(token.Position(pos), "`%s` unconfigured", s)
                         errs = append(errs, e.(*scanner.Error))
                 }
         }
         return errs
 }
 
-func configinfo(pos token.Position, str string, args... interface{}) {
+func configinfo(pos Position, str string, args... interface{}) {
         var debug bool
         if o := configuration.scope.Lookup("DEBUG"); o != nil { debug = o.True() }
         if debug { str = fmt.Sprintf("%v:info: %s", pos, str) }
         fmt.Fprintf(stderr, str, args...)
 }
 
-func configinfon(pos token.Position, str string, args... interface{}) {
+func configinfon(pos Position, str string, args... interface{}) {
         if !strings.HasSuffix(str, "\n") { str += "\n" }
         configinfo(pos, str, args...)
 }
 
-func configinfox(pos token.Position, fields map[string]Value, args... Value) {
+func configinfox(pos Position, fields map[string]Value, args... Value) {
         var str string
         var ints []interface{}
         if msg, ok := fields["info"]; ok {
@@ -202,7 +202,7 @@ func configinfox(pos token.Position, fields map[string]Value, args... Value) {
         configinfo(pos, str, ints...)
 }
 
-func configmessage(pos token.Position, s string, fields map[string]Value, params... Value) {
+func configmessage(pos Position, s string, fields map[string]Value, params... Value) {
         if _, ok := fields["info"]; ok {
                 configinfox(pos, fields)
                 return
@@ -232,7 +232,7 @@ func configmessage(pos token.Position, s string, fields map[string]Value, params
         }
 }
 
-func configurePair(pos token.Position, prog *Program, key, val Value) (result Value, err error) {
+func configurePair(pos Position, prog *Program, key, val Value) (result Value, err error) {
         switch k := key.(type) {
         case *Bareword:
                 def, alt := prog.project.scope.Def(prog.project, k.string, universalnone)
@@ -241,12 +241,12 @@ func configurePair(pos token.Position, prog *Program, key, val Value) (result Va
                 }
                 err = def.set(DefSimple, val)
         default:
-                err = scanner.Errorf(pos, "unknown configuration `%v = %v` (%T %T)\n", key, key, val)
+                err = scanner.Errorf(token.Position(pos), "unknown configuration `%v = %v` (%T %T)\n", key, key, val)
         }
         return
 }
 
-func configureInclude(pos token.Position, prog *Program, params... Value) (result Value, err error) {
+func configureInclude(pos Position, prog *Program, params... Value) (result Value, err error) {
         var includes = configuration.project.scope.Lookup("INCLUDES").(*Def)
         for _, value := range params[2:] {
                 var s string
@@ -269,14 +269,14 @@ func configureInclude(pos token.Position, prog *Program, params... Value) (resul
         return
 }
 
-func configureOption(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+func configureOption(pos Position, prog *Program, args... Value) (result Value, err error) {
         if result, err = prog.scope.Lookup("-").(*Def).Call(pos); err == nil {
                 if result == nil { result = universalno }
         }
         return
 }
 
-func loadPackageSmartInfo(pos token.Position, name string) (info *packageinfo, err error) {
+func loadPackageSmartInfo(pos Position, name string) (info *packageinfo, err error) {
         var file *File
         for _, path := range configuration.paths {
                 file = stat(name+".smart", "", path)
@@ -295,26 +295,26 @@ func loadPackageSmartInfo(pos token.Position, name string) (info *packageinfo, e
         var filename = file.FullName()
         if err = l.loadFile(filename, nil); err != nil { return }
         if project, _ := l.loaded[filename]; project == nil {
-                err = scanner.Errorf(pos, "unloaded package %v (%v)\n", name, file)
+                err = scanner.Errorf(token.Position(pos), "unloaded package %v (%v)\n", name, file)
         } else if project.name != name {
-                err = scanner.Errorf(pos, "%v: conflicted package name %v (!= %v)\n", file, project.name, name)
+                err = scanner.Errorf(token.Position(pos), "%v: conflicted package name %v (!= %v)\n", file, project.name, name)
         } else {
                 info = &packageinfo{ project, packageSmart }
         }
         return
 }
 
-func loadPackageConfigInfo(pos token.Position, name string) (info *packageinfo, err error) {
+func loadPackageConfigInfo(pos Position, name string) (info *packageinfo, err error) {
         return
 }
 
 // -library finds system library in a way similar to cmake.find_library
-//func configureLibrary(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+//func configureLibrary(pos Position, prog *Program, args... Value) (result Value, err error) {
 //        return
 //}
 
 // -package finds system package in a way similar to cmake.find_package
-func configurePackage(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+func configurePackage(pos Position, prog *Program, args... Value) (result Value, err error) {
         var names []string
         var optType packagetype = packageSmart
         for _, arg := range args {
@@ -329,7 +329,7 @@ func configurePackage(pos token.Position, prog *Program, args... Value) (result 
                                 case "", "smart": optType = packageSmart
                                 case "pkgconfig": optType = packageConfig
                                 default: optType = packageUnknown
-                                        err = scanner.Errorf(pos, "package: `%v` unknown type\n", val)
+                                        err = scanner.Errorf(token.Position(pos), "package: `%v` unknown type\n", val)
                                         return
                                 }
                         default:
@@ -362,19 +362,19 @@ func configurePackage(pos token.Position, prog *Program, args... Value) (result 
         return
 }
 
-func configureEntry(pos token.Position, prog *Program, s string, params... Value) (configured bool, result Value, err error) {
+func configureEntry(pos Position, prog *Program, s string, params... Value) (configured bool, result Value, err error) {
         var res []Value
         var entry *RuleEntry
         if entry, err = configuration.project.resolveEntry("-"+s); err != nil {
-                err = scanner.Errorf(pos, "resolve %v: %v", s, err)
+                err = scanner.Errorf(token.Position(pos), "resolve %v: %v", s, err)
         } else if entry == nil {
-                err = scanner.Errorf(pos, "unknown configuration `%v` (no such entry)", s)
+                err = scanner.Errorf(token.Position(pos), "unknown configuration `%v` (no such entry)", s)
         } else if res, err = prog.passExecution(pos, entry, params...); err != nil {
                 var n, en int
                 if n, err = fmt.Sscanf(err.Error(), "exit status %d", &en); err == nil && n == 1 {
                         configured, err = true, nil
                 } else {
-                        err = scanner.Errorf(pos, "execute %v: %v", s, err)
+                        err = scanner.Errorf(token.Position(pos), "execute %v: %v", s, err)
                 }
         } else {
                 if res != nil { result = MakeListOrScalar(res) }
@@ -383,12 +383,12 @@ func configureEntry(pos token.Position, prog *Program, s string, params... Value
         return
 }
 
-func configureArgumented(pos token.Position, prog *Program, target Value, arged *Argumented) (configured bool, result Value, err error) {
+func configureArgumented(pos Position, prog *Program, target Value, arged *Argumented) (configured bool, result Value, err error) {
         var name Value
         switch val := arged.Val.(type) {
         case *Flag: name = val.Name
         default:
-                err = scanner.Errorf(pos, "unknown argumented configuration `%v` (%T)\n", val, val)
+                err = scanner.Errorf(token.Position(pos), "unknown argumented configuration `%v` (%T)\n", val, val)
                 return
         }
 
@@ -544,7 +544,7 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
 // 
 //     config.h:[(compare) (configure-file)]: config.h.in
 //     
-func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+func modifierConfigureFile(pos Position, prog *Program, args... Value) (result Value, err error) {
         if m := prog.pc.mode; m != updateMode {
                 return /* only configure in update mode */
         }
@@ -589,7 +589,7 @@ func modifierConfigureFile(pos token.Position, prog *Program, args... Value) (re
 //
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
-func modifierExtractConfiguration(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+func modifierExtractConfiguration(pos Position, prog *Program, args... Value) (result Value, err error) {
         if m := prog.pc.mode; m != updateMode {
                 return /* configure in update mode */
         }
@@ -700,7 +700,7 @@ func modifierExtractConfiguration(pos token.Position, prog *Program, args... Val
                         name := filepath.Base(s)
                         file := stat(name, "", dir)
                         if file == nil {
-                                err = scanner.Errorf(pos, "`%s` file not found", name)
+                                err = scanner.Errorf(token.Position(pos), "`%s` file not found", name)
                                 return
                         } else if file.info.IsDir() {
                                 err = walkFiles(s, pats, func(file *File, err error) error {
@@ -762,7 +762,7 @@ ForSources:
 }
 
 // configure - configures a variable, example usage:
-func modifierConfigure(pos token.Position, prog *Program, args... Value) (result Value, err error) {
+func modifierConfigure(pos Position, prog *Program, args... Value) (result Value, err error) {
         if m := prog.pc.mode; m == compareMode {
                 return /* don't configure in compare mode */
         }
@@ -832,11 +832,11 @@ ForConfig:
                         case "check":
                                 unreachable("todo: check: ", s)
                         default:
-                                err = scanner.Errorf(pos, "unknown configuration `-%v`\n", a.Name)
+                                err = scanner.Errorf(token.Position(pos), "unknown configuration `-%v`\n", a.Name)
                                 break ForConfig
                         }
                 default:
-                        err = scanner.Errorf(pos, ") unknown configuration `%v` (%T)\n", a, a)
+                        err = scanner.Errorf(token.Position(pos), ") unknown configuration `%v` (%T)\n", a, a)
                         break ForConfig
                 }
         }

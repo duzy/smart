@@ -54,17 +54,46 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
         p.errors.Add(pos, errors.New(s))
 }
 
+// Tab size helps formatting fields.
+const lenPrintTab = 8
+
+// Printing fields (splitted by \t).
+//var lenPrintField = lenPrintTab * 1
+
 func printIndentDots(indent int, a ...interface{}) {
 	const dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
 	const n = len(dots)
 	i := 2 * indent
 	for i > n {
-		fmt.Print(dots)
+		fmt.Fprint(stderr, dots)
 		i -= n
 	}
 	// i <= n
-	fmt.Print(dots[0:i])
-	if len(a) > 0 { fmt.Println(a...) }
+	fmt.Fprint(stderr, dots[0:i])
+	if false && len(a) > 0 {
+                fmt.Fprintln(stderr, a...)
+        } else {
+                var fieldLen = 0
+                for i, v := range a {
+                        if r, ok := v.(rune); ok && r == '\t' {
+                                const sps = "                         "
+                                if m := fieldLen % lenPrintTab; m > 0 {
+                                        if m > len(sps) { m = len(sps)-1 }
+                                        fmt.Fprint(stderr, sps[:m])
+                                }
+                                fieldLen = 0
+                        } else if s := fmt.Sprint(v); s != "" {
+                                if i > 0 {
+                                        fmt.Fprint(stderr, " ", s)
+                                        fieldLen += len(s) + 1
+                                } else {
+                                        fmt.Fprint(stderr, s)
+                                        fieldLen += len(s)
+                                }
+                        }
+                }
+                fmt.Fprintln(stderr)
+        }
 }
 
 func (p *tracing) traceAt(pos token.Position, a ...interface{}) {
