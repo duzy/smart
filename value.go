@@ -292,12 +292,12 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
 
         if trace_compare {
                 if false {
-                        c.trace("compare-stat:", tt, ";", c.target, "("+ts+")")
-                        c.trace("compare-stat:", dt, ";", d, "("+ds+")")
+                        c.trace("compare:", tt, ";", c.target, "("+ts+")")
+                        c.trace("compare:", dt, ";", d, "("+ds+")")
                 } else if false {
-                        c.trace("compare-stat:", tt, dt, ";", c.target, d, ";", ts, ds)
+                        c.trace("compare:", tt, dt, ";", c.target, d, ";", ts, ds)
                 } else {
-                        c.trace("compare-stat:", c.target, d, '\t', '\t', tt, ":", dt)
+                        c.trace("compare:", c.target, d, '\t', '\t', tt, ":", dt)
                 }
         }
 

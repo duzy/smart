@@ -722,7 +722,7 @@ ForArgs:
         if true {
                 var c *comparer
                 if c, err = newcompariation(prog, target); err == nil {
-                        if optVerbose {
+                        if optVerbose || optionVerboseChecks {
                                 if true {
                                         fmt.Fprintf(stderr, "smart: Check %s …", target)
                                 } else {
@@ -736,7 +736,7 @@ ForArgs:
                         } else {
                                 result = universalfalse
                         }
-                        if optVerbose {
+                        if optVerbose || optionVerboseChecks {
                                 if err == nil {
                                         fmt.Fprintf(stderr, "… (done)")
                                 } else if br, ok := err.(*breaker); ok {

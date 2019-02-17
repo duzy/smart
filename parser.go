@@ -1838,6 +1838,11 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         return &ast.BadClause{From: pos, To: p.pos}
 }
 
+func (p *parser) parseImport() (clause ast.Clause) {
+        clause = p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec)
+        return
+}
+
 func (p *parser) parseFile() *ast.File {
 	if p.tracing.enabled {
 		defer un(trace(p, "File '"+p.file.Name()+"'"))
@@ -1984,7 +1989,7 @@ func (p *parser) parseFile() *ast.File {
                                 case token.LINEND:
                                         p.next() // skip empty lines
                                 case token.IMPORT:
-                                        clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
+                                        clauses = append(clauses, p.parseImport())
                                 default:
                                         if p.tok.IsKeyword() {
                                                 break ForInit

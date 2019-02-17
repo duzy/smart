@@ -10,6 +10,7 @@ import (
         "extbit.io/smart/token"
 	"path/filepath"
         "strings"
+        "time"
         "fmt"
         "os"
 )
@@ -19,7 +20,16 @@ var (
         optionClean = false
         optionReconfig = false
         optionConfigure = false
+        optionUsingRecursively = false // very much longer build time
         optionAlwaysBuildPlugins = false
+        optionVerbose = false
+        optionVerboseImport = false
+        optionVerboseChecks = false
+        optionBenchImport = false
+)
+const (
+        // Executing use rules recursively takes more time.
+        optionExecuteUseRulesRecursively = false
 )
 
 type Context struct {
@@ -177,9 +187,6 @@ func processCommandOption(flag *Flag, args... Value) (err error) {
         if opt, err = flag.is('r', "reconfigure"); err != nil { return } else if opt {
                 optionConfigure, optionReconfig = true, true; return
         }
-        if opt, err = flag.is('b', "build-plugins"); err != nil { return } else if opt {
-                optionAlwaysBuildPlugins = true; return
-        }
         err = fmt.Errorf("`%v` unknown command option", flag.Name)
         return
 }
@@ -197,6 +204,13 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
                 includeFunc: includespec,
                 usefunc:  useProject,
                 scope:    ctx.globe.scope,
+        }
+
+        if optionVerbose || optionBenchImport {
+                defer func(t time.Time) {
+                        var d = time.Now().Sub(t)
+                        fmt.Fprintf(stderr, "smart: Targets %v (%s)\n", targets, d)
+                } (time.Now())
         }
 
         var (
@@ -244,6 +258,7 @@ AtLookupLoop:
                         if m := fi.Mode(); m.IsRegular() {
                                 defS.set(DefExpand, &String{ab})
                                 defD.set(DefExpand, &String{ab})
+                                if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", s1) }
                                 if err = ctx.loader.loadFile(s1, nil); err != nil {
                                         return
                                 } else {
@@ -256,6 +271,7 @@ AtLookupLoop:
                         if m := fi.Mode(); m.IsDir() {
                                 defS.set(DefExpand, &String{ab})
                                 defD.set(DefExpand, &String{ab})
+                                if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", s2) }
                                 if err = ctx.loader.loadPath(s2, nil); err != nil {
                                         return
                                 } else {
@@ -276,11 +292,30 @@ AtLookupLoop:
                 switch a {
                 case "-b", "-build-plugins":
                         optionAlwaysBuildPlugins = true
+                case "-ur", "-use-recursively":
+                        optionUsingRecursively = true
+                case "-bi", "-bench-import":
+                        optionBenchImport = true
+                case "-v", "-verbose":
+                        optionVerbose = true
+                case "-vi", "-verbose-import":
+                        optionVerboseImport = true
+                case "-vc", "-verbose-checks":
+                        optionVerboseChecks = true
                 default:
                         args = append(args, a)
                 }
         }
 
+        defer func(t time.Time) {
+                var d = time.Now().Sub(t)
+                if optionVerboseImport {
+                        fmt.Fprintf(stderr, "└·%s … (%s)\n", ctx.loader.project.name, d)
+                } else if d > 5000*time.Millisecond {
+                        fmt.Fprintf(stderr, "smart: %s … (%s)\n", ctx.loader.project.name, d)
+                }
+        } (time.Now())
+        if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
 
         text := strings.Join(args, " ")

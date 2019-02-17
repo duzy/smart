@@ -106,6 +106,7 @@ type Project struct {
 	name    string
         scope   *Scope
         bases   []*Project
+        imports []*Project
 
         // List order is significant, duplication is acceptable.
         filemap []*FileMap
@@ -400,6 +401,11 @@ func (p *Project) DefaultEntry() (entry *RuleEntry) {
 
 func (p *Project) resolveObject(s string) (obj Object, err error) {
         if _, obj = p.scope.Find(s); obj == nil {
+                if p.pluginScope != nil {
+                        if obj = p.pluginScope.Lookup(s); obj != nil {
+                                return
+                        }
+                }
                 for _, base := range p.bases {
                         obj, err = base.resolveObject(s)
                         if err != nil || obj != nil {
@@ -754,6 +760,48 @@ func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes,
                 err = f.Close()
         } else {
                 err = e
+        }
+        return
+}
+
+func (p *Project) isImported(proj *Project, spec string) (rp *Project, res, isb bool) {
+        for _, base := range p.bases {
+                if isb = base == proj; isb { return }
+                if rp, res, isb = base.isImported(proj, spec); res || isb {
+                        rp = base ; return
+                }
+        }
+        for _, imp := range p.imports {
+                if res = imp == proj; res { return }
+                if rp, res, isb = imp.isImported(proj, spec); res || isb {
+                        rp = imp ; return
+                }
+        }
+        rp = p
+        return
+}
+
+func (p *Project) isUsingProject(usee *Project) (res bool) {
+        for _, using := range p.usings.list {
+                if res = using.project == usee; res { break  }
+                if res = using.project.isUsingProject(usee); res { break }
+        }
+        return
+}
+
+func (p *Project) isUsingDirectly(proj *Project) (res bool) {
+        for _, u := range p.usings.list {
+                if res = u.project == proj; res { break }
+        }
+        return
+}
+
+func (p *Project) usees() (res []*Project) {
+        for _, u := range p.usings.list {
+                res = append(res, u.project)
+                for _, u := range u.project.usees() {
+                        if !p.isUsingDirectly(u) { res = append(res, u) }
+                }
         }
         return
 }
