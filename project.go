@@ -837,54 +837,65 @@ func enter(prog *Program, dir string) (err error) {
         return
 }
 
-func leave(prog *Program, top int) (err error) {
+func leave(prog *Program, stop *enterec) (err error) {
+        var size = len(cd.stack)
         if trace_entering {
-                fmt.Fprintf(stderr, "leaving: %v (%v)\n", top, prog.project.name)
+                fmt.Fprintf(stderr, "leaving: %v (%v %v %v)\n", stop.dir, prog.project.name, stop.num, size)
         }
 
-        if enable_assertions {
-                assert(len(cd.stack) > top, "wrong cd stack")
-        }
+        for _, enter := range cd.stack {
+                if enter.num == 0 { continue } else {
+                        enter.num -= 1
+                }
 
-        var stop = len(cd.stack) - top
-        for i, enter := range cd.stack {
-                if enter.num -= 1; i == stop {
-                        /*if enter.print {
+                if enter == stop {
+                        if enter.print && false {
                                 fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
                                 enter.print = false
-                        }*/
+                        }
                         err = os.Chdir(enter.wd)
-                        cd.stack = cd.stack[i:]
                         break
                 }
+        }
+
+        // Erase 'zero' and unprint records, the first record is always kept.
+        // So that the right entering/leaving pairs are printed.
+        if size > 1 {
+                var stack = []*enterec{ cd.stack[0] }
+                for i := 1; i < size; i += 1 {
+                        var rec = cd.stack[i]
+                        if rec.num > 0 || rec.print {
+                                stack = append(stack, rec)
+                        }
+                }
+                cd.stack = stack
         }
         return
 }
 
 func printEnteringDirectory() {
-        if l := len(cd.stack); l > 0 {
+        if size := len(cd.stack); size > 0 {
                 var enter = cd.stack[0]
                 if enter.silent { return }
                 for _, p := range cd.stack {
                         if p.print && p != enter {
-                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", p.dir)
                                 p.print = false
+                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", p.dir)
                         }
                 }
                 if !enter.print {
-                        fmt.Fprintf(stderr, "smart: Entering directory '%s'\n", enter.dir)
-                        //fmt.Fprintf(stderr, "smart: %d %v\n", l, cd.stack)
                         enter.print = true
+                        fmt.Fprintf(stderr, "smart: Entering directory '%s'\n", enter.dir)
                 }
         }
 }
 
 func printLeavingDirectory() {
-        if l := len(cd.stack); l > 0 {
-                for _, p := range cd.stack {
-                        if p.print {
-                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", p.dir)
-                                p.print = false
+        if size := len(cd.stack); size > 0 {
+                for _, enter := range cd.stack {
+                        if enter.print {
+                                enter.print = false
+                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
                         }
                 }
         }

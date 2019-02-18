@@ -301,7 +301,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         // cd before setting execstack, because cd reads execstack
         // before changes.
-        var lenEnters = len(cd.stack)
+        var enterStop *enterec
+        if len(cd.stack) > 0 { enterStop = cd.stack[0] }
         if err = enter(prog, prog.project.absPath); err != nil { return }
         cd.stack[0].silent = !prog.pc.print
 
@@ -309,7 +310,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
         defer setclosure(setclosure(cloctx.unshift(prog.scope))) // entry.DeclScope()
         defer func() { // leaving after setting execstack to meet the FIFO order of execstack
-                e := leave(prog, lenEnters)
+                e := leave(prog, enterStop)
                 if err == nil { err = e } else if e != nil {
                         fmt.Fprintf(stderr, "%s: leaving: %s\n", prog.pc.entry.Position, e)
                 }
