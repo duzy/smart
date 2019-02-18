@@ -26,6 +26,8 @@ type FileMap struct {
         Paths []Value
 }
 
+func (filemap *FileMap) String() string { return filemap.Pattern.String() }
+
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(filename string) (bool, string) {
         return globMatch(filemap.Pattern, filename)
@@ -125,6 +127,8 @@ type Project struct {
 
         plugin *plugin.Plugin
         pluginScope *Scope
+
+        allowMultiImported bool // allow being imported multiple times
 }
 
 func (p *Project) String() string {
@@ -142,13 +146,6 @@ func (p *Project) Spec() string { return p.spec }
 func (p *Project) Name() string { return p.name }
 func (p *Project) Scope() *Scope { return p.scope }
 func (p *Project) Bases() []*Project { return p.bases }
-
-func (p *Project) isa(proj *Project) (res bool) {
-        for _, base := range p.bases {
-                if base == proj { res = true; break }
-        }
-        return
-}
 
 func (p *Project) Chain(bases ...*Project) {
         for _, base := range bases {
@@ -764,18 +761,31 @@ func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes,
         return
 }
 
-func (p *Project) isImported(proj *Project, spec string) (rp *Project, res, isb bool) {
+func (p *Project) isa(proj *Project) (res bool) {
+        for _, base := range p.bases {
+                if base == proj { res = true; break }
+        }
+        return
+}
+
+func (p *Project) hasBase(proj *Project) (res bool) {
+        for _, base := range p.bases {
+                if res = base == proj; res { break }
+                if res = base.hasBase(proj); res { break }
+        }
+        return
+}
+
+func (p *Project) hasImported(proj *Project) (rp *Project, res, isb bool) {
         for _, base := range p.bases {
                 if isb = base == proj; isb { return }
-                if rp, res, isb = base.isImported(proj, spec); res || isb {
+                if rp, res, isb = base.hasImported(proj); res || isb {
                         rp = base ; return
                 }
         }
         for _, imp := range p.imports {
-                if res = imp == proj; res { return }
-                if rp, res, isb = imp.isImported(proj, spec); res || isb {
-                        rp = imp ; return
-                }
+                if res = imp == proj; res { rp = imp; return }
+                if rp, res, res = imp.hasImported(proj); res { rp = imp; return }
         }
         rp = p
         return

@@ -1925,6 +1925,13 @@ func (p *parser) parseFile() *ast.File {
 
                 p.next()
                 
+                // Options are *Flag or *Pair of a Flag.
+                var options []Value
+                for p.tok == token.MINUS {
+                        opt := p.checkExpr(p.parseExpr(false))
+                        options = append(options, p.expr(opt))
+                }
+                
                 // Smart-lang spec:
                 //   * the project clause is not a declaration;
                 //   * the project name does not appear in any scope.
@@ -1970,7 +1977,7 @@ func (p *parser) parseFile() *ast.File {
                 if p.errors.Len() != 0 { return nil }
 
                 if p.mode&Flat == 0 {
-                        if err := p.declare(keyword, ident, params); err != nil {
+                        if err := p.declare(keyword, ident, options, params); err != nil {
                                 p.error(ident.Pos(), err)
                         } else {
                                 defer p.closeCurrent(ident)

@@ -20,16 +20,19 @@ var (
         optionClean = false
         optionReconfig = false
         optionConfigure = false
-        optionUsingRecursively = false // very much longer build time
+        optionRecursiveUsing = false // very much longer build time
         optionAlwaysBuildPlugins = false
         optionVerbose = false
         optionVerboseImport = false
         optionVerboseChecks = false
         optionBenchImport = false
+        optionBenchSlow = false
 )
 const (
         // Executing use rules recursively takes more time.
         optionExecuteUseRulesRecursively = false
+
+        optionNoDeprecatedFeatures = true
 )
 
 type Context struct {
@@ -293,7 +296,7 @@ AtLookupLoop:
                 case "-b", "-build-plugins":
                         optionAlwaysBuildPlugins = true
                 case "-ur", "-use-recursively":
-                        optionUsingRecursively = true
+                        optionRecursiveUsing = true
                 case "-bi", "-bench-import":
                         optionBenchImport = true
                 case "-v", "-verbose":
@@ -307,12 +310,20 @@ AtLookupLoop:
                 }
         }
 
+        if optionRecursiveUsing {
+                fmt.Fprintf(stderr, "smart: ▶WARNING◀ recursive using projects takes really long time!\n")
+        }
+
         defer func(t time.Time) {
+                var name string
+                if ctx.loader.project != nil {
+                        name = ctx.loader.project.name
+                }
                 var d = time.Now().Sub(t)
                 if optionVerboseImport {
-                        fmt.Fprintf(stderr, "└·%s … (%s)\n", ctx.loader.project.name, d)
+                        fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
                 } else if d > 5000*time.Millisecond {
-                        fmt.Fprintf(stderr, "smart: %s … (%s)\n", ctx.loader.project.name, d)
+                        fmt.Fprintf(stderr, "smart: %s … (%s)\n", name, d)
                 }
         } (time.Now())
         if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
