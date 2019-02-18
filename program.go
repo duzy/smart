@@ -460,7 +460,7 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
                 for _, updated := range br.updated {
                         pc.updatedDef.append(updated.target)
                 }
-
+                
                 if len(br.updated) > 0 {
                         pc.mode = updateMode // switch into update mode
                 } else {
