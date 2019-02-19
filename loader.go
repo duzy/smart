@@ -393,7 +393,11 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
         }
 
         if yes && !opts.reuse {
-                if proj, res, isb := l.project.hasImported(loaded); isb {
+                var ( proj *Project ; res, isb bool )
+                if proj, res, isb, err = l.project.hasImported(loaded); err != nil {
+                        l.parser.error(spec.Pos(), "`%s`: %s", specName, err)
+                        return
+                } else if isb {
                         l.parser.error(spec.Pos(), "`%s` is a base (%s)", specName, proj.name)
                         return
                 } else if res {
@@ -432,7 +436,11 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
         l.project.imports = append(l.project.imports, loaded)
 
         for _, u := range l.project.usings.list {
-                if proj, res, isb := loaded.hasImported(u.project); isb {
+                var ( proj *Project ; res, isb bool )
+                if proj, res, isb, err = loaded.hasImported(u.project); err != nil {
+                        l.parser.error(spec.Pos(), "`%s`: %s", specName, err)
+                        return
+                } else if isb {
                         if l.project.hasBase(u.project) {
                                 // common bases are fine
                         } else {

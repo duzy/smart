@@ -776,18 +776,46 @@ func (p *Project) hasBase(proj *Project) (res bool) {
         return
 }
 
-func (p *Project) hasImported(proj *Project) (rp *Project, res, isb bool) {
+func (p *Project) hasImported(proj *Project) (rp *Project, res, isb bool, err error) {
+        return p.hasImportedRecur(p, proj)
+}
+
+func (p *Project) hasImportedRecur(top, proj *Project) (rp *Project, res, isb bool, err error) {
         for _, base := range p.bases {
                 if isb = base == proj; isb { return }
-                if rp, res, isb = base.hasImported(proj); res || isb {
-                        rp = base ; return
-                }
+                if rp, res, isb, err = base.hasImportedRecur(top, proj); err != nil {
+                        return
+                } else if res || isb { rp = base ; return }
         }
         for _, imp := range p.imports {
+                if imp == top {
+                        s := top.loopImportPath()
+                        err = fmt.Errorf("loop `%v`", s)
+                        return
+                }
                 if res = imp == proj; res { rp = imp; return }
-                if rp, res, res = imp.hasImported(proj); res { rp = imp; return }
+                if rp, res, res, err = imp.hasImportedRecur(top, proj); err != nil {
+                        return
+                } else if res { rp = imp; return }
         }
         rp = p
+        return
+}
+
+func (p *Project) loopImportPath() (s string) { return p.loopImportRecur(p) }
+func (p *Project) loopImportRecur(top *Project) (s string) {
+        for _, imp := range p.imports {
+                if imp == top {
+                        if p != top { s = "⇢" }
+                        s += p.name + "⇢" + imp.name
+                        break
+                }
+                if t := imp.loopImportRecur(top); t != "" {
+                        if p != top { s = "⇢" }
+                        s += p.name + t
+                        break
+                }
+        }
         return
 }
 
