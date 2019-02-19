@@ -724,10 +724,10 @@ ForArgs:
                 if c, err = newcompariation(prog, target); err == nil {
                         if optVerbose || optionVerboseChecks {
                                 if true {
-                                        fmt.Fprintf(stderr, "smart: Check %s …", target)
+                                        fmt.Fprintf(stderr, "smart: Checking %s …", target)
                                 } else {
                                         tar, _ := filepath.Rel(prog.project.absPath, targetStr)
-                                        fmt.Fprintf(stderr, "smart: Check %s …", tar)
+                                        fmt.Fprintf(stderr, "smart: Checking %s …", tar)
                                 }
                         }
                         c.nomiss, c.nocomp = optDiscardMissing, optNoUpdate

@@ -850,8 +850,8 @@ func leave(prog *Program, stop *enterec) (err error) {
 
                 if enter == stop {
                         if enter.print && false {
-                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
                                 enter.print = false
+                                fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
                         }
                         err = os.Chdir(enter.wd)
                         break

@@ -1112,13 +1112,14 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
         } else if optionExecuteUseRulesRecursively {
                 err = l.executeUseRulesRecursively(pos, usee, params)
         } else {
-                err = l.executeUseRuleDirectly(pos, usee, params)
-                if err != nil { return }
-                
                 // Get usees 'recursively' and use each directly.
                 for _, u := range usee.usees() {
                         err = l.executeUseRuleDirectly(pos, u, params)
                         if err != nil { break }
+                }
+                // Execute the usee rule at the end. 
+                if err == nil {
+                        err = l.executeUseRuleDirectly(pos, usee, params)
                 }
         }
         return
