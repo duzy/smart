@@ -331,6 +331,10 @@ AtLookupLoop:
         } (time.Now())
         if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
+        if l.globe.main == nil {
+                fmt.Fprintf(stderr, "no projects loaded\n")
+                return
+        }
 
         text := strings.Join(args, " ")
         for _, target := range ctx.loader.loadText("@", text) {

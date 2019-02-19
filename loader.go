@@ -2194,6 +2194,10 @@ func (l *loader) loadText(filename string, text string) []Value {
 		err = l.errors.Err()*/
 	} (l.parser)
 
+        if l.globe.main == nil {
+                return
+        }
+
         l.useesExecuted = nil
         l.project = l.globe.main
         l.scope = l.project.scope
