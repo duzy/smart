@@ -32,6 +32,9 @@ const (
         // Executing use rules recursively takes more time.
         optionExecuteUseRulesRecursively = false
 
+        // Executing use rules multiple times takes long time.
+        optionExecuteUseRuleMultiTimes = false
+
         optionNoDeprecatedFeatures = true
 )
 

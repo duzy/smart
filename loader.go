@@ -98,12 +98,14 @@ type declare struct {
         project *Project
         backproj *Project
         backscope *Scope
+        useesExecuted []*Project
 }
 
 type loadinfo struct {
         absDir string // absPath = filepath.Join(absDir, baseName)
         baseName string
         specName string
+        useesExecuted []*Project
         loader *Project
         scope *Scope
         declares map[string]*declare // all project declares in the loaded dir
@@ -129,6 +131,7 @@ type loader struct {
         usePath []*Project // use path
         importPath []*Project // import path
         importDepth int // import depth
+        useesExecuted []*Project // all executed usees
         project  *Project // the current project
         scope    *Scope   // the current scope
         ruleParseFunc func(p *parser, tok token.Token, special ruleSpecial, targets []ast.Expr) *ast.RuleClause
@@ -166,6 +169,7 @@ func restoreLoadingInfo(l *loader) {
         )
 
         l.loads = l.loads[0:last]
+        l.useesExecuted = linfo.useesExecuted
         l.project = linfo.loader
         l.scope = linfo.scope //l.SetScope(linfo.scope)
 
@@ -186,6 +190,7 @@ func saveLoadingInfo(l *loader, specName, absDir, baseName string) *loader {
                 absDir: absDir,
                 baseName: baseName,
                 specName: filepath.Clean(specName),
+                useesExecuted: l.useesExecuted,
                 loader:   l.project,
                 scope:    l.scope, //Scope(),
                 declares: make(map[string]*declare),
@@ -939,6 +944,13 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) (err e
         return
 }
 
+func (l *loader) isExecutedUsee(usee *Project) (res bool) {
+        for _, p := range l.useesExecuted {
+                if res = usee == p; res { break }
+        }
+        return
+}
+
 func (l *loader) executeUseRule(pos token.Pos, userule *RuleEntry, params []Value) (err error) {
         position := l.parser.file.Position(pos)
         for _, prog := range userule.programs {
@@ -1026,6 +1038,12 @@ func (l *loader) executeUseRulesRecursively(pos token.Pos, usee *Project, params
 }
 
 func (l *loader) executeUseRuleDirectly(pos token.Pos, usee *Project, params []Value) (err error) {
+        // Return immediately if this usee is executed. If the use rule
+        // accumulates values (e.g. += or =+), it may take very long time.
+        if !optionExecuteUseRuleMultiTimes && l.isExecutedUsee(usee) {
+                return // execute use rule only once
+        }
+
         // Monitor the execution time of the :use: rule.
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
@@ -1041,6 +1059,7 @@ func (l *loader) executeUseRuleDirectly(pos token.Pos, usee *Project, params []V
 
         if usee.userule != nil {
                 err = l.executeUseRule(pos, usee.userule, params)
+                l.useesExecuted = append(l.useesExecuted, usee)
         }
         return
 }
@@ -1579,6 +1598,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 }
                 dec.backproj = l.project
                 dec.backscope = l.scope
+                l.useesExecuted = nil
                 l.project = at.NamedProject()
                 l.scope = l.project.scope
                 return nil
@@ -1650,6 +1670,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
         dec.backproj = l.project
         dec.backscope = l.scope
+        l.useesExecuted = nil
         l.project = dec.project
         l.scope = l.project.scope
 
@@ -1694,10 +1715,12 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 func (l *loader) closeCurrent(ident *ast.Bareword) (err error) {
         if ident.Value == "@" {
                 if dec, ok := l.loads[0].declares[ident.Value]; ok {
-                        l.project = dec.backproj
                         l.scope = dec.backscope
+                        l.project = dec.backproj
+                        l.useesExecuted = dec.useesExecuted
                         dec.backproj = nil
                         dec.backscope = nil
+                        dec.useesExecuted = nil
                 }
                 return nil
         }
@@ -1717,6 +1740,7 @@ func (l *loader) closeCurrent(ident *ast.Bareword) (err error) {
 
         l.scope = dec.backscope
         l.project = dec.backproj
+        l.useesExecuted = dec.useesExecuted
         return
 }
 
@@ -2162,6 +2186,7 @@ func (l *loader) loadText(filename string, text string) []Value {
 		err = l.errors.Err()*/
 	} (l.parser)
 
+        l.useesExecuted = nil
         l.project = l.globe.main
         l.scope = l.project.scope
 
