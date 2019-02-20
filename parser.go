@@ -135,7 +135,15 @@ func (p *parser) trace(a ...interface{}) {
 }
 
 func (p *parser) error(pos token.Pos, err interface{}, a... interface{}) {
-        p.errorAt(p.file.Position(pos), err, a...)
+        var position = p.file.Position(pos)
+        if e, ok := err.(error); ok {
+                for _, t := range p.errors {
+                        if e.Error() == t.Error() { return }
+                }
+                p.errors.Add(position, e)
+        } else {
+                p.errorAt(position, err, a...)
+        }
 }
 
 // Advance to the next token.
@@ -809,25 +817,27 @@ func (p *parser) parsePathExpr(lhs bool, start ast.Expr) ast.Expr {
                 }
 
                 switch p.tok {
-                case token.RPAREN, token.RBRACE:
+                case token.RPAREN, token.RBRACE, token.LINEND:
                         break BuildPath
                 default:if pos+1 < p.pos {
                         break BuildPath 
                 }}
                 
-                x := p.checkExpr(p.parseComposedExpr(false)) // p.checkExpr(p.parseExpr(false))
+                x := p.checkExpr(p.parseComposedExpr(false))
                 path.Segments = append(path.Segments, x)
                 if p.tok != token.PCON || x.End() != p.pos {
                         break BuildPath
                 }
         }
 
-        /*if n := len(path.Segments); n > 1 {
+        /*
+        if n := len(path.Segments); n > 1 {
                 var name = path.Segments[n-1]
                 if file := p.File(name); file != nil {
                         
                 }
-        }*/
+        }
+        */
         return path
 }
 
@@ -864,7 +874,8 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                                 case token.LBRACE: resolved, err = p.find(v)
                                 }
                                 if err != nil {
-                                        p.error(name.Pos(), "name is nil: %v", err)
+                                        p.error(name.Pos(), "invalid name")
+                                        p.error(name.Pos(), err) // add err to the list
                                 }
                         }
                         name = &ast.EvaluatedExpr{ name, v }

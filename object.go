@@ -295,6 +295,15 @@ func (d *Def) cmp(v Value) (res cmpres) {
 
 func (d *Def) Type() Type { return DefType }
 func (d *Def) True() bool { return d.Value.True() }
+func (d *Def) elemstr(o Object, quote bool) (s string) {
+        if o != nil {
+                if p := d.OwnerProject(); p != o.OwnerProject() {
+                        return fmt.Sprintf("$(%s->%s)", p.name, d.name)
+                }
+        }
+        s = fmt.Sprintf(`$(%s)`, d.name)
+        return
+}
 func (d *Def) String() (s string) {
         switch s = d.name; d.origin {
         case DefDefault: s += "="
@@ -304,7 +313,7 @@ func (d *Def) String() (s string) {
         default: s += " = "
         }
         if d.Value != nil {
-                s += elementString(d, d.Value)
+                s += elementString(d, d.Value, true)
         } else {
                 s += "<nil>"
         }

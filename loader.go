@@ -573,7 +573,8 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
 
         s, err := name.Strval()
         if err != nil {
-                l.parser.error(x.Name.Pos(), "%v", err)
+                l.parser.error(x.Name.Pos(), "invalid name")
+                l.parser.error(x.Name.Pos(), err)
                 return
         }
 
@@ -663,7 +664,7 @@ func (l *loader) exprClosure(x *ast.ClosureExpr) (v Value) {
 
 func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
         if name, obj, args := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
-                l.parser.error(x.Name.Pos(), "invalid delegate name `%T`", x.Name)
+                l.parser.error(x.Name.Pos(), "`%T` is invalid delegation name", x.Name)
         } else if obj != nil {
                 v = MakeDelegate(Position(x.Position), x.TokLp, obj, args...)
         } else if sel, ok := name.(*selection); ok {
@@ -671,16 +672,18 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
                         obj = unresolved(l.project, name)
                         v = MakeDelegate(Position(x.Position), x.TokLp, obj, args...)
                 } else if err != nil {
-                        l.parser.error(x.Name.Pos(), "delegate selection `%v`: %v", name, err)
+                        l.parser.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
+                        l.parser.error(x.Name.Pos(), err)
                 } else if o == nil {
-                        l.parser.error(x.Name.Pos(), "delegate selection `%v`: nil object", name)
+                        l.parser.error(x.Name.Pos(), "`%v` nil delegation object", name)
                 } else if v, err = sel.value(); err != nil {
-                        l.parser.error(x.Name.Pos(), "delegate selection `%v`: %v", name, err)
+                        l.parser.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
+                        l.parser.error(x.Name.Pos(), err)
                 } else if v == nil {
-                        l.parser.error(x.Name.Pos(), "delegate selection `%v`: nil value", name)
+                        l.parser.error(x.Name.Pos(), "`%v` nil delegation value", name)
                 }
         } else {
-                l.parser.error(x.Name.Pos(), "delegate expression `%v`: nil object (in %v)", name, l.scope.comment)
+                l.parser.error(x.Name.Pos(), "`%v` nil delegation object (from %v)", name, l.scope.comment)
         }
         return
 }
@@ -1479,7 +1482,8 @@ func includespec(l *loader, pos token.Pos, spec Value) {
         if entry, ok := spec.(*RuleEntry); ok && entry != nil {
                 var result []Value
                 if result, err = entry.Execute(entry.Position); err != nil {
-                        l.parser.error(pos, "include `%v`: %v", spec, err)
+                        l.parser.error(pos, "include error occurred (entry %v)", entry)
+                        l.parser.error(pos, err) // add err to the list
                         return
                 } else if result != nil {
                         // result ignored
@@ -1499,7 +1503,8 @@ func includespec(l *loader, pos token.Pos, spec Value) {
                 specName = t.name
         default:
                 if specName, err = spec.Strval(); err != nil {
-                        l.parser.error(pos, "include `%v`: %v", spec, err)
+                        l.parser.error(pos, "include error occurred (spec %v)", spec)
+                        l.parser.error(pos, err) // add err to the list
                         return
                 }
                 if filepath.IsAbs(specName) {
@@ -1518,7 +1523,8 @@ func includespec(l *loader, pos token.Pos, spec Value) {
         var absDir, baseName = filepath.Split(fullname)
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
         if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
-                l.parser.error(pos, "include: %v", err)
+                l.parser.error(pos, "include error occurred (from %v)", fullname)
+                l.parser.error(pos, err) // add err to the list
         } else {
                 // The parse mode could still be 'Flat' here as ParseFile
                 // changed it, so we have to restore the previous parse mode.

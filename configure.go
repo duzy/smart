@@ -150,7 +150,8 @@ func do_configuration() error {
                                 // to a None value.
                                 fmt.Fprintf(writer, "%v !=\n", def.name)
                         } else {
-                                fmt.Fprintf(writer, "%v = %v\n", def.name, elementString(def, def.Value))
+                                vs := elementString(def, def.Value, true)
+                                fmt.Fprintf(writer, "%v = %v\n", def.name, vs)
                         }
                         num += 1
                 } else {
@@ -224,6 +225,16 @@ func configmessage(pos Position, s string, fields map[string]Value, params... Va
         case "include", "symbol", "function", "package":
                 if n > 2 {
                         configinfox(pos, fields, params[2])
+                } else {
+                        configinfox(pos, fields, params[0])
+                }
+        case "struct-member":
+                fields["name"] = &String{"struct member"}
+                if n >= 2 {
+                        s1, _ := params[0].Strval()
+                        s2, _ := params[1].Strval()
+                        s := fmt.Sprintf("(%s) %s", s1, s2)
+                        configinfox(pos, fields, &String{s})
                 } else {
                         configinfox(pos, fields, params[0])
                 }
@@ -370,11 +381,11 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
         } else if entry == nil {
                 err = scanner.Errorf(token.Position(pos), "unknown configuration `%v` (no such entry)", s)
         } else if res, err = prog.passExecution(pos, entry, params...); err != nil {
-                var n, en int
-                if n, err = fmt.Sscanf(err.Error(), "exit status %d", &en); err == nil && n == 1 {
+                var ( n, en int ; tag string; es = err.Error() )
+                if n, err = fmt.Sscanf(es, strCommandFailedFmt, &tag, &en); err == nil && n == 2 {
                         configured, err = true, nil
                 } else {
-                        err = scanner.Errorf(token.Position(pos), "execute %v: %v", s, err)
+                        err = scanner.Errorf(token.Position(pos), "configure %v: %v (%v %v)", s, es, tag, en)
                 }
         } else {
                 if res != nil { result = MakeListOrScalar(res) }
@@ -472,11 +483,21 @@ ForArgs:
         }
 
         defer func() {
-                if err == nil { configinfon(pos, "… %v", result) } else {
+                if err == nil {
+                        if result == nil {
+                                configinfon(pos, "… <nil>")
+                        } else if false {
+                                s := elementString(nil, result, true)
+                                configinfon(pos, "… %v", s)
+                        } else {
+                                s, _ := result.Strval()
+                                configinfon(pos, "… %v", s)
+                        }
+                } else {
                         switch e := err.(type) {
                         case scanner.Errors: configinfon(pos, "… (%d errors)", len(e))
-                        case *scanner.Error: configinfon(pos, "… (error: %v)", e.Err)
-                        default: configinfon(pos, "… (error: %v)", err)
+                        case *scanner.Error: configinfon(pos, "… (%v)", e.Err)
+                        default: configinfon(pos, "… (%v).", err)
                         }
                 }
         } ()

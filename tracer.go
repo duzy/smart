@@ -49,6 +49,11 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
         default: s = fmt.Sprintf("%v", err)
         }
         if len(a) > 0 {
+                for _, v := range a {
+                        if e, ok := v.(error); ok {
+                                panic(fmt.Sprintf("embedded error: %s", e))
+                        }
+                }
                 s = fmt.Sprintf(s, a...)
         }
         p.errors.Add(pos, errors.New(s))

@@ -576,15 +576,14 @@ func (pc *preparecontext) isUpdatedTarget(target Value) (res bool) {
         return 
 }
 
-func elementString(o Object, elem Value) (s string) {
-        if d, ok := elem.(*Def); ok {
-                if o != nil {
-                        if p := d.OwnerProject(); p != o.OwnerProject() {
-                                return fmt.Sprintf("$(%s->%s)", p.name, d.name)
-                        }
-                }
-                s = fmt.Sprintf(`$(%s)`, d.name)
-        } else {
+type elemstrer interface {
+        elemstr(o Object, quote bool) string
+}
+
+func elementString(o Object, elem Value, quote bool) (s string) {
+        if p, ok := elem.(elemstrer); ok {
+                s = p.elemstr(o, quote)
+        } else if elem != nil {
                 s = elem.String()
         }
         return
@@ -650,14 +649,15 @@ func (p *Argumented) Float() (f float64, err error) {
         }
         return
 }
-func (p *Argumented) String() (s string) {
+func (p *Argumented) elemstr(o Object, quote bool) (s string) {
         for i, a := range p.Args {
                 if i > 0 { s += "," }
-                s += elementString(nil, a)
+                s += elementString(o, a, quote)
         }
-        s = fmt.Sprintf("%s(%s)", p.Val, s)
+        s = fmt.Sprintf("%s(%s)", elementString(o, p.Val, quote), s)
         return
 }
+func (p *Argumented) String() (s string) { return p.elemstr(nil, true) }
 func (p *Argumented) Strval() (s string, err error) {
         if s, err = p.Val.Strval(); err != nil {
                 return
@@ -853,7 +853,8 @@ func (p *negative) cmp(v Value) (res cmpres) {
 }
 func (p *negative) Type() Type { return NegativeType }
 func (p *negative) True() bool { return !p.x.True() }
-func (p *negative) String() (s string) { return fmt.Sprintf("!%v", p.x) }
+func (p *negative) elemstr(o Object, quote bool) string { return `!`+elementString(o, p.x, quote) }
+func (p *negative) String() (s string) { return p.elemstr(nil, true) }
 func (p *negative) Strval() (string, error) { return fmt.Sprintf("%v", !p.x.True()), nil }
 func (p *negative) Float() (res float64, err error) {
         if !p.x.True() { res = FloatEpsilon }
@@ -887,7 +888,10 @@ func (p *boolean) refs(_ Value) bool { return false }
 func (p *boolean) closured() bool { return false }
 func (p *boolean) Type() Type { return BooleanType }
 func (p *boolean) True() bool { return p.bool }
-func (p *boolean) String() (s string) { return fmt.Sprintf("%v", p.bool) }
+func (p *boolean) String() (s string) {
+        if p.bool { s = "true" } else { s = "false" }
+        return
+}
 func (p *boolean) Strval() (string, error) { return p.String(), nil }
 func (p *boolean) Float() (v float64, err error) {
         if p.bool { v = 1. }
@@ -1170,7 +1174,11 @@ func (_ *String) closured() bool { return false }
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *String) Type() Type { return StringType }
 func (p *String) True() bool { return p.string != "" }
-func (p *String) String() string { return "'"+p.string+"'" }
+func (p *String) elemstr(o Object, quote bool) (s string) {
+        if quote { s = "'"+p.string+"'" } else { s = p.string }
+        return
+}
+func (p *String) String() string { return p.elemstr(nil, true) }
 func (p *String) Strval() (string, error) { return p.string, nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
@@ -1309,12 +1317,13 @@ func (p *Barecomp) Strval() (s string, e error) {
         }
         return
 }
-func (p *Barecomp) String() (s string) {
+func (p *Barecomp) elemstr(o Object, quote bool) (s string) {
         for _, elem := range p.Elems {
-                s += elementString(nil, elem)
+                s += elementString(o, elem, quote)
         }
         return
 }
+func (p *Barecomp) String() (s string) { return p.elemstr(nil, true) }
 
 func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
@@ -1368,7 +1377,8 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Barefile) Type() Type { return BarefileType }
 func (p *Barefile) True() bool { return p.File != nil }
-func (p *Barefile) String() string { return elementString(nil, p.Name) }
+func (p *Barefile) elemstr(o Object, quote bool) (s string) { return elementString(o, p.Name, quote) }
+func (p *Barefile) String() string { return p.elemstr(nil, true) }
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
         //var str string
@@ -1456,7 +1466,10 @@ func (p *GlobRange) expand(w expandwhat) (Value, error) {
 }
 func (p *GlobRange) Type() Type { return GlobType }
 func (p *GlobRange) True() bool { return false }
-func (p *GlobRange) String() (s string) { return fmt.Sprintf("[%s]", elementString(nil, p.Chars)) }
+func (p *GlobRange) elemstr(o Object, quote bool) (s string) {
+        return fmt.Sprintf("[%s]", elementString(o, p.Chars, quote))
+}
+func (p *GlobRange) String() (s string) { return p.elemstr(nil, true) }
 func (p *GlobRange) Strval() (s string, err error) {
         var chars string
         if chars, err = p.Chars.Strval(); err == nil {
@@ -1479,13 +1492,14 @@ type Path struct {
         elements
         File *File // if this path is pointed to a file, ie. the last element matched a FileMap
 }
-func (p *Path) String() (s string) {
+func (p *Path) elemstr(o Object, quote bool) (s string) {
         var segs []string
         for _, elem := range p.Elems {
-                segs = append(segs, elementString(nil, elem))
+                segs = append(segs, elementString(o, elem, quote))
         }
         return strings.Join(segs, PathSep)
 }
+func (p *Path) String() (s string) { return p.elemstr(nil, true) }
 func (p *Path) Strval() (s string, e error) {
         // TODO: add '/' for root dir
         var sep = true
@@ -1980,7 +1994,10 @@ func (p *Flag) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Flag) Type() Type { return FlagType }
 func (p *Flag) True() bool { return p.Name.True() }
-func (p *Flag) String() (s string) { return fmt.Sprintf("-%s", elementString(nil, p.Name)) }
+func (p *Flag) elemstr(o Object, quote bool) (s string) {
+        return "-" + elementString(o, p.Name, quote)
+}
+func (p *Flag) String() (s string) { return p.elemstr(nil, true) }
 func (p *Flag) Strval() (s string, e error) {
         if p.Name == nil || p.Name.Type() == NoneType {
                 s = "-"
@@ -2057,12 +2074,14 @@ func (p *Compound) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Compound) Type() Type { return CompoundType }
-func (p *Compound) String() (s string) {
+func (p *Compound) elemstr(o Object, quote bool) (s string) {
         for _, elem := range p.Elems {
-                s += elementString(nil, elem)
+                s += elementString(o, elem, false)
         }
-        return fmt.Sprintf(`"%s"`, s)
+        if quote { s = `"`+s+`"` }
+        return
 }
+func (p *Compound) String() string { return p.elemstr(nil, true) }
 func (p *Compound) Strval() (s string, err error) {
         for _, e := range p.Elems {
                 var v string
@@ -2091,13 +2110,14 @@ func (p *Compound) cmp(v Value) (res cmpres) {
 
 type List struct { elements }
 func (p *List) Type() Type { return ListType }
-func (p *List) String() (s string) {
+func (p *List) elemstr(o Object, quote bool) (s string) {
         var strs []string
         for _, elem := range p.Elems {
-                strs = append(strs, elementString(nil, elem))
+                strs = append(strs, elementString(o, elem, quote))
         }
         return strings.Join(strs, " ")
 }
+func (p *List) String() (s string) { return p.elemstr(nil, true) }
 func (p *List) Strval() (s string, err error) {
         var x = 0
         for _, e := range p.Elems {
@@ -2176,13 +2196,14 @@ func (p *List) cmp(v Value) (res cmpres) {
 
 type Group struct { List }
 func (p *Group) Type() Type { return GroupType }
-func (p *Group) String() string {
+func (p *Group) elemstr(o Object, quote bool) string {
         var strs []string
         for _, elem := range p.Elems {
-                strs = append(strs, elementString(nil, elem))
+                strs = append(strs, elementString(o, elem, quote))
         }
         return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
+func (p *Group) String() string { return p.elemstr(nil, true) }
 func (p *Group) Strval() (s string, err error) {
         if s, err = p.List.Strval(); err == nil {
                 s = "(" + s + ")"
@@ -2243,9 +2264,10 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
 }
 func (p *Pair) Type() Type { return PairType }
 func (p *Pair) True() bool { return p.Value.True() || p.Key.True() }
-func (p *Pair) String() string {
-        return fmt.Sprintf("%s=%s", elementString(nil, p.Key), elementString(nil, p.Value))
+func (p *Pair) elemstr(o Object, quote bool) string {
+        return elementString(o, p.Key, quote)+`=`+elementString(o, p.Value, quote)
 }
+func (p *Pair) String() string { return p.elemstr(nil, true) }
 func (p *Pair) Strval() (s string, err error) {
         var k, v string
         if k, err = p.Key.Strval(); err == nil {
@@ -2701,11 +2723,12 @@ func (p *selection) True() (t bool) {
         }
         return
 }
-func (p *selection) String() string {
-        o := elementString(nil, p.o)
-        s := elementString(nil, p.s)
-        return fmt.Sprintf("%v%s%v", o, p.t, s)
+func (p *selection) elemstr(o Object, quote bool) (s string) {
+        s = elementString(o, p.o, quote) + p.t.String()
+        s += elementString(o, p.s, quote)
+        return
 }
+func (p *selection) String() string { return p.elemstr(nil, true) }
 
 func (p *selection) object() (o Object, err error) {
         if s, ok := p.o.(*selection); ok {
@@ -2862,11 +2885,12 @@ type PercPattern struct {
 }
 func (p *PercPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *PercPattern) Type() Type { return PercPatternType }
-func (p *PercPattern) String() string {
-        prefix := elementString(nil, p.Prefix)
-        suffix := elementString(nil, p.Suffix)
-        return fmt.Sprintf("%s%%%s", prefix, suffix)
+func (p *PercPattern) elemstr(o Object, quote bool) (s string) {
+        s = elementString(o, p.Prefix, quote) + `%`
+        s += elementString(o, p.Suffix, quote)
+        return
 }
+func (p *PercPattern) String() string { return p.elemstr(nil, true) }
 func (p *PercPattern) Strval() (s string, err error) {
         if p.Prefix != nil {
                 var v string
@@ -3001,12 +3025,13 @@ type GlobPattern struct {
 }
 func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *GlobPattern) Type() Type { return GlobPatternType }
-func (p *GlobPattern) String() (s string) {
+func (p *GlobPattern) elemstr(o Object, quote bool) (s string) {
         for _, comp := range p.Components {
-                s += elementString(nil, comp)
+                s += elementString(o, comp, quote)
         }
         return
 }
+func (p *GlobPattern) String() (s string) { return p.elemstr(nil, true) }
 func (p *GlobPattern) Strval() (s string, err error) {
         for _, comp := range p.Components {
                 var v string
