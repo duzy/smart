@@ -2167,7 +2167,7 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
 
         var mods map[string]*ast.Project
         mods, hasConfDir, err = l.ParseDir(absDir, filter, parseMode)
-        if err == nil && mods != nil && !hasConfDir && filepath.Base(specName) != "@" {
+        if err == nil && mods == nil && !hasConfDir && filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` invalid project", specName)
         }
         return
