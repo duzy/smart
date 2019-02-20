@@ -309,13 +309,17 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 // Update timestamps to depended file, so that
                 // further updates can happen.
                 if !dt.IsZero() {
+                        // FIXME: set file ModTime instead of using the
+                        //        timestamps, it may cause some targets
+                        //        updated multiple times if target is
+                        //        compared with different deps.
                         c.program.globe.timestamps[ts] = dt
                         c.program.globe.timestamps[ds] = dt
                 }
-        } else {
+        } else if true {
                 // Just save the timestamps to optimize further stats.
                 if !tt.IsZero() { c.program.globe.timestamps[ts] = tt }
-                if !dt.IsZero() { c.program.globe.timestamps[ds] = dt } //tt
+                if !dt.IsZero() { c.program.globe.timestamps[ds] = dt }
         }
         return
 }

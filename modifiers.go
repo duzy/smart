@@ -636,39 +636,6 @@ ForArgs:
                 return
         }
 
-        /*
-        var target = targetDef.Value
-        if target == nil || target.Type() == NoneType {
-                err = break_bad(pos, "`%s` target type invalid", target.Type())
-                return
-        } else if target.Type() == ListType {
-                var list = target.(*List)
-                if len(list.Elems) == 1 {
-                       target = list.Elems[0] 
-                } else {
-                        err = break_bad(pos, "comparing multiple targets %v", list.Elems)
-                        return
-                }
-        }
-        switch t := target.(type) {
-        case *closure:
-                var v Value
-                if v, err = t.expand(expandClosure|expandDelegate); err == nil {
-                        target = v
-                } else {
-                        err = break_bad(pos, "comparing closure %v: %v", target, err)
-                        return
-                }
-        case *delegate:
-                var v Value
-                if v, err = t.expand(expandDelegate); err == nil {
-                        target = v
-                } else {
-                        err = break_bad(pos, "comparing delegate %v: %v", target, err)
-                        return
-                }
-        }
-        */
         var target Value
         if target, err = targetDef.Call(pos); err != nil {
                 err = break_bad(pos, "comparing %v: %v", targetDef, err)
@@ -676,15 +643,7 @@ ForArgs:
         } else if target == nil || target.Type() == NoneType {
                 err = break_bad(pos, "`%s` target type invalid", target.Type())
                 return
-        } /*else if target.Type() == ListType {
-                var list = target.(*List)
-                if len(list.Elems) == 1 {
-                       target = list.Elems[0] 
-                } else {
-                        err = break_bad(pos, "comparing multiple targets %v", list.Elems)
-                        return
-                }
-        }*/
+        }
 
         var targetStr string
         if targetStr, err = target.Strval(); err != nil { return }

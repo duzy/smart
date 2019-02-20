@@ -428,8 +428,9 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                 l.parser.error(spec.Pos(), "'%s' not loaded (%s)", specName, absPath)
         }
 
-        if enable_assertions {
-                assert(loaded != nil, "'%s' loaded nil", specName)
+        if loaded == nil {
+                l.parser.error(spec.Pos(), "'%s' not smart project", specName)
+                return
         }
 
         // The project import list is different from using list.
@@ -2195,7 +2196,7 @@ func (l *loader) loadText(filename string, text string) []Value {
 	} (l.parser)
 
         if l.globe.main == nil {
-                return
+                return nil
         }
 
         l.useesExecuted = nil

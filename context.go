@@ -331,7 +331,7 @@ AtLookupLoop:
         } (time.Now())
         if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
-        if l.globe.main == nil {
+        if ctx.loader.globe.main == nil {
                 fmt.Fprintf(stderr, "no projects loaded\n")
                 return
         }
