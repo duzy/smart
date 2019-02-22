@@ -1380,8 +1380,11 @@ func modifierWriteFile(pos Position, prog *Program, args... Value) (result Value
 }
 
 func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m == compareMode {
-                return /* not working in compare mode */
+        //if m := prog.pc.mode; m == compareMode {
+        //        return /* not working in compare mode */
+        //}
+        if m := prog.pc.mode; m != updateMode {
+                //return /* only configure in update mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
@@ -1390,11 +1393,11 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
                 return
         }
 
+        var optPath, optVerbose bool
         var (
                 nargs = len(args)
                 perm = os.FileMode(0640) // sys default 0666
                 filename, content string
-                optPath, optSilent bool
                 num int64
                 f *os.File
         )
@@ -1408,7 +1411,8 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
                         case *Flag:
                                 var opt bool
                                 if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
-                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optSilent = opt }
+                                if opt, err = a.is('v', "verbose"); err != nil { return } else if opt { optVerbose = opt }
+                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optVerbose = !opt }
                         }
                 }
                 args, nargs = v, len(v) // Reset args
@@ -1460,7 +1464,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
                 }
         }
 
-        if !optSilent {
+        if optVerbose {
                 printEnteringDirectory()
                 fmt.Fprintf(stderr, "update file '%v' …", filename)
         }
@@ -1472,13 +1476,13 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
                         result = stat(filename, "", "")
-                        if !optSilent { fmt.Fprintf(stderr, "… (ok)\n") }
+                        if optVerbose { fmt.Fprintf(stderr, "… (ok)\n") }
                 } else {
                         os.Remove(filename)
-                        if !optSilent { fmt.Fprintf(stderr, "… (%s)\n", err) }
+                        if optVerbose { fmt.Fprintf(stderr, "… (%s)\n", err) }
                 }
         } else {
-                if !optSilent { fmt.Fprintf(stderr, "… (%s)\n", err) }
+                if optVerbose { fmt.Fprintf(stderr, "… (%s)\n", err) }
                 err = break_bad(pos, "file %s not updated", target)
         }
         return

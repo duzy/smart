@@ -589,7 +589,7 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
 //     
 func modifierConfigureFile(pos Position, prog *Program, args... Value) (result Value, err error) {
         if m := prog.pc.mode; m != updateMode {
-                return /* only configure in update mode */
+                //return /* only configure in update mode */
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 

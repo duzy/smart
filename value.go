@@ -1649,6 +1649,11 @@ func (p *Path) elemstr(o Object, k elemkind) (s string) {
 func (p *Path) String() (s string) { return p.elemstr(nil, 0) }
 func (p *Path) Strval() (s string, e error) {
         for i, seg := range p.Elems {
+                if seg == nil {
+                        e = fmt.Errorf("`%s` nil path segment", p)
+                        return
+                }
+
                 var v string
                 if v, e = seg.Strval(); e != nil { return }
                 if i > 0 {

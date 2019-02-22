@@ -602,6 +602,9 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                                 l.parser.error(x.Name.Pos(), "non-object callable `%s` resolved `%T`", name, def)
                                 return
                         }
+                } else if l.isIncludingConf {
+                        // Create the empty Def if it's in configuration.sm.
+                        obj, _ = l.def(s)
                 }
         case token.LBRACE:
                 if resolved == nil { // if not resolved at parse time

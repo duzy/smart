@@ -35,6 +35,11 @@ func (filemap *FileMap) Match(filename string) (bool, string) {
 
 func (filemap *FileMap) stat(base, name string) (file *File) {
         for _, path := range filemap.Paths {
+                if path == nil {
+                        msg := fmt.Sprintf("`%v` nil", filemap.Paths)
+                        panic(msg)
+                }
+
                 var ( dir, sub string ; err error )
                 if sub, err = path.Strval(); err != nil { return }
                 if filepath.IsAbs(sub) {
@@ -370,7 +375,7 @@ func (p *Project) matchFile(name string) (file *File) {
                         }
                         if file.match == nil { file.match = filemap }
                         if enable_assertions {
-                                assert(err == nil, "%v", err)
+                                assert(err == nil, "%v: %v", p, err)
                         }
                 }
                 if file.exists() { break }
