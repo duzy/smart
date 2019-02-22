@@ -29,6 +29,8 @@ var (
         optionBenchSlow = false
 )
 const (
+        optionTraceParsing = false
+
         // Executing use rules recursively takes more time.
         optionExecuteUseRulesRecursively = false
 

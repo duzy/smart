@@ -123,7 +123,7 @@ type loaderScope struct {
 type loader struct {
         *Context
         *parser
-        tracing // Tracing/debugging
+        tracing // tracing/debugging
         fset     *token.FileSet
         paths    searchlist
         loads    []*loadinfo
@@ -137,6 +137,7 @@ type loader struct {
         ruleParseFunc func(p *parser, tok token.Token, special ruleSpecial, targets []ast.Expr) *ast.RuleClause
         usefunc  func(l *loader, pos token.Pos, usee *Project, params []Value) error
         includeFunc func(l *loader, pos token.Pos, val Value)
+        isIncludingConf bool // including configuration
         vs string // verbose prefix
 }
 
@@ -675,12 +676,12 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
                         l.parser.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
                         l.parser.error(x.Name.Pos(), err)
                 } else if o == nil {
-                        l.parser.error(x.Name.Pos(), "`%v` nil delegation object", name)
+                        l.parser.error(x.Name.Pos(), "`%v` nil selection object", name)
                 } else if v, err = sel.value(); err != nil {
                         l.parser.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
                         l.parser.error(x.Name.Pos(), err)
-                } else if v == nil {
-                        l.parser.error(x.Name.Pos(), "`%v` nil delegation value", name)
+                } else if v == nil && !l.isIncludingConf {
+                        l.parser.error(x.Name.Pos(), "`%v` not found in %v", sel.s, o)
                 }
         } else {
                 l.parser.error(x.Name.Pos(), "`%v` nil delegation object (from %v)", name, l.scope.comment)
@@ -956,8 +957,11 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
         }
 
         if v == nil {
-                l.parser.error(expr.Pos(), "`%v` nil expression (%T)", expr, expr)
-                v = new(Nil)
+                if l.isIncludingConf {
+                        v = new(Nil)
+                } else {
+                        l.parser.error(expr.Pos(), "`%v` nil expression (%T)", expr, expr)
+                }
         }
         return
 }
@@ -1735,7 +1739,9 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         } else if s, err := ctd.Strval(); err != nil {
                 return err
         } else if file := stat("configuration.sm", "", s); file != nil {
+                l.isIncludingConf = true
                 l.includeFunc(l, ident.Pos(), file)
+                l.isIncludingConf = false
         }
 
         if optNoDock || l.project.name == "dock" { return }
@@ -1917,7 +1923,11 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
         var text []byte
 	if text, err = readSource(filename, src); err != nil { return }
 
-	l.mode = mode //| Trace
+	l.mode = mode
+        if optionTraceParsing {
+                l.mode |= Trace
+        }
+
 	l.tracing.enabled = l.mode&Trace != 0 // for convenience (l.trace is used frequently)
 	defer func(saved *parser) {
 		if e := recover(); e != nil {

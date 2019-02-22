@@ -26,6 +26,7 @@ type Clause interface {
 type Expr interface {
 	Node
 	expr()
+        String() string
 }
 
 // A Comment node represents a single #-style comment.
@@ -416,19 +417,24 @@ func joinx(sep string, exprs... Expr) (s string) {
 }
 
 func (x *BadExpr) String() string         { return fmt.Sprintf("BadExpr{%v,%v}", x.From, x.To) }
-func (x *EvaluatedExpr) String() string   { return x.Expr.(fmt.Stringer).String() }
+func (x *EvaluatedExpr) String() string   { return x.Expr.String() }
 func (x *Bareword) String() string        { return x.Value }
 func (x *Constant) String() string        { return x.Tok.String() }
 func (x *BasicLit) String() string        { return x.Value }
-func (x *FlagExpr) String() string        { return `-`+x.Name.(fmt.Stringer).String() }
-func (x *NegExpr) String() string         { return `!`+x.Val.(fmt.Stringer).String() }
+func (x *FlagExpr) String() (s string) {
+        if s = `-`; x.Name != nil {
+                s += x.Name.String()
+        }
+        return
+}
+func (x *NegExpr) String() string         { return `!`+x.Val.String() }
 func (x *CompoundLit) String() string     { return `"`+joins(x.Elems...)+`"` }
 func (x *Barecomp) String() string        { return joins(x.Elems...) }
-func (x *Barefile) String() string        { return x.Name.(fmt.Stringer).String() }
+func (x *Barefile) String() string        { return x.Name.String() }
 func (x *ListExpr) String() string        { return joinx(" ", x.Elems...) }
 func (x *PathExpr) String() (s string) {
         if len(x.Segments) == 1 {
-                s = x.Segments[0].(fmt.Stringer).String()
+                s = x.Segments[0].String()
                 if s == "" { s = "/" } // it's the root
         } else {
                 s = joinx("/", x.Segments...)
@@ -436,21 +442,21 @@ func (x *PathExpr) String() (s string) {
         return
 }
 func (x *URLExpr) String() (s string) {
-        s = x.Scheme.(fmt.Stringer).String()
+        s = x.Scheme.String()
         if x.Colon1 != token.NoPos { s += ":" }
         if x.SlashSlash != token.NoPos { s += "//" }
-        if x.Username != nil { s += x.Username.(fmt.Stringer).String() }
+        if x.Username != nil { s += x.Username.String() }
         if x.Colon2 != token.NoPos { s += ":" }
-        if x.Password != nil { s += x.Password.(fmt.Stringer).String() }
+        if x.Password != nil { s += x.Password.String() }
         if x.At != token.NoPos { s += "@" }
-        if x.Host != nil { s += x.Host.(fmt.Stringer).String() }
+        if x.Host != nil { s += x.Host.String() }
         if x.Colon3 != token.NoPos { s += ":" }
-        if x.Port != nil { s += x.Port.(fmt.Stringer).String() }
-        if x.Path != nil { s += x.Path.(fmt.Stringer).String() }
+        if x.Port != nil { s += x.Port.String() }
+        if x.Path != nil { s += x.Path.String() }
         if x.Que != token.NoPos { s += "?" }
-        if x.Query != nil { s += x.Query.(fmt.Stringer).String() }
+        if x.Query != nil { s += x.Query.String() }
         if x.NumSign != token.NoPos { s += "#" }
-        if x.Fragment != nil { s += x.Fragment.(fmt.Stringer).String() }
+        if x.Fragment != nil { s += x.Fragment.String() }
         return
 }
 func (x *PathSegExpr) String() (s string) {

@@ -8,6 +8,7 @@ LIBS :=
 LANG := c++
 INCLUDES :=
 VALUE :=
+
 -include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG).include
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
 -symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).symbol($(SYMBOL))

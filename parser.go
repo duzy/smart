@@ -510,9 +510,8 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
 
 // If lhs is set, result list elements which are identifiers are not resolved.
 func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
-	if p.tracing.enabled {
-		defer un(trace(p, "List"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "List")) }
+
         for !p.isEndOfList(lhs) {
                 x := p.checkExpr(p.parseExpr(lhs))
                 list = append(list, x)
@@ -553,9 +552,7 @@ func (p *parser) parseRhsList() []ast.Expr {
 // Expressions
 
 func (p *parser) parseGroupExpr(lhs bool) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Group"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Group")) }
         
         lpos := p.pos
         p.next()
@@ -580,9 +577,7 @@ func (p *parser) parseGroupExpr(lhs bool) ast.Expr {
 }
 
 func (p *parser) parseArgumentedExpr(x ast.Expr) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Argumented"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Argumented")) }
 
         p.next() // skip token.LPAREN
         
@@ -606,9 +601,7 @@ func (p *parser) parseGlobMeta() (x ast.Expr) {
 }
 
 func (p *parser) parseGlobRange() (x ast.Expr) {
-	if p.tracing.enabled {
-		defer un(trace(p, "Glob"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Glob")) }
 
         p.next() // skip '['
 
@@ -624,9 +617,7 @@ func (p *parser) parseGlobRange() (x ast.Expr) {
 }
 
 func (p *parser) parseGlobExpr(x ast.Expr) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Glob"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Glob")) }
 
         var components []ast.Expr
         if x != nil {
@@ -658,9 +649,7 @@ func (p *parser) parseGlobExpr(x ast.Expr) ast.Expr {
 }
 
 func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Perc"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Perc")) }
 
         // avoid nesting percent expressions
         defer p.setbits(p.setbit(composingPERC))
@@ -681,9 +670,7 @@ func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
 }
 
 func (p *parser) parseRegexpExpr() (x ast.Expr) {
-	if p.tracing.enabled {
-		defer un(trace(p, "Regexp"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Regexp")) }
 
         // avoid nesting percent expressions
         defer p.setbits(p.setbit(composingREXP))
@@ -694,9 +681,7 @@ func (p *parser) parseRegexpExpr() (x ast.Expr) {
 }
 
 func (p *parser) parseKeyValueExpr(x ast.Expr) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Pair"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Pair")) }
 
         pos, tok := p.pos, p.tok; p.next()
         return &ast.KeyValueExpr{
@@ -708,9 +693,7 @@ func (p *parser) parseKeyValueExpr(x ast.Expr) ast.Expr {
 }
 
 func (p *parser) parseFlagExpr(lhs bool) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Flag"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Flag")) }
 
         var (
                 pos = p.pos
@@ -719,7 +702,7 @@ func (p *parser) parseFlagExpr(lhs bool) ast.Expr {
 
         p.next() // skip dash '-'
 
-        // Flag expressions, excluding "-)" "-]" "-}" "-\n", "-=", etc.
+        // Flag expressions, excluding "-)" "-]" "-}" "-\n", "-=", "-:", etc.
         if p.isEndOfLine() || p.isEndOfList(false) {
                 x = nil
         } else if false {
@@ -731,9 +714,7 @@ func (p *parser) parseFlagExpr(lhs bool) ast.Expr {
 }
 
 func (p *parser) parseNegExpr(lhs bool) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Negative"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Negative")) }
         pos := p.expect(token.EXC)
         val := p.parseExpr(lhs)
         return &ast.NegExpr{ NegPos: pos, Val: val }
@@ -782,9 +763,7 @@ func (p *parser) parseCompoundLit(lhs bool) ast.Expr {
 //   ..'foo'
 //   .foo.bar
 func (p *parser) parseDotExpr(lhs bool, x ast.Expr) (res ast.Expr) {
-	if p.tracing.enabled {
-		defer un(trace(p, "Dot"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Dot")) }
         
         defer p.setbits(p.setbit(composingDOT))
 
@@ -819,9 +798,7 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) (res ast.Expr) {
 }
 
 func (p *parser) parsePathExpr(lhs bool, start ast.Expr) ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "Path"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Path")) }
 
         defer p.setbits(p.setbit(composingPATH))
 
@@ -871,9 +848,7 @@ BuildPath:
 }
 
 func (p *parser) parseURLExpr(lhs bool, scheme ast.Expr) (res ast.Expr) {
-	if p.tracing.enabled {
-		defer un(trace(p, "URL"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "URL")) }
 
         defer p.setbits(p.setbit(composingURL))
 
@@ -1124,9 +1099,8 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) ast.Expr {
 }
 
 func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
-	/*if p.tracing.enabled {
-                defer un(trace(p, "Unary"))
-	}*/
+	if false && p.tracing.enabled { defer un(trace(p, "Unary")) }
+
         switch p.tok {
         case token.BAREWORD, token.AT:
                 return p.parseBarewordOrConstant(lhs)
@@ -1200,9 +1174,8 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
 }
 
 func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
-	if p.tracing.enabled {
-		defer un(trace(p, "Composed"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Composed")) }
+
         switch x = p.parseUnaryExpr(lhs); p.tok { // check composible expressions
         case token.SELECT_PROP, token.SELECT_PROG: // foo->bar  foo=>bar
                 if p.bits&composingNoSelect == 0 {
@@ -1244,9 +1217,8 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
 }
 
 func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
-	if false && p.tracing.enabled {
-                defer un(trace(p, "Expression"))
-	}
+	if false && p.tracing.enabled { defer un(trace(p, "Expression")) }
+
         pos, tok := p.pos, p.tok
         if x = p.parseComposedExpr(lhs); x == nil {
                 p.warn(pos, "`%v` invalid expression", tok)
@@ -1802,9 +1774,7 @@ func (p *parser) parseRuleClause(tok token.Token, special ruleSpecial, targets [
 }
 
 func parseRuleClause(p *parser, tok token.Token, special ruleSpecial, targets []ast.Expr) *ast.RuleClause {
-	if p.tracing.enabled {
-		defer un(trace(p, "Rule"))
-	}
+	if p.tracing.enabled { defer un(trace(p, "Rule")) }
 
         var (
                 doc = p.leadComment
@@ -1960,16 +1930,16 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         case token.EVAL:
                 return p.parseGenericClause(token.EVAL, p.expect(token.EVAL), p.parseEvalSpec)
 	case token.USE:
-                if pos := p.expect(token.USE); p.tok.IsRuleDelim() {
+                var pos = p.expect(token.USE)
+                if p.tok.IsRuleDelim() {
                         return p.parseRuleClause(p.tok, ruleSpecialNor, []ast.Expr{
                                 &ast.Bareword{
                                         ValuePos: pos, 
                                         Value: token.USE.String(),
                                 },
                         })
-                } else {
-                        return p.parseGenericClause(token.USE, pos, p.parseUseSpec)
                 }
+                return p.parseGenericClause(token.USE, pos, p.parseUseSpec)
         case token.COLON:
                 return p.parseSpecialRuleClause()
         }
