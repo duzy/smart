@@ -2211,7 +2211,7 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
 func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var optVerb = true
+        var optVerbose = true
         var optPath = false
         var optMode = os.FileMode(0600)
         if len(args) > 0 {
@@ -2223,7 +2223,7 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                         case *None: // ignores
                         case *Flag:
                                 if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
-                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optVerb = false }
+                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optVerbose = false }
                         case *Pair:
                                 if opt, err = a.isFlag('m', "mode"); err != nil { return } else if opt {
                                         var num int64
@@ -2282,28 +2282,40 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
         //if file.Info == nil { file.Info, _ = stat(filename) }
         if file.info != nil {
                 var f *os.File
+                if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
                 if f, err = os.Open(filename); err == nil && f != nil {
                         defer f.Close()
                         if st, _ := f.Stat(); st.Mode().Perm() != optMode {
-                                if err = f.Chmod(optMode); err != nil { return }
+                                if err = f.Chmod(optMode); err != nil {
+                                        fmt.Fprintf(stderr, "… (error: %s)\n", err)
+                                        return
+                                }
                         }
                         w1 := crc64.New(crc64Table)
                         w2 := crc64.New(crc64Table)
-                        if _, err = io.Copy(w1, f); err != nil { return }
-                        if _, err = w2.Write(data.Bytes()); err != nil { return }
+                        if _, err = io.Copy(w1, f); err != nil {
+                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
+                                return
+                        }
+                        if _, err = w2.Write(data.Bytes()); err != nil {
+                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
+                                return
+                        }
                         if s1, s2 := w1.Sum64(), w2.Sum64(); s1 == s2 {
+                                if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
                                 res = file
                                 return
                         }
                 }
+                if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
         } else if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
                 if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
         }
 
         var status string
-        if optVerb {
+        if optVerbose {
                 printEnteringDirectory()
-                fmt.Fprintf(stderr, "configure file %v …", file)
+                fmt.Fprintf(stderr, "smart: Updating %v …", file)
                 defer func() {
                         if err != nil { status = "error!" } else {
                                 if status == "" { status = "done." }

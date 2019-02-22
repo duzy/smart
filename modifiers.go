@@ -1422,7 +1422,8 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         if nargs == 0 {
                 if filename, err = target.Strval(); err != nil { return }
         } else {
-                if filename, err = args[0].Strval(); err != nil { return }
+                target = args[0]
+                if filename, err = target.Strval(); err != nil { return }
                 if nargs > 1 {
                         if num, err = args[1].Integer(); err != nil { return }
                         perm = os.FileMode(num & 0777)
@@ -1445,28 +1446,34 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
 
         if f, err = os.Open(filename); err == nil && f != nil {
                 defer f.Close()
+                if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", target) }
                 if st, _ := f.Stat(); st.Mode().Perm() != perm {
                         if err = f.Chmod(perm); err != nil {
+                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
                                 return
                         }
                 }
                 w1 := crc64.New(crc64Table)
                 w2 := crc64.New(crc64Table)
                 if _, err = io.Copy(w1, f); err != nil {
+                        fmt.Fprintf(stderr, "… (error: %s)\n", err)
                         return
                 }
                 if _, err = io.WriteString(w2, content); err != nil {
+                        fmt.Fprintf(stderr, "… (error: %s)\n", err)
                         return
                 }
                 if w1.Sum64() == w2.Sum64() {
+                        if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
                         result = stat(filename, "", "")
                         return
                 }
+                if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
         }
 
         if optVerbose {
                 printEnteringDirectory()
-                fmt.Fprintf(stderr, "update file '%v' …", filename)
+                fmt.Fprintf(stderr, "smart: Updating '%v' …", filename)
         }
 
         // Create or update the file with new content
