@@ -1,4 +1,9 @@
 package smart; const configurationInitFile = `project ~ (-nodock -final)
+files (
+    (*.c.include *.c++.include *.symbol *.variable *.function \
+     *.structmember *.sizeof *.c *.c++) => &(CTD)/check
+)
+
 SHELL := shell -s
 CC := gcc
 CFLAGS :=
@@ -9,19 +14,19 @@ LANG := c++
 INCLUDES :=
 VALUE :=
 
--include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG).include
+-include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).$(LANG).include
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).symbol($(SYMBOL))
+-symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).symbol($(SYMBOL))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(FUNCTION))
+-function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).function($(FUNCTION))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).function($(FUNCTION))
+-library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).function($(FUNCTION))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -l$(LIBRARY) -o &(CTD)/check.out
--struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).structmember($(STRUCT),$(MEMBER))
+-struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).structmember($(STRUCT),$(MEMBER))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).sizeof($(TYPE))
+-sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).sizeof($(TYPE))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
--compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : &(CTD)/check/$(TARGET).$(LANG)
+-compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).$(LANG)
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
 
 %.c.include:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
@@ -101,7 +106,8 @@ VALUE :=
 	#endif
 	{ (void)argv; return SIZE; }
 	
-&(CTD)/check/pthreads.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
+#&(CTD)/check/pthreads.c
+pthreads.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	#include <pthread.h>
 	void* routine(void* args) { return args; }
 	int main(void) {

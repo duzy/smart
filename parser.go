@@ -505,7 +505,8 @@ func (p *parser) isEndOfURL(lhs bool) bool {
 }
 
 func (p *parser) isEndOfDotConcat(lhs bool) bool {
-        return p.tok == token.COLON || p.tok == token.PCON || p.isEndOfLine() || p.isEndOfList(lhs)
+        // Expressions like `FOO.BAR(xxx)` does not count.
+        return p.tok == token.LPAREN || p.tok == token.COLON || p.tok == token.PCON || p.isEndOfLine() || p.isEndOfList(lhs)
 }
 
 // If lhs is set, result list elements which are identifiers are not resolved.
