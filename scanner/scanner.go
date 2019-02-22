@@ -39,6 +39,8 @@ type Scanner struct {
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
+
+        DontScanComment bool // don't next scanComment
 }
 
 const bom = 0xFEFF // byte order mark, only permitted as very first character
@@ -867,8 +869,11 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 s.next() // always progress to the next
                 switch ch {
                 case '#':
-                        tok, lit = token.COMMENT, s.scanComment()
-                        s.next() // discard '\n'
+                        tok = token.COMMENT
+                        if !s.DontScanComment {
+                                lit = s.scanComment()
+                                s.next() // discard '\n'
+                        }
                 case '@':
                         tok = token.AT
                 case '|':

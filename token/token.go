@@ -15,7 +15,7 @@ const (
         // Special tokens.
 	ILLEGAL Token = iota
 	EOF
-	COMMENT
+	COMMENT  // #
         
 	literal_beg
 	// Identifiers and basic type literals

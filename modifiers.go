@@ -232,6 +232,8 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var optPath bool
+        var optPrintEnter bool
+        var optPrintLeave bool
         //var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
         //if _, ok := target.(*Flag); ok { optPrint = false }
         if len(args) > 0 {
@@ -241,6 +243,8 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
                         default: v = append(v, arg)
                         case *Flag:
                                 var opt bool
+                                if opt, err = a.is(0, "print-enter"); err != nil { return } else if opt { optPrintEnter = opt }
+                                if opt, err = a.is(0, "print-leave"); err != nil { return } else if opt { optPrintLeave = opt }
                                 if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
                                 //if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optPrint = false }
                                 if opt, err = a.is(0, ""); err != nil { return } else if opt {
@@ -254,6 +258,11 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
                         }
                 }
                 args = v // Reset args
+        }
+        if optPrintEnter || optPrintLeave {
+                if optPrintEnter { printEnteringDirectory() }
+                if optPrintLeave { printLeavingDirectory() }
+                if len(args) == 0 { return }
         }
         if len(args) == 1 {
                 var dir string

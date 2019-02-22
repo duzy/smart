@@ -211,6 +211,24 @@ type (
                 Tok token.Token
         }
 
+        URLExpr struct {
+                Scheme Expr
+                Colon1 token.Pos // ':'
+                SlashSlash token.Pos // '//'
+                Username Expr
+                Colon2 token.Pos // username:password
+                Password Expr
+                At token.Pos // '@'
+                Host Expr
+                Colon3 token.Pos // host:port
+                Port Expr
+                Path Expr
+                Que token.Pos // '?'
+                Query Expr
+                NumSign token.Pos // '#'
+                Fragment Expr
+        }
+
         // Delegate expressions: $(foo a1,a2,a3), $(foo), $foo
         // Closure expressions: &(foo a1,a2,a3), &(foo), &foo
         ClosureDelegate struct {
@@ -300,6 +318,7 @@ func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
 func (d *NegExpr) Pos() token.Pos         { return d.NegPos }
 func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
 func (d *PathExpr) Pos() token.Pos        { return d.Segments[0].Pos() }
+func (d *URLExpr) Pos() token.Pos         { return d.Scheme.Pos() }
 func (d *PathSegExpr) Pos() token.Pos     { return d.TokPos }
 func (d *ClosureDelegate) Pos() token.Pos { return d.TokPos }
 func (d *SelectionExpr) Pos() token.Pos   { return d.Lhs.Pos() }
@@ -328,6 +347,40 @@ func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End()
 func (d *Barefile) End() token.Pos        { return d.Name.End() }
 func (d *ListExpr) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
 func (d *PathExpr) End() token.Pos        { return d.Segments[len(d.Segments)-1].End() }
+func (d *URLExpr) End() (pos token.Pos) {
+        if d.Fragment != nil {
+                pos = d.Fragment.End()
+        } else if d.NumSign != token.NoPos {
+                pos = d.NumSign
+        } else if d.Query != nil {
+                pos = d.Query.End()
+        } else if d.Que != token.NoPos {
+                pos = d.Que
+        } else if d.Path != nil {
+                pos = d.Path.End()
+        } else if d.Port != nil {
+                pos = d.Port.End()
+        } else if d.Colon3 != token.NoPos {
+                pos = d.Colon3
+        } else if d.Host != nil {
+                pos = d.Host.End()
+        } else if d.At != token.NoPos {
+                pos = d.At
+        } else if d.Password != nil {
+                pos = d.Password.End()
+        } else if d.Colon2 != token.NoPos {
+                pos = d.Colon2
+        } else if d.Username != nil {
+                pos = d.Username.End()
+        } else if d.SlashSlash != token.NoPos {
+                pos = d.SlashSlash
+        } else if d.Colon1 != token.NoPos {
+                pos = d.Colon1
+        } else {
+                pos = d.Scheme.End()
+        }
+        return
+}
 func (d *PathSegExpr) End() token.Pos     { if d.Tok == token.DOTDOT { return d.TokPos+2 } else { return d.TokPos+1 } }
 func (d *ClosureDelegate) End() token.Pos {
         if d.TokLp == token.ILLEGAL {
@@ -363,21 +416,50 @@ func joinx(sep string, exprs... Expr) (s string) {
 }
 
 func (x *BadExpr) String() string         { return fmt.Sprintf("BadExpr{%v,%v}", x.From, x.To) }
-func (x *EvaluatedExpr) String() string {
-        //return fmt.Sprintf("EvaluatedExpr{%v=%v}", x.Expr, x.Data)
-        return fmt.Sprintf("%v", x.Expr)
+func (x *EvaluatedExpr) String() string   { return x.Expr.(fmt.Stringer).String() }
+func (x *Bareword) String() string        { return x.Value }
+func (x *Constant) String() string        { return x.Tok.String() }
+func (x *BasicLit) String() string        { return x.Value }
+func (x *FlagExpr) String() string        { return `-`+x.Name.(fmt.Stringer).String() }
+func (x *NegExpr) String() string         { return `!`+x.Val.(fmt.Stringer).String() }
+func (x *CompoundLit) String() string     { return `"`+joins(x.Elems...)+`"` }
+func (x *Barecomp) String() string        { return joins(x.Elems...) }
+func (x *Barefile) String() string        { return x.Name.(fmt.Stringer).String() }
+func (x *ListExpr) String() string        { return joinx(" ", x.Elems...) }
+func (x *PathExpr) String() (s string) {
+        if len(x.Segments) == 1 {
+                s = x.Segments[0].(fmt.Stringer).String()
+                if s == "" { s = "/" } // it's the root
+        } else {
+                s = joinx("/", x.Segments...)
+        }
+        return
 }
-func (x *Bareword) String() string        { return fmt.Sprintf("%s", x.Value) }
-func (x *Constant) String() string        { return fmt.Sprintf("%s", x.Tok) }
-func (x *BasicLit) String() string        { return fmt.Sprintf("%s", x.Value) }
-func (x *FlagExpr) String() string        { return fmt.Sprintf("-%v", x.Name) }
-func (x *NegExpr) String() string         { return fmt.Sprintf("!%v", x.Val) }
-func (x *CompoundLit) String() string     { return fmt.Sprintf(`"%v"`, joins(x.Elems...)) }
-func (x *Barecomp) String() string        { return fmt.Sprintf("%v", joins(x.Elems...)) }
-func (x *Barefile) String() string        { return fmt.Sprintf("%v", x.Name) }
-func (x *ListExpr) String() string        { return fmt.Sprintf("%v", joinx(" ", x.Elems...)) }
-func (x *PathExpr) String() string        { return fmt.Sprintf("%v", joinx("/", x.Segments...)) }
-func (x *PathSegExpr) String() string     { return fmt.Sprintf("%v", x.Tok) }
+func (x *URLExpr) String() (s string) {
+        s = x.Scheme.(fmt.Stringer).String()
+        if x.Colon1 != token.NoPos { s += ":" }
+        if x.SlashSlash != token.NoPos { s += "//" }
+        if x.Username != nil { s += x.Username.(fmt.Stringer).String() }
+        if x.Colon2 != token.NoPos { s += ":" }
+        if x.Password != nil { s += x.Password.(fmt.Stringer).String() }
+        if x.At != token.NoPos { s += "@" }
+        if x.Host != nil { s += x.Host.(fmt.Stringer).String() }
+        if x.Colon3 != token.NoPos { s += ":" }
+        if x.Port != nil { s += x.Port.(fmt.Stringer).String() }
+        if x.Path != nil { s += x.Path.(fmt.Stringer).String() }
+        if x.Que != token.NoPos { s += "?" }
+        if x.Query != nil { s += x.Query.(fmt.Stringer).String() }
+        if x.NumSign != token.NoPos { s += "#" }
+        if x.Fragment != nil { s += x.Fragment.(fmt.Stringer).String() }
+        return
+}
+func (x *PathSegExpr) String() (s string) {
+        // The '/' and zero seg indicates the root and tailing empty.
+        if x.Tok != 0 && x.Tok != token.PCON {
+                s = x.Tok.String()
+        }
+        return
+}
 func (x *ClosureDelegate) String() (s string) {
         var a string
         if len(x.Args) > 0 {
@@ -421,6 +503,7 @@ func (*Barecomp) expr()        {}
 func (*Barefile) expr()        {}
 func (*ListExpr) expr()        {}
 func (*PathExpr) expr()        {}
+func (*URLExpr) expr()         {}
 func (*PathSegExpr) expr()     {}
 func (*ClosureDelegate) expr() {}
 func (*SelectionExpr) expr()   {}
@@ -434,6 +517,16 @@ func (*KeyValueExpr) expr()    {}
 func (*ModifierExpr) expr()    {}
 func (*RecipeExpr) expr()      {}
 func (*ProgramExpr) expr()     {}
+
+func (d *Barecomp) Combine(x Expr) {
+        if o, ok := x.(*Barecomp); ok {
+                for _, elem := range o.Elems {
+                        d.Combine(elem)
+                }
+        } else {
+                d.Elems = append(d.Elems, x)
+        }
+}
 
 // A declaration is represented by one of the following declaration nodes.
 //

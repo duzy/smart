@@ -766,6 +766,26 @@ func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
         return
 }
 
+func (l *loader) exprURL(x *ast.URLExpr) (res Value) {
+        var url = &URL{ Scheme:l.expr(x.Scheme) }
+        if x.Username != nil { url.Username = l.expr(x.Username) }
+        if x.Password != nil { url.Password = l.expr(x.Password) } else if x.Colon2 != token.NoPos {
+                url.Password = universalnone
+        }
+        if x.Host != nil { url.Host = l.expr(x.Host) }
+        if x.Port != nil { url.Port = l.expr(x.Port) } else if x.Colon3 != token.NoPos {
+                url.Port = universalnone
+        }
+        if x.Path != nil { url.Path = l.expr(x.Path) }
+        if x.Query != nil { url.Query = l.expr(x.Query) } else if x.Que != token.NoPos {
+                url.Query = universalnone
+        }
+        if x.Fragment != nil { url.Fragment = l.expr(x.Fragment) } else if x.NumSign != token.NoPos {
+                url.Fragment = universalnone
+        }
+        return url
+}
+
 func (l *loader) exprPath(x *ast.PathExpr) (res Value) {
         res = MakePath(l.exprs(x.Segments)...)
         return
@@ -773,10 +793,11 @@ func (l *loader) exprPath(x *ast.PathExpr) (res Value) {
 
 func (l *loader) exprPathSeg(x *ast.PathSegExpr) (v Value) {
         switch x.Tok {
-        case token.PCON:   v = MakePathSeg('/')
+        case token.PCON:   v = MakePathSeg('/') // TODO: should be NONE
         case token.TILDE:  v = MakePathSeg('~')
         case token.PERIOD: v = MakePathSeg('.')
         case token.DOTDOT: v = MakePathSeg('^') // 
+        case 0: v = MakePathSeg(0) // the tailing empty segment after '/', e.g. /foo/bar/
         default: l.parser.error(x.Pos(), "unsupported path segment `%v`", x.Tok)
         }
         return
@@ -812,7 +833,7 @@ func (l *loader) exprList(x *ast.ListExpr) (v Value) {
 }
 
 func (l *loader) exprKeyValue(x *ast.KeyValueExpr) (res Value) {
-        if k := l.expr(x.Key); l.parser.bits&specialKeyValue != 0 {
+        if k := l.expr(x.Key); l.parser.bits&parsingFilesSpec != 0 {
                 res = &Pair{k, l.expr(x.Value)}
         } else if k.Type().Bits()&IsKeyName != 0 {
                 res = MakePair(k, l.expr(x.Value))
@@ -897,6 +918,8 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
                 v = l.exprBarecomp(x)
         case *ast.Barefile:
                 v = l.exprBarefile(x)
+        case *ast.URLExpr:
+                v = l.exprURL(x)
         case *ast.PathExpr:
                 v = l.exprPath(x)
         case *ast.PathSegExpr:

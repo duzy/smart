@@ -576,13 +576,20 @@ func (pc *preparecontext) isUpdatedTarget(target Value) (res bool) {
         return 
 }
 
+type elemkind int
+const (
+        elemNoQuote elemkind = 1<<iota
+        elemNoBrace
+        elemExpand
+)
+
 type elemstrer interface {
-        elemstr(o Object, quote bool) string
+        elemstr(o Object, k elemkind) string
 }
 
-func elementString(o Object, elem Value, quote bool) (s string) {
+func elementString(o Object, elem Value, k elemkind) (s string) {
         if p, ok := elem.(elemstrer); ok {
-                s = p.elemstr(o, quote)
+                s = p.elemstr(o, k)
         } else if elem != nil {
                 s = elem.String()
         }
@@ -649,15 +656,15 @@ func (p *Argumented) Float() (f float64, err error) {
         }
         return
 }
-func (p *Argumented) elemstr(o Object, quote bool) (s string) {
+func (p *Argumented) elemstr(o Object, k elemkind) (s string) {
         for i, a := range p.Args {
                 if i > 0 { s += "," }
-                s += elementString(o, a, quote)
+                s += elementString(o, a, k)
         }
-        s = fmt.Sprintf("%s(%s)", elementString(o, p.Val, quote), s)
+        s = fmt.Sprintf("%s(%s)", elementString(o, p.Val, k), s)
         return
 }
-func (p *Argumented) String() (s string) { return p.elemstr(nil, true) }
+func (p *Argumented) String() (s string) { return p.elemstr(nil, 0) }
 func (p *Argumented) Strval() (s string, err error) {
         if s, err = p.Val.Strval(); err != nil {
                 return
@@ -853,8 +860,8 @@ func (p *negative) cmp(v Value) (res cmpres) {
 }
 func (p *negative) Type() Type { return NegativeType }
 func (p *negative) True() bool { return !p.x.True() }
-func (p *negative) elemstr(o Object, quote bool) string { return `!`+elementString(o, p.x, quote) }
-func (p *negative) String() (s string) { return p.elemstr(nil, true) }
+func (p *negative) elemstr(o Object, k elemkind) string { return `!`+elementString(o, p.x, k) }
+func (p *negative) String() (s string) { return p.elemstr(nil, 0) }
 func (p *negative) Strval() (string, error) { return fmt.Sprintf("%v", !p.x.True()), nil }
 func (p *negative) Float() (res float64, err error) {
         if !p.x.True() { res = FloatEpsilon }
@@ -1124,25 +1131,159 @@ func (p *Time) Strval() (string, error) { return time.Time(p.Value).Format("15:0
 func (p *Time) Integer() (int64, error) { return p.Value.Unix(), nil }
 func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 
-type URL struct { url.URL }
+// ie. https://en.wikipedia.org/wiki/URL
+// ▶▶─<scheme>─(:)┬──────────────────────────────────────┬<path>┬───────────┬┬──────────────┬─▶◀
+//                └(//)┬──────────────┬<host>┬──────────┬┘      └(?)─<query>┘└(#)─<fragment>┘
+//                     └<userinfo>─(@)┘      └(:)─<port>┘
+type URL struct {
+        Scheme Value
+        Username Value
+        Password Value
+        Host Value
+        Port Value
+        Path Value
+        Query Value
+        Fragment Value
+}
 func (_ *URL) refs(_ Value) bool { return false }
 func (_ *URL) closured() bool { return false }
 func (p *URL) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *URL) Type() Type { return URLType }
-func (p *URL) True() bool { return p.URL.String() != "" }
-func (p *URL) String() string { return p.URL.String() }
-func (p *URL) Strval() (string, error) { return p.URL.String(), nil }
-func (p *URL) Integer() (int64, error) { return int64(len(p.URL.String())), nil }
+func (p *URL) True() bool { return p.String() != "" }
+func (p *URL) elemstr(o Object, k elemkind) (s string) {
+        if s = elementString(o, p.Scheme, k); s == "" { return }
+        if s += ":"; p.Host != nil && p.Host.Type() != NoneType {
+                var host string
+                if host = elementString(o, p.Host, k); host == "" { return }
+                s += "//"
+                if p.Username != nil && p.Username.Type() != NoneType {
+                        var user string
+                        if user = elementString(o, p.Username, k); user != "" {
+                                s += user + "@"
+                        }
+                }
+                s += host
+                if p.Port != nil && p.Port.Type() != NoneType {
+                        var port string
+                        if port = elementString(o, p.Port, k); port != "" {
+                                s += ":" + port
+                        }
+                }
+        }
+        if p.Path != nil && p.Path.Type() != NoneType {
+                var path string
+                if path = elementString(o, p.Path, k); path != "" {
+                        //if !strings.HasPrefix(path, PathSep) { s += PathSep }
+                        s += path
+                }
+        }
+        if p.Query != nil && p.Query.Type() != NoneType {
+                var query string
+                if query = elementString(o, p.Query, k); query != "" {
+                        s += "?" + query
+                }
+        }
+        if p.Fragment != nil && p.Fragment.Type() != NoneType {
+                var fragment string
+                if fragment = elementString(o, p.Fragment, k); fragment != "" {
+                        s += "#" + fragment
+                }
+        }
+        return
+}
+func (p *URL) String() string { return p.elemstr(nil, 0) }
+func (p *URL) Strval() (s string, err error) {
+        if s, err = p.Scheme.Strval(); err != nil { return }
+        if s += ":"; p.Host != nil && p.Host.Type() != NoneType {
+                var host string
+                if host, err = p.Host.Strval(); err != nil { return }
+                s += "//"
+                if p.Username != nil && p.Username.Type() != NoneType {
+                        var user string
+                        if user, err = p.Username.Strval(); err != nil { return }
+                        s += user
+                        if p.Password != nil {
+                                var pass string
+                                s += ":"
+                                if pass, err = p.Password.Strval(); err != nil { return }
+                                s += pass
+                        }
+                        s += "@"
+                }
+                s += host
+                if p.Port != nil && p.Port.Type() != NoneType {
+                        var port string
+                        if port, err = p.Port.Strval(); err != nil { return }
+                        s += ":" + port
+                }
+        }
+        if p.Path != nil && p.Path.Type() != NoneType {
+                var path string
+                if path, err = p.Path.Strval(); err != nil { return }
+                //if !strings.HasPrefix(path, PathSep) { s += PathSep }
+                s += path
+        }
+        if p.Query != nil && p.Query.Type() != NoneType {
+                var query string
+                if query, err = p.Query.Strval(); err != nil { return }
+                s += "?" + query
+        }
+        if p.Fragment != nil && p.Fragment.Type() != NoneType {
+                var fragment string
+                if fragment, err = p.Fragment.Strval(); err != nil { return }
+                s += "#" + fragment
+        }
+        return
+}
+func (p *URL) Integer() (i int64, err error) {
+        var s string
+        if s, err = p.Strval(); err == nil {
+                i = int64(len(s))
+        }
+        return
+}
 func (p *URL) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *URL) cmp(v Value) (res cmpres) {
         if v.Type() == URLType {
                 a, ok := v.(*URL)
                 assert(ok, "value is not URL")
-                if p.Scheme == a.Scheme && p.Opaque == a.Opaque &&
-                   p.Host == a.Host && p.Path == a.Path &&
-                   p.RawPath == a.RawPath && p.RawQuery == a.RawQuery &&
-                   p.Fragment == a.Fragment { res = cmpEqual }
+                if p.Scheme == nil || a.Scheme == nil { return }
+                if p.Scheme.cmp(a.Scheme) != cmpEqual { return }
+                if p.Username != nil {
+                        if a.Username == nil { return }
+                        if p.Username.cmp(a.Username) != cmpEqual { return }
+                }
+                if p.Password != nil {
+                        if a.Password == nil { return }
+                        if p.Password.cmp(a.Password) != cmpEqual { return }
+                }
+                if p.Host != nil {
+                        if a.Host == nil { return }
+                        if p.Host.cmp(a.Host) != cmpEqual { return }
+                }
+                if p.Port != nil {
+                        if a.Port == nil { return }
+                        if p.Port.cmp(a.Port) != cmpEqual { return }
+                }
+                if p.Path != nil {
+                        if a.Path == nil { return }
+                        if p.Path.cmp(a.Path) != cmpEqual { return }
+                }
+                if p.Query != nil {
+                        if a.Query == nil { return }
+                        if p.Query.cmp(a.Query) != cmpEqual { return }
+                }
+                if p.Fragment != nil {
+                        if a.Fragment == nil { return }
+                        if p.Fragment.cmp(a.Fragment) != cmpEqual { return }
+                }
+                res = cmpEqual
         }
+        return
+}
+
+func (p *URL) Validate() (res *url.URL){
+        panic(fmt.Sprintf("validate %s", p))
         return
 }
 
@@ -1174,11 +1315,11 @@ func (_ *String) closured() bool { return false }
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *String) Type() Type { return StringType }
 func (p *String) True() bool { return p.string != "" }
-func (p *String) elemstr(o Object, quote bool) (s string) {
-        if quote { s = "'"+p.string+"'" } else { s = p.string }
+func (p *String) elemstr(o Object, k elemkind) (s string) {
+        if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
         return
 }
-func (p *String) String() string { return p.elemstr(nil, true) }
+func (p *String) String() string { return p.elemstr(nil, 0) }
 func (p *String) Strval() (string, error) { return p.string, nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
@@ -1317,13 +1458,13 @@ func (p *Barecomp) Strval() (s string, e error) {
         }
         return
 }
-func (p *Barecomp) elemstr(o Object, quote bool) (s string) {
+func (p *Barecomp) elemstr(o Object, k elemkind) (s string) {
         for _, elem := range p.Elems {
-                s += elementString(o, elem, quote)
+                s += elementString(o, elem, k)
         }
         return
 }
-func (p *Barecomp) String() (s string) { return p.elemstr(nil, true) }
+func (p *Barecomp) String() (s string) { return p.elemstr(nil, 0) }
 
 func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
@@ -1377,8 +1518,8 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Barefile) Type() Type { return BarefileType }
 func (p *Barefile) True() bool { return p.File != nil }
-func (p *Barefile) elemstr(o Object, quote bool) (s string) { return elementString(o, p.Name, quote) }
-func (p *Barefile) String() string { return p.elemstr(nil, true) }
+func (p *Barefile) elemstr(o Object, k elemkind) (s string) { return elementString(o, p.Name, k) }
+func (p *Barefile) String() string { return p.elemstr(nil, 0) }
 func (p *Barefile) Strval() (string, error) { return p.Name.Strval() }
 func (p *Barefile) Integer() (res int64, err error) {
         //var str string
@@ -1466,10 +1607,10 @@ func (p *GlobRange) expand(w expandwhat) (Value, error) {
 }
 func (p *GlobRange) Type() Type { return GlobType }
 func (p *GlobRange) True() bool { return false }
-func (p *GlobRange) elemstr(o Object, quote bool) (s string) {
-        return fmt.Sprintf("[%s]", elementString(o, p.Chars, quote))
+func (p *GlobRange) elemstr(o Object, k elemkind) (s string) {
+        return fmt.Sprintf("[%s]", elementString(o, p.Chars, k))
 }
-func (p *GlobRange) String() (s string) { return p.elemstr(nil, true) }
+func (p *GlobRange) String() (s string) { return p.elemstr(nil, 0) }
 func (p *GlobRange) Strval() (s string, err error) {
         var chars string
         if chars, err = p.Chars.Strval(); err == nil {
@@ -1492,31 +1633,32 @@ type Path struct {
         elements
         File *File // if this path is pointed to a file, ie. the last element matched a FileMap
 }
-func (p *Path) elemstr(o Object, quote bool) (s string) {
-        var segs []string
-        for _, elem := range p.Elems {
-                segs = append(segs, elementString(o, elem, quote))
-        }
-        return strings.Join(segs, PathSep)
-}
-func (p *Path) String() (s string) { return p.elemstr(nil, true) }
-func (p *Path) Strval() (s string, e error) {
-        // TODO: add '/' for root dir
-        var sep = true
-        for i, seg := range p.Elems {
-                if i > 0 && sep {
-                        s += string(os.PathSeparator) 
+func (p *Path) elemstr(o Object, k elemkind) (s string) {
+        for i, elem := range p.Elems {
+                var v = elementString(o, elem, k)
+                if i > 0 {
+                        s += PathSep + v
+                } else if v != "" {
+                        s += v
+                } else if len(p.Elems) == 1 {
+                        s += PathSep
                 }
+        }
+        return
+}
+func (p *Path) String() (s string) { return p.elemstr(nil, 0) }
+func (p *Path) Strval() (s string, e error) {
+        for i, seg := range p.Elems {
                 var v string
                 if v, e = seg.Strval(); e != nil { return }
-                s += v
-                if ps, ok := seg.(*PathSeg); ok && ps != nil && ps.rune == '/' {
-                        sep = false
-                } else {
-                        sep = true
+                if i > 0 {
+                        s += PathSep + v
+                } else if v != "" {
+                        s += v
+                } else if len(p.Elems) == 1 {
+                        s += PathSep
                 }
         }
-        // TODO: add '/' if there's such a suffix
         return
 }
 func (p *Path) Integer() (int64, error) { return 0, nil }
@@ -1639,10 +1781,11 @@ func (p *PathSeg) String() (s string) {
 }
 func (p *PathSeg) Strval() (s string, e error) {
         switch p.rune {
-        case '/': s = "/"
+        case '/': s = "" // the first '/', aka. root -- PathSep is added when joining
         case '~': s = "~"
         case '.': s = "."
         case '^': s = ".."
+        case 0: s = "" // empty segment after the last '/', e.g. /foo/bar/ 
         default: e = fmt.Errorf("unknown pathseg (%s)", p.rune)
         }
         return
@@ -1994,10 +2137,10 @@ func (p *Flag) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Flag) Type() Type { return FlagType }
 func (p *Flag) True() bool { return p.Name.True() }
-func (p *Flag) elemstr(o Object, quote bool) (s string) {
-        return "-" + elementString(o, p.Name, quote)
+func (p *Flag) elemstr(o Object, k elemkind) (s string) {
+        return "-" + elementString(o, p.Name, k)
 }
-func (p *Flag) String() (s string) { return p.elemstr(nil, true) }
+func (p *Flag) String() (s string) { return p.elemstr(nil, 0) }
 func (p *Flag) Strval() (s string, e error) {
         if p.Name == nil || p.Name.Type() == NoneType {
                 s = "-"
@@ -2074,14 +2217,15 @@ func (p *Compound) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Compound) Type() Type { return CompoundType }
-func (p *Compound) elemstr(o Object, quote bool) (s string) {
+func (p *Compound) elemstr(o Object, k elemkind) (s string) {
+        var tk = k|elemNoQuote
         for _, elem := range p.Elems {
-                s += elementString(o, elem, false)
+                s += elementString(o, elem, tk)
         }
-        if quote { s = `"`+s+`"` }
+        if k&elemNoQuote == 0 { s = `"`+s+`"` }
         return
 }
-func (p *Compound) String() string { return p.elemstr(nil, true) }
+func (p *Compound) String() string { return p.elemstr(nil, 0) }
 func (p *Compound) Strval() (s string, err error) {
         for _, e := range p.Elems {
                 var v string
@@ -2110,14 +2254,14 @@ func (p *Compound) cmp(v Value) (res cmpres) {
 
 type List struct { elements }
 func (p *List) Type() Type { return ListType }
-func (p *List) elemstr(o Object, quote bool) (s string) {
+func (p *List) elemstr(o Object, k elemkind) (s string) {
         var strs []string
         for _, elem := range p.Elems {
-                strs = append(strs, elementString(o, elem, quote))
+                strs = append(strs, elementString(o, elem, k))
         }
         return strings.Join(strs, " ")
 }
-func (p *List) String() (s string) { return p.elemstr(nil, true) }
+func (p *List) String() (s string) { return p.elemstr(nil, 0) }
 func (p *List) Strval() (s string, err error) {
         var x = 0
         for _, e := range p.Elems {
@@ -2196,14 +2340,14 @@ func (p *List) cmp(v Value) (res cmpres) {
 
 type Group struct { List }
 func (p *Group) Type() Type { return GroupType }
-func (p *Group) elemstr(o Object, quote bool) string {
+func (p *Group) elemstr(o Object, k elemkind) string {
         var strs []string
         for _, elem := range p.Elems {
-                strs = append(strs, elementString(o, elem, quote))
+                strs = append(strs, elementString(o, elem, k))
         }
         return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
-func (p *Group) String() string { return p.elemstr(nil, true) }
+func (p *Group) String() string { return p.elemstr(nil, 0) }
 func (p *Group) Strval() (s string, err error) {
         if s, err = p.List.Strval(); err == nil {
                 s = "(" + s + ")"
@@ -2264,10 +2408,10 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
 }
 func (p *Pair) Type() Type { return PairType }
 func (p *Pair) True() bool { return p.Value.True() || p.Key.True() }
-func (p *Pair) elemstr(o Object, quote bool) string {
-        return elementString(o, p.Key, quote)+`=`+elementString(o, p.Value, quote)
+func (p *Pair) elemstr(o Object, k elemkind) string {
+        return elementString(o, p.Key, k)+`=`+elementString(o, p.Value, k)
 }
-func (p *Pair) String() string { return p.elemstr(nil, true) }
+func (p *Pair) String() string { return p.elemstr(nil, 0) }
 func (p *Pair) Strval() (s string, err error) {
         var k, v string
         if k, err = p.Key.Strval(); err == nil {
@@ -2315,25 +2459,30 @@ type closuredelegate struct {
 }
 
 func (p *closuredelegate) Position() Position { return p.p }
-func (p *closuredelegate) string(t string) (s string) { // source representation
+func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source representation
         for i, a := range p.a {
                 if i == 0 { s = " " } else { s += "," }
-                s += a.String()
+                s += elementString(o, a, k)
         }
         switch name := p.o.Name(); p.l {
-        case token.COLON: s = fmt.Sprintf("%s:%s%s:", t, name, s)
-        case token.LPAREN: s = fmt.Sprintf("%s(%s%s)", t, name, s)
-        case token.LBRACE: s = fmt.Sprintf("%s{%s%s}", t, name, s)
+        case token.COLON: s = fmt.Sprintf(":%s%s:", name, s)
+        case token.LPAREN: s = fmt.Sprintf("(%s%s)", name, s)
+        case token.LBRACE:
+                if k&elemNoBrace == 0 {
+                        s = fmt.Sprintf("{%s%s}", name, s)
+                } else {
+                        s = fmt.Sprintf("(%s%s)", name, s)
+                }
         case token.STRING, token.COMPOUND:
-                s = fmt.Sprintf("%s%s%s", t, name, s)
+                s = fmt.Sprintf("%s%s", name, s)
         case token.ILLEGAL:
                 if len(name) == 1 && len(s) == 0 {
-                        s = fmt.Sprintf("%s%s", t, name)
+                        s = fmt.Sprintf("%s", name)
                 } else {
-                        s = fmt.Sprintf("%s[%s%s]", t, name, s)
+                        s = fmt.Sprintf("[%s%s]", name, s)
                 }
         default:
-                s = fmt.Sprintf("%s[%s%s]!(%v)", t, name, s, p.l)
+                s = fmt.Sprintf("[%s%s]!(%v)", name, s, p.l)
         }
         return
 }
@@ -2347,7 +2496,15 @@ func (p *delegate) True() (t bool) {
         }
         return
 }
-func (p *delegate) String() (s string) { return p.string("$") }
+func (p *delegate) elemstr(o Object, k elemkind) (s string) {
+        if k&elemExpand == 0 {
+                s = "$"+p.string(o, k)
+        } else if v, e := p.expand(expandDelegate); e == nil {
+                s = elementString(o, v, k)
+        }
+        return
+}
+func (p *delegate) String() (s string) { return p.elemstr(nil, 0) }
 func (p *delegate) Strval() (string, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Strval() } else { return "", e }}
 func (p *delegate) Integer() (int64, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Integer() } else { return 0, e }}
 func (p *delegate) Float() (float64, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Float() } else { return 0, e }}
@@ -2503,7 +2660,15 @@ func (p *closure) True() (t bool) {
         }        
         return
 }
-func (p *closure) String() (s string) { return p.string("&") }
+func (p *closure) elemstr(o Object, k elemkind) (s string) {
+        if k&elemExpand == 0 {
+                s = "&"+p.string(o, k)
+        } else if v, e := p.expand(expandDelegate); e == nil {
+                s = elementString(o, v, k)
+        }
+        return
+}
+func (p *closure) String() (s string) { return p.elemstr(nil, 0) }
 func (p *closure) Integer() (int64, error) {
         if p.o == nil {
                 return 0, nil
@@ -2723,12 +2888,12 @@ func (p *selection) True() (t bool) {
         }
         return
 }
-func (p *selection) elemstr(o Object, quote bool) (s string) {
-        s = elementString(o, p.o, quote) + p.t.String()
-        s += elementString(o, p.s, quote)
+func (p *selection) elemstr(o Object, k elemkind) (s string) {
+        s = elementString(o, p.o, k) + p.t.String()
+        s += elementString(o, p.s, k)
         return
 }
-func (p *selection) String() string { return p.elemstr(nil, true) }
+func (p *selection) String() string { return p.elemstr(nil, 0) }
 
 func (p *selection) object() (o Object, err error) {
         if s, ok := p.o.(*selection); ok {
@@ -2885,12 +3050,12 @@ type PercPattern struct {
 }
 func (p *PercPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *PercPattern) Type() Type { return PercPatternType }
-func (p *PercPattern) elemstr(o Object, quote bool) (s string) {
-        s = elementString(o, p.Prefix, quote) + `%`
-        s += elementString(o, p.Suffix, quote)
+func (p *PercPattern) elemstr(o Object, k elemkind) (s string) {
+        s = elementString(o, p.Prefix, k) + `%`
+        s += elementString(o, p.Suffix, k)
         return
 }
-func (p *PercPattern) String() string { return p.elemstr(nil, true) }
+func (p *PercPattern) String() string { return p.elemstr(nil, 0) }
 func (p *PercPattern) Strval() (s string, err error) {
         if p.Prefix != nil {
                 var v string
@@ -3025,13 +3190,13 @@ type GlobPattern struct {
 }
 func (p *GlobPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *GlobPattern) Type() Type { return GlobPatternType }
-func (p *GlobPattern) elemstr(o Object, quote bool) (s string) {
+func (p *GlobPattern) elemstr(o Object, k elemkind) (s string) {
         for _, comp := range p.Components {
-                s += elementString(o, comp, quote)
+                s += elementString(o, comp, k)
         }
         return
 }
-func (p *GlobPattern) String() (s string) { return p.elemstr(nil, true) }
+func (p *GlobPattern) String() (s string) { return p.elemstr(nil, 0) }
 func (p *GlobPattern) Strval() (s string, err error) {
         for _, comp := range p.Components {
                 var v string
@@ -3336,7 +3501,24 @@ func MakeFloat(f float64) *Float { return &Float{f} }
 func MakeDate(s time.Time) *Date { return &Date{DateTime{s}} }
 func MakeTime(t time.Time) *Time { return &Time{DateTime{t}} }
 func MakeString(s string) *String { return &String{s} }
-func MakeURL(s *url.URL) *URL { return &URL{ *s } }
+func MakeURL(s *url.URL) *URL {
+        var host, port string
+        v := strings.Split(s.Host, ":")
+        if len(v) == 1 { host = v[0] }
+        if len(v) == 2 { host, port = v[0], v[1] }
+        var password Value
+        if t, ok := s.User.Password(); ok {password = &String{t}}
+        return &URL{
+                Scheme: &String{s.Scheme},
+                Username: &String{s.User.Username()},
+                Password: password,
+                Host: &String{host},
+                Port: &String{port},
+                Path: &String{s.Path},
+                Query: &String{s.RawQuery},
+                Fragment: &String{s.Fragment},
+        }
+}
 func MakeBarecomp(elems... Value) *Barecomp { return &Barecomp{elements{elems}} }
 func MakeCompound(elems... Value) *Compound { return &Compound{elements{elems}} }
 func MakeList(elems... Value) *List { return &List{elements{elems}} }

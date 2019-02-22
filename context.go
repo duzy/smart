@@ -187,11 +187,15 @@ func processCommandOption(flag *Flag, args... Value) (err error) {
         if opt, err = flag.is('h', "help"); err != nil { return } else if opt {
                 optionHelp = true; return
         }
-        if opt, err = flag.is('c', "configure"); err != nil { return } else if opt {
-                optionConfigure = true; return
-        }
-        if opt, err = flag.is('r', "reconfigure"); err != nil { return } else if opt {
+        if opt, err = flag.is(0, "rc"); err != nil { return } else if opt {
                 optionConfigure, optionReconfig = true, true; return
+        } else {
+                if opt, err = flag.is('c', "configure"); err != nil { return } else if opt {
+                        optionConfigure = true; return
+                }
+                if opt, err = flag.is('r', "reconfigure"); err != nil { return } else if opt {
+                        optionConfigure, optionReconfig = true, true; return
+                }
         }
         err = fmt.Errorf("`%v` unknown command option", flag.Name)
         return

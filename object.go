@@ -295,7 +295,7 @@ func (d *Def) cmp(v Value) (res cmpres) {
 
 func (d *Def) Type() Type { return DefType }
 func (d *Def) True() bool { return d.Value.True() }
-func (d *Def) elemstr(o Object, quote bool) (s string) {
+func (d *Def) elemstr(o Object, k elemkind) (s string) {
         if o != nil {
                 if p := d.OwnerProject(); p != o.OwnerProject() {
                         return fmt.Sprintf("$(%s->%s)", p.name, d.name)
@@ -313,7 +313,7 @@ func (d *Def) String() (s string) {
         default: s += " = "
         }
         if d.Value != nil {
-                s += elementString(d, d.Value, true)
+                s += elementString(d, d.Value, 0)
         } else {
                 s += "<nil>"
         }
