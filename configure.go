@@ -381,11 +381,26 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
         } else if entry == nil {
                 err = scanner.Errorf(token.Position(pos), "unknown configuration `%v` (no such entry)", s)
         } else if res, err = prog.passExecution(pos, entry, params...); err != nil {
+                switch e := err.(type) {
+                case scanner.Errors:
+                        var t = scanner.Errors{
+                                scanner.Errorf(token.Position(pos), "configure %v error", s).(*scanner.Error),
+                        }
+                        err = append(t, e...)
+                        return
+                case *scanner.Error:
+                        err = scanner.Errors{
+                                scanner.Errorf(token.Position(pos), "configure %v error", s).(*scanner.Error),
+                                e,
+                        }
+                        return
+                }
+
                 var ( n, en int ; tag string; es = err.Error() )
                 if n, err = fmt.Sscanf(es, strCommandFailedFmt, &tag, &en); err == nil && n == 2 {
                         configured, err = true, nil
                 } else {
-                        err = scanner.Errorf(token.Position(pos), "configure %v: %v (%v %v)", s, es, tag, en)
+                        err = scanner.Errorf(token.Position(pos), "configure %v error", s)
                 }
         } else {
                 if res != nil { result = MakeListOrScalar(res) }
@@ -493,12 +508,19 @@ ForArgs:
                                 s, _ := result.Strval()
                                 configinfon(pos, "… %v", s)
                         }
-                } else {
-                        switch e := err.(type) {
-                        case scanner.Errors: configinfon(pos, "… (%d errors)", len(e))
-                        case *scanner.Error: configinfon(pos, "… (%v)", e.Err)
-                        default: configinfon(pos, "… (%v).", err)
+                        return
+                }
+                switch e := err.(type) {
+                case scanner.Errors:
+                        if n := len(e); n == 1 {
+                                configinfon(pos, "… (%v, and %d errors)", e[0].Err, len(e))
+                        } else if n == 2 {
+                                configinfon(pos, "… (%v, and 1 more error)", e[0].Err)
+                        } else if n > 2 {
+                                configinfon(pos, "… (%v, and %d more errors)", e[0].Err, len(e)-1)
                         }
+                case *scanner.Error: configinfon(pos, "… (%v)", e.Err)
+                default: configinfon(pos, "… (%v).", err)
                 }
         } ()
 
