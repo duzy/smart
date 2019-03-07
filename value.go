@@ -543,50 +543,20 @@ func (pc *preparer) updateTargetValue(value Value) (err error) {
 }
 
 func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
-        var res Value
-
         // Push the context to the program, so that patterns will work.
         defer func(a []*preparecontext) { prog.callers = a } (prog.callers)
         prog.callers = append([]*preparecontext{&pc.preparecontext}, prog.callers...)
 
         // Execute the updating program.
+        var res Value
         if res, err = prog.Execute(entry, pc.arguments); err != nil {
                 //if optionTracePrepare { pc.tracef("%s: %s", entry, err) }
                 if br, ok := err.(*breaker); ok && br.what == breakBad {
                         fmt.Fprintf(stderr, "%s: %v\n", prog.position, err)
-                        //return
                 }
         }
 
         target, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
-        /*
-        switch t := target.(type) {
-        case *None: // ignored
-        case *File: pc.addNotExistedTarget(t)
-        case *Path:
-                if t.File != nil {
-                        pc.addNotExistedTarget(t.File)
-                } else {
-                        pc.addNotExistedTarget(t)
-                }
-        default:
-                var s string
-                if s, err = target.Strval(); err != nil {
-                        return
-                } else if s == "" {
-                        panic(fmt.Sprintf("Empty target! (%s `%v`)", target.Type(), target))
-                } else if file := prog.project.searchFile(s); file != nil {
-                        pc.addNotExistedTarget(file)
-                }
-        }
-        if res != nil && res.Type() != NoneType {
-                for _, elem := range merge(res) {
-                        switch elem.(type) {
-                        case *File: pc.addNotExistedTarget(elem)
-                        }
-                }
-        }
-        */
         pc.addNotExistedTargets(target, res)
         return
 }
