@@ -270,12 +270,6 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 ctx.level = caller.level
                 //ctx.mode = caller.mode
                 ctx.stem = caller.stem
-                /*if caller.mode == updateMode {
-                        // Only update if the caller found it updated.
-                        if !caller.isUpdatedTarget(entry.target) {
-                                ctx.visitInsteadUpdate = true
-                        }
-                }*/
         }
 
         // Build related project list from derived.
@@ -292,10 +286,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         // Flag targets (-foo) turn off printing
         if _, ok := prog.pc.entry.target.(*Flag); ok { prog.pc.print = false }
-        if prog.pc.print {
-                if t, ok := prog.pc.entry.target.(*Bareword); ok {
-                        if t.string == "use" { prog.pc.print = false }
-                }
+        if prog.pc.print && prog.pc.entry.class == UseRuleEntry {
+                prog.pc.print = false
         }
         if prog.pc.print && prog.getModifier("configure") != nil { prog.pc.print = false }
 
@@ -447,13 +439,13 @@ func (pc *preparer) checkTargetMode() (err error) {
 func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done bool, err error) {
         switch tag = fmt.Sprintf("(%s) %s:", tag, name); br.what {
         case breakBad:
-                if trace_prepare { pc.trace(tag, "(bad)", br.message) }
+                if optionTracePrepare { pc.trace(tag, "(bad)", br.message) }
                 err = scanner.Errorf(token.Position(br.pos), br.message)
         case breakGood:
-                //if trace_prepare { pc.trace(tag, "(good)") }
+                //if optionTracePrepare { pc.trace(tag, "(good)") }
                 err = pc.checkTargetMode()
         case breakUpdates:
-                if trace_prepare { pc.trace(tag, "(updates)", br.updated) }
+                if optionTracePrepare { pc.trace(tag, "(updates)", br.updated) }
 
                 // Collect updates, so that the updated targets could be
                 // returned to the caller.
@@ -510,24 +502,20 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Pre-modifying could change $@, $^, $<, $|, etc.
         if done, err = pc.preModify(prog); err != nil || done { return }
-        /*if pc.visitInsteadUpdate && pc.mode == updateMode {
-                // Work in visit mode to ensure all it's dependencies will
-                // be updated.
-                //pc.mode = visitMode
-        }*/
 
         // Updating $^
         pc.targets = nil // clear the target list
         if err = pc.traverseAll(pc.dependsDef); err != nil { return }
         if n := len(pc.targets); n == 0 {
+                //if optionTracePrepare { pc.tracef("%v:$^: <none>", pc.entry) }
                 pc.dependsDef.set(DefDefault, universalnone)
                 pc.depend0Def.set(DefDefault, universalnone)
         } else if n == 1 {
-                if trace_prepare { pc.tracef("$^: %v", pc.targets[0]) }
+                //if optionTracePrepare { pc.tracef("%v:$^: %v", pc.entry, pc.targets[0]) }
                 pc.dependsDef.set(DefDefault, pc.targets[0])
                 pc.depend0Def.set(DefDefault, pc.targets[0])
         } else if n > 1 {
-                if trace_prepare { pc.tracef("$^: (%d) %v", n, pc.targets) }
+                //if optionTracePrepare { pc.tracef("%v:$^: (%d) %v", pc.entry, n, pc.targets) }
                 pc.dependsDef.set(DefDefault, MakeList(pc.targets...))
                 pc.depend0Def.set(DefDefault, pc.targets[0])
         }
@@ -538,7 +526,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         if n := len(pc.targets); n == 0 {
                 pc.orderedDef.set(DefDefault, universalnone)
         } else {
-                if trace_prepare { pc.tracef("$|: (%d) %v", n, pc.targets) }
+                if optionTracePrepare { pc.tracef("$|: (%d) %v", n, pc.targets) }
                 pc.orderedDef.set(DefDefault, MakeList(pc.targets...))
         }
 
@@ -548,7 +536,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         if n := len(pc.targets); n == 0 {
                 pc.greppedDef.set(DefDefault, universalnone)
         } else {
-                if trace_prepare { pc.tracef("$~: (%d) %v", n, pc.targets) }
+                if optionTracePrepare { pc.tracef("$~: (%d) %v", n, pc.targets) }
                 pc.greppedDef.set(DefDefault, MakeList(pc.targets...))
         }
 

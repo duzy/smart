@@ -134,8 +134,8 @@ type loader struct {
         useesExecuted []*Project // all executed usees
         project  *Project // the current project
         scope    *Scope   // the current scope
-        ruleParseFunc func(p *parser, tok token.Token, special ruleSpecial, targets []ast.Expr) *ast.RuleClause
-        usefunc  func(l *loader, pos token.Pos, usee *Project, params []Value) error
+        ruleParseFunc func(p *parser, tok token.Token, special specialRule, options, targets []ast.Expr) *ast.RuleClause
+        usefunc  func(l *loader, pos token.Pos, usee *Project, params []Value, opts useoptions) error
         includeFunc func(l *loader, pos token.Pos, val Value)
         isIncludingConf bool // including configuration
         vs string // verbose prefix
@@ -255,12 +255,20 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
         return
 }
 
+type useoptions struct {
+        allowReuse bool
+}
+
 type importoptions struct {
+        useoptions
+}
+
+type importspecoptions struct {
         unuse bool
         reuse bool
 }
 
-func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts importoptions, params []Value, err error) {
+func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts importspecoptions, params []Value, err error) {
         if specName, err = l.expr(props[0]).Strval(); err != nil {
                 l.parser.error(props[0].Pos(), "%s", err)
                 return
@@ -325,16 +333,34 @@ func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts impor
         return
 }
 
-func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
+func (l *loader) loadImportOptions(options []ast.Expr) (opts importoptions, err error) {
+        for _, v := range l.exprs(options) {
+                var opt bool
+                switch t := v.(type) {
+                case *Flag:
+                        if opt, err = t.is(0, "reusing"); err != nil { return }
+                        if opt { opts.allowReuse = true }
+                case *Pair:
+                        if opt, err = t.isFlag(0, "reusing"); err != nil { return }
+                        if opt { opts.allowReuse = t.Value.True() }
+                default:
+                        err = fmt.Errorf("`%v` invalid import option (%T)", v, v)
+                        return
+                }
+        }
+        return
+}
+
+func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
         var (
                 linfo = l.loads[len(l.loads)-1]
+                specOpts importspecoptions
                 specName string
                 params []Value
-                opts importoptions
                 err error
         )
         if 0 < len(spec.Props) {
-                specName, opts, params, err = l.parseImportProps(spec.Props)
+                specName, specOpts, params, err = l.parseImportProps(spec.Props)
                 if err != nil { return }
         }
         if specName == "" {
@@ -378,7 +404,7 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                         defer func(s string) { l.vs = s } (l.vs)
                         l.vs += "│"
                 }
-                if opts.reuse {
+                if specOpts.reuse {
                         fmt.Fprintf(stderr, "%s├┬→\"%s\" (reuse, %s)\n", l.vs, specName, absPath)
                 } else {
                         fmt.Fprintf(stderr, "%s├┬→\"%s\" (%s)\n", l.vs, specName, absPath)
@@ -389,11 +415,11 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                         var d = time.Now().Sub(t)//*time.Millisecond // µs, ms, s
                         var ds = fmt.Sprintf("(%s)", d)
                         if d>=1*time.Second { ds = fmt.Sprintf("▶%s◀",ds) }
-                        fmt.Fprintf(stderr, "%s├┘·\"%s\" ⇢ %s %s\n", l.vs, specName, name, ds)
+                        fmt.Fprintf(stderr, "%s├┴·\"%s\" ⇢ %s %s\n", l.vs, specName, name, ds)
                 } (time.Now())
         }
 
-        if yes && !opts.reuse {
+        if yes && !specOpts.reuse {
                 var ( proj *Project ; res, isb bool )
                 if proj, res, isb, err = l.project.hasImported(loaded); err != nil {
                         l.parser.error(spec.Pos(), "`%s`: %s", specName, err)
@@ -440,8 +466,10 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
         // The project import list is different from using list.
         l.project.imports = append(l.project.imports, loaded)
 
-        for _, u := range l.project.usings.list {
+        for _, u := range l.project.using.list {
                 var ( proj *Project ; res, isb bool )
+
+                // 'loaded' has imported 'u'?
                 if proj, res, isb, err = loaded.hasImported(u.project); err != nil {
                         l.parser.error(spec.Pos(), "`%s`: %s", specName, err)
                         return
@@ -454,16 +482,47 @@ func (l *loader) loadImportSpec(spec *ast.ImportSpec) {
                 } else if res && !u.project.allowMultiImported {
                         l.parser.warn(spec.Pos(), "`%s` has already imported `%s` (from %s)", loaded, u.project, proj)
                 }
+
+                // 'u' has imported 'loaded'?
+                if proj, res, isb, err = u.project.hasImported(loaded); err != nil {
+                        l.parser.error(spec.Pos(), "`%s`: %s", specName, err)
+                        return
+                } else if isb {
+                        l.parser.warn(spec.Pos(), "`%s` is already base of `%s` (%s)", loaded, u.project, proj)
+                } else if res && !loaded.allowMultiImported {
+                        l.parser.warn(spec.Pos(), "`%s` has already been imported by `%s` (from %s)", loaded, u.project, proj)
+                }
         }
 
-        if !opts.unuse {
+        if !specOpts.unuse {
                 name, _ := l.project.scope.Lookup(loaded.name).(*ProjectName)
                 if name == nil {
                         l.parser.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
                 } else {
-                        err = l.useProject(spec.Props[0].Pos(), loaded, params)
+                        var useopts = opts.useoptions
+                        if specOpts.reuse {
+                                // override reuse option
+                                useopts.allowReuse = true
+                        }
+                        err = l.useProject(spec.Props[0].Pos(), loaded, params, useopts)
                 }
-        }       
+        }
+        return
+}
+
+const pluginDifferentVersionError = `plugin was built with a different version of package`
+
+func buildPlugin(s, src string) (err error) {
+        fmt.Fprintf(stderr, "smart: Build %v …", src)
+        o := &bytes.Buffer{}
+        c := exec.Command("go", "build", "-buildmode=plugin", "-o", s, src)
+        c.Stdout, c.Stderr = o, o
+        if err = c.Run(); err == nil {
+                fmt.Fprintf(stderr, "… ok\n")
+        } else {
+                fmt.Fprintf(stderr, "… error\n")
+                fmt.Fprintf(stderr, "%s", o)
+        }
         return
 }
 
@@ -478,6 +537,7 @@ func (l *loader) loadPlugin() (err error) {
         s = filepath.Join(filepath.Dir(joinTmpPath("", "")), "plugins", s)
 
         var build = true
+        var retried bool
 
         so := stat(/*l.project.name*/"plugin", "", s, nil)
         if s, err = so.Strval(); err != nil { return }
@@ -487,20 +547,14 @@ func (l *loader) loadPlugin() (err error) {
                 }
         }
         if build {
-                fmt.Fprintf(stderr, "smart: Build %v …", src)
-                o := &bytes.Buffer{}
-                c := exec.Command("go", "build", "-buildmode=plugin", "-o", s, src)
-                c.Stdout, c.Stderr = o, o
-                if err = c.Run(); err == nil {
-                        fmt.Fprintf(stderr, "… ok\n")
-                } else {
-                        fmt.Fprintf(stderr, "… error\n")
-                        fmt.Fprintf(stderr, "%s", o)
+                if err = buildPlugin(s, src); err != nil {
+                        return
                 }
         }
 
         if err != nil { return }
 
+OpenPlugin:
         // Once plugin is opened, there's no need/way to close it.
         if l.project.plugin, err = plugin.Open(s); err == nil {
                 var p plugin.Symbol
@@ -511,8 +565,13 @@ func (l *loader) loadPlugin() (err error) {
                 } else if f, ok := p.(func(*Project) (*Scope, error)); ok {
                         l.project.pluginScope, err = f(l.project)
                 }
-        } else {
-                // FIXME: err == "plugin was built with a different version"
+        } else if retried {
+                // Returns the error!
+        } else if es := err.Error(); strings.Contains(es, pluginDifferentVersionError) {
+                if err = buildPlugin(s, src); err == nil {
+                        retried = true
+                        goto OpenPlugin
+                }
         }
         return
 }
@@ -582,7 +641,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
         switch tok {
         case token.COLON:
                 switch s {
-                case "use": obj = l.project.usings;
+                case "usee": obj = l.project.using;
                 default:
                         l.parser.error(x.Name.Pos(), "unsupported special delegation")
                         return
@@ -883,7 +942,7 @@ func (l *loader) exprRecipeDefineClause(x *ast.RecipeDefineClause) (v Value) {
 }
 
 func (l *loader) exprIncludeRuleClause(x *ast.IncludeRuleClause) (v Value) {
-        entries := l.rule(x.RuleClause, ruleSpecialNor)
+        entries := l.rule(x.RuleClause, specialRuleNor, nil)
         if n := len(entries); n == 1 {
                 v = entries[0]
         } else if n > 1 {
@@ -976,10 +1035,10 @@ func (l *loader) exprs(exprs []ast.Expr) (values []Value) {
         return
 }
 
-func (l *loader) useProject(pos token.Pos, usee *Project, params []Value) (err error) {
+func (l *loader) useProject(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
         if l.usefunc == nil {
                 l.parser.error(pos, "`%v` use clause forbiden", usee.name)
-        } else if err = l.usefunc(l, pos, usee, params); err != nil {
+        } else if err = l.usefunc(l, pos, usee, params, opts); err != nil {
                 if p, ok := err.(*scanner.Error); ok {
                         l.parser.error(pos, "%v", p.Err)
                 } else {
@@ -996,7 +1055,7 @@ func (l *loader) isExecutedUsee(usee *Project) (res bool) {
         return
 }
 
-func (l *loader) executeUseRule(pos token.Pos, userule *RuleEntry, params []Value) (err error) {
+func (l *loader) executeUseRule(pos token.Pos, userule *useRuleEntry, params []Value) (err error) {
         position := l.parser.file.Position(pos)
         for _, prog := range userule.programs {
                 defer prog.setUser(prog.setUser(l.project))
@@ -1047,45 +1106,10 @@ func (l *loader) executeUseRule(pos token.Pos, userule *RuleEntry, params []Valu
         return
 }
 
-func (l *loader) executeUseRulesRecursively(pos token.Pos, usee *Project, params []Value) (err error) {
-        // Monitor the execution time of the :use: rule.
-        defer func(t time.Time) {
-                var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport && d > 1*time.Millisecond {
-                                var s = l.usePathStr()
-                                fmt.Fprintf(stderr, "%s││▶%s:use(%s).execute() … (%s) (%s)◀\n", l.vs, l.project.name, usee.name, d, s)
-                        }
-                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s).execute()◀ … (%s)\n", l.project.name, usee.name, d)
-                }
-        } (time.Now())
-
-        // Execute use rules recursively in the second defer.
-        defer func() {
-                if true {
-                        for _, u := range usee.usings.list {
-                                err = l.executeUseRulesRecursively(pos, u.project, params)
-                                if err != nil { break }
-                        }
-                } else {
-                        for _, u := range usee.usees() {
-                                err = l.executeUseRulesRecursively(pos, u, params)
-                                if err != nil { break }
-                        }
-                }
-        } ()
-
-        if usee.userule != nil {
-                err = l.executeUseRule(pos, usee.userule, params)
-        }
-        return
-}
-
-func (l *loader) executeUseRuleDirectly(pos token.Pos, usee *Project, params []Value) (err error) {
+func (l *loader) executeUseRulesRecursively(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
         // Return immediately if this usee is executed. If the use rule
         // accumulates values (e.g. += or =+), it may take very long time.
-        if !optionExecuteUseRuleMultiTimes && l.isExecutedUsee(usee) {
+        if !(opts.allowReuse || optionExecuteUseRuleMultiTimes) && l.isExecutedUsee(usee) {
                 return // execute use rule only once
         }
 
@@ -1102,8 +1126,47 @@ func (l *loader) executeUseRuleDirectly(pos token.Pos, usee *Project, params []V
                 }
         } (time.Now())
 
-        if usee.userule != nil {
-                err = l.executeUseRule(pos, usee.userule, params)
+        for _, userule := range usee.userules {
+                if userule.post { continue }
+                err = l.executeUseRule(pos, userule, params)
+                if err != nil { return }
+        }
+        if !usee.breakRecursiveUsing {
+                for _, u := range usee.using.list {
+                        err = l.executeUseRulesRecursively(pos, u.project, params, opts)
+                        if err != nil { break }
+                }
+        }
+        for _, userule := range usee.userules {
+                if !userule.post { continue }
+                err = l.executeUseRule(pos, userule, params)
+                if err != nil { return }
+        }
+        return
+}
+
+func (l *loader) executeUseRuleDirectly(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
+        // Return immediately if this usee is executed. If the use rule
+        // accumulates values (e.g. += or =+), it may take very long time.
+        if !(opts.allowReuse || optionExecuteUseRuleMultiTimes) && l.isExecutedUsee(usee) {
+                return // execute use rule only once
+        }
+
+        // Monitor the execution time of the :use: rule.
+        defer func(t time.Time) {
+                var d = time.Now().Sub(t)
+                if optionVerboseImport {
+                        if optionBenchImport && d > 1*time.Millisecond {
+                                var s = l.usePathStr()
+                                fmt.Fprintf(stderr, "%s││▶%s:use(%s).execute() … (%s) (%s)◀\n", l.vs, l.project.name, usee.name, d, s)
+                        }
+                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
+                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s).execute()◀ … (%s)\n", l.project.name, usee.name, d)
+                }
+        } (time.Now())
+
+        for _, rule := range usee.userules {
+                err = l.executeUseRule(pos, rule, params)
                 l.useesExecuted = append(l.useesExecuted, usee)
         }
         return
@@ -1117,13 +1180,13 @@ func (l *loader) usePathStr() (s string) {
         return
 }
 
-func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err error) {
+func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
         if usee == l.project {
                 position := l.parser.file.Position(pos)
                 err = scanner.Errorf(position, "'%v' use loop (%s)", usee.name, l.usePathStr())
                 return
         } else if false {
-                for _, using := range l.project.usings.list {
+                for _, using := range l.project.using.list {
                         if using.project == usee { return }
                 }
         } else if optionRecursiveUsing && l.project.isUsingProject(usee) {
@@ -1151,39 +1214,40 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value) (err er
         // Also use the bases and usee's using list, so that all
         // dependencies are included.
         for _, base := range usee.bases {
-                //if isUsingProject(l.project, base) { continue }
-                if err = useProject(l, pos, base, params); err != nil { return }
+                if err = useProject(l, pos, base, params, opts); err != nil { return }
         }
         if optionRecursiveUsing {
                 // Recursive using projects takes very much longer time
                 // (especially to big projects), so be careful of enabling
                 // it.
-                for _, using := range usee.usings.list {
+                for _, using := range usee.using.list {
                         //if isUsingProject(l.project, using.project) { continue }
-                        if err = useProject(l, pos, using.project, params); err != nil { return }
+                        if err = useProject(l, pos, using.project, params, opts); err != nil { return }
                 }
         }
 
         // Add to the project using list, so that the use path is correct.
-        l.project.usings.append(usee, params)
+        l.project.using.append(usee, params, opts)
 
         // Execute the :use: rule if presented to apply the conditions
         // of using the project.
         if optionRecursiveUsing {
                 // No need to recursively execute use rules if useProject
                 // is already called recursively.
-                err = l.executeUseRuleDirectly(pos, usee, params)
+                err = l.executeUseRuleDirectly(pos, usee, params, opts)
         } else if optionExecuteUseRulesRecursively {
-                err = l.executeUseRulesRecursively(pos, usee, params)
+                err = l.executeUseRulesRecursively(pos, usee, params, opts)
         } else {
+                var post bool
+                var usees []*Project
+                if !post { usees = append(usees, usee) }
+                usees = append(usees, usee.usees(post)...)
+                if post { usees = append(usees, usee) }
+
                 // Get usees 'recursively' and use each directly.
-                for _, u := range usee.usees() {
-                        err = l.executeUseRuleDirectly(pos, u, params)
+                for _, u := range usees {
+                        err = l.executeUseRuleDirectly(pos, u, params, opts)
                         if err != nil { break }
-                }
-                // Execute the usee rule at the end. 
-                if err == nil {
-                        err = l.executeUseRuleDirectly(pos, usee, params)
                 }
         }
         return
@@ -1278,7 +1342,9 @@ func (l *loader) use(spec *ast.UseSpec) {
 
                 switch t := usee.(type) {
                 case *ProjectName:
-                        l.useProject(spec.Props[0].Pos(), t.project, l.exprs(spec.Props[1:]))
+                        var opts useoptions
+                        // TODO: parse the useoptions
+                        l.useProject(spec.Props[0].Pos(), t.project, l.exprs(spec.Props[1:]), opts)
                 case *Def:
                         if alt := l.project.scope.Insert(t); alt != nil {
                                 l.parser.error(spec.Pos(), "`%s` already defined in %s", t.Name(), l.project.scope.comment)
@@ -1319,7 +1385,10 @@ func (l *loader) useRecursively(pos token.Pos) {
                 return
         }
 
-        var usees = l.project.usees()
+        var post bool
+        // TODO: decide pre-order or post-order
+        
+        var usees = l.project.usees(post)
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseImport {
@@ -1337,7 +1406,7 @@ func (l *loader) useRecursively(pos token.Pos) {
                 if _, ok := unique[usee]; ok { continue }
                 //if l.project.isUsingDirectly(usee) { continue }
                 unique[usee] += 1 // ensure it's used only once
-                if err := l.usefunc(l, pos, usee, nil); err != nil {
+                if err := l.usefunc(l, pos, usee, nil, useoptions{}); err != nil {
                         break
                 }
         }
@@ -1387,7 +1456,7 @@ func (l *loader) define(clause *ast.DefineClause) {
         l.determine(clause.Pos(), clause.Tok, identifier, value)
 }
 
-func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*RuleEntry) {
+func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast.Expr) (entries []*RuleEntry) {
         defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
 
         var (
@@ -1462,6 +1531,8 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                         }
                 }
         }
+
+        var optionVals = l.exprs(options)
         for n, target := range l.exprs(clause.Targets) {
                 if target == nil {
                         l.parser.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])
@@ -1479,7 +1550,7 @@ func (l *loader) rule(clause *ast.RuleClause, special ruleSpecial) (entries []*R
                         case *PercPattern:
                         }
                 }
-                var entry, err = l.project.entry(special, target, prog)
+                var entry, err = l.project.entry(special, optionVals, target, prog)
                 if err != nil {
                         l.parser.error(clause.Targets[n].Pos(), "%v", err)
                         return
@@ -1700,20 +1771,18 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         }
 
         for _, v := range options {
-                var bv bool
-                switch opt := v.(type) {
+                var opt bool
+                switch t := v.(type) {
                 case *Flag:
-                        if bv, err = opt.is(0, "multi"); err != nil {
-                                return
-                        } else if bv {
-                                dec.project.allowMultiImported = true
-                        }
+                        if opt, err = t.is(0, "multi"); err != nil { return }
+                        if opt { dec.project.allowMultiImported = true }
+                        if opt, err = t.is(0, "break"); err != nil { return }
+                        if opt { dec.project.breakRecursiveUsing = true }
                 case *Pair:
-                        if bv, err = opt.isFlag(0, "multi"); err != nil {
-                                return
-                        } else if bv {
-                                dec.project.allowMultiImported = opt.Value.True()
-                        }
+                        if opt, err = t.isFlag(0, "multi"); err != nil { return }
+                        if opt { dec.project.allowMultiImported = t.Value.True() }
+                        if opt, err = t.isFlag(0, "break"); err != nil { return }
+                        if opt { dec.project.breakRecursiveUsing = t.Value.True() }
                 default:
                         err = fmt.Errorf("`%v` invalid package option (%T)", v, v)
                         return
@@ -1759,7 +1828,9 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         if name == nil {
                                 l.parser.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
                         } else {
-                                l.useProject(ident.Pos(), loaded, nil)
+                                var opts useoptions
+                                // TODO: parse the useoptions
+                                l.useProject(ident.Pos(), loaded, nil, opts)
                         }
                 }
                 return false
@@ -1880,6 +1951,37 @@ func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, va
                                 err = def.append(tail)
                         }
                 }
+        case token.SUB_ASSIGN: // -=
+                if def.Value != nil && def.Value.Type() != NoneType {
+                        var vals []Value
+                        for _, val := range merge(def.Value) {
+                                if val.cmp(value) != cmpEqual {
+                                        vals = append(vals, val)
+                                }
+                        }
+                        def.Value = &List{elements{vals}}
+                }
+        case token.SAD_ASSIGN: // -+=
+                var vals []Value
+                if def.Value != nil && def.Value.Type() != NoneType {
+                        for _, val := range merge(def.Value) {
+                                if val.cmp(value) != cmpEqual || true {
+                                        vals = append(vals, val)
+                                }
+                        }
+                }
+                vals = append(vals, value)
+                def.Value = &List{elements{vals}}
+        case token.SSH_ASSIGN: // -=+
+                var vals = []Value{ value }
+                if def.Value != nil && def.Value.Type() != NoneType {
+                        for _, val := range merge(def.Value) {
+                                if val.cmp(value) != cmpEqual {
+                                        vals = append(vals, val)
+                                }
+                        }
+                }
+                def.Value = &List{elements{vals}}
         case token.QUE_ASSIGN: // ?=
                 if alt == nil { err = def.set(DefDefault, value) }
         case token.SCO_ASSIGN: // :=

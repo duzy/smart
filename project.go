@@ -103,6 +103,11 @@ var cd = &struct{
         enters: make(map[string]*enterec),
 }
 
+type useRuleEntry struct {
+        RuleEntry
+        post bool
+}
+
 type Project struct {
         keyword  token.Token // project, package, module
         
@@ -118,10 +123,10 @@ type Project struct {
         // List order is significant, duplication is acceptable.
         filemap []*FileMap
 
-        usings  *usinglist
+        using  *usinglist
 
         // Rule Registry (orderred)
-        userule *RuleEntry // the 'use' rule
+        userules []*useRuleEntry // the 'use' rule
         concrete []*RuleEntry
         patterns []*PatternEntry
 
@@ -134,6 +139,7 @@ type Project struct {
         pluginScope *Scope
 
         allowMultiImported bool // allow being imported multiple times
+        breakRecursiveUsing bool // don't recursively using this project
 }
 
 func (p *Project) String() string {
@@ -178,7 +184,7 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
                 app(base.filemaps(using))
         }
         if using {
-                for _, u := range p.usings.list {
+                for _, u := range p.using.list {
                         app(u.project.filemaps(using))
                 }
         }
@@ -465,7 +471,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 // Invoke file rules no matter if it existed or not.
                 var okay bool // true if doing good
                 if okay, err = p.updateFile(pc, file); err != nil || okay {
-                        if trace_prepare {
+                        if optionTracePrepare {
                                 if okay {
                                         pc.tracef("%s: updateTarget(file{%s}) (okay)", p.name, file)
                                 } else {
@@ -479,7 +485,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 }
 
                 err = fileNotFoundError{p, file}
-                if trace_prepare {
+                if optionTracePrepare {
                         pc.tracef("%s: `updateTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
                 }
                 return
@@ -487,7 +493,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
 
         var entry *RuleEntry
         if entry, err = p.resolveEntry(target); err != nil {
-                //if trace_prepare { pc.tracef("%s", err) }
+                //if optionTracePrepare { pc.tracef("%s", err) }
                 return
         } else if entry != nil {
                 err = pc.traverse(entry)
@@ -510,7 +516,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
         }
        
         err = targetNotFoundError{ p, target }
-        if trace_prepare {
+        if optionTracePrepare {
                 pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)
         }
         return
@@ -549,19 +555,19 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
         names = nil // clean names cache
 
         if file.exists() {
-                pc.addTarget(file)
+                pc.addNotExistedTarget1(file)
                 okay = true
                 return
         }
 
         if file.match != nil {
                 if file.searchInMatchedPaths(p) {
-                        pc.addTarget(file)
+                        pc.addNotExistedTarget1(file)
                         okay = true
                         return
                 }
         } else if alt := p.searchFile(file.name); alt != nil {
-                pc.addTarget(alt)
+                pc.addNotExistedTarget1(alt)
                 okay = true
                 return
         }
@@ -570,7 +576,7 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
         for _, other := range pc.related {
                 if other == p { continue }
                 if alt := other.searchFile(file.name); alt != nil {
-                        pc.addTarget(alt)
+                        pc.addNotExistedTarget1(alt)
                         okay = true
                         return
                 }
@@ -578,7 +584,7 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
         */
 
         err = fileNotFoundError{p, file}
-        if trace_prepare {
+        if optionTracePrepare {
                 //pc.tracef("execstack: %s", execstack)
                 pc.tracef("%s: `updateFile({%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
         }
@@ -629,28 +635,43 @@ ForPatterns:
         return
 }
 
-func (p *Project) entry(special ruleSpecial, target Value, prog *Program) (entry *RuleEntry, err error) {
+func (p *Project) entry(special specialRule, options []Value, target Value, prog *Program) (entry *RuleEntry, err error) {
         defer func() {
                 if entry != nil && err == nil {
                         entry.programs = append(entry.programs, prog)
                 }
         } ()
 
-        var closured = target.closured()
         var strval string
         if strval, err = target.Strval(); err != nil {
                 return
         }
 
         // The 'use' rule entries.
-        if special == ruleSpecialUse && !closured {
-                if p.userule == nil {
-                        p.userule = &RuleEntry{
-                                class: UseRuleEntry,
-                                target: target,
+        var closured = target.closured()
+        if special == specialRuleUse && !closured {
+                var optPostExecute bool
+                for _, v := range options {
+                        var opt bool
+                        switch t := v.(type) {
+                        case *Flag:
+                                if opt, err = t.is(0, "post"); err != nil { return }
+                                if opt { optPostExecute = true }
+                        case *Pair:
+                                if opt, err = t.isFlag(0, "post"); err != nil { return }
+                                if opt { optPostExecute = t.Value.True() }
+                        default:
+                                err = fmt.Errorf("`%v` invalid package option (%T)", v, v)
+                                return
                         }
                 }
-                entry = p.userule
+
+                var userule = &useRuleEntry{
+                        RuleEntry{ class:UseRuleEntry, target:target },
+                        optPostExecute, // post-execute use rule?
+                }
+                p.userules = append(p.userules, userule)
+                entry = &userule.RuleEntry
                 return
         }
 
@@ -825,7 +846,7 @@ func (p *Project) loopImportRecur(top *Project) (s string) {
 }
 
 func (p *Project) isUsingProject(usee *Project) (res bool) {
-        for _, using := range p.usings.list {
+        for _, using := range p.using.list {
                 if res = using.project == usee; res { break  }
                 if res = using.project.isUsingProject(usee); res { break }
         }
@@ -833,24 +854,26 @@ func (p *Project) isUsingProject(usee *Project) (res bool) {
 }
 
 func (p *Project) isUsingDirectly(proj *Project) (res bool) {
-        for _, u := range p.usings.list {
+        for _, u := range p.using.list {
                 if res = u.project == proj; res { break }
         }
         return
 }
 
-func (p *Project) usees() (res []*Project) {
-        for _, u := range p.usings.list {
-                res = append(res, u.project)
-                for _, u := range u.project.usees() {
+func (p *Project) usees(post bool) (res []*Project) {
+        if p.breakRecursiveUsing { return }
+        for _, u := range p.using.list {
+                if !post { res = append(res, u.project) }
+                for _, u := range u.project.usees(post) {
                         if !p.isUsingDirectly(u) { res = append(res, u) }
                 }
+                if post { res = append(res, u.project) }
         }
         return
 }
 
 func enter(prog *Program, dir string) (err error) {
-        if trace_entering {
+        if optionTraceEntering {
                 fmt.Fprintf(stderr, "entering: %v (%v)\n", dir, prog.project.name)
         }
 
@@ -872,7 +895,7 @@ func enter(prog *Program, dir string) (err error) {
 
 func leave(prog *Program, stop *enterec) (err error) {
         var size = len(cd.stack)
-        if trace_entering {
+        if optionTraceEntering {
                 fmt.Fprintf(stderr, "leaving: %v (%v %v %v)\n", stop.dir, prog.project.name, stop.num, size)
         }
 

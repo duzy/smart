@@ -905,6 +905,21 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 } else {
                                         tok = token.MINUS
                                 }
+                        } else if s.ch == '=' { // -=
+                                tok = token.SUB_ASSIGN
+                                s.next()
+                                if s.ch == '+' { // -=+
+                                        tok = token.SSH_ASSIGN
+                                        s.next()
+                                }
+                        } else if s.ch == '+' { // -+
+                                s.next()
+                                if s.ch == '=' { // -+=
+                                        tok = token.SAD_ASSIGN
+                                        s.next()
+                                } else {
+                                        tok = token.ILLEGAL
+                                }
                         } else if s.ch == '>' {
                                 tok = token.SELECT_PROP
                                 s.next()

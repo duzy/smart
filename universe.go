@@ -215,15 +215,15 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
                 absPath: absPath,
                 relPath: relPath, 
                 tmpPath: tmpPath,
-                usings: new(usinglist),
+                using: new(usinglist),
                 spec: spec,
                 name: name,
         }
 
         m.scope = NewScope(outer, m, fmt.Sprintf("project %q", name))
-        m.usings.name = "use"
-        m.usings.owner = m
-        m.usings.scope = m.scope
+        m.using.name = "usee"
+        m.using.scope = m.scope
+        m.using.owner = m
 
         if g.main == nil && spec != "" && name != "@" && name != "~" {
                 for outer != nil && outer != g.scope {

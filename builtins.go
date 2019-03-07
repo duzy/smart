@@ -31,6 +31,7 @@ var builtins = map[string]BuiltinFunc {
         `typeof`:       builtinTypeOf,
 
         `error`:        builtinError,
+        `warning`:      builtinWarning,
 
         `assert-valid`: builtinAssertValid,
 
@@ -263,6 +264,24 @@ func builtinError(pos Position, args... Value) (res Value, err error) {
                 }
         }
         err = fmt.Errorf("%v", s.String())
+        fmt.Fprintf(stderr, "%s: %v\n", pos, s.String())
+        return
+}
+
+func builtinWarning(pos Position, args... Value) (res Value, err error) {
+        var (
+                s bytes.Buffer
+                v string
+        )
+        for i, a := range args {
+                if i > 0 { fmt.Fprintf(&s, " ") }
+                if v, err = a.Strval(); err == nil {
+                        fmt.Fprintf(&s, "%s", v)
+                } else {
+                        fmt.Fprintf(stderr, "%s: %v\n", pos, err)
+                        return
+                }
+        }
         fmt.Fprintf(stderr, "%s: %v\n", pos, s.String())
         return
 }
@@ -542,18 +561,44 @@ func builtinMinus(pos Position, args... Value) (result Value, err error) {
 }
 
 func builtinUnique(pos Position, args... Value) (res Value, err error) {
+        var optReverse bool
+        if len(args) > 0 {
+                var head []Value
+                for _, a := range merge(args[0]) {
+                        var opt bool
+                        switch t := a.(type) {
+                        case *Flag:
+                                if opt, err = t.is(0, "reverse"); err != nil { return }
+                                if opt { optReverse = true }
+                        case *Pair:
+                                if opt, err = t.isFlag(0, "reverse"); err != nil { return }
+                                if opt { optReverse = t.Value.True() }
+                        default:
+                                head = append(head, a)
+                        }
+                }
+                args = append(head, args[1:]...)
+        }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var list []Value
 ForArgs:
-        for _, a := range args {
-                for _, v := range list { if a == v { continue ForArgs } }
+        for i, a := range args {
+                var tmp []Value
+                if optReverse { tmp = args[i+1:] } else { tmp = list }
+                for _, v := range tmp {
+                        if a == v || a.cmp(v) == cmpEqual {
+                                continue ForArgs
+                        }
+                }
 
-                var s1, s2 string
-                if s1, err = a.Strval(); err != nil { return }
-                for _, v := range list {
-                        if s2, err = v.Strval(); err != nil { return }
-                        if s1 == s2 { continue ForArgs }
+                if false {
+                        var s1, s2 string
+                        if s1, err = a.Strval(); err != nil { return }
+                        for _, v := range list {
+                                if s2, err = v.Strval(); err != nil { return }
+                                if s1 == s2 { continue ForArgs }
+                        }
                 }
 
                 list = append(list, a)

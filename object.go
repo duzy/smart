@@ -181,7 +181,7 @@ func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
 }
 
 func (p *ProjectName) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, p)) }
+        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         var defent = p.project.DefaultEntry()
         if defent != nil && defent.class != UseRuleEntry {
@@ -327,18 +327,14 @@ func (d *Def) Strval() (s string, e error) {
 }
 
 func (d *Def) set(origin DefOrigin, value Value) (err error) {
-        if value != nil && value.refs(d) {
+        if origin != DefSimple && value != nil && value.refs(d) {
                 err = fmt.Errorf("self recursive variable `%s`", d.name)
                 return
-        }
-
-        d.origin = origin
-
-        if origin != DefExecute && value == nil {
+        } else if origin != DefExecute && value == nil {
                 value = universalnone
         }
 
-        switch origin {
+        switch d.origin = origin; origin {
         case DefDefault: // Keeps delegates and closures.
                 d.Value = value
         case DefSimple: // Eval expands delegates in the value.
@@ -432,7 +428,7 @@ func (d *Def) Get(name string) (Value, error) {
 }
 
 func (d *Def) dependcompare(c *comparer) error {
-        if trace_compare { defer compun(comptrace(c, d))}
+        if optionTraceCompare { defer compun(comptrace(c, d))}
         if enable_assertions { assert(c.target != d, "self comparation") }
         return c.compareDepend(d.Value)
 }
@@ -704,13 +700,13 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
 }
 
 func (entry *RuleEntry) dependcompare(c *comparer) (err error) {
-        if trace_compare { defer compun(comptrace(c, entry)) }
+        if optionTraceCompare { defer compun(comptrace(c, entry)) }
         if enable_assertions { assert(c.target != entry, "self comparation") }
         return c.compareDepend(entry.target)
 }
 
 func (entry *RuleEntry) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, entry.target)) }
+        if optionTracePrepare { defer prepun(preptrace(pc, entry.target)) }
 ForPrograms:
         for _, prog := range entry.programs {
                 if false && prog == pc.program {
@@ -844,7 +840,7 @@ func (p *StemmedEntry) concrete(pc *preparer, stem string) (entry *RuleEntry, er
 }
 
 func (p *StemmedEntry) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, p)) }
+        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         var names = []string{ p.target }
         if p.stub != nil {
@@ -876,9 +872,9 @@ ForStems:
                 if err = entry.prepare(pc); err == nil {
                         break ForStems // Good!
                 } else if ute, ok := err.(targetNotFoundError); ok {
-                        if trace_prepare { pc.trace("stemmed: unknown target:", ute.target) }
+                        if optionTracePrepare { pc.trace("stemmed: unknown target:", ute.target) }
                 } else if ufe, ok := err.(fileNotFoundError); ok {
-                        if trace_prepare { pc.trace("stemmed: unknown file:", ufe.file) }
+                        if optionTracePrepare { pc.trace("stemmed: unknown file:", ufe.file) }
                 }
         }
         return

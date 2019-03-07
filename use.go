@@ -18,6 +18,7 @@ var usingPrepared = make(map[*Project]int)
 type using struct {
         project *Project
         params []Value
+        opts useoptions
 }
 
 func (p *using) refs(v Value) bool {
@@ -36,12 +37,12 @@ func (p *using) expand(w expandwhat) (Value, error) {
         if params, num, err := expandall(w, p.params...); err != nil {
                 return nil, err
         } else if num > 0 {
-                return &using{ p.project, params }, nil
+                return &using{ p.project, params, p.opts }, nil
         }
         return p, nil
 }
 func (p *using) prepare(pc *preparer) (err error) {
-        if trace_prepare { defer prepun(preptrace(pc, p)) }
+        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
                 // FIXME: allow re-using the project
@@ -124,7 +125,7 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         return p, nil
 }
 func (p *usinglist) prepare(pc *preparer) error {
-        if trace_prepare { defer prepun(preptrace(pc, p)) }
+        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         for _, elem := range p.list {
                 if err := elem.prepare(pc); err != nil {
                         return err
@@ -167,13 +168,13 @@ func (p *usinglist) String() string {
         return fmt.Sprintf("%s", s)
 }
 
-func (p *usinglist) append(proj *Project, params []Value) {
+func (p *usinglist) append(proj *Project, params []Value, opts useoptions) {
         for _, elem := range p.list {
                 if elem.project == proj {
                         return
                 }
         }
-        p.list = append(p.list, &using{ proj, params })
+        p.list = append(p.list, &using{ proj, params, opts })
 }
 
 func (p *usinglist) Get(name string) (Value, error) {

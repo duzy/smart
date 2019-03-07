@@ -264,11 +264,9 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
                 }
         } (stderrR)
 
-        if err = cmd.Run(); err == nil {
-                if foundID == "" {
-                        if err = p.runContainer(prog, docks); err == nil {
-                                time.Sleep(time.Second)
-                        }
+        if err = cmd.Run(); err == nil && foundID == "" {
+                if err = p.runContainer(prog, docks); err == nil {
+                        time.Sleep(time.Second)
                 }
         }
         return

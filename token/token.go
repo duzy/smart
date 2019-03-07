@@ -119,13 +119,16 @@ const (
 
         assign_beg
         ASSIGN     //   =       define a new symbol (don't override, neither !=)
+        SHI_ASSIGN //   =+      shift (insert to the front)
         ADD_ASSIGN //  +=       append
-        SHI_ASSIGN //  =+       shift (insert to the front)
         QUE_ASSIGN //  ?=       set if absent (defined, including empty)
         EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
         // TODO: more assigns like !?=  !:=  !+=
         SCO_ASSIGN //  :=       simply expanded (also override)
         DCO_ASSIGN // ::=       simply expanded (POSIX standard)
+        SUB_ASSIGN //  -=       remove
+        SAD_ASSIGN // -+=       remove-append assign
+        SSH_ASSIGN //  -=+      remove-shift assign
         assign_end
         
 	PLUS  // unary +
@@ -251,12 +254,15 @@ var tokens = [...]string{
         DELEGATE__:    "$_",
 
         ASSIGN:     "=",
-        ADD_ASSIGN: "+=",
         SHI_ASSIGN: "=+",
+        ADD_ASSIGN: "+=",
         QUE_ASSIGN: "?=",
         EXC_ASSIGN: "!=",
         SCO_ASSIGN: ":=",
         DCO_ASSIGN: "::=",
+        SUB_ASSIGN: "-=",
+        SAD_ASSIGN: "-+=",
+        SSH_ASSIGN: "-=+",
 
         PLUS:  "+",
         MINUS: "-",

@@ -30,11 +30,11 @@ var (
 )
 const (
         optionTraceParsing = false
+        optionTracePrepare = false
+        optionTraceCompare = false
+        optionTraceEntering = optionTracePrepare && false
 
-        // Executing use rules recursively takes more time.
         optionExecuteUseRulesRecursively = false
-
-        // Executing use rules multiple times takes long time.
         optionExecuteUseRuleMultiTimes = false
 
         optionNoDeprecatedFeatures = true
@@ -417,7 +417,7 @@ func CommandLine() {
         } else if optionConfigure {
                 report(do_configuration())
         } else if result, err := context.run(works...); err != nil {
-                if _, ok := err.(*breaker); ok {
+                if _, ok := err.(*breaker); ok && false {
                         panic(err)
                 } else {
                         report(err)

@@ -78,7 +78,7 @@ var (
         modifiers = map[string]ModifierFunc{
                 `select`:       modifierSelect,
 
-                //`args`:         modifierSetArgs, // interpreter args
+                //`args`:       modifierSetArgs, // interpreter args
                 `env`:          modifierSetEnv,  // interpreter environments
                 `set`:          modifierSetVar,
 
@@ -87,9 +87,9 @@ var (
                 `cd`:           modifierCD,
                 `sudo`:         modifierSudo,
 
-                `compare`:           modifierCompare,
-                `grep`:              modifierGrep,
-                `grep-files`:        modifierGrepFiles,
+                `compare`:      modifierCompare,
+                `grep`:         modifierGrep,
+                `grep-files`:   modifierGrepFiles,
                 //`grep-compare`:      modifierGrepCompare,
                 //`grep-dependencies`: modifierGrepDependencies,
 
@@ -101,6 +101,8 @@ var (
 
                 `configure`:             modifierConfigure,
                 `extract-configuration`: modifierExtractConfiguration,
+
+                `parallel`:     modifierParallel,
         }
 
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
@@ -1492,5 +1494,9 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
                 if optVerbose { fmt.Fprintf(stderr, "… (%s)\n", err) }
                 err = break_bad(pos, "file %s not updated", target)
         }
+        return
+}
+
+func modifierParallel(pos Position, prog *Program, args... Value) (result Value, err error) {
         return
 }
