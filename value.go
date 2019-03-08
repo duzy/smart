@@ -1871,24 +1871,27 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                 } else {
                         unreachable("conflicted sub/dir: ", sub, " ", dir) //return
                 }
-        } else if sub == "" {
-                fullname = filepath.Join(dir, name)
-        } else {
+        } else if filepath.IsAbs(dir) {
                 fullname = filepath.Join(dir, sub, name)
+        } else {
+                fullname = filepath.Join(context.workdir, dir, sub, name)
         }
 
         if enable_assertions {
-                assert(filepath.IsAbs(fullname), "`%s` is not abs", fullname)
+                assert(filepath.IsAbs(fullname), "`%s` is not abs {%s %s %s}", fullname, name, sub, dir)
                 if filepath.IsAbs(name) {
                         assert(dir == "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
                         assert(sub == "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
-                } else {
-                        assert(dir != "", "`%s` invalid file{%s %s %s}", fullname, dir, sub, name)
                 }
                 assert(!filepath.IsAbs(sub), "`%s` sub is abs", sub)
                 
-                s := filepath.Join(dir, sub, name)
-                assert(fullname == s, "`%s` conflicted fullname (%s)", fullname, s)
+                if filepath.IsAbs(dir) {
+                        s := filepath.Join(dir, sub, name)
+                        assert(fullname == s, "`%s` conflicted fullname (%s)", fullname, s)
+                } else {
+                        s := filepath.Join(context.workdir, dir, sub, name)
+                        assert(fullname == s, "`%s` conflicted fullname (%s)", fullname, s)
+                }
         }
 
         var addNotExisted bool

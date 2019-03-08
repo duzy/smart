@@ -661,7 +661,11 @@ func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
                 pos = p.pos
         )
         if p.next(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
-                y = p.checkExpr(p.parseExpr(false))
+                switch p.tok {
+                case token.COMMA, token.RPAREN:
+                default:
+                        y = p.checkExpr(p.parseExpr(false))
+                }
         }
 
         return &ast.PercExpr{
