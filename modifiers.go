@@ -435,7 +435,7 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                 optReportMissing bool = true
                 optDiscardMissing bool
                 optRecursive bool
-                // TODO: optLang string
+                optLang string
         )
 ForGroupElems:
         for _, elem := range group.Elems {
@@ -482,6 +482,9 @@ ForGroupElems:
                                         if s, err = v.Strval(); err != nil { return }
                                         rxs = append(rxs, &greprex{s, false, nil})
                                 }
+                        case "lang":
+                                optLang, _ = a.Value.Strval()
+                                if optLang == "" {/* ... */}
                         case "s":
                                 store = a.Value
                         }

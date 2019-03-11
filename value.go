@@ -1885,7 +1885,13 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                 }
                 assert(!filepath.IsAbs(sub), "`%s` sub is abs", sub)
                 
-                if filepath.IsAbs(dir) {
+                if filepath.IsAbs(name) {
+                        s := name
+                        assert(fullname == s, "`%s` conflicted fullname (%s)", fullname, s)
+                } else if filepath.IsAbs(sub) {
+                        s := filepath.Join(sub, name)
+                        assert(fullname == s, "`%s` conflicted fullname (%s)", fullname, s)
+                } else if filepath.IsAbs(dir) {
                         s := filepath.Join(dir, sub, name)
                         assert(fullname == s, "`%s` conflicted fullname (%s)", fullname, s)
                 } else {
@@ -1918,6 +1924,7 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                 }
 
                 var head = &base.stub
+                /*
                 if enable_assertions {
                         for stub = head; stub != nil ; stub = stub.other {
                                 s := filepath.Join(stub.dir, stub.sub, stub.name)
@@ -1925,6 +1932,7 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                                 if stub.other == head { break }
                         }
                 }
+                */
                 for stub = head; stub != nil; stub = stub.other {
                         if stub.dir == dir && stub.sub == sub && stub.name == name {
                                 goto GotFile

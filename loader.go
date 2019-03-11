@@ -593,7 +593,7 @@ func (l *loader) exprArgumented(x *ast.ArgumentedExpr) Value {
         }
 }
 
-func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Object, args []Value) {
+func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Object) {
         if name = l.expr(x.Name); name == nil {
                 l.parser.error(x.Name.Pos(), "invalid name `%T`", x.Name)
                 return
@@ -641,7 +641,8 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
         switch tok {
         case token.COLON:
                 switch s {
-                case "usee": obj = l.project.using;
+                case "usee": obj = l.project.using
+                case "self": obj = l.project.nameObj
                 default:
                         l.parser.error(x.Name.Pos(), "unsupported special delegation")
                         return
@@ -673,7 +674,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                         } else if resolved == nil {
                                 //l.parser.error(x.Name.Pos(), "entry `%s` is nil", name)
                                 return
-                        } 
+                        }
                 }
                 if exe, _ := resolved.(Executer); exe != nil {
                         if obj = exe.(Object); obj == nil {
@@ -700,25 +701,17 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                         obj = l.project.pluginScope.Lookup(s)
                 }
         }
-        for i, x := range x.Args {
-                if a := l.expr(x); a != nil {
-                        args = append(args, a)
-                } else {
-                        l.parser.error(x.Pos(), "nil arg #%d `%T`", i, x)
-                        return
-                }
-        }
         return
 }
 
 func (l *loader) exprClosure(x *ast.ClosureExpr) (v Value) {
-        if name, obj, args := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
+        if name, obj := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
                 l.parser.error(x.Name.Pos(), "invalid closure name `%T`", x.Name)
         } else if obj != nil {
-                v = MakeClosure(Position(x.Position), x.TokLp, obj, args...)
+                v = MakeClosure(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
         } else if true {
                 obj = unresolved(l.project, name)
-                v = MakeClosure(Position(x.Position), x.TokLp, obj, args...)
+                v = MakeClosure(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
         } else {
                 l.parser.error(x.Pos(), "closure nil object (name `%v`, `%v`)", name, l.scope.comment)
         }
@@ -726,14 +719,14 @@ func (l *loader) exprClosure(x *ast.ClosureExpr) (v Value) {
 }
 
 func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
-        if name, obj, args := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
+        if name, obj := l.exprClosureDelegate(&x.ClosureDelegate); name == nil {
                 l.parser.error(x.Name.Pos(), "`%T` is invalid delegation name", x.Name)
         } else if obj != nil {
-                v = MakeDelegate(Position(x.Position), x.TokLp, obj, args...)
+                v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
         } else if sel, ok := name.(*selection); ok {
                 if o, err := sel.object(); err == nil && o.DeclScope().comment == usecomment {
                         obj = unresolved(l.project, name)
-                        v = MakeDelegate(Position(x.Position), x.TokLp, obj, args...)
+                        v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
                 } else if err != nil {
                         l.parser.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
                         l.parser.error(x.Name.Pos(), err)
@@ -742,8 +735,16 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
                 } else if v, err = sel.value(); err != nil {
                         l.parser.error(x.Name.Pos(), "`%v` invalid delegate selection", name)
                         l.parser.error(x.Name.Pos(), err)
-                } else if v == nil && !l.isIncludingConf {
-                        l.parser.error(x.Name.Pos(), "`%v` not found in %v", sel.s, o)
+                } else if v == nil {
+                        if !l.isIncludingConf {
+                                l.parser.error(x.Name.Pos(), "`%v` not found in %v", sel.s, o)
+                        } else {
+                                unreachable("`%v` nil delegation", name)
+                        }
+                } else if obj, ok = v.(Object); ok {
+                        v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
+                } else {
+                        unreachable("`%v` not an object (%T)", name, v)
                 }
         } else {
                 l.parser.error(x.Name.Pos(), "`%v` nil delegation object (from %v)", name, l.scope.comment)
@@ -1074,7 +1075,7 @@ func (l *loader) executeUseRule(pos token.Pos, userule *useRuleEntry, params []V
                                 var ( val Value; def *Def )
                                 if val, err = sel.value(); err != nil { return }
                                 if def, ok = val.(*Def); !ok && def == nil {
-                                        err = scanner.Errorf(position, "`%v` not a def", t.identifier)
+                                        err = scanner.Errorf(position, "`%v` not defined", t.identifier)
                                         return
                                 }
 
