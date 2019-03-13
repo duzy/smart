@@ -1875,10 +1875,11 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
 
 func builtinSymlink(pos Position, args... Value) (res Value, err error) {
         var va []Value
-        var optForce, optUpdate bool
+        var optForce, optUpdate, optVerbose bool
         var opts = []string{
-                "u,update",
                 "f,force",
+                "u,update",
+                "v,verbose",
         }
 ForArgs:
         for _, v := range args {
@@ -1947,20 +1948,23 @@ ForVals:
                 }
 
                 if optForce {
-                        if err = os.Remove(oldname); err != nil {
-                                return
+                        if err = os.Remove(newname); err != nil {
+                                err = nil //return
                         }
                 } else if optUpdate {
                         var s string
-                        if s, err = os.Readlink(oldname); err != nil { continue ForVals }
+                        if s, err = os.Readlink(newname); err != nil { continue ForVals }
                         if s == newname {
                                 continue ForVals
-                        } else if err = os.Remove(oldname); err != nil {
-                                return
+                        } else if err = os.Remove(newname); err != nil {
+                                err = nil //return
                         }
                 }
                 if err = os.Symlink(oldname, newname); err != nil {
                         break
+                }
+                if optVerbose {
+                        fmt.Fprintf(stderr, "smart: Symlink %s -> %s\n", newname, oldname)
                 }
         }
         return
