@@ -510,7 +510,6 @@ ForRecipes:
 
                 sources = append(sources, src)
                 source = ""
-                break
         }
 
         /*
@@ -606,7 +605,8 @@ ForRecipes:
                 for _, src := range sources {
                         var skips = make(map[string]bool)
                         var sh = exec.Command(cmd, aa...)
-                        sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
+                        sh.Stdout = &exeres.Stdout
+                        sh.Stderr = &exeres.Stderr
                         if stdin {
                                 sh.Stdin = os.Stdin
                                 sh.Args = append(sh.Args, "-ti")

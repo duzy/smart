@@ -1953,18 +1953,24 @@ ForVals:
                         }
                 } else if optUpdate {
                         var s string
-                        if s, err = os.Readlink(newname); err != nil { continue ForVals }
-                        if s == newname {
+                        if s, err = os.Readlink(newname); err != nil {
+                                err = nil //continue ForVals
+                        } else if s == newname {
                                 continue ForVals
                         } else if err = os.Remove(newname); err != nil {
                                 err = nil //return
                         }
                 }
-                if err = os.Symlink(oldname, newname); err != nil {
-                        break
-                }
                 if optVerbose {
-                        fmt.Fprintf(stderr, "smart: Symlink %s -> %s\n", newname, oldname)
+                        fmt.Fprintf(stderr, "smart: Symlink %s -> %s …", newname, oldname)
+                }
+                if err = os.Symlink(oldname, newname); err != nil {
+                        if optVerbose {
+                                fmt.Fprintf(stderr, "… %s\n", err)
+                        }
+                        break
+                } else if optVerbose {
+                        fmt.Fprintf(stderr, "… ok\n")
                 }
         }
         return
