@@ -466,16 +466,6 @@ func (pc *preparer) traverseAll(value interface{}) (err error) {
                                 break
                         }
                 }
-                //fmt.Fprintf(stderr, "all: waitgroup: size %d\n", v.Len())
-                /*
-                for i := 0; i < v.Len(); i++ {
-                        pc.group.Add(1)
-                        go func(job interface{}) {
-                                defer pc.group.Done()
-                                pc.traverse(job)
-                        } (v.Index(i).Interface())
-                }
-                */
         } else {
                 err = pc.traverse(value)
         }
@@ -2320,7 +2310,6 @@ func (p *List) dependcompare(c *comparer) (err error) {
 func (p *List) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         var updates, good *breaker
-        //fmt.Fprintf(stderr, "list: waitgroup: size %d\n", p.Len())
         for _, v := range p.Elems {
                 if p, ok := v.(prerequisite); ok {
                         if err = p.prepare(pc); err == nil { continue }
@@ -2334,23 +2323,6 @@ func (p *List) prepare(pc *preparer) (err error) {
                                         err, good = nil, br
                                 }
                         }
-                        /*
-                        pc.group.Add(1)
-                        go func() {
-                                defer pc.group.Done()
-                                err = p.prepare(pc)
-                                if br, ok := err.(*breaker); ok {
-                                        if br.what == breakUpdates {
-                                                if updates == nil { updates = br } else {
-                                                        updates.updated = append(updates.updated, br.updated...)
-                                                }
-                                                err = nil
-                                        } else if br.what == breakGood {
-                                                err, good = nil, br
-                                        }
-                                }
-                        } ()
-                        */
                 } else {
                         err = fmt.Errorf("%s `%s` is not prerequisite", v.Type(), v)
                 }
@@ -3475,6 +3447,11 @@ func merge(args... Value) (elems []Value) {
 func mergeresult(res []Value, err error) ([]Value, error) {
         if err == nil { res = merge(res...) }
         return res, err
+}
+
+func trueVal(v Value, res bool) bool {
+        if v != nil { res = v.True() }
+        return res
 }
 
 func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) {

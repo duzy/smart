@@ -730,19 +730,17 @@ ForArgs:
                                 }
                                 fmt.Fprintf(stderr, "\n")
                         }
-                        if len(c.updated) > 0 {
-                                if enable_assertions {
-                                        assert(err != nil, "expects update breaker")
-                                        e, ok := err.(*breaker)
-                                        assert(ok, "expects update breaker")
-                                        assert(e.what == breakUpdates, "expects update breaker")
-                                        assert(e.updated != nil, "nil updated target")
-                                        //assert(e.updated.target == c.target, "updated target differs")
-                                        //assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
-                                        //for i, preq := range e.updated.prerequisites {
-                                        //       assert(preq == c.updated[i], "updated target differs")
-                                        //}
-                                }
+                        if len(c.updated) > 0 && enable_assertions {
+                                assert(err != nil, "expects update breaker")
+                                e, ok := err.(*breaker)
+                                assert(ok, "expects update breaker")
+                                assert(e.what == breakUpdates, "expects update breaker")
+                                assert(e.updated != nil, "nil updated target")
+                                //assert(e.updated.target == c.target, "updated target differs")
+                                //assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
+                                //for i, preq := range e.updated.prerequisites {
+                                //       assert(preq == c.updated[i], "updated target differs")
+                                //}
                         }
                 }
         } else {

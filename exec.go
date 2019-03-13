@@ -604,7 +604,6 @@ ForRecipes:
                 }
 
                 for _, src := range sources {
-                        //fmt.Fprintf(stderr, "1: %v\n", src)
                         var skips = make(map[string]bool)
                         var sh = exec.Command(cmd, aa...)
                         sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr

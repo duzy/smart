@@ -1874,10 +1874,46 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinSymlink(pos Position, args... Value) (res Value, err error) {
-        for i, nargs := 0, len(args); i < nargs; i += 1 {
+        var va []Value
+        var optForce, optUpdate bool
+        var opts = []string{
+                "u,update",
+                "f,force",
+        }
+ForArgs:
+        for _, v := range args {
+                var ( runes []rune ; names []string )
+                switch a := v.(type) {
+                case *Flag:
+                        if runes, names, err = a.opts(opts...); err != nil { return }
+                        a = nil
+                case *Pair:
+                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                if runes, names, err = flag.opts(opts...); err != nil { return }
+                                v = a.Value // use flag value
+                        } else {
+                                va = append(va, a)
+                                continue ForArgs
+                        }
+                default:
+                        va = append(va, a)
+                        continue ForArgs
+                }
+                if enable_assertions {
+                        assert(len(runes) == len(names), "Flag.opts(...) error")
+                }
+                for _, ru := range runes {
+                        switch ru {
+                        case 'u': optUpdate = trueVal(v, true)
+                        case 'f': optForce = trueVal(v, true)
+                        }
+                }
+        }
+ForVals:
+        for i, na := 0, len(va); i < na; i += 1 {
                 var (
-                        a = args[i]
                         oldname, newname string
+                        a = va[i]
                 )
                 switch t := a.(type) {
                 case *Pair: // symlink oldname => newname old => new
@@ -1900,13 +1936,27 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                                 break
                         }
                 default: // symlink newname oldname  newname oldname ...
-                        if i+1 < nargs {
-                                if oldname, err = args[i+0].Strval(); err != nil { return }
-                                if newname, err = args[i+1].Strval(); err != nil { return }
+                        if i+1 < na {
+                                if oldname, err = va[i+0].Strval(); err != nil { return }
+                                if newname, err = va[i+1].Strval(); err != nil { return }
                                 i += 1
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
+                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", va))
                                 break
+                        }
+                }
+
+                if optForce {
+                        if err = os.Remove(oldname); err != nil {
+                                return
+                        }
+                } else if optUpdate {
+                        var s string
+                        if s, err = os.Readlink(oldname); err != nil { continue ForVals }
+                        if s == newname {
+                                continue ForVals
+                        } else if err = os.Remove(oldname); err != nil {
+                                return
                         }
                 }
                 if err = os.Symlink(oldname, newname); err != nil {

@@ -279,19 +279,15 @@ func (prog *Program) modifiers() (preModifiers, postModifiers []*modifier) {
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
-        ctx := preparecontext{
+        prog.mutex.Lock()
+        defer prog.mutex.Unlock()
+
+        var ctx = preparecontext{
                 group: new(sync.WaitGroup),
                 entry: entry,
                 args: args,
                 derived: mostDerived(),
         }
-
-        prog.mutex.Lock()
-        defer func() {
-                prog.mutex.Unlock()
-                ctx.group.Wait()
-        } ()
-
         if len(prog.callers) > 0 {
                 var caller = prog.callers[0]
                 ctx.level = caller.level
