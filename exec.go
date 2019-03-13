@@ -62,8 +62,7 @@ type stdWriter struct {
 }
 
 func (w *stdWriter) Write(p []byte) (n int, err error) {
-        stdmux.Lock()
-        defer stdmux.Unlock()
+        stdmux.Lock(); defer stdmux.Unlock()
         if w.suffixDots {
                 if !bytes.HasPrefix(p, dots) {
                         w.std.Write([]byte("\n"))
@@ -278,7 +277,7 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
 
 func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        var prompt, verbout, verberr, saveout, saveerr, stdin, silent, nocd bool
+        var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
         var cmd, promstr = p.cmd, ""
         var aa []string
         var opts = []string{
@@ -325,8 +324,8 @@ ForArgs:
                 for i, ru := range runes {
                         switch ru {
                         case 'i': stdin   = true
-                        case 'o': saveout = true
-                        case 'e': saveerr = true
+                        case 'o': buffout = true
+                        case 'e': bufferr = true
                         case 'v': verbout = true
                         case 'w': verberr = true
                         case 's': silent  = true
@@ -425,57 +424,36 @@ ForArgs:
                 }
         }
 
-        var source, str string
         var exeres = new(ExecResult)
-        if saveout { exeres.Stdout.Buf = new(bytes.Buffer) }
-        if saveerr { exeres.Stderr.Buf = new(bytes.Buffer) }
+        if buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
+        if bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
         if verbout { exeres.Stdout.Tie = stdout }
         if verberr { exeres.Stderr.Tie = stderr }
-        exeres.Stderr.Line = rxKnownErrors
+        exeres.Stderr.Line = rxKnownErrors // the line filter
 
-        //var target = prog.scope.Lookup("@").(*Def).Value
-        var target = prog.pc.targetDef.Value
         var targetName string
+        var target = prog.pc.targetDef.Value
         if targetName, err = target.Strval(); err != nil {
                 return
         }
 
-        printEnteringDirectory()
-        if prompt {
-                var proj = mostDerived()
-                var trims = []Value{
-                        prog.scope.FindDef("CWD").Value,
-                        prog.scope.FindDef("CTD").Value,
-                        proj.scope.FindDef("CWD").Value,
-                        proj.scope.FindDef("CTD").Value,
-                }
-                for _, v := range trims {
-                        var s string
-                        if s, err = v.Strval(); err != nil { return }
-                        if strings.HasPrefix(targetName, s) {
-                                targetName = strings.TrimPrefix(targetName, s)
-                                targetName = strings.TrimPrefix(targetName, PathSep)
+        var source, str string
+        var sources []string
+        var envars []Value // disclosed values
+        if def, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
+                if l, _ := def.Value.(*List); l != nil {
+                        for _, v := range l.Elems {
+                                if v, err = v.expand(expandClosure); err != nil {
+                                        return
+                                } else {
+                                        envars = append(envars, v)
+                                }
                         }
                 }
-                
-                if promstr == "" {
-                        fmt.Fprintf(stderr, "smart: gen %s …", targetName)
-                } else {
-                        fmt.Fprintf(stderr, "%s: %s …", promstr, targetName)
-                }
-                defer func() {
-                        if err == nil {
-                                fmt.Fprintf(stderr, "… ok\n")
-                        } else if _, ok := err.(*scanner.Error); ok {
-                                fmt.Fprintf(stderr, "\n%v\n", err)
-                        } else if _, ok := err.(*scanner.Errors); ok {
-                                fmt.Fprintf(stderr, "\n%v\n", err)
-                        } else {
-                                fmt.Fprintf(stderr, "error: %v\n", err)
-                        }
-                } ()
         }
-        ForRecipes: for _, recipe := range recipes {
+
+ForRecipes:
+        for _, recipe := range recipes {
                 if str, err = recipe.Strval(); err != nil { return }
                 if source += str; strings.HasSuffix(source, "\\") {
                         source += "\n" // give back the line feed
@@ -501,19 +479,6 @@ ForArgs:
                 }
 
                 var src = source
-                var envars []Value // disclosed values
-                if def, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
-                        if l, _ := def.Value.(*List); l != nil {
-                                for _, v := range l.Elems {
-                                        if v, err = v.expand(expandClosure); err != nil {
-                                                return
-                                        } else {
-                                                envars = append(envars, v)
-                                        }
-                                }
-                        }
-                }
-
                 var str string
                 var wd = prog.scope.Lookup("CWD").(*Def).Value //Call(pos)
                 if str, err = wd.Strval(); err != nil { return }
@@ -543,68 +508,155 @@ ForArgs:
                         }
                 }
 
-                var skips = make(map[string]bool)
-                var sh = exec.Command(cmd, aa...)
-                sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
-                if stdin {
-                        sh.Stdin = os.Stdin
-                        sh.Args = append(sh.Args, "-ti")
-                }
-                sh.Args = append(sh.Args, p.opt, src)
-                sh.Env = os.Environ()
-                for _, v := range envars {
-                        if v, err = v.expand(expandClosure); err != nil {
-                                return
-                        } else if str, err = v.Strval(); err == nil {
-                                sh.Env = append(sh.Env, str)
-                        } else {
-                                return
-                        }
-                }
-
-        RunCommand:
-                var num = 0
-                exeres.Stderr.Subm = nil
-                if err, num = sh.Run(), num+1; err == nil {
-                        exeres.Status, source = 0, ""
-                        continue ForRecipes
-                }
-
-                // Parse errors of execution
-                if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
-                        var ( tag string ; retry bool; pos = prog.position )
-                        err, tag, retry = exeres.Stderr.parseKnownErrors(pos, targetName, !verberr && !silent)
-                        if err == nil && retry {
-                                if num > 2 { break } // only retry once
-                                fmt.Fprintf(stderr, "smart: good to retry (%s)\n", source)
-                                c := exec.Command(sh.Path, sh.Args...)
-                                c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                                sh = c
-                                goto RunCommand // retry the command
-                        } else if err != nil {
-                                if silent { err = nil }
-                        } else if tag == "" {
-                                if tag = promstr; tag == "" { tag = targetName }
-                                err = fmt.Errorf(strCommandFailedFmt, tag, exeres.Status)
-                        } else if v, ok := skips[tag]; !v && !ok && docks != nil {
-                                skips[tag] = true // save it to skip next time
-                                if err = p.runContainer(prog, docks); err == nil {
-                                        fmt.Fprintf(stderr, "smart: started %s\n", tag)
-                                        c := exec.Command(sh.Path, sh.Args...)
-                                        c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                                        sh = c; goto RunCommand
-                                }
-                        } else {
-                                err = scanner.Errorf(token.Position(pos), "`%s` no such container", tag)
-                        }
-                } else {
-                        exeres.Status = -1 //values.String(s)
-                }
-
+                sources = append(sources, src)
                 source = ""
                 break
         }
-        
-        result = exeres
+
+        /*
+        var proj = mostDerived()
+        for _, def := range []*Def {
+                prog.scope.FindDef("CWD"),
+                prog.scope.FindDef("CTD"),
+                proj.scope.FindDef("CWD"),
+                proj.scope.FindDef("CTD"),
+        } {
+                var ( v Value ; s string )
+                if v, err = def.Call(Position{}); err != nil { return }
+                if s, err = v.Strval(); err != nil { return }
+                if strings.HasPrefix(targetName, s) {
+                        targetName = strings.TrimPrefix(targetName, s)
+                        targetName = strings.TrimPrefix(targetName, PathSep)
+                }
+        }
+        */
+
+        var envs []string
+        for _, v := range envars {
+                var str string
+                if v, err = v.expand(expandClosure); err != nil {
+                        return
+                } else if str, err = v.Strval(); err == nil {
+                        envs = append(envs, str)
+                } else {
+                        return
+                }
+        }
+
+        printEnteringDirectory()
+
+        var caller *preparecontext
+        if len(prog.callers) > 0 {
+                caller = prog.callers[0]
+        }
+
+        if caller != nil { caller.group.Add(1) }
+        go func() {
+                if prompt {
+                        var targetStr string
+                        if a := strings.Split(targetName, PathSep); len(a) > 3 {
+                                targetStr = filepath.Join(a[len(a)-3:]...)
+                                targetStr = filepath.Join("……", targetStr)
+                        } else {
+                                targetStr = targetName
+                        }
+                        if promstr == "" {
+                                promstr = "smart: gen "
+                        } else {
+                                promstr += ": "
+                        }
+                        if caller == nil {
+                                fmt.Fprintf(stderr, "%s%s …\n", promstr, targetStr)
+                                defer func() {
+                                        if err == nil {
+                                                fmt.Fprintf(stderr, "… ok\n")
+                                        } else if _, ok := err.(*scanner.Error); ok {
+                                                fmt.Fprintf(stderr, "\n%v\n", err)
+                                        } else if _, ok := err.(*scanner.Errors); ok {
+                                                fmt.Fprintf(stderr, "\n%v\n", err)
+                                        } else {
+                                                fmt.Fprintf(stderr, "error: %v\n", err)
+                                        }
+                                } ()
+                        } else {
+                                fmt.Fprintf(stderr, "%s%s ……………\n", promstr, targetStr)
+                                defer func() {
+                                        if err == nil {
+                                                fmt.Fprintf(stderr, "%s%s …… ok\n", promstr, targetStr)
+                                        } else if _, ok := err.(*scanner.Error); ok {
+                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promstr, targetStr, err)
+                                        } else if _, ok := err.(*scanner.Errors); ok {
+                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promstr, targetStr, err)
+                                        } else {
+                                                fmt.Fprintf(stderr, "%s%s ……error: %v\n", promstr, targetStr, err)
+                                        }
+                                } ()
+                        }
+                }
+                if caller != nil {
+                        defer func() {
+                                caller.group.Done()
+                                //caller.calleeReses = append(caller.calleeReses, exeres)
+                                if err != nil {
+                                        caller.calleeErrors = append(caller.calleeErrors, err)
+                                }
+                        } ()
+                }
+
+                for _, src := range sources {
+                        //fmt.Fprintf(stderr, "1: %v\n", src)
+                        var skips = make(map[string]bool)
+                        var sh = exec.Command(cmd, aa...)
+                        sh.Stdout, sh.Stderr = &exeres.Stdout, &exeres.Stderr
+                        if stdin {
+                                sh.Stdin = os.Stdin
+                                sh.Args = append(sh.Args, "-ti")
+                        }
+                        sh.Args = append(sh.Args, p.opt, src)
+                        sh.Env = append(os.Environ(), envs...)
+
+                RunCommand:
+                        var num = 0
+                        exeres.Stderr.Subm = nil
+                        if err, num = sh.Run(), num+1; err == nil {
+                                exeres.Status, source = 0, ""
+                                continue
+                        }
+
+                        // Parse errors of execution
+                        if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
+                                var ( tag string ; retry bool; pos = prog.position )
+                                err, tag, retry = exeres.Stderr.parseKnownErrors(pos, targetName, !verberr && !silent)
+                                if err == nil && retry {
+                                        if num > 2 { break } // only retry once
+                                        fmt.Fprintf(stderr, "smart: good to retry (%s)\n", source)
+                                        c := exec.Command(sh.Path, sh.Args...)
+                                        c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
+                                        sh = c
+                                        goto RunCommand // retry the command
+                                } else if err != nil {
+                                        if silent { err = nil }
+                                } else if tag == "" {
+                                        if tag = promstr; tag == "" { tag = targetName }
+                                        err = fmt.Errorf(strCommandFailedFmt, tag, exeres.Status)
+                                } else if v, ok := skips[tag]; !v && !ok && docks != nil {
+                                        skips[tag] = true // save it to skip next time
+                                        if err = p.runContainer(prog, docks); err == nil {
+                                                fmt.Fprintf(stderr, "smart: started %s\n", tag)
+                                                c := exec.Command(sh.Path, sh.Args...)
+                                                c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
+                                                sh = c; goto RunCommand
+                                        }
+                                } else {
+                                        err = scanner.Errorf(token.Position(pos), "`%s` no such container", tag)
+                                }
+                        } else {
+                                exeres.Status = -1 //values.String(s)
+                        }
+                }
+        } ()
+        if caller == nil {
+                result = exeres
+        }
         return
 }

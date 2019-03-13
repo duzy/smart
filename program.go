@@ -119,6 +119,15 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
         return
 }
 
+func (prog *Program) waitForPrerequisites() (err error) {
+        prog.pc.group.Wait()
+        if prog.pc.calleeErrors != nil {
+                // TODO: combine the callee errors
+                err = prog.pc.calleeErrors[0]
+        }
+        return
+}
+
 func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err error) {
         var mode = prog.pc.mode
         if prog.scope.comment != usecomment {
@@ -134,6 +143,10 @@ func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err
                 } else if mode == defaultMode && mode == updateMode {
                         // Interpret the recipes...
                 }
+        }
+
+        if err = prog.waitForPrerequisites(); err != nil {
+                return
         }
 
         var value Value
@@ -274,9 +287,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         prog.mutex.Lock()
-        ctx.group.Add(1)
         defer func() {
-                ctx.group.Done()
                 prog.mutex.Unlock()
                 ctx.group.Wait()
         } ()

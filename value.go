@@ -353,6 +353,7 @@ func (m traversemode) name() (s string) {
 type preparecontext struct {
         mode traversemode
         group *sync.WaitGroup
+        calleeErrors []error
         entry *RuleEntry // caller entry (target)
         //visitInsteadUpdate bool // target don't really need to update
         args, arguments []Value // target and argumented prerequisite args

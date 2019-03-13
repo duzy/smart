@@ -641,8 +641,9 @@ ForArgs:
         }
         args = va // reset args
         
-        prog.pc.group.Add(1)
-        defer prog.pc.group.Done()
+        if err = prog.waitForPrerequisites(); err != nil {
+                return
+        }
 
         var targetDef = prog.pc.targetDef
         if n := len(args); n == 1 {
