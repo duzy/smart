@@ -1190,8 +1190,6 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
                 for _, using := range l.project.using.list {
                         if using.project == usee { return }
                 }
-        } else if optionRecursiveUsing && l.project.isUsingProject(usee) {
-                return
         } else if l.project.isUsingDirectly(usee) {
                 return
         }
@@ -1217,26 +1215,13 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         for _, base := range usee.bases {
                 if err = useProject(l, pos, base, params, opts); err != nil { return }
         }
-        if optionRecursiveUsing {
-                // Recursive using projects takes very much longer time
-                // (especially to big projects), so be careful of enabling
-                // it.
-                for _, using := range usee.using.list {
-                        //if isUsingProject(l.project, using.project) { continue }
-                        if err = useProject(l, pos, using.project, params, opts); err != nil { return }
-                }
-        }
 
         // Add to the project using list, so that the use path is correct.
         l.project.using.append(usee, params, opts)
 
         // Execute the :use: rule if presented to apply the conditions
         // of using the project.
-        if optionRecursiveUsing {
-                // No need to recursively execute use rules if useProject
-                // is already called recursively.
-                err = l.executeUseRuleDirectly(pos, usee, params, opts)
-        } else if optionExecuteUseRulesRecursively {
+        if optionExecuteUseRulesRecursively {
                 err = l.executeUseRulesRecursively(pos, usee, params, opts)
         } else {
                 var post bool

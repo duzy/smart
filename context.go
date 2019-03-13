@@ -20,7 +20,6 @@ var (
         optionClean = false
         optionReconfig = false
         optionConfigure = false
-        optionRecursiveUsing = false // very much longer build time
         optionAlwaysBuildPlugins = false
         optionVerbose = false
         optionVerboseImport = false
@@ -306,8 +305,6 @@ AtLookupLoop:
                 switch a {
                 case "-b", "-build-plugins":
                         optionAlwaysBuildPlugins = true
-                case "-ur", "-use-recursively":
-                        optionRecursiveUsing = true
                 case "-bi", "-bench-import":
                         optionBenchImport = true
                 case "-v", "-verbose":
@@ -319,10 +316,6 @@ AtLookupLoop:
                 default:
                         args = append(args, a)
                 }
-        }
-
-        if optionRecursiveUsing {
-                fmt.Fprintf(stderr, "smart: ▶WARNING◀ recursive using projects takes really long time!\n")
         }
 
         defer func(t time.Time) {
