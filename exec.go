@@ -16,6 +16,7 @@ import (
         "regexp"
         "bytes"
         "bufio"
+        "sync"
         "time"
         "fmt"
         "io"
@@ -49,6 +50,7 @@ var (
                 errArNoSuchFile,
         }, "|"))
 
+        stdmux = &sync.Mutex{}
         stdout = &stdWriter{ std:os.Stdout }
         stderr = &stdWriter{ std:os.Stderr }
         dots = []byte("…")
@@ -60,6 +62,8 @@ type stdWriter struct {
 }
 
 func (w *stdWriter) Write(p []byte) (n int, err error) {
+        stdmux.Lock()
+        defer stdmux.Unlock()
         if w.suffixDots {
                 if !bytes.HasPrefix(p, dots) {
                         w.std.Write([]byte("\n"))

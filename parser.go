@@ -326,40 +326,17 @@ func (p *parser) expectLinend() {
                 p.next()
         } else {
                 p.errorExpected(p.pos, "'\n'")
-                syncClause(p)
+                syncClause1(p)
 	}
 }
 
 // ----------------------------------------------------------------------------
 // Parsing
 
-// syncClause advances to the next tok.
-// Used for synchronization after an error.
-//
-func sync(p *parser, tok token.Token) {
-	for {
-		switch p.tok {
-		case tok:
-			if p.pos == p.syncPos && p.syncCnt < 10 {
-				p.syncCnt++
-				return
-			}
-			if p.pos > p.syncPos {
-				p.syncPos = p.pos
-				p.syncCnt = 0
-				return
-			}
-		case token.EOF:
-			return
-		}
-		p.next()
-	}
-}
-
 // syncClause advances to the next declaration.
 // Used for synchronization after an error.
 //
-func syncClause(p *parser) {
+func syncClause1(p *parser) {
 	for {
 		switch p.tok {
 		case token.IMPORT, token.INCLUDE, token.FILES, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
@@ -374,6 +351,29 @@ func syncClause(p *parser) {
 			}
                 // case token.ASSIGN:
                 // case token.COLON:
+		case token.EOF:
+			return
+		}
+		p.next()
+	}
+}
+
+// syncClause advances to the next tok.
+// Used for synchronization after an error.
+//
+func syncClause2(p *parser, tok token.Token) {
+	for {
+		switch p.tok {
+		case tok:
+			if p.pos == p.syncPos && p.syncCnt < 10 {
+				p.syncCnt++
+				return
+			}
+			if p.pos > p.syncPos {
+				p.syncPos = p.pos
+				p.syncCnt = 0
+				return
+			}
 		case token.EOF:
 			return
 		}
@@ -1228,7 +1228,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
         pos, tok := p.pos, p.tok
         if x = p.parseComposedExpr(lhs); x == nil {
                 p.warn(pos, "`%v` invalid expression", tok)
-                sync(p, token.LINEND)
+                syncClause2(p, token.LINEND)
         } else if !lhs {
                 switch p.tok {
                 case token.ASSIGN: // Example: '*.o = obj'
@@ -1944,7 +1944,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         case token.IMPORT:
                 pos := p.pos
                 p.error(pos, "`%v` unexpected here", p.tok)
-                sync(p)
+                syncClause1(p)
                 return &ast.BadClause{From: pos, To: p.pos}
 	case token.INCLUDE:
                 return p.parseGenericClause(token.INCLUDE, p.expect(token.INCLUDE), p.parseIncludeSpec)
@@ -1992,7 +1992,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
 
         pos := p.pos
         p.errorExpected(pos, "assign or colon")
-        sync(p)
+        syncClause1(p)
         return &ast.BadClause{From: pos, To: p.pos}
 }
 
@@ -2166,7 +2166,7 @@ func (p *parser) parseFile() *ast.File {
                                                 break ForInit
                                         } else {
                                                 p.error(p.pos, "`%v` unexpected here (%v)", p.tok, x)
-                                                syncClause(p)
+                                                syncClause1(p)
                                         }
                                 }
                         }
@@ -2178,7 +2178,7 @@ func (p *parser) parseFile() *ast.File {
                                  case token.LINEND:
                                          p.next() // skip empty lines
                                  default:
-                                         clauses = append(clauses, p.parseClause(syncClause))
+                                         clauses = append(clauses, p.parseClause(syncClause1))
                                  }
 			}
 		}

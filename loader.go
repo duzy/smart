@@ -17,6 +17,7 @@ import (
 	"strings"
         "plugin"
         "errors"
+        "sync"
         "time"
         "flag"
         "fmt"
@@ -1498,6 +1499,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
 
         var configure = false
         var prog = &Program{
+                mutex:    new(sync.Mutex),
                 globe:    l.globe,
                 project:  l.project,
                 scope:    progScope,

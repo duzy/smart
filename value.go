@@ -14,6 +14,7 @@ import (
         "reflect"
         "strconv"
         "strings"
+        "sync"
         "time"
         "math"
         "fmt"
@@ -351,6 +352,7 @@ func (m traversemode) name() (s string) {
 
 type preparecontext struct {
         mode traversemode
+        group *sync.WaitGroup
         entry *RuleEntry // caller entry (target)
         //visitInsteadUpdate bool // target don't really need to update
         args, arguments []Value // target and argumented prerequisite args
@@ -367,7 +369,6 @@ type preparer struct {
         program *Program
         preparecontext
         print bool // printing work directories (Entering/Leaving)
-
         targetDef  *Def // $@
         dependsDef *Def // $^
         depend0Def *Def // $<
@@ -464,6 +465,16 @@ func (pc *preparer) traverseAll(value interface{}) (err error) {
                                 break
                         }
                 }
+                //fmt.Fprintf(stderr, "all: waitgroup: size %d\n", v.Len())
+                /*
+                for i := 0; i < v.Len(); i++ {
+                        pc.group.Add(1)
+                        go func(job interface{}) {
+                                defer pc.group.Done()
+                                pc.traverse(job)
+                        } (v.Index(i).Interface())
+                }
+                */
         } else {
                 err = pc.traverse(value)
         }
@@ -1808,6 +1819,7 @@ type filebase struct {
 }
 
 var filecache = make(map[string]*filebase) // File.FullName() -> File
+var statmutex = new(sync.Mutex)
 
 func (p *filestub) subname() (s string) {
         if isAbsOrRel(p.sub) {
@@ -1821,6 +1833,9 @@ func (p *filebase) exists() bool { return p.info != nil }
 
 func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
         var ( base *filebase ; stub *filestub ; fullname string )
+
+        statmutex.Lock()
+        defer statmutex.Unlock()
 
         // Trims / suffix
         if dir != "" { dir = filepath.Clean(dir) }
@@ -2304,6 +2319,7 @@ func (p *List) dependcompare(c *comparer) (err error) {
 func (p *List) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         var updates, good *breaker
+        //fmt.Fprintf(stderr, "list: waitgroup: size %d\n", p.Len())
         for _, v := range p.Elems {
                 if p, ok := v.(prerequisite); ok {
                         if err = p.prepare(pc); err == nil { continue }
@@ -2317,6 +2333,23 @@ func (p *List) prepare(pc *preparer) (err error) {
                                         err, good = nil, br
                                 }
                         }
+                        /*
+                        pc.group.Add(1)
+                        go func() {
+                                defer pc.group.Done()
+                                err = p.prepare(pc)
+                                if br, ok := err.(*breaker); ok {
+                                        if br.what == breakUpdates {
+                                                if updates == nil { updates = br } else {
+                                                        updates.updated = append(updates.updated, br.updated...)
+                                                }
+                                                err = nil
+                                        } else if br.what == breakGood {
+                                                err, good = nil, br
+                                        }
+                                }
+                        } ()
+                        */
                 } else {
                         err = fmt.Errorf("%s `%s` is not prerequisite", v.Type(), v)
                 }
@@ -2630,9 +2663,10 @@ func (p *delegate) prepare(pc *preparer) (err error) {
 
         var val Value
         if val, err = p.expand(expandDelegate); err != nil { return }
-        for _, d := range merge(val) {
+        /*for _, d := range merge(val) {
                 if err = pc.traverse(d); err != nil { break }
-        }
+        }*/
+        err = pc.traverse(val) //err = pc.traverseAll(merge(val))
         return
 }
 

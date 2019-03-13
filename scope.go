@@ -10,6 +10,7 @@ import (
         "extbit.io/smart/ast"
         "strings"
         "bytes"
+        "sync"
         "sort"
         "fmt"
         "io"
@@ -20,6 +21,7 @@ import (
 // and looked up by name. The zero value for Scope is a ready-to-use
 // empty scope.
 type Scope struct {
+        mutex *sync.Mutex
         outer *Scope
         chain []*Scope
         children []*Scope
@@ -29,7 +31,7 @@ type Scope struct {
 }
 
 func NewScope(outer *Scope, project *Project, comment string) *Scope {
-        scope := &Scope{ outer, nil, nil, make(map[string]Object), project, comment }
+        scope := &Scope{ new(sync.Mutex), outer, nil, nil, make(map[string]Object), project, comment }
  	// Don't add children to Universe scope!
 	if outer != nil && outer != universe {
 		outer.children = append(outer.children, scope)
@@ -48,6 +50,8 @@ func (s *Scope) Len() int { return len(s.elems) }
 
 // Names returns the scope's element names in sorted order.
 func (s *Scope) Names() []string {
+        s.mutex.Lock()
+        defer s.mutex.Unlock()
 	names := make([]string, len(s.elems))
 	i := 0
 	for name := range s.elems {
@@ -70,6 +74,8 @@ func (s *Scope) Child(i int) *Scope { return s.children[i] }
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
 func (s *Scope) Lookup(name string) (obj Object) {
+        s.mutex.Lock()
+        defer s.mutex.Unlock()
         obj, _ = s.elems[name]; return
 }
 
@@ -127,6 +133,8 @@ func (s *Scope) Resolve(name string) (sym ast.Symbol) {
 // Otherwise it inserts obj, sets the object's outer scope
 // if not already set, and returns nil.
 func (s *Scope) Insert(obj Object) Object {
+        s.mutex.Lock()
+        defer s.mutex.Unlock()
 	name := obj.Name()
 	if alt := s.elems[name]; alt != nil {
 		return alt
@@ -136,6 +144,8 @@ func (s *Scope) Insert(obj Object) Object {
 }
 
 func (s *Scope) replace(name string, obj Object) {
+        s.mutex.Lock()
+        defer s.mutex.Unlock()
 	if s.elems[name] = obj; obj.DeclScope() == nil {
 		obj.redecl(s)
 	}
@@ -147,6 +157,9 @@ func (s *Scope) replace(name string, obj Object) {
 // n == 0 for no indentation.
 // If recurse is set, it also writes nested (children) scopes.
 func (s *Scope) WriteTo(w io.Writer, n int, recurse bool) {
+        s.mutex.Lock()
+        defer s.mutex.Unlock()
+
 	const ind = ".  "
 	indn := strings.Repeat(ind, n)
 

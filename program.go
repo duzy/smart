@@ -10,6 +10,7 @@ import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "strconv"
+        "sync"
         "fmt"
 )
 
@@ -74,6 +75,7 @@ func (m *modifier) String() (s string) {
 }
 
 type Program struct {
+        mutex *sync.Mutex // execution mutex
         pc *preparer // current prepare context
         globe   *Globe
         project *Project
@@ -264,7 +266,21 @@ func (prog *Program) modifiers() (preModifiers, postModifiers []*modifier) {
 }
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
-        ctx := preparecontext{entry:entry, args:args, derived:mostDerived()}
+        ctx := preparecontext{
+                group: new(sync.WaitGroup),
+                entry: entry,
+                args: args,
+                derived: mostDerived(),
+        }
+
+        prog.mutex.Lock()
+        ctx.group.Add(1)
+        defer func() {
+                ctx.group.Done()
+                prog.mutex.Unlock()
+                ctx.group.Wait()
+        } ()
+
         if len(prog.callers) > 0 {
                 var caller = prog.callers[0]
                 ctx.level = caller.level
