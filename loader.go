@@ -1222,19 +1222,23 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         // Execute the :use: rule if presented to apply the conditions
         // of using the project.
         if optionExecuteUseRulesRecursively {
-                err = l.executeUseRulesRecursively(pos, usee, params, opts)
-        } else {
-                var post bool
-                var usees []*Project
-                if !post { usees = append(usees, usee) }
-                usees = append(usees, usee.usees(post)...)
-                if post { usees = append(usees, usee) }
+                if false {
+                        err = l.executeUseRulesRecursively(pos, usee, params, opts)
+                } else {
+                        var post bool
+                        var usees []*Project
+                        if !post { usees = append(usees, usee) }
+                        usees = append(usees, usee.usees(post)...)
+                        if post { usees = append(usees, usee) }
 
-                // Get usees 'recursively' and use each directly.
-                for _, u := range usees {
-                        err = l.executeUseRuleDirectly(pos, u, params, opts)
-                        if err != nil { break }
+                        // Get usees 'recursively' and use each directly.
+                        for _, u := range usees {
+                                err = l.executeUseRuleDirectly(pos, u, params, opts)
+                                if err != nil { break }
+                        }
                 }
+        } else {
+                err = l.executeUseRuleDirectly(pos, usee, params, opts)
         }
         return
 }
