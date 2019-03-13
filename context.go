@@ -75,6 +75,8 @@ func mostDerived() (proj *Project) {
                         break
                 }
                 proj = p
+        } else {
+                proj = current()
         }
         return
 }

@@ -799,13 +799,22 @@ func builtinString(pos Position, args... Value) (result Value, err error) {
 func filterValues(pats []Value, neg bool, values... Value) (result []Value, err error) {
         var f = func(v Value) bool {
                 for _, pat := range pats {
+                        //fmt.Fprintf(stderr, "filter: (%T %v) (%T %v)\n", pat, pat, v, v)
                         switch p := pat.(type) {
                         case *PercPattern:
                                 var ( s string ; m bool )
                                 if m, s, err = p.match(v); err != nil { break }
                                 if m && s != "" { return true }
                         default:
-                                fmt.Fprintf(stderr, "todo: %v (%T) (%v)\n", pat, pat, v)
+                                if pat.cmp(v) == cmpEqual {
+                                        return true
+                                }
+                                switch p := v.(type) {
+                                case *File:
+                                        var s string
+                                        if s, err = pat.Strval(); err != nil { break }
+                                        if p.name == s { return true }
+                                }                        
                         }
                 }
                 return false

@@ -936,9 +936,17 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
                         file = stat(name, "", "", nil)
                 } else if isRel = isRelPath(name); isRel { // relative to target dir
                         file = stat(name, "", targetDir, nil)
+                        if !file.exists() {
+                                var f = p.matchFile(name)
+                                if f != nil {
+                                        file = f
+                                }
+                        }
                 } else if file = p.matchFile(name); file == nil {
                         // file not found
-                } else if !sys && file.match != nil && len(file.match.Paths) == 1 {
+                }
+
+                if !sys && file != nil && file.match != nil && len(file.match.Paths) == 1 {
                         // mark system files defined by `files ((foo.xxx) => -)`
                         if f, ok := file.match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
                                 sys = true

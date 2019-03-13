@@ -341,7 +341,14 @@ func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
 func (d *Constant) End() token.Pos        { return token.Pos(int(d.TokPos) + len(d.Tok.String())) }
 func (d *BasicLit) End() token.Pos        { return d.EndPos /*token.Pos(int(d.ValuePos) + len(d.Value))*/ }
-func (d *FlagExpr) End() token.Pos        { return d.Name.End() }
+func (d *FlagExpr) End() (pos token.Pos) {
+        if d.Name == nil {
+                pos = d.DashPos + 1
+        } else {
+                pos = d.Name.End()
+        }
+        return
+}
 func (d *NegExpr) End() token.Pos         { return d.Val.End() }
 func (d *CompoundLit) End() token.Pos     { return d.Rquote + 1 }
 func (d *Barecomp) End() token.Pos        { return d.Elems[len(d.Elems)-1].End() }
