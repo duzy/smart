@@ -556,7 +556,7 @@ ForRecipes:
                         var targetStr string
                         if a := strings.Split(targetName, PathSep); len(a) > 3 {
                                 targetStr = filepath.Join(a[len(a)-3:]...)
-                                targetStr = filepath.Join("……", targetStr)
+                                targetStr = filepath.Join("…", targetStr)
                         } else {
                                 targetStr = targetName
                         }
@@ -579,7 +579,7 @@ ForRecipes:
                                         }
                                 } ()
                         } else {
-                                fmt.Fprintf(stderr, "%s%s ……………\n", promstr, targetStr)
+                                fmt.Fprintf(stderr, "%s%s …… ……\n", promstr, targetStr)
                                 defer func() {
                                         if err == nil {
                                                 fmt.Fprintf(stderr, "%s%s …… ok\n", promstr, targetStr)
