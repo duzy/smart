@@ -313,6 +313,7 @@ func (p *Project) searchFile(name string) (file *File) {
 
 func (p *Project) matchFile(name string) (file *File) {
         var first *File
+ForFilemaps:
         for _, filemap := range p.filemaps(true) {
                 // Match the represented file name.
                 matched, pre := filemap.Match(name)
@@ -388,8 +389,21 @@ func (p *Project) matchFile(name string) (file *File) {
                 }
                 if file.exists() { break }
                 if first == nil { first = file }
+                // If the filemap entry is defined by the project itself,
+                // we have to break the matching loop. So that the current
+                // project have a chance to define it's own file. This is
+                // usefull when the bases or imported projects have also
+                // matched filemaps. The current project have the highest
+                // priority to match.
+                for _, fm := range p.filemap {
+                        if filemap == fm {
+                                break ForFilemaps
+                        }
+                }
         }
-        if file == nil || !file.exists() { file = first }
+        if first != file && (file == nil || !file.exists()) {
+                file = first
+        }
         return
 }
 

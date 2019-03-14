@@ -507,9 +507,8 @@ ForRecipes:
                                 src = fmt.Sprintf("%s && %s", str, src)
                         }
                 }
-
-                sources = append(sources, src)
                 source = ""
+                sources = append(sources, src)
         }
 
         /*

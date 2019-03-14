@@ -1905,18 +1905,16 @@ ForArgs:
                 }
                 for _, ru := range runes {
                         switch ru {
-                        case 'u': optUpdate = trueVal(v, true)
                         case 'f': optForce = trueVal(v, true)
+                        case 'u': optUpdate = trueVal(v, true)
+                        case 'v': optVerbose = trueVal(v, true)
                         }
                 }
         }
 ForVals:
         for i, na := 0, len(va); i < na; i += 1 {
-                var (
-                        oldname, newname string
-                        a = va[i]
-                )
-                switch t := a.(type) {
+                var oldname, newname string
+                switch t := va[i].(type) {
                 case *Pair: // symlink oldname => newname old => new
                         if oldname, err = t.Key.Strval(); err != nil { return }
                         if newname, err = t.Value.Strval(); err != nil { return }
