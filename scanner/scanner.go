@@ -126,6 +126,11 @@ const (
         isCompoundCallIdent // $.....
         isCompoundCallParen // $(...)
         isCompoundCallBrace // ${...}
+        isCompoundCallColonL // $:....
+        isCompoundCallColonR // $:...:
+        isCallColonL
+        isCallColonR
+        isCompoundCallColon = isCompoundCallColonL | isCompoundCallColonR
 )
 
 // Init prepares the scanner s to tokenize the text src by setting the
@@ -797,7 +802,6 @@ func (s *Scanner) scanString(ml bool) string {
 }
 
 func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
-//scanAgain:
 	// current token start
 	pos = s.file.Pos(s.offset)
 
@@ -807,7 +811,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 //yaml:[((name port hosts)) (plain yaml)]
                 //	$(indent 4,$(join 'names:',$(names),"\n- "))
                 //
-                if s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace) == 0 {
+                if s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace|isCompoundCallColon) == 0 {
                         switch {
                         case s.context&isCompoundLine != 0:
                                 tok, lit = s.scanCompoundLine()
@@ -999,14 +1003,17 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                         s.context |= isCompoundCallParen
                                 case '{':
                                         s.context |= isCompoundCallBrace
+                                case ':':
+                                        s.context |= isCompoundCallColonL
                                 default:
                                         s.context |= isCompoundCallIdent
                                 }
+                        } else if ch == ':' {
+                                s.context |= isCallColonL
                         }
                         if isDelegate {
                                 tok = token.Token(token.DELEGATE + (tok - token.CLOSURE))
                         }
-
                 case '(':
                         tok = token.LPAREN
                         s.skipPostLineFeeds = true
@@ -1075,18 +1082,31 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                         //s.skipPostLineFeeds = true
                 case ':':
-                        switch s.ch {
-                        case ':':
+                        if s.ch == '=' {
+                                tok = token.SCO_ASSIGN
+                                s.next() // consume '='
+                        } else if s.context&isCallColonL != 0 {
+                                tok = token.LCOLON
+                                s.context &^= isCallColonL
+                                s.context  |= isCallColonR
+                        } else if s.context&isCallColonR != 0 {
+                                tok = token.RCOLON
+                                s.context &^= isCallColonR
+                        } else if s.context&isCompoundCallColonL != 0 {
+                                tok = token.LCOLON
+                                s.context &^= isCompoundCallColonL
+                                s.context  |= isCompoundCallColonR
+                        } else if s.context&isCompoundCallColonR != 0 {
+                                tok = token.RCOLON
+                                s.context &= ^isCompoundCallColonR
+                        } else if s.ch == ':' {
                                 tok = token.COLON2
                                 s.next() // consume the second ':'
                                 if s.ch == '=' {
                                         tok = token.DCO_ASSIGN
                                         s.next() // consume '='
                                 }
-                        case '=':
-                                tok = token.SCO_ASSIGN
-                                s.next() // consume '='
-                        default:
+                        } else {
                                 tok = token.COLON
                         }
                 case ';':
@@ -1112,8 +1132,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	}
 
         // eat consequence spaces
-        if s.context&(isCompoundLine|isCompoundString) == 0 || 
-           s.context&(isCompoundCallParen|isCompoundCallBrace) != 0 {
+        if s.context&(isCompoundLine|isCompoundString) == 0 || s.context&(isCompoundCallParen|isCompoundCallBrace|isCompoundCallColon) != 0 {
                 s.skipUselessWhitespace(false)
         }
 	return

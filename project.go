@@ -120,7 +120,7 @@ type Project struct {
         bases   []*Project
         imports []*Project
 
-        nameObj Object
+        self *ProjectName
 
         // List order is significant, duplication is acceptable.
         filemap []*FileMap

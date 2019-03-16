@@ -44,6 +44,7 @@ const (
 	LPAREN    // (
 	LBRACK    // [
 	LBRACE    // {    left curly
+        LCOLON    // :
 	COMMA     // ,
 	PERIOD    // .
         DOTDOT    // ..
@@ -54,6 +55,7 @@ const (
 	RPAREN    // )
 	RBRACK    // ]
 	RBRACE    // }    right curly
+        RCOLON    // :
 	SEMICOLON // ;
 
 	EXC       // !    exclamation
@@ -187,6 +189,7 @@ var tokens = [...]string{
 	LPAREN: "(",
 	LBRACK: "[",
 	LBRACE: "{",
+	LCOLON: ":", // the left colon like in $:foo:
 	COMMA:  ",",
 	PERIOD: ".",
         DOTDOT: "..",
@@ -197,6 +200,7 @@ var tokens = [...]string{
 	RPAREN:    ")",
 	RBRACK:    "]",
 	RBRACE:    "}",
+	RCOLON:    ":", // the right-paired colon like in $:foo:
         SEMICOLON: ";",
 
         EXC:       "!",
@@ -325,7 +329,6 @@ func (tok Token) IsAssign() bool { return assign_beg < tok && tok < assign_end }
 func (tok Token) IsRuleDelim() bool { return ruledelim_beg < tok && tok < ruledelim_end }
 func (tok Token) IsListDelim() bool {
         return tok.IsRuleDelim() ||
-               tok == RPAREN || tok == RBRACK || tok == RBRACE ||
-               tok == SEMICOLON || tok == COMMA || tok == LINEND ||
-               tok == EOF
+               tok == RPAREN || tok == RBRACK || tok == RBRACE || tok == RCOLON ||
+               tok == SEMICOLON || tok == COMMA || tok == LINEND || tok == EOF
 }

@@ -32,7 +32,7 @@ const (
 
         parsingFilesSpec // files ( ... )
         parsingSpecialRule // e.g. :use ...:
-        parsingColonName // e.g. $:use:
+        //parsingColonName // e.g. $:use:
         parsingBuiltinCommand // recipe builtin
 
         // The composingNo* bits control the composing priority!
@@ -40,7 +40,7 @@ const (
         // Bits to disable parsing ArgumentedExpr 
         composingNoArg = composingSELECT_PROP | composingDOT | composingDOTDOT | composingPATH | composingPERC
         composingNoPair = composingSELECT_PROP | composingDOT | composingPATH | composingPERC
-        composingNoURL = composingSELECT_PROP | composingURL | composingDOT | composingPATH | composingGLOB | composingPERC | composingREXP | parsingColonName | parsingSpecialRule
+        composingNoURL = composingSELECT_PROP | composingURL | composingDOT | composingPATH | composingGLOB | composingPERC | composingREXP /*| parsingColonName*/ | parsingSpecialRule
         composingNoPath = composingSELECT_PROP | composingURL | composingDOT | composingPATH | composingGLOB | composingPERC | composingREXP
         composingNoSelect = composingSELECT_PROP
         composingNoGlob = composingGLOB | composingPERC | composingREXP
@@ -826,7 +826,7 @@ BuildPath:
                 }
 
                 switch p.tok {
-                case token.RPAREN, token.RBRACE, token.LINEND:
+                case token.RPAREN, token.RBRACE, token.RCOLON, token.LINEND:
                         // Encountered the tailing '/', append 'zero' segment.
                         seg := &ast.PathSegExpr{ pos, 0 }
                         path.Segments = append(path.Segments, seg)
@@ -873,11 +873,11 @@ func (p *parser) parseURLExpr(lhs bool, scheme ast.Expr) (res ast.Expr) {
                         url.SlashSlash = pos // '//'
                         end = url.SlashSlash+2
                 } else {
-                        panic("todo: path")
+                        panic(fmt.Sprintf("todo: url path (%s %s),", p.tok, p.lit))
                         return
                 }
         } else if end == p.pos && !p.isEndOfURL(lhs) {
-                panic("todo: path")
+                panic(fmt.Sprintf("todo: url path (%s %s).", p.tok, p.lit))
                 return
         }
 
@@ -946,15 +946,17 @@ func (p *parser) parseClosureDelegateName(tok token.Token) (name ast.Expr) {
 		defer un(trace(p, "ClosureDelegateName"))
 	}
 
-        if tok == token.COLON {
+        /*
+        if tok == token.LCOLON {
                 // Set parsingColonName to avoid ':' being treated as URL.
                 defer p.setbits(p.setbit(parsingColonName))
         }
+        */
 
         var pos = p.pos
         if name = p.checkExpr(p.parseExpr(false)); name == nil {
                 p.error(pos, "bad closure/delegate name")
-                name = &ast.BadExpr{ From:p.pos, To:p.pos }
+                name = &ast.BadExpr{ From:pos, To:p.pos }
         }
         return
 }
@@ -975,10 +977,10 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 resolved Object
         )
         switch p.next(); p.tok {
-        case token.LPAREN, token.LBRACE, token.COLON: // $(...), ${...}, $:...:
+        case token.LPAREN, token.LBRACE, token.LCOLON: // $(...), ${...}, $:...:
                 lpos, tokLp = p.pos, p.tok
 
-                p.next() // skips LPAREN, LBRACE, COLON
+                p.next() // skips LPAREN, LBRACE, LCOLON
                 if lpos+1 != p.pos {
                         p.error(lpos+1, "unexpected spaces")
                         return &ast.BadExpr{ From:lpos+1, To:p.pos }
@@ -994,6 +996,8 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                                 switch tokLp {
                                 case token.LPAREN: resolved, err = p.resolve(v)
                                 case token.LBRACE: resolved, err = p.find(v)
+                                case token.LCOLON:
+                                        // TODO: check special var names
                                 }
                                 if err != nil {
                                         p.error(name.Pos(), "invalid name")
@@ -1004,7 +1008,8 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 }
 
                 if (tokLp == token.LPAREN && p.tok != token.RPAREN) ||
-                   (tokLp == token.LBRACE && p.tok != token.RBRACE) {
+                   (tokLp == token.LBRACE && p.tok != token.RBRACE) ||
+                   (tokLp == token.LCOLON && p.tok != token.RCOLON) {
                         rest = append(rest, p.parseListExpr(false))
                         for p.tok == token.COMMA {
                                 p.next()
@@ -1014,8 +1019,8 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 switch tokLp {
                 case token.LPAREN: rpos = p.expect(token.RPAREN)
                 case token.LBRACE: rpos = p.expect(token.RBRACE)
-                case token.COLON:
-                        if rpos = p.expect(token.COLON); name.End() != rpos {
+                case token.LCOLON: rpos = p.expect(token.RCOLON)
+                        if name.End() != rpos {
                                 p.error(name.Pos(), "special dont need extra spaces")
                         }
                 }
@@ -1039,6 +1044,8 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                                         switch tokLp {
                                         case token.LPAREN: resolved, err = p.resolve(v)
                                         case token.LBRACE: resolved, err = p.find(v)
+                                        case token.LCOLON:
+                                                // TODO: check special names
                                         }
                                         if err != nil {
                                                 p.error(name.Pos(), "name is nil: %v", err)
@@ -1249,7 +1256,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                         }
 
                 case token.COMPOSED, token.COMMA, token.COLON:
-                case token.RPAREN, token.RBRACK, token.RBRACE:
+                case token.RPAREN, token.RBRACK, token.RBRACE, token.RCOLON:
                 case token.SELECT_PROP, /*token.SELECT_PROG,*/ token.LINEND:
                         // Compose nothing at this point!
 
@@ -1290,15 +1297,36 @@ func isValidImport(lit string) bool {
 	return s != ""
 }
 
-func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, options []ast.Expr, _ int) ast.Spec {
-	spec := &ast.ImportSpec{ p.parseDirectiveSpec() }
+func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, options []ast.Expr, _ int) (res ast.Spec) {
+	var spec = &ast.ImportSpec{ p.parseDirectiveSpec() }
         p.imports = append(p.imports, spec)
-        if opts, err := p.loadImportOptions(options); err == nil {
-                p.loadImportSpec(opts, spec)
-        } else {
-                p.error(spec.Pos(), err)
+        res = spec
+
+        var ( opts importoptions ; err error )
+        for _, v := range p.exprs(options) {
+                var opt bool
+                switch t := v.(type) {
+                case *Flag:
+                        if opt, err = t.is(0, "reusing"); err != nil {
+                                p.error(spec.Pos(), err)
+                                return
+                        }
+                        if opt { opts.allowReuse = true }
+                case *Pair:
+                        if opt, err = t.isFlag(0, "reusing"); err != nil {
+                                p.error(spec.Pos(), err)
+                                return
+                        }
+                        if opt { opts.allowReuse = t.Value.True() }
+                default:
+                        p.error(spec.Pos(), "`%v` invalid import option (%T)", v, v)
+                        return
+                }
         }
-        return spec
+        if err == nil {
+                p.loadImportSpec(opts, spec)
+        }
+        return
 }
 
 func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Expr, _ int) ast.Spec {
@@ -1407,7 +1435,7 @@ func (p *parser) parseDirectiveSpec() (gs ast.DirectiveSpec) {
         // Parse the parameters.
         ParamsParseLoop: for p.tok != token.EOF {
                 switch p.tok {
-                case token.COMMA, token.LINEND, token.RPAREN, token.RBRACE:
+                case token.COMMA, token.LINEND, token.RPAREN, token.RBRACE, token.RCOLON:
                         break ParamsParseLoop
                 }
                 if p.lineComment != nil {
@@ -1479,7 +1507,8 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                 }
 	}
 
-        GoodEnd: return &ast.GenericClause{
+GoodEnd:
+        return &ast.GenericClause{
 		Doc:    doc,
 		TokPos: pos,
 		Tok:    keyword,
@@ -1996,11 +2025,6 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
         return &ast.BadClause{From: pos, To: p.pos}
 }
 
-func (p *parser) parseImport() (clause ast.Clause) {
-        clause = p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec)
-        return
-}
-
 func (p *parser) parseFile() *ast.File {
 	if p.tracing.enabled {
 		defer un(trace(p, "File '"+p.file.Name()+"'"))
@@ -2154,7 +2178,7 @@ func (p *parser) parseFile() *ast.File {
                                 case token.LINEND:
                                         p.next() // skip empty lines
                                 case token.IMPORT:
-                                        clauses = append(clauses, p.parseImport())
+                                        clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
                                 default:
                                         if p.tok.IsKeyword() {
                                                 break ForInit

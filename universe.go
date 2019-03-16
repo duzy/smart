@@ -216,11 +216,16 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
                 relPath: relPath, 
                 tmpPath: tmpPath,
                 using: new(usinglist),
+                self: new(ProjectName),
                 spec: spec,
                 name: name,
         }
 
         m.scope = NewScope(outer, m, fmt.Sprintf("project %q", name))
+        m.self.name = name
+        m.self.scope = m.scope
+        m.self.owner = m
+        m.self.project = m
         m.using.name = "usee"
         m.using.scope = m.scope
         m.using.owner = m

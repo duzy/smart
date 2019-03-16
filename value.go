@@ -3457,7 +3457,9 @@ func trueVal(v Value, res bool) bool {
 func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) {
         var v Value
         for _, elem := range values {
-                if elem == nil { panic(fmt.Sprintf("nil in %v\n", values)) }
+                if elem == nil {
+                        panic(fmt.Sprintf("nil in %v\n", values))
+                }
                 if v, err = elem.expand(w); err == nil {
                         if v != elem { num += 1 }
                         res = append(res, v)

@@ -254,7 +254,6 @@ type (
 
         SelectionExpr struct {
                 Lhs Expr
-                //TokPos token.Pos
                 Tok token.Token
                 Rhs Expr
         }
@@ -694,7 +693,7 @@ func (d *DefineClause) End() token.Pos { return d.Name.Pos() }
 func (d *RuleClause) End() token.Pos { return d.TokPos }
 
 func (d *DefineClause) String() string {
-        return fmt.Sprintf("%s %s %s", d.Name, d.Tok, d.Value)
+        return fmt.Sprintf("%s %s %v", d.Name, d.Tok, d.Value)
 }
 
 func (d *RecipeDefineClause) String() string {

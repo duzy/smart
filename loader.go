@@ -334,24 +334,6 @@ func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts impor
         return
 }
 
-func (l *loader) loadImportOptions(options []ast.Expr) (opts importoptions, err error) {
-        for _, v := range l.exprs(options) {
-                var opt bool
-                switch t := v.(type) {
-                case *Flag:
-                        if opt, err = t.is(0, "reusing"); err != nil { return }
-                        if opt { opts.allowReuse = true }
-                case *Pair:
-                        if opt, err = t.isFlag(0, "reusing"); err != nil { return }
-                        if opt { opts.allowReuse = t.Value.True() }
-                default:
-                        err = fmt.Errorf("`%v` invalid import option (%T)", v, v)
-                        return
-                }
-        }
-        return
-}
-
 func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
         var (
                 linfo = l.loads[len(l.loads)-1]
@@ -441,9 +423,13 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                 err = l.load(specName, absPath, nil)
         }
         if err != nil {
-                if _, ok := err.(scanner.Errors); ok {
+                switch e := err.(type) {
+                case *scanner.Error, scanner.Errors:
+                        // Report errors immediately, so that they could be
+                        // discoverred asap.
+                        fmt.Fprintf(stderr, "%v\n", e)
                         l.parser.error(spec.Pos(), "import `%v` failed (%v)", specName, absPath)
-                } else {
+                default:
                         l.parser.error(spec.Pos(), "import `%v` (%v): %v", specName, absPath, err)
                 }
                 return
@@ -495,19 +481,20 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                 }
         }
 
-        if !specOpts.unuse {
-                name, _ := l.project.scope.Lookup(loaded.name).(*ProjectName)
-                if name == nil {
-                        l.parser.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
-                } else {
-                        var useopts = opts.useoptions
-                        if specOpts.reuse {
-                                // override reuse option
-                                useopts.allowReuse = true
-                        }
-                        err = l.useProject(spec.Props[0].Pos(), loaded, params, useopts)
-                }
+        if specOpts.unuse { return }
+
+        name, _ := l.project.scope.Lookup(loaded.name).(*ProjectName)
+        if name == nil {
+                l.parser.error(spec.Pos(), "%v (%v,dir=%v) not in %v", specName, absPath, isDir, l.project.scope.comment)
+                return
         }
+        
+        var useopts = opts.useoptions
+        if specOpts.reuse {
+                // override reuse option
+                useopts.allowReuse = true
+        }
+        err = l.useProject(spec.Props[0].Pos(), loaded, params, useopts)
         return
 }
 
@@ -602,7 +589,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
 
         var tok = token.ILLEGAL
         switch x.TokLp {
-        case token.LPAREN, token.LBRACE, token.COLON:
+        case token.LPAREN, token.LBRACE, token.LCOLON:
                 tok = x.TokLp
         case token.STRING, token.COMPOUND:
                 if x.Tok == token.DELEGATE {
@@ -640,10 +627,10 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
         }
 
         switch tok {
-        case token.COLON:
+        case token.LCOLON:
                 switch s {
+                case "self": obj = l.project.self
                 case "usee": obj = l.project.using
-                case "self": obj = l.project.nameObj
                 default:
                         l.parser.error(x.Name.Pos(), "unsupported special delegation")
                         return
@@ -754,24 +741,27 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
 }
 
 func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
-        if lhs := l.expr(x.Lhs); lhs != nil {
-                if lhs.Type() != SelectionType {
-                        // Resolve the first left-hand-side.
-                        if o, err := l.resolve(lhs); err != nil {
-                                l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", lhs, err)
-                        } else if o == nil {
-                                l.parser.error(x.Lhs.Pos(), "`%v` is undefined", lhs)
-                        } else {
-                                lhs = o
-                        }
-                }
-                if rhs := l.expr(x.Rhs); rhs != nil {
-                        v = &selection{ x.Tok, lhs, rhs }
+        var obj = l.expr(x.Lhs)
+        if obj == nil {
+                l.parser.error(x.Lhs.Pos(), "`%s` invalid object expression (%T)", x, x.Lhs)
+                return
+        }
+        if obj.Type() != SelectionType {
+                var o, err = l.resolve(obj)
+                if err != nil {
+                        l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
+                        return
+                } else if o == nil {
+                        l.parser.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                        return
                 } else {
-                        l.parser.error(x.Rhs.Pos(), "invalid %v `%T`", lhs, x.Rhs)
+                        obj = o
                 }
+        }
+        if prop := l.expr(x.Rhs); prop == nil {
+                l.parser.error(x.Rhs.Pos(), "`%s` invalid property expression (%T)", x, x.Rhs)
         } else {
-                l.parser.error(x.Lhs.Pos(), "invalid `%T`", x.Lhs)
+                v = &selection{ x.Tok, obj, prop }
         }
         return
 }
@@ -957,7 +947,6 @@ func (l *loader) exprIncludeRuleClause(x *ast.IncludeRuleClause) (v Value) {
 
 func (l *loader) expr(expr ast.Expr) (v Value) {
         if expr == nil {
-                //l.parser.error(l.parser.pos, "encountered nil expr")
                 v = universalnone
                 return
         }
@@ -1663,7 +1652,7 @@ func (l *loader) loadProjectBases(linfo *loadinfo, params []Value) (err error) {
                 }
 
                 // chain loaded base project, note that err might not be nil
-                if loaded, _ := l.loaded[absPath]; loaded != nil {
+                if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
                         l.project.Chain(loaded)
                 } else if hasConfDir {
                         err = fmt.Errorf("`%v` base on configuration. (%T, %s)", elem, elem, absPath)
@@ -1742,23 +1731,25 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         outer = outer.Outer()
                 }
 
-                dec = &declare{
-                        project: l.globe.project(outer, absDir, relPath, tmpPath, linfo.specName, name),
-                }
-                
+                dec = new(declare)
+                dec.project = l.globe.project(outer, absDir, relPath, tmpPath, linfo.specName, name)
                 l.loaded[linfo.absPath()] = dec.project
                 linfo.declares[name] = dec
         }
-
         if loader := linfo.loader; loader != nil {
                 if !strings.HasPrefix(loader.scope.comment, "project \"") {
                         l.parser.warn(ident.Pos(), "'%s' not loaded from project scope", name)
                 }
-                if _, a := loader.scope.ProjectName(loader, name, dec.project); a != nil {
+                n, a := loader.scope.ProjectName(loader, name, dec.project)
+                if a != nil {
                         if v, ok := a.(*ProjectName); !ok || v == nil {
-                                err = fmt.Errorf("Name `%s' already taken (%T).", name, a)
+                                err = fmt.Errorf("`%s` name already taken (%T).", name, a)
                                 return
+                        } else {
+                                n = v
                         }
+                }
+                if n != nil {
                 }
         }
 
@@ -1809,13 +1800,14 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         }
 
         if optNoDock || l.project.name == "dock" { return }
+
         var hasConfDir bool
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
                 if file := stat("dock", "", filepath.Join(s, ".smart")); !file.exists() {
                         // no docking enabled
                 } else if hasConfDir, err = l.loadDir("dock", file.FullName(), nil); err != nil {
                         if !hasConfDir { l.parser.error(ident.Pos(), "dock: %v", err) }
-                } else if loaded, _ := l.loaded[file.FullName()]; loaded != nil {
+                } else if loaded, yes := l.loaded[file.FullName()]; yes && loaded != nil {
                         name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
                         if name == nil {
                                 l.parser.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
@@ -1896,11 +1888,8 @@ func (l *loader) resolve(value Value) (obj Object, err error) {
         if l.scope != nil {
                 _, obj = l.scope.Find(name)
         }
-
         if obj == nil && l.project != nil {
-                if obj, err = l.project.resolveObject(name); err != nil {
-                        return
-                }
+                obj, err = l.project.resolveObject(name)
         }
         return
 }
@@ -2238,14 +2227,11 @@ func (l *loader) load(specName, absPath string, source interface{}) (err error) 
         }
         
         // Check already project.
-        if loaded, ok := l.loaded[absPath]; ok {
-                var (
-                        s = l.project.scope
-                        name = loaded.Name()
-                )
-                if _, a := s.ProjectName(l.project, name, loaded); a != nil {
+        if loaded, yes := l.loaded[absPath]; yes {
+                _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
+                if a != nil {
                         if v, ok := a.(*ProjectName); !ok || v == nil {
-                                err =  fmt.Errorf("Name `%s' already taken (%T).", name, a)
+                                err =  fmt.Errorf("`%v` name already taken (%T).", loaded, a)
                         }
                 }
                 return
@@ -2285,15 +2271,12 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
                 return
         }
 
-        // Check already project.
-        if loaded, ok := l.loaded[absDir]; ok {
-                var (
-                        s = l.project.scope
-                        name = loaded.Name()
-                )
-                if _, a := s.ProjectName(l.project, name, loaded); a != nil {
+        // Check already loaded project.
+        if loaded, yes := l.loaded[absDir]; yes {
+                _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
+                if a != nil {
                         if v, ok := a.(*ProjectName); !ok || v == nil {
-                                err = fmt.Errorf("Name `%s' already taken (%T).", name, a)
+                                err = fmt.Errorf("`%s' name already taken (%T).", loaded.Name(), a)
                         }
                 }
                 return
@@ -2305,6 +2288,11 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         mods, hasConfDir, err = l.ParseDir(absDir, filter, parseMode)
         if err == nil && mods == nil && !hasConfDir && filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` invalid project", specName)
+        }
+        if _, yes := l.loaded[absDir]; yes {
+                // Good!
+        } else if filepath.Base(specName) != "@" {
+                err = fmt.Errorf("`%s` not loaded (%s)", specName, absDir)
         }
         return
 }
