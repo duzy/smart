@@ -439,25 +439,27 @@ ForArgs:
 
         var source, str string
         var sources []string
-        var envars []Value // disclosed values
+        var envars []*Pair // disclosed values
         if def, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
                 if l, _ := def.Value.(*List); l != nil {
                         for _, v := range l.Elems {
                                 if v, err = v.expand(expandClosure); err != nil {
                                         return
+                                } else if p, ok := v.(*Pair); ok {
+                                        envars = append(envars, p)
                                 } else {
-                                        envars = append(envars, v)
+                                        err = fmt.Errorf("env expecting pairs (%T)", v)
+                                        return
                                 }
                         }
                 }
         }
 
-ForRecipes:
         for _, recipe := range recipes {
                 if str, err = recipe.Strval(); err != nil { return }
                 if source += str; strings.HasSuffix(source, "\\") {
-                        source += "\n" // give back the line feed
-                        continue ForRecipes
+                        source += "\n" // append the line feed
+                        continue
                 }
 
                 // Escape '$$' sequences.
@@ -469,87 +471,34 @@ ForRecipes:
                 // Duplicates all %
                 //source = strings.Replace(source, "%", "%%", -1)
 
-                if strings.HasPrefix(source, "@") {
-                        source = source[1:]
-                } else if !prompt {
-                        var s = source
-                        s = strings.Replace(s, "\n", "\\n", -1)
-                        s = strings.Replace(s, "\\\\n", "\\\n", -1)
-                        fmt.Fprintf(stderr, "%s\n", s)
-                }
-
-                var src = source
-                var str string
-                var wd = prog.scope.Lookup("CWD").(*Def).Value //Call(pos)
-                if str, err = wd.Strval(); err != nil { return }
-                if str != "" || nocd {
-                        if false {
-                                fmt.Fprintf(stderr, "dock.evaluate: %s\n", str)
-                        }
-                        if t := strings.TrimSpace(source); t == "" {
-                                src = fmt.Sprintf("cd '%s'", str)
-                        } else if strings.HasPrefix(t, "#") {
-                                src = fmt.Sprintf("cd '%s' %s", str, t)
-                        } else {
-                                // Insert a "\n" before the right paren ')' to ensure that
-                                // it's working with something like "true #comment...".
-                                src = fmt.Sprintf("cd '%s' && (%s\n)", str, t)
-                        }
-                        if str = ""; len(envars) > 0 {
-                                for i, env := range envars {
-                                        var k, v string
-                                        var p = env.(*Pair)
-                                        if k, err = p.Key.Strval(); err != nil { return }
-                                        if v, err = p.Value.Strval(); err != nil { return }
-                                        if i > 0 { str += " && " }
-                                        str += fmt.Sprintf(`%s="%s"`, k, strconv.Quote(v))
-                                }
-                                src = fmt.Sprintf("%s && %s", str, src)
-                        }
-                }
+                sources = append(sources, source)
                 source = ""
-                sources = append(sources, src)
         }
 
-        /*
-        var proj = mostDerived()
-        for _, def := range []*Def {
-                prog.scope.FindDef("CWD"),
-                prog.scope.FindDef("CTD"),
-                proj.scope.FindDef("CWD"),
-                proj.scope.FindDef("CTD"),
-        } {
-                var ( v Value ; s string )
-                if v, err = def.Call(Position{}); err != nil { return }
-                if s, err = v.Strval(); err != nil { return }
-                if strings.HasPrefix(targetName, s) {
-                        targetName = strings.TrimPrefix(targetName, s)
-                        targetName = strings.TrimPrefix(targetName, PathSep)
-                }
-        }
-        */
-
-        var envs []string
-        for _, v := range envars {
-                var str string
-                if v, err = v.expand(expandClosure); err != nil {
-                        return
-                } else if str, err = v.Strval(); err == nil {
-                        envs = append(envs, str)
-                } else {
-                        return
-                }
+        var envstr string
+        var envs []string = os.Environ()
+        for i, p := range envars {
+                var k, v string
+                if k, err = p.Key.Strval(); err != nil { return }
+                if v, err = p.Value.Strval(); err != nil { return }
+                if i > 0 { envstr += " && " }
+                envstr += fmt.Sprintf(`%s=%s`, k, strconv.Quote(v))
+                envs = append(envs, fmt.Sprintf("%s=%s", k, v))
         }
 
         printEnteringDirectory()
 
         var caller *preparecontext
-        if len(prog.callers) > 0 {
-                caller = prog.callers[0]
-        }
-
-        if caller != nil { caller.group.Add(1) }
-        go func() {
+        var run = func() {
+                if caller != nil {
+                        defer func() {
+                                caller.group.Done()
+                                //caller.calleeReses = append(caller.calleeReses, exeres)
+                                if err != nil {
+                                        caller.calleeErrors = append(caller.calleeErrors, err)
+                                }
+                        } ()
+                }
                 if prompt {
                         var targetStr string
                         if a := strings.Split(targetName, PathSep); len(a) > 3 {
@@ -591,19 +540,39 @@ ForRecipes:
                                 } ()
                         }
                 }
-                if caller != nil {
-                        defer func() {
-                                caller.group.Done()
-                                //caller.calleeReses = append(caller.calleeReses, exeres)
-                                if err != nil {
-                                        caller.calleeErrors = append(caller.calleeErrors, err)
-                                }
-                        } ()
-                }
 
+                var cwd string
+                if v := prog.scope.Lookup("CWD").(*Def).Value; v != nil {
+                        if cwd, err = v.Strval(); err != nil { return }
+                }
                 for _, src := range sources {
+                        if strings.HasPrefix(src, "@") {
+                                src = src[1:]
+                        } else if !prompt {
+                                var s = src
+                                s = strings.Replace(s, "\n", "\\n", -1)
+                                s = strings.Replace(s, "\\\\n", "\\\n", -1)
+                                fmt.Fprintf(stderr, "%s\n", s)
+                        }
+                        if src = strings.TrimSpace(src); src == "" {
+                                continue
+                        } else if cwd != "" && !nocd {
+                                if strings.HasPrefix(src, "#") {
+                                        src = fmt.Sprintf("cd '%s' %s", cwd, src)
+                                } else {
+                                        // Insert a "\n" before the right paren ')' to ensure that
+                                        // it's working with comments like "true #comment...".
+                                        src = fmt.Sprintf("cd '%s' && (%s\n)", cwd, src)
+                                }
+                        }
+                        if cmd == "docker" && len(envstr) > 0 {
+                                src = fmt.Sprintf("%s && %s", envstr, src)
+                        }
+
+                        var num = 0
                         var skips = make(map[string]bool)
                         var sh = exec.Command(cmd, aa...)
+                        sh.Env = envs
                         sh.Stdout = &exeres.Stdout
                         sh.Stderr = &exeres.Stderr
                         if stdin {
@@ -611,12 +580,11 @@ ForRecipes:
                                 sh.Args = append(sh.Args, "-ti")
                         }
                         sh.Args = append(sh.Args, p.opt, src)
-                        sh.Env = append(os.Environ(), envs...)
 
                 RunCommand:
-                        var num = 0
                         exeres.Stderr.Subm = nil
-                        if err, num = sh.Run(), num+1; err == nil {
+                        err, num = sh.Run(), num+1
+                        if err == nil {
                                 exeres.Status, source = 0, ""
                                 continue
                         }
@@ -626,7 +594,7 @@ ForRecipes:
                                 var ( tag string ; retry bool; pos = prog.position )
                                 err, tag, retry = exeres.Stderr.parseKnownErrors(pos, targetName, !verberr && !silent)
                                 if err == nil && retry {
-                                        if num > 2 { break } // only retry once
+                                        if num > 2 { continue } // only retry once
                                         fmt.Fprintf(stderr, "smart: good to retry (%s)\n", source)
                                         c := exec.Command(sh.Path, sh.Args...)
                                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
@@ -652,8 +620,14 @@ ForRecipes:
                                 exeres.Status = -1 //values.String(s)
                         }
                 }
-        } ()
-        if caller == nil {
+        }
+
+        if len(prog.callers) > 0 {
+                caller = prog.callers[0]
+                caller.group.Add(1)
+                go run()
+        } else {
+                run()
                 result = exeres
         }
         return
