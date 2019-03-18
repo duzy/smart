@@ -1803,7 +1803,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
         var hasConfDir bool
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
-                if file := stat("dock", "", filepath.Join(s, ".smart")); !file.exists() {
+                if file := stat("dock", "", filepath.Join(s, ".smart")); file == nil || !file.exists() {
                         // no docking enabled
                 } else if hasConfDir, err = l.loadDir("dock", file.FullName(), nil); err != nil {
                         if !hasConfDir { l.parser.error(ident.Pos(), "dock: %v", err) }
