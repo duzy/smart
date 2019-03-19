@@ -1875,6 +1875,8 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinSymlink(pos Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+
         var va []Value
         var optForce, optUpdate, optVerbose bool
         var opts = []string{
