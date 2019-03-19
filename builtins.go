@@ -49,7 +49,8 @@ var builtins = map[string]BuiltinFunc {
         `foreach`:      builtinForEach,
 
         `env`:          builtinEnv,
-        `var`:          builtinVar,
+        `var`:          builtinValue,
+        `value`:        builtinValue,
         
         `print`:        builtinPrint,
         `printl`:       builtinPrintl,
@@ -478,7 +479,7 @@ func builtinEnv(pos Position, args... Value) (res Value, err error) {
         return MakeListOrScalar(vals), nil
 }
 
-func builtinVar(pos Position, args... Value) (res Value, err error) {
+func builtinValue(pos Position, args... Value) (res Value, err error) {
         var scope *Scope
         switch {
         case len(execstack) > 0: scope = execstack[0].scope
