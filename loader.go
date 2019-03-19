@@ -629,6 +629,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
         switch tok {
         case token.LCOLON:
                 switch s {
+                case "os": obj = context.globe.os.self
                 case "self": obj = l.project.self
                 case "usee": obj = l.project.using
                 default:

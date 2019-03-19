@@ -9,6 +9,7 @@
 package smart
 
 import (
+        "runtime"
         "strconv"
         "time"
         "fmt"
@@ -188,7 +189,7 @@ func IsUniverse(scope *Scope) bool {
 // A Globe represents a global execution context. 
 type Globe struct {
         scope  *Scope
-	unsafe *Project
+	os     *Project
         main   *Project
         timestamps map[string]time.Time
 }
@@ -239,7 +240,6 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
                 }
 
                 g.main = m
-                // m = g.unsafe
 
                 def, _ := g.scope.Def(m, "_", universalnone)
                 if enable_assertions { assert(def != nil, "'$_' is nil") }
@@ -258,5 +258,10 @@ func NewGlobe(name string) (g *Globe) {
                 scope: NewScope(universe, nil, fmt.Sprintf("globe %q", name)),
                 timestamps: make(map[string]time.Time),
         }
+
+        var absPath, relPath, tmpPath, spec string
+        // TODO: determines absPath, relPath, tmpPath, spec
+        g.os = g.project(nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
+        //g.os.scope.Def(g.os, "name", universalnone)
         return g
 }
