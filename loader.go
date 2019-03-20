@@ -2286,6 +2286,10 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, ""))
 
         var mods map[string]*ast.Project
+        // FIXME: loading failed if different 'project' found in
+        // the same dir, for example:
+        //      project Foo # file build.smart
+        //      project # file config.smart
         mods, hasConfDir, err = l.ParseDir(absDir, filter, parseMode)
         if err == nil && mods == nil && !hasConfDir && filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` invalid project", specName)
