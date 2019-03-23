@@ -619,6 +619,11 @@ ForArgs:
                         } else {
                                 exeres.Status = -1 //values.String(s)
                         }
+                        if err != nil {
+                                // Return immediately once error occured. The
+                                // rest commands won't be executed.
+                                return
+                        }
                 }
         }
 
