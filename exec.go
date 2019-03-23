@@ -556,7 +556,7 @@ ForArgs:
                         }
                         if src = strings.TrimSpace(src); src == "" {
                                 continue
-                        } else if cwd != "" && !nocd {
+                        } else if cwd != "" && prog.changedWD == "" && !nocd {
                                 if strings.HasPrefix(src, "#") {
                                         src = fmt.Sprintf("cd '%s' %s", cwd, src)
                                 } else {

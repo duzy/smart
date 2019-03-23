@@ -87,6 +87,7 @@ type Program struct {
         pipline []*modifier
         callers []*preparecontext
         position Position
+        changedWD string
 }
 
 func (prog *Program) Position() Position { return prog.position }
@@ -214,6 +215,7 @@ func (prog *Program) getModifier(name string) (res *modifier) {
         return
 }
 
+/*
 func (prog *Program) hasCDDash() (res bool) {
         if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
                 var (
@@ -228,6 +230,7 @@ func (prog *Program) hasCDDash() (res bool) {
         }
         return
 }
+*/
 
 func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
         // IMPORTANT: don't expand the args here. The prerequisites like

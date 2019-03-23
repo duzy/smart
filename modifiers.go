@@ -277,7 +277,9 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
                 if optPath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
-                err = enter(prog, dir)
+                if err = enter(prog, dir); err == nil {
+                        prog.changedWD = dir
+                }
         } else {
                 err = scanner.Errorf(token.Position(pos), "wrong number of args (%v)", args)
         }
