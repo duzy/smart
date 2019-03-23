@@ -24,7 +24,7 @@ import (
 )
 
 // Note that it's is also used with Sscanf.
-const strCommandFailedFmt = "%s command failed (exit status %d)"
+const errCommandFailedFmt = "smart: %s command failed (exit status %d)"
 var (
         defaultShell = "bash"
 
@@ -604,7 +604,7 @@ ForArgs:
                                         if silent { err = nil }
                                 } else if tag == "" {
                                         if tag = promstr; tag == "" { tag = targetName }
-                                        err = fmt.Errorf(strCommandFailedFmt, tag, exeres.Status)
+                                        err = fmt.Errorf(errCommandFailedFmt, tag, exeres.Status)
                                 } else if v, ok := skips[tag]; !v && !ok && docks != nil {
                                         skips[tag] = true // save it to skip next time
                                         if err = p.runContainer(prog, docks); err == nil {

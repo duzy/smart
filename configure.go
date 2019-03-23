@@ -397,7 +397,7 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
                 }
 
                 var ( n, en int ; tag string; es = err.Error() )
-                if n, err = fmt.Sscanf(es, strCommandFailedFmt, &tag, &en); err == nil && n == 2 {
+                if n, err = fmt.Sscanf(es, errCommandFailedFmt, &tag, &en); err == nil && n == 2 {
                         configured, err = true, nil
                 } else {
                         err = scanner.Errorf(token.Position(pos), "configure %v error", s)
