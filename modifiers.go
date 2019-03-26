@@ -23,8 +23,8 @@ import (
 )
 
 const (
-        TheShellEnvarsDef = "shell->envars"
-        TheShellStatusDef = "shell->status" // status code of execution
+        TheShellEnvarsDef = "shell→envars" // '→' ' → '
+        TheShellStatusDef = "shell→status" // status code of execution
 )
 
 type breakind int

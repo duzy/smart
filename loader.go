@@ -181,9 +181,9 @@ func restoreLoadingInfo(l *loader) {
         }
 
         if loader := linfo.loader; loader != nil {
-                fmt.Fprintf(stderr, "exit: %v from '%s' -> %v\n", names, loader.Name(), linfo.scope)
+                fmt.Fprintf(stderr, "exit: %v from '%s' → %v\n", names, loader.Name(), linfo.scope)
         } else {
-                fmt.Fprintf(stderr, "exit: %v -> %v\n", names, linfo.scope)
+                fmt.Fprintf(stderr, "exit: %v → %v\n", names, linfo.scope)
         } */
 }
 
@@ -1282,6 +1282,11 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                                 return
                         }
                 }
+        }
+
+        if def == nil {
+                l.parser.error(pos, "`%v' is nil", identifier)
+                return
         }
 
         if err := l.assign(pos, tok, def, alt, value); err != nil {

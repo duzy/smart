@@ -902,6 +902,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 tok = token.ADD_ASSIGN
                                 s.next()
                         }
+                case '→': // different from ' → '
+                        tok = token.SELECT_PROP
                 case '-':
                         if s.ch == '-' { // "-->" => "-", "->"
                                 if s.readOffset < len(s.src) && s.src[s.readOffset] == '>' {
@@ -1037,6 +1039,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                         }
                                 }
                         }
+                case '⇢', '⇒': // '↦', '↣'
+                        tok = token.SELECT_PROG
                 case '=':
                         if s.ch == '>' {
                                 tok = token.SELECT_PROG

@@ -49,8 +49,8 @@ const (
 	PERIOD    // .
         DOTDOT    // ..
 	TILDE     // ~
-        SELECT_PROP // ->
-        SELECT_PROG // =>
+        SELECT_PROP // -> 'foo→xxx' (different from ' → ')
+        SELECT_PROG // => 'foo⇢xxx' 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
 
 	RPAREN    // )
 	RBRACK    // ]

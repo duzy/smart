@@ -23,6 +23,7 @@ var (
 
         modifierbar = &ModifierBar{}
         universalnone = &None{}
+        universalnil = &Nil{}
         universalyes = &answer{ true }
         universalno = &answer{ false }
         universaltrue = &boolean{ true }
