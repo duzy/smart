@@ -11,6 +11,7 @@ import (
 
 type Token int
 
+// https://en.wikipedia.org/wiki/Mathematical_operators_and_symbols_in_Unicode
 const (
         // Special tokens.
 	ILLEGAL Token = iota
@@ -51,6 +52,7 @@ const (
 	TILDE     // ~
         SELECT_PROP // -> 'foo→xxx' (different from ' → ')
         SELECT_PROG // => 'foo⇢xxx' 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
+        // ⤌ ⤍	⤎ ⤏	⤐	⤑
 
 	RPAREN    // )
 	RBRACK    // ]
@@ -126,8 +128,8 @@ const (
         QUE_ASSIGN //  ?=       set if absent (defined, including empty)
         EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
         // TODO: more assigns like !?=  !:=  !+=
-        SCO_ASSIGN //  :=       simply expanded (also override)
-        DCO_ASSIGN // ::=       simply expanded (POSIX standard)
+        SCO_ASSIGN //  := ≔     simply expanded (also override)
+        DCO_ASSIGN // ::= ⩴    simply expanded (POSIX standard)
         SUB_ASSIGN //  -=       remove
         SAD_ASSIGN // -+=       remove-append assign
         SSH_ASSIGN //  -=+      remove-shift assign

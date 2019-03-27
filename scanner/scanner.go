@@ -1085,6 +1085,12 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 }
                         }
                         //s.skipPostLineFeeds = true
+                //case '⩵':
+                //case '⩶':
+                case '≔':
+                        tok = token.SCO_ASSIGN
+                case '⩴':
+                        tok = token.DCO_ASSIGN
                 case ':':
                         if s.ch == '=' {
                                 tok = token.SCO_ASSIGN
