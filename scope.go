@@ -23,7 +23,6 @@ import (
 type Scope struct {
         mutex *sync.Mutex
         outer *Scope
-        chain []*Scope
         children []*Scope
         elems map[string]Object
         project *Project
@@ -31,7 +30,8 @@ type Scope struct {
 }
 
 func NewScope(outer *Scope, project *Project, comment string) *Scope {
-        scope := &Scope{ new(sync.Mutex), outer, nil, nil, make(map[string]Object), project, comment }
+        //scope := &Scope{ new(sync.Mutex), outer, nil, nil, make(map[string]Object), project, comment }
+        scope := &Scope{ new(sync.Mutex), outer, nil, make(map[string]Object), project, comment }
  	// Don't add children to Universe scope!
 	if outer != nil && outer != universe {
 		outer.children = append(outer.children, scope)
@@ -42,8 +42,7 @@ func NewScope(outer *Scope, project *Project, comment string) *Scope {
 func (s *Scope) Comment() string { return s.comment }
 
 // Outer returns the scope's containing (outer) scope.
-func (s *Scope) Outer() *Scope { return s.outer }
-func (s *Scope) Chain() []*Scope { return s.chain }
+//func (s *Scope) Outer() *Scope { return s.outer }
 
 // Len() returns the number of scope elements.
 func (s *Scope) Len() int { return len(s.elems) }
@@ -103,12 +102,13 @@ func (s *Scope) findouter(name string) (*Scope, Object) {
                         }
                 }
         }
+        /*
         // 2. Lookup chained scopes.
         for _, p := range s.chain {
                 if p, obj := p.Find(name); obj != nil {
                         return p, obj
                 }
-        }
+        }*/
 	return nil, nil
 }
 

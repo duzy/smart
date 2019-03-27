@@ -1629,7 +1629,7 @@ func (l *loader) openScope(comment string) loaderScope {
 
 func (l *loader) closeScope(ls loaderScope) {
         if ls.scope != nil {
-                l.scope = ls.scope.Outer()
+                l.scope = ls.scope.outer
                 if ls.cc != nil { setclosure(ls.cc) }
 
                 // Must change the outer of dir scope to globe to avoid Finding symbols
@@ -1734,7 +1734,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
                 // Avoid nesting project scopes!
                 for strings.HasPrefix(outer.Comment(), "project \"") {
-                        outer = outer.Outer()
+                        outer = outer.outer
                 }
 
                 dec = new(declare)
@@ -1864,11 +1864,11 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
         if l.scope == nil {
                 return loaderScope{}, fmt.Errorf("no parent scope (%v)", comment)
         }
-        
+
         var outer = l.scope
         var scope = NewScope(outer, l.project, comment)
         if strings.HasPrefix(outer.Comment(), "dir ") {
-                outer = outer.Outer() // discard dir scope
+                outer = outer.outer // discard dir scope
         }
 
         outer.ScopeName(l.project, name, scope)

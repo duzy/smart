@@ -163,7 +163,6 @@ func (p *Project) Bases() []*Project { return p.bases }
 func (p *Project) Chain(bases ...*Project) {
         for _, base := range bases {
                 p.bases = append(p.bases, base)
-                p.scope.chain = append(p.scope.chain, base.scope)
         }
 }
 
