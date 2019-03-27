@@ -59,6 +59,11 @@ func current() (proj *Project) {
 }
 
 func mostDerived() (proj *Project) {
+        // Check cloctx first, then execstack and context.loader
+        if len(cloctx) > 0 && cloctx[0].project != nil {
+                return cloctx[0].project
+        }
+
         if l := len(execstack); l == 1 {
                 proj = execstack[0].project
         } else if l > 1 {
