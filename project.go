@@ -531,7 +531,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                         }
                 }
         }
-       
+
         err = targetNotFoundError{ p, target }
         if optionTracePrepare {
                 pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)

@@ -526,13 +526,20 @@ func (pc *preparer) updateFile(file *File) (err error) {
         return
 }
 
-func (pc *preparer) updateTarget(target string) (err error) {
-        var ( errs scanner.Errors ; done bool )
+func (pc *preparer) updateTargetErrs(target string) (errs scanner.Errors) {
         for _, project := range pc.related {
-                if err = project.updateTarget(pc, target); err == nil { break }
+                var done bool
+                var err = project.updateTarget(pc, target)
+                if err == nil { /* Good! */ break }
                 if errs, err, done = pc.updateErrs(errs, err); done { break }
         }
-        if errs != nil && err != nil { err = errs }
+        return
+}
+
+func (pc *preparer) updateTarget(target string) (err error) {
+        if errs := pc.updateTargetErrs(target); len(errs) > 0 {
+                err = errs
+        }
         return
 }
 
@@ -1718,36 +1725,49 @@ func (p *Path) prepare(pc *preparer) (err error) {
 
         if p.File != nil {
                 err = p.File.prepare(pc)
-        } else if err = pc.updateTarget(s); err == nil {
-                // Good!
-        } else if e, ok := err.(targetNotFoundError); ok {
+                if err != nil { return }
+        }
+
+        var errs scanner.Errors
+        var checked = make(map[string]bool)
+        for _, err := range pc.updateTargetErrs(s) {
+                e, isTargetNotFound := err.Err.(targetNotFoundError)
+                if !isTargetNotFound {
+                        errs = append(errs, err)
+                        continue
+                } else if b1, b2 := checked[e.target]; b1 && b2 {
+                        continue
+                } else {
+                        checked[e.target] = true
+                }
                 if p.File = stat(e.target, "", ""); p.File == nil {
                         pc.addNotExistedTarget1(p) // Append unknown path anyway.
-                        err = pathNotFoundError{ e.project, p }
+                        err.Err = pathNotFoundError{e.project, p}
+                        errs = append(errs, err)
                         if optionTracePrepare {
                                 //pc.tracef("execstack: %s", execstack)
                                 //pc.tracef("%s: %s", e.project.name, err)
                                 pc.tracef("%s", err)
                         }
-                } else if p.File.info.IsDir() {
-                        pc.addNotExistedTarget1(p)
-                        err = nil
-                } else if false {
-                        // Search this path target as a file.
-                        p.File = pc.program.project.searchFile(e.target)
-                        if p.File != nil {
-                                pc.addNotExistedTarget1(p.File)
-                                err = nil
+                } else if p.File.info != nil {
+                        if p.File.info.IsDir() {
+                                pc.addNotExistedTarget1(p)
+                        } else {
+                                pc.addNotExistedTarget1(p/*.File*/)
                         }
                 } else {
                         // Search this path target as a file.
                         p.File = e.project.searchFile(e.target)
                         if p.File != nil {
                                 pc.addNotExistedTarget1(p.File)
-                                err = nil
+                        } else {
+                                errs = append(errs, err)
                         }
                 }
         }
+        checked = nil
+
+        if len(errs) > 0 { err = errs } else { err = nil }
         return
 }
 

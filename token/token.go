@@ -196,8 +196,8 @@ var tokens = [...]string{
 	PERIOD: ".",
         DOTDOT: "..",
         TILDE:  "~",
-        SELECT_PROP: "->", // foo->bar
-        SELECT_PROG: "=>", // foo=>bar
+        SELECT_PROP: "→", // foo->bar
+        SELECT_PROG: "⇢", // foo=>bar ⇒
 
 	RPAREN:    ")",
 	RBRACK:    "]",
