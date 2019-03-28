@@ -2028,7 +2028,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                                 fmt.Fprintf(stderr, "%s: encountered %T\n", filename, e)
                                 if l.parser != nil && l.parser.file != nil {
                                         position := l.parser.file.Position(l.pos)
-                                        fmt.Fprintf(stderr, "%s: parsing fail\n", position)
+                                        fmt.Fprintf(stderr, "%s: parsing file fail\n", position)
                                 }
 				panic(e)
 			}
