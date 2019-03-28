@@ -2185,8 +2185,12 @@ func (p *parser) parseFile() *ast.File {
                                         } else if x := p.parseExpr(true); p.tok.IsAssign() {
                                                 clauses = append(clauses, p.parseDefine(x))
                                         } else if p.tok.IsRuleDelim() {
-                                                clause := p.parseRuleClause(p.tok, specialRuleNor, nil, []ast.Expr{x})
-                                                clauses = append(clauses, clause)
+                                                if p.project == nil {
+                                                        p.error(p.pos, "no project declared before defining rules")
+                                                } else {
+                                                        clause := p.parseRuleClause(p.tok, specialRuleNor, nil, []ast.Expr{x})
+                                                        clauses = append(clauses, clause)
+                                                }
                                                 break ForInit
                                         } else {
                                                 p.error(p.pos, "`%v` unexpected here (%v)", p.tok, x)
