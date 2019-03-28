@@ -2025,7 +2025,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
 		if e := recover(); e != nil {
 			// resume same panic if it's not a bailout
 			if _, ok := e.(bailout); !ok {
-                                fmt.Fprintf(stderr, "%s: panic %T\n", filename, e)
+                                fmt.Fprintf(stderr, "%s: encountered %T\n", filename, e)
                                 if l.parser != nil && l.parser.file != nil {
                                         position := l.parser.file.Position(l.pos)
                                         fmt.Fprintf(stderr, "%s: parsing fail\n", position)
