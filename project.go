@@ -386,8 +386,10 @@ ForFilemaps:
                                 assert(err == nil, "%v: %v", p, err)
                         }
                 }
-                if file.exists() { break }
-                if first == nil { first = file }
+                if file != nil {
+                        if file.exists() { break }
+                        if first == nil { first = file }
+                }
                 // If the filemap entry is defined by the project itself,
                 // we have to break the matching loop. So that the current
                 // project have a chance to define it's own file. This is
