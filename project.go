@@ -894,9 +894,9 @@ func enter(prog *Program, dir string) (err error) {
 
         var wd string
         if wd, err = os.Getwd(); err != nil { return }
-        if err = os.Chdir(dir); err == nil {
-                prog.auto("CWD", &String{dir})
-        }
+        if err = os.Chdir(dir); err != nil { return }
+        if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
+        prog.auto("CWD", &String{dir})
 
         var ( enter *enterec ; ok bool )
         if enter, ok = cd.enters[dir]; !ok {

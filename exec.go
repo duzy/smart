@@ -541,6 +541,7 @@ ForArgs:
                         }
                 }
 
+                //var wd, _ = os.Getwd()
                 var cwd string
                 if v := prog.scope.Lookup("CWD").(*Def).Value; v != nil {
                         if cwd, err = v.Strval(); err != nil { return }
@@ -572,6 +573,7 @@ ForArgs:
                         var num = 0
                         var skips = make(map[string]bool)
                         var sh = exec.Command(cmd, aa...)
+                        sh.Dir = cwd // always set command work directory
                         sh.Env = envs
                         sh.Stdout = &exeres.Stdout
                         sh.Stderr = &exeres.Stderr
