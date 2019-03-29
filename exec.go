@@ -541,7 +541,6 @@ ForArgs:
                         }
                 }
 
-                //var wd, _ = os.Getwd()
                 var cwd string
                 if v := prog.scope.Lookup("CWD").(*Def).Value; v != nil {
                         if cwd, err = v.Strval(); err != nil { return }
@@ -557,7 +556,7 @@ ForArgs:
                         }
                         if src = strings.TrimSpace(src); src == "" {
                                 continue
-                        } else if cwd != "" && prog.changedWD == "" && !nocd {
+                        } else if cwd != "" && !nocd && prog.changedWD == "" {
                                 if strings.HasPrefix(src, "#") {
                                         src = fmt.Sprintf("cd '%s' %s", cwd, src)
                                 } else {
@@ -569,6 +568,17 @@ ForArgs:
                         if cmd == "docker" && len(envstr) > 0 {
                                 src = fmt.Sprintf("%s && %s", envstr, src)
                         }
+
+                        /*** FIXME: the error is not fixed ***
+                        // Fixes work directory conflicts. It happens
+                        // sometimes even the 'sh.Dir' is set to cwd.
+                        // So we force to change the work directory
+                        // before running the shell command.
+                        if s, _ := os.Getwd(); s != cwd {
+                                if err = os.Chdir(cwd); err != nil {
+                                        // FIXME: deal with errors
+                                }
+                        }*/
 
                         var num = 0
                         var skips = make(map[string]bool)

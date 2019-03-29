@@ -206,10 +206,10 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
                 err = fmt.Errorf("Not possible to chain itself.")
         } else if abs := filepath.IsAbs(specName); abs ||
                 specName == "~" || specName == ".." ||
+                strings.HasPrefix(specName, "~\\") ||
                 strings.HasPrefix(specName, "~/") ||
                 strings.HasPrefix(specName, "./") ||
                 strings.HasPrefix(specName, "../") ||
-                strings.HasPrefix(specName, "~\\") ||
                 strings.HasPrefix(specName, ".\\") ||
                 strings.HasPrefix(specName, "..\\") {
                 var (
@@ -2083,8 +2083,8 @@ func (l *loader) ParseConfigDir(pathname, linked string) (err error) {
 ListLoop:
         for _, d := range list {
                 var name = d.Name()
-                if strings.HasPrefix(name, ".#") || 
-                   strings.HasSuffix(name, "~") || 
+                if strings.HasPrefix(name, "~") || 
+                   strings.HasSuffix(name, ".#") || 
                    strings.HasSuffix(name, ".smart") ||
                    strings.HasSuffix(name, ".sm") {
                         continue ListLoop
@@ -2152,7 +2152,8 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
         defer l.closeScope(ls)
 
 	mods = make(map[string]*ast.Project)
-	ListLoop: for _, d := range list {
+ListLoop:
+        for _, d := range list {
                 var (
                         filename, mo = filepath.Join(path, d.Name()), d.Mode()
                         linked, linkPath = "", path
@@ -2201,9 +2202,9 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
 				mod, found := mods[name]
 				if !found {
 					mod = &ast.Project{
-                                                Name:    name,
-                                                Scope:   ls.scope,
-                                                Files:   make(map[string]*ast.File),
+                                                Name:  name,
+                                                Scope: ls.scope,
+                                                Files: make(map[string]*ast.File),
                                         }
 					mods[name] = mod
 				}
