@@ -853,7 +853,13 @@ ForConfig:
                 switch a := arg.(type) {
                 case *Argumented:
                         var ( value Value; configured bool )
-                        if configured, value, err = configureArgumented(pos, prog, target, a); err != nil { break ForConfig } else if configured {
+                        if configured, value, err = configureArgumented(pos, prog, target, a); err != nil {
+                                if false {
+                                        continue ForConfig
+                                } else {
+                                        break ForConfig
+                                }
+                        } else if configured {
                                 // marking done (needed for reconfiguring)
                                 configuration.done[def] = true
                                 if value == nil {

@@ -634,6 +634,7 @@ ForArgs:
                         if err != nil {
                                 // Return immediately once error occured. The
                                 // rest commands won't be executed.
+                                if silent { err = nil }
                                 return
                         }
                 }
