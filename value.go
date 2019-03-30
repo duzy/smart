@@ -494,9 +494,13 @@ func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, 
                 if n := len(errs); n == 0 {
                         return nil, err, done
                 } else if n == 1 {
-                        fmt.Fprintf(stderr, "%s: break with error (reason=%d):\n", pos, br.what)
+                        if false {
+                                fmt.Fprintf(stderr, "%s: break with error (reason=%d):\n", pos, br.what)
+                        }
                 } else {
-                        fmt.Fprintf(stderr, "%s: break with %d errors (reason=%d):\n", pos, n, br.what)
+                        if false {
+                                fmt.Fprintf(stderr, "%s: break with %d errors (reason=%d):\n", pos, n, br.what)
+                        }
                 }
                 for _, e := range errs {
                         fmt.Fprintf(stderr, "%s\n", e.Error())
