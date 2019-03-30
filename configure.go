@@ -45,7 +45,8 @@ var configuration = &struct{
         libraries map[string]*libraryinfo
         packages map[string]*packageinfo
         done map[*Def]bool
-        entires []*RuleEntry // order list
+        configs []*RuleEntry // -configure entries
+        entries []*RuleEntry // order list
 }{
         fset: token.NewFileSet(),
         libraries: make(map[string]*libraryinfo),
@@ -85,7 +86,7 @@ func init_configuration(paths searchlist) (err error) {
         }
 
         // Define configuration entries.
-        /*for _, entry := range configuration.entires {
+        /*for _, entry := range configuration.entries {
                 var name string
                 if name, err = entry.target.Strval(); err != nil { return }
                 var project = entry.OwnerProject()
@@ -115,7 +116,7 @@ func do_configuration() error {
                 if file != nil { if err := file.Close(); err != nil {}}
         } ()
 
-        for _, entry := range configuration.entires {
+        for _, entry := range configuration.entries {
                 if p := entry.OwnerProject(); project != p {
                         if ctd := p.scope.FindDef("CTD"); ctd == nil {
                                 unreachable()
@@ -159,6 +160,26 @@ func do_configuration() error {
                         errs = append(errs, e.(*scanner.Error))
                 }
         }
+
+        if len(errs) > 0 { return errs}
+
+        var executed = make(map[*RuleEntry]bool)
+        for _, entry := range configuration.configs {
+                if b1, b2 := executed[entry]; b1 && b2 {
+                        continue
+                } else {
+                        executed[entry] = true
+                }
+                var pos = entry.Position
+                if _, err := entry.Execute(pos); err != nil {
+                        switch e := err.(type) {
+                        case *scanner.Error: errs = append(errs, e)
+                        case scanner.Errors: errs = append(errs, e...)
+                        default: errs = append(errs, &scanner.Error{ token.Position(pos), e })
+                        }
+                }
+        }
+        executed = nil
         return errs
 }
 

@@ -1545,8 +1545,12 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         entry.Position = Position(l.parser.file.Position(clause.Targets[n].Pos()))
                         entries = append(entries, entry)
                 }
-                if configure {
-                        configuration.entires = append(configuration.entires, entry)
+                if t, okay := entry.target.(*Flag); okay && t != nil {
+                        if s, _ := t.Name.Strval(); s == "configure" {
+                                configuration.configs = append(configuration.configs, entry)
+                        }
+                } else if configure {
+                        configuration.entries = append(configuration.entries, entry)
                 }
         }
         return
