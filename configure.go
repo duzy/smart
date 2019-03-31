@@ -54,7 +54,8 @@ var configuration = &struct{
         done: make(map[*Def]bool),
 }
 
-var configurationOps = map[string] func(pos Position, prog *Program, args... Value) (result Value, err error) {
+var configurationOps = map[string] func(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
+        "bool":         configureBool,
         "include":      configureInclude,
         "option":       configureOption,
         "package":      configurePackage,
@@ -264,6 +265,7 @@ func configmessage(pos Position, s string, fields map[string]Value, params... Va
         }
 }
 
+// (configure xxx=foobar)
 func configurePair(pos Position, prog *Program, key, val Value) (result Value, err error) {
         switch k := key.(type) {
         case *Bareword:
@@ -278,7 +280,40 @@ func configurePair(pos Position, prog *Program, key, val Value) (result Value, e
         return
 }
 
-func configureInclude(pos Position, prog *Program, params... Value) (result Value, err error) {
+func configureBool(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
+        //fmt.Printf("-bool: %v %v\n", def, params)
+        var positive bool
+        var previous Value
+        if previous, err = def.Call(pos); err != nil {
+                return
+        }
+        for i, v := range merge(previous) {
+                if i == 0 {
+                        positive = v.True()
+                } else {
+                        positive = positive && !v.True()
+                }
+                if !positive { break }
+        }
+        if positive {
+                if len(params) > 1 { // [NAME 1 0]
+                        result = params[1]
+                } else {
+                        result = nil
+                }
+        } else {
+                if len(params) > 2 { // [NAME 1 0]
+                        result = params[2]
+                } else {
+                        result = nil
+                }
+        }
+        // Clear def value
+        def.Value = nil
+        return
+}
+
+func configureInclude(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
         var includes = configuration.project.scope.Lookup("INCLUDES").(*Def)
         for _, value := range params[2:] {
                 var s string
@@ -301,7 +336,7 @@ func configureInclude(pos Position, prog *Program, params... Value) (result Valu
         return
 }
 
-func configureOption(pos Position, prog *Program, args... Value) (result Value, err error) {
+func configureOption(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
         if result, err = prog.scope.Lookup("-").(*Def).Call(pos); err == nil {
                 if result == nil { result = universalno }
         }
@@ -346,7 +381,7 @@ func loadPackageConfigInfo(pos Position, name string) (info *packageinfo, err er
 //}
 
 // -package finds system package in a way similar to cmake.find_package
-func configurePackage(pos Position, prog *Program, args... Value) (result Value, err error) {
+func configurePackage(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
         var names []string
         var optType packagetype = packageSmart
         for _, arg := range args {
@@ -430,7 +465,8 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
         return
 }
 
-func configureArgumented(pos Position, prog *Program, target Value, arged *Argumented) (configured bool, result Value, err error) {
+// (configure -xxx(...))
+func configureArgumented(pos Position, prog *Program, target Value, def *Def, arged *Argumented) (configured bool, result Value, err error) {
         var name Value
         switch val := arged.Val.(type) {
         case *Flag: name = val.Name
@@ -548,7 +584,8 @@ ForArgs:
         configmessage(pos, strName, fields, arged.Args...)
 
         if config, ok := configurationOps[strName]; ok {
-                if result, err = config(pos, prog, params...); err == nil { configured = true }
+                result, err = config(pos, prog, def, params...)
+                if err == nil { configured = true }
         } else {
                 configured, result, err = configureEntry(pos, prog, strName, params...)
         }
@@ -869,12 +906,12 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
 
         if err = def.set(DefExecute, nil); err != nil { return }
 
+        var ( value Value; configured bool )
 ForConfig:
         for _, arg := range args {
                 switch a := arg.(type) {
                 case *Argumented:
-                        var ( value Value; configured bool )
-                        if configured, value, err = configureArgumented(pos, prog, target, a); err != nil {
+                        if configured, value, err = configureArgumented(pos, prog, target, def, a); err != nil {
                                 if false {
                                         continue ForConfig
                                 } else {
@@ -891,7 +928,6 @@ ForConfig:
                                 }
                         }
                 case *Pair:
-                        var value Value
                         if value, err = configurePair(pos, prog, a.Key, a.Value); err != nil { break ForConfig } else if value != nil {
                                 //def.Append(value)
                         }
