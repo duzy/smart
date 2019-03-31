@@ -1189,11 +1189,13 @@ func builtinTrimSuffix(pos Position, args... Value) (res Value, err error) {
 func builtinTrimExt(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var (
-                list []Value
-                ext, s string
-        )
+        var list []Value
         for i, a := range args {
+                /*switch _ := a.(type) {
+                case *File:
+                        fmt.Fprintf(stderr, "todo: trim-ext File{%v %v %v}\n", t.dir, t.sub, t.name)
+                }*/
+                var ext, s string
                 if s, err = a.Strval(); err != nil {
                         return
                 } else if s != "" {
@@ -1333,11 +1335,14 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinBase(pos Position, args... Value) (res Value, err error) {
-        var (
-                l []Value
-                s string
-        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        var l []Value
         for _, a := range args {
+                /*switch t := a.(type) {
+                case *File:
+                        fmt.Fprintf(stderr, "todo: base File{%v %v %v}\n", t.dir, t.sub, t.name)
+                }*/
+                var s string
                 if s, err = a.Strval(); err != nil {
                         return
                 }
@@ -2031,15 +2036,11 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
 func builtinFile(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var proj = current()
-        if proj == nil {
-                err = fmt.Errorf("unknown current context")
-                return
-        }
-
         var va []Value
+        var optCallerContext bool
         var optReportMissing bool
         var opts = []string{
+                "c,caller", // in the caller context
                 "e,report", // report if not exists
         }
 ForArgs:
@@ -2066,14 +2067,18 @@ ForArgs:
                 }
                 for _, ru := range runes {
                         switch ru {
-                        case 'e':
-                                if v == nil {
-                                        optReportMissing = true
-                                } else {
-                                        optReportMissing = v.True()
-                                }
+                        case 'c': optCallerContext = trueVal(v, true)
+                        case 'e': optReportMissing = trueVal(v, true)
                         }
                 }
+        }
+
+        var proj *Project
+        if optCallerContext {
+                proj = cloctx[0].project
+        } else if proj = current(); proj == nil {
+                err = fmt.Errorf("unknown current context")
+                return
         }
 
         var list []Value
@@ -2092,12 +2097,10 @@ ForArgs:
                                 fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
                         }
                 } else {
-                        fmt.Fprintf(stderr, "%s: `%v` is not a file\n", pos, a)
+                        fmt.Fprintf(stderr, "%s: `%v` is not a file (%v)\n", pos, a, proj)
                 }
         }
-        if err == nil {
-                res = MakeListOrScalar(list)
-        }
+        res = MakeListOrScalar(list)
         return
 }
 
