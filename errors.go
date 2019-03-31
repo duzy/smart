@@ -8,6 +8,7 @@ package smart
 
 import (
         "extbit.io/smart/scanner"
+        "runtime/debug"
         "runtime"
         "errors"
         "fmt"
@@ -91,6 +92,7 @@ func (e pathNotFoundError) Error() string {
 }
 
 func (e fileNotFoundError) Error() string {
+        if false { debug.PrintStack() }
         return fmt.Sprintf("%s: `%v` file not found", e.project.name, e.file.name)
 }
 

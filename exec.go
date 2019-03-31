@@ -137,10 +137,10 @@ func (p *ExecBuffer) parseKnownErrors(pos Position, target string, report bool) 
         } else if m := rxCompilation.FindAllStringSubmatch(str, -1); m != nil {
                 err = scanner.Errorf(token.Position(pos), "%s", m[0][4])
         } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
-                err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s`", m[0][4], filepath.Base(m[0][1]))
-                if report { fmt.Fprintf(stderr, "%s:%s:%s: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
+                err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", m[0][4], filepath.Base(m[0][1]))
+                if report { fmt.Fprintf(stderr, "%s:%s:%s: `%s` file not found (exec)\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
         } else if m := rxArNoSuchFile.FindAllStringSubmatch(str, -1); m != nil {
-                err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s`", filepath.Base(m[0][1]), filepath.Base(target))
+                err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", filepath.Base(m[0][1]), filepath.Base(target))
                 if report { fmt.Fprintf(stderr, "ar: '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
         } else if matched, _ := regexp.MatchString(errNoNetwork, str); matched {
                 // TODO: dealing with network not found error
@@ -278,7 +278,7 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
 func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
-        var cmd, promstr = p.cmd, ""
+        var cmd, promStr = p.cmd, ""
         var aa []string
         var opts = []string{
                 "o,stdout",
@@ -333,7 +333,7 @@ ForArgs:
                                 if v == nil {
                                         prompt = true
                                 } else if s, err = v.Strval(); err == nil {
-                                        prompt, promstr = true, s
+                                        prompt, promStr = true, s
                                 } else {
                                         return
                                 }
@@ -507,13 +507,13 @@ ForArgs:
                         } else {
                                 targetStr = targetName
                         }
-                        if promstr == "" {
-                                promstr = "smart: gen "
+                        if promStr == "" {
+                                promStr = "smart: gen "
                         } else {
-                                promstr += ": "
+                                promStr += ": "
                         }
                         if caller == nil {
-                                fmt.Fprintf(stderr, "%s%s …\n", promstr, targetStr)
+                                fmt.Fprintf(stderr, "%s%s …\n", promStr, targetStr)
                                 defer func() {
                                         if err == nil {
                                                 fmt.Fprintf(stderr, "… ok\n")
@@ -526,16 +526,16 @@ ForArgs:
                                         }
                                 } ()
                         } else {
-                                fmt.Fprintf(stderr, "%s%s …… ……\n", promstr, targetStr)
+                                fmt.Fprintf(stderr, "%s%s …… ……\n", promStr, targetStr)
                                 defer func() {
                                         if err == nil {
-                                                fmt.Fprintf(stderr, "%s%s …… ok\n", promstr, targetStr)
+                                                fmt.Fprintf(stderr, "%s%s …… ok\n", promStr, targetStr)
                                         } else if _, ok := err.(*scanner.Error); ok {
-                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promstr, targetStr, err)
+                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
                                         } else if _, ok := err.(*scanner.Errors); ok {
-                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promstr, targetStr, err)
+                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
                                         } else {
-                                                fmt.Fprintf(stderr, "%s%s ……error: %v\n", promstr, targetStr, err)
+                                                fmt.Fprintf(stderr, "%s%s ……error: %v\n", promStr, targetStr, err)
                                         }
                                 } ()
                         }
@@ -615,7 +615,7 @@ ForArgs:
                                 } else if err != nil {
                                         if silent { err = nil }
                                 } else if tag == "" {
-                                        if tag = promstr; tag == "" { tag = targetName }
+                                        if tag = promStr; tag == "" { tag = targetName }
                                         err = fmt.Errorf(errCommandFailedFmt, tag, exeres.Status)
                                 } else if v, ok := skips[tag]; !v && !ok && docks != nil {
                                         skips[tag] = true // save it to skip next time

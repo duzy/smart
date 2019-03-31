@@ -764,7 +764,7 @@ func modifierExtractConfiguration(pos Position, prog *Program, args... Value) (r
                         name := filepath.Base(s)
                         file := stat(name, "", dir)
                         if file == nil {
-                                err = scanner.Errorf(token.Position(pos), "`%s` file not found", name)
+                                err = scanner.Errorf(token.Position(pos), "`%s` file not found (configure)", name)
                                 return
                         } else if file.info.IsDir() {
                                 err = walkFiles(s, pats, func(file *File, err error) error {
@@ -789,7 +789,7 @@ ForSources:
                         }
                 }
                 if f, err = os.Open(s); err != nil {
-                        fmt.Fprintf(stderr, "%v: %v: %v\n", pos, source, err)
+                        fmt.Fprintf(stderr, "%v: (configure) %v: %v\n", pos, source, err)
                         continue ForSources
                 }
                 scanner := bufio.NewScanner(f)

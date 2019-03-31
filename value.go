@@ -502,9 +502,9 @@ func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, 
                                 fmt.Fprintf(stderr, "%s: break with %d errors (reason=%d):\n", pos, n, br.what)
                         }
                 }
-                for _, e := range errs {
+                /*for _, e := range errs {
                         fmt.Fprintf(stderr, "%s\n", e.Error())
-                }
+                }*/
                 return nil, err, done
         } else {
                 switch e := scanner.WrapError(pos, err).(type) {
@@ -2883,7 +2883,7 @@ func (p *closure) prepare(pc *preparer) (err error) {
                 err = e
         } else if v == nil {
                 err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
-                fmt.Fprintf(stderr, "%s: %v\n", p.p, err)
+                fmt.Fprintf(stderr, "%s: closure.prepare: %v\n", p.p, err)
         } else {
                 err = pc.traverse(v)
         }

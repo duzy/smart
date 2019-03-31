@@ -508,7 +508,7 @@ func builtinPrint(pos Position, args... Value) (res Value, err error) {
                 } else if s, err = EscapedString(a); err == nil {
                         if s != "" { fmt.Printf("%s", s) }
                 } else {
-                        fmt.Fprintf(stderr, "%s: %s", pos, err)
+                        fmt.Fprintf(stderr, "%s:(print) %v", pos, err)
                         break
                 }
         }

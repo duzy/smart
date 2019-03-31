@@ -545,9 +545,6 @@ ForGroupElems:
                                                 //unique[file.filebase] += 1
                                         }
                                 } else if t.exists() {
-                                        if strings.Index(t.name, "IntrinsicImpl") > 0 {
-                                                fmt.Fprintf(stderr, "%s: %s\n", t, t.exists())
-                                        }
                                         var list []Value
                                         list, err = prog.pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
                                         if err != nil { return }
