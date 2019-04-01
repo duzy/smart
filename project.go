@@ -197,14 +197,16 @@ func (p *Project) wildcard(patterns ...Value) (files []*File, err error) {
         var filemaps = p.filemaps(false)
 ForPats:
         for _, pat := range patterns {
-                var ( pre, str string; matched, breakAbsRel bool )
-                if str, err = pat.Strval(); err != nil { break ForPats }
-                // The 'str' value could be GlobPattern or just
+                var ( patStr string; matched, breakAbsRel bool )
+                if patStr, err = pat.Strval(); err != nil { break ForPats }
+                // The 'patStr' could be GlobPattern or just
                 // regular file/path names. PercPattern is not
                 // supported yet.
         ForFilemaps:
                 for _, fm := range filemaps {
-                        if matched, pre = globMatch(fm.Pattern, str); !matched {
+                        var pre string // <pre>/*.xxx
+                        var str = patStr
+                        if matched, pre = globMatch(fm.Pattern, patStr); !matched {
                                 // Flip glob matching order.
                                 if _, yes := pat.(*GlobPattern); !yes {
                                         continue ForFilemaps
