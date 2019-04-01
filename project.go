@@ -250,7 +250,10 @@ ForPats:
 
                                 subfile := filepath.Join(sub, str)
                                 if names, err = filepath.Glob(subfile); err != nil { break ForPats }
-                                if len(names) == 0 { continue ForPaths }
+                                if len(names) == 0 {
+                                        fmt.Fprintf(stderr, "%s: %v: no files found in %v)", p.name, fm, sub)
+                                        continue ForPaths
+                                }
 
                                 dir := filepath.Dir(subfile)
                                 if !isAbsOrRel(dir) {

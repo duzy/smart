@@ -1821,6 +1821,7 @@ func (p *PathSeg) cmp(v Value) (res cmpres) {
 }
 
 type filestub struct {
+        // TODO: project *Project // the project in which the file was found
         dir string       // full directory where the file was or should be found
         sub string       // matched sub path (see Project.search), may be Dir (absoletep path)
         name string      // constant represented name (e.g. relative filename)
