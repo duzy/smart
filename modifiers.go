@@ -1070,7 +1070,7 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
                                 if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
                                         file := searchName(sys == 1, linum, colnum, name)
                                         if file != nil && isSameAsTarget(file) {
-                                                unreachable()
+                                                continue //unreachable("same as target: ", file)
                                         }
                                 }
                         }
@@ -1123,7 +1123,9 @@ ForScan:
 
                                 file := searchName(sys, linum, colnum, name)
                                 if file != nil {
-                                        if isSameAsTarget(file) { unreachable() }
+                                        if isSameAsTarget(file) {
+                                                continue //unreachable("same as target: %s", file)
+                                        }
                                         continue ForScan
                                 }
                         }

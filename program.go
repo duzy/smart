@@ -417,7 +417,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.pc.stemDef.set(DefDefault, &String{prog.pc.stem})
         }
 
-        defer func() { result = prog.pc.modifyBuf.Value } ()
+        defer func() {
+                pos := prog.position
+                result, err = prog.pc.modifyBuf.Call(pos)
+        } ()
         prog.pc.preModifiers, prog.pc.postModifiers = prog.modifiers()
         return prog.pc.exec(prog)
 }

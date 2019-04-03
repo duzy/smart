@@ -251,7 +251,7 @@ ForPats:
                                 subfile := filepath.Join(sub, str)
                                 if names, err = filepath.Glob(subfile); err != nil { break ForPats }
                                 if len(names) == 0 {
-                                        fmt.Fprintf(stderr, "%s: no (%v) files found in %v\n", p.name, fm, sub)
+                                        fmt.Fprintf(stderr, "%s: no files like '%v' found in %v\n", p.name, fm, sub)
                                         continue ForPaths
                                 }
 

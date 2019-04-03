@@ -359,6 +359,19 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                 l.parser.error(spec.Pos(), "missing `%s` (in %v)", specName, l.paths)
                 return
         }
+        // Checking circular import.
+        for i, load := range l.loads {
+                if load.absDir == absPath {
+                        var s string
+                        for n := i; n < len(l.loads); n += 1 {
+                                var load = l.loads[n]
+                                s += load.specName + " → "
+                        }
+                        s += specName
+                        l.error(spec.Pos(), "circular import '%v'", s)
+                        return
+                }
+        }
 
         if false /* UNUSED */ {
                 defer func(a []*Project) { l.importPath = a } (l.importPath)
@@ -464,7 +477,7 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                         if l.project.hasBase(u.project) {
                                 // common bases are fine
                         } else {
-                                l.parser.warn(spec.Pos(), "`%s` has base `%s` (%s)", loaded, u.project, proj)
+                                //l.parser.warn(spec.Pos(), "`%s` has base `%s` (%v) (%v)", l.project, u.project, loaded, proj)
                         }
                 } else if res && !u.project.allowMultiImported {
                         l.parser.warn(spec.Pos(), "`%s` has already imported `%s` (from %s)", loaded, u.project, proj)
@@ -1201,10 +1214,12 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         defer func(a []*Project) { l.usePath = a } (l.usePath)
         l.usePath = append(l.usePath, usee) // build the use path
 
-        // Also use the bases and usee's using list, so that all
-        // dependencies are included.
-        for _, base := range usee.bases {
-                if err = useProject(l, pos, base, params, opts); err != nil { return }
+        if false { 
+                // Also use the bases and usee's using list, so that all
+                // dependencies are included.
+                for _, base := range usee.bases {
+                        if err = useProject(l, pos, base, params, opts); err != nil { return }
+                }
         }
 
         // Add to the project using list, so that the use path is correct.
