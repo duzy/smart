@@ -42,7 +42,7 @@ func unreachable(a ...interface{}) {
 }
 
 type Returner struct {
-        Value Value
+        Values []Value
 }
 
 func (p *Returner) Error() string {

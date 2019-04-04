@@ -57,11 +57,8 @@ ForRecipes:
                         }
 
                         if err != nil {
-                                if p, _ := err.(*Returner); p != nil {
-                                        if p.Value != nil {
-                                                list = append(list, p.Value)
-                                        }
-                                        err = nil
+                                if p, okay := err.(*Returner); okay {
+                                        list, err = append(list, p.Values...), nil
                                         break ForRecipes
                                 } else {
                                         //fmt.Fprintf(stderr, "eval: %v\n", err)

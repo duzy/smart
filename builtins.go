@@ -2445,11 +2445,6 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinReturn(pos Position, args... Value) (res Value, err error) {
-        var value Value
-        if x := len(args); x == 0 {
-                value = args[x]
-        } else {
-                value = &List{elements{args}}
-        }
-        return nil, &Returner{ value }
+        //if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        return nil, &Returner{ args }
 }
