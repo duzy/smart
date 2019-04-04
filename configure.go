@@ -864,37 +864,35 @@ ForSources:
 
 // configure - configures a variable, example usage:
 func modifierConfigure(pos Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m == compareMode {
-                return /* don't configure in compare mode */
-        }
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        // don't configure in compare mode
+        if m := prog.pc.mode; m == compareMode { return }
 
         var ( target Value; name string )
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
         if name, err = target.Strval(); err != nil { return }
 
         var def, alt = prog.project.scope.Def(prog.project, name, nil)
-        if alt != nil {
-                if def, _ = alt.(*Def); def != nil {
-                        if def.Value != nil { // if it's already configured
-                                // reconfigure the def or return it
-                                if optionReconfig {
-                                        def.set(DefSimple, universalnone)
-                                } else {
-                                        return def, nil
-                                }
-                        }
-                }
-        }
-        if def != nil { result = def } else {
+        if alt != nil { def, _ = alt.(*Def) }
+        if def == nil {
                 err = fmt.Errorf("`%s` configuration undefined", name)
                 return
         }
 
-        if done, found := configuration.done[def]; done && found { return }
-        if err == nil && len(args) == 0 {
+        result = def // Set result above all.
+
+        if def.Value != nil { // if it's already configured
+                // reconfigure the def or return it
+                if !optionReconfig { return }
+                if done, found := configuration.done[def]; done && found {
+                        return // already executed (re)configuration
+                }
+        }
+
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if len(args) == 0 { // zero configuration: (configure)
                 var value Value
-                if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err == nil && value != nil {
+                value, err = prog.scope.Lookup("-").(*Def).Call(pos)
+                if err == nil && value != nil {
                         if value.Type() == NoneType {
                                 err = def.set(DefExecute, nil)
                         } else {
@@ -904,6 +902,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                 return
         }
 
+        // Reset configuration value to nil
         if err = def.set(DefExecute, nil); err != nil { return }
 
         var ( value Value; configured bool )
