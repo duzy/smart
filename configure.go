@@ -56,7 +56,6 @@ var configuration = &struct{
 
 var configurationOps = map[string] func(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
         "bool":         configureBool,
-        "include":      configureInclude,
         "option":       configureOption,
         "package":      configurePackage,
 }
@@ -314,7 +313,7 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
 }
 
 func configureInclude(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
-        var includes = configuration.project.scope.Lookup("INCLUDES").(*Def)
+        var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
         for _, value := range params[2:] {
                 var s string
                 if list, ok := value.(*List); ok {
@@ -481,6 +480,7 @@ func configureArgumented(pos Position, prog *Program, target Value, def *Def, ar
                 return
         }
 
+        var pipe = prog.scope.Lookup("-").(*Def)
         var params = []Value{ target }
         var fields = map[string]Value{ "name": name }
 ForArgs:
@@ -510,20 +510,71 @@ ForArgs:
                 params = append(params, arg)
         }
 
-        var pipe = prog.scope.Lookup("-").(*Def)
-        var value = configuration.project.scope.Lookup("VALUE").(*Def)
+        defer func() {
+                if configured && err == nil && result != nil && result.True() && strName != "compiles" {
+                        if v := pipe.Value; v != nil && v.Type() != NoneType { result = v }
+                }
+
+                if err == nil {
+                        if result == nil {
+                                configinfon(pos, "… <nil>")
+                        } else if true {
+                                s := elementString(nil, result, elemExpand)
+                                configinfon(pos, "… %v", s)
+                        } else {
+                                s, _ := result.Strval()
+                                configinfon(pos, "… %v", s)
+                        }
+                        return
+                }
+                switch e := err.(type) {
+                case scanner.Errors:
+                        if n := len(e); n == 1 {
+                                configinfon(pos, "… (%v, and %d errors)", e[0].Err, len(e))
+                        } else if n == 2 {
+                                configinfon(pos, "… (%v, and 1 more error)", e[0].Err)
+                        } else if n > 2 {
+                                configinfon(pos, "… (%v, and %d more errors)", e[0].Err, len(e)-1)
+                        }
+                case *scanner.Error: configinfon(pos, "… (%v)", e.Err)
+                default: configinfon(pos, "… (%v).", err)
+                }
+        } ()
+
+        // Process configurations like:
+        //   -bool
+        //   -option
+        //   -package
+        //   ...
+        if config, ok := configurationOps[strName]; ok {
+                configmessage(pos, strName, fields, params/*arged.Args*/...)
+                result, err = config(pos, prog, def, params...)
+                if err == nil { configured = true }
+                return
+        }
+
+        // Process configurations like:
+        //   -include(foo,lib=xxx)
+        //   -symbol(foo,include=xxx,lib=yyy)
+        //   -function(foo,include=xxx,lib=yyy)
+        //   -variable(foo,include=xxx,lib=yyy)
+        //   -library(foo,include=xxx,lib=yyy)
+        //   ...
+
+        var value = configuration.project.scope.Lookup("_VALUE_").(*Def)
         if err = value.set(DefSimple, universalnone); err != nil { return }
         if pipe.Value != nil && pipe.Value.Type() != NoneType {
                 value.Value = pipe.Value
         }
 
-        var includes = configuration.project.scope.Lookup("INCLUDES").(*Def)
-        if err = includes.set(DefSimple, universalnone); err != nil { return }
-
         var includesValues []Value
+        var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
+        if err = includes.set(DefSimple, universalnone); err != nil { return }
         if strName == "include" && len(params) > 1 {
-                // -include('<xxx.h>')
-                includesValues = append(includesValues, params[1])
+                // -include('<xxx.h>',...)
+                for _, value := range params[1:] {
+                        includesValues = append(includesValues, merge(value)...)
+                }
         }
         if value, ok := fields["include"]; ok { includesValues = append(includesValues, value) }
         if value, ok := fields["includes"]; ok { includesValues = append(includesValues, value) }
@@ -558,45 +609,69 @@ ForArgs:
                 if err = includes.set(DefExpand, value); err != nil { return }
         }
 
-        defer func() {
-                if err == nil {
-                        if result == nil {
-                                configinfon(pos, "… <nil>")
-                        } else if true {
-                                s := elementString(nil, result, elemExpand)
-                                configinfon(pos, "… %v", s)
-                        } else {
-                                s, _ := result.Strval()
-                                configinfon(pos, "… %v", s)
+        var loadlibsValues []Value
+        var loadlibs = configuration.project.scope.Lookup("_LOADLIBES_").(*Def)
+        if err = loadlibs.set(DefSimple, universalnone); err != nil { return }
+        if value, ok := fields["load"]; ok { loadlibsValues = append(loadlibsValues, value) }
+        if value, ok := fields["loadlib"]; ok { loadlibsValues = append(loadlibsValues, value) }
+        if value, ok := fields["loadlibs"]; ok { loadlibsValues = append(loadlibsValues, value) }
+        for _, value := range loadlibsValues {
+                var ( elems []Value; lines []string )
+                if value != nil {
+                        switch v := value.(type) {
+                        default: elems = []Value{ v }
+                        case *Group: elems = v.Elems
+                        case *List:  elems = v.Elems
                         }
-                        return
                 }
-                switch e := err.(type) {
-                case scanner.Errors:
-                        if n := len(e); n == 1 {
-                                configinfon(pos, "… (%v, and %d errors)", e[0].Err, len(e))
-                        } else if n == 2 {
-                                configinfon(pos, "… (%v, and 1 more error)", e[0].Err)
-                        } else if n > 2 {
-                                configinfon(pos, "… (%v, and %d more errors)", e[0].Err, len(e)-1)
+                for _, elem := range merge(elems...) {
+                        var s string
+                        if s, err = elem.Strval(); err != nil { return }
+                        if !strings.HasPrefix(s, "lib") {
+                                s = fmt.Sprintf("lib%s.a", s)
                         }
-                case *scanner.Error: configinfon(pos, "… (%v)", e.Err)
-                default: configinfon(pos, "… (%v).", err)
+                        lines = append(lines, s)
                 }
-        } ()
-
-        configmessage(pos, strName, fields, arged.Args...)
-
-        if config, ok := configurationOps[strName]; ok {
-                result, err = config(pos, prog, def, params...)
-                if err == nil { configured = true }
-        } else {
-                configured, result, err = configureEntry(pos, prog, strName, params...)
+                value = &String{strings.Join(lines, " ")}
+                if err = loadlibs.set(DefExpand, value); err != nil { return }
         }
 
-        if configured && err == nil && result != nil && result.True() && strName != "compiles" {
-                if v := pipe.Value; v != nil && v.Type() != NoneType { result = v }
+        var libsValues []Value
+        var libs = configuration.project.scope.Lookup("_LIBS_").(*Def)
+        if err = libs.set(DefSimple, universalnone); err != nil { return }
+        if value, ok := fields["lib"]; ok { libsValues = append(libsValues, value) }
+        if value, ok := fields["libs"]; ok { libsValues = append(libsValues, value) }
+        for _, value := range libsValues {
+                var ( elems []Value; lines []string )
+                if value != nil {
+                        switch v := value.(type) {
+                        default: elems = []Value{ v }
+                        case *Group: elems = v.Elems
+                        case *List:  elems = v.Elems
+                        }
+                }
+                for _, elem := range merge(elems...) {
+                        var s string
+                        if s, err = elem.Strval(); err != nil { return }
+                        if !strings.HasPrefix(s, "-l") {
+                                s = fmt.Sprintf("-l%s", s)
+                        }
+                        lines = append(lines, s)
+                }
+                value = &String{strings.Join(lines, " ")}
+                if err = libs.set(DefExpand, value); err != nil { return }
         }
+        /*
+        delete(fields, "include")
+        delete(fields, "includes")
+        delete(fields, "load")
+        delete(fields, "loadlib")
+        delete(fields, "loadlibs")
+        delete(fields, "lib")
+        delete(fields, "libs")
+        */
+        configmessage(pos, strName, fields, params/*arged.Args*/...)
+        configured, result, err = configureEntry(pos, prog, strName, params...)
         return 
 }
 

@@ -11,26 +11,28 @@ LDFLAGS :=
 LOADLIBES :=
 LIBS :=
 LANG := c++
-INCLUDES :=
-VALUE :=
+_INCLUDES_ :=
+_VALUE_ :=
+_LIBS_ :=
+_LOADLIBES_ :=
 
 -include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).$(LANG).include
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/check.out
 -symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).symbol($(SYMBOL))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/check.out
 -function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).function($(FUNCTION))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/check.out
 -library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).function($(FUNCTION))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -l$(LIBRARY) -o &(CTD)/.configure/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o &(CTD)/.configure/check.out
 -struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).structmember($(STRUCT),$(MEMBER))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/check.out
 -sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).sizeof($(TYPE))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/check.out
 -compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).$(LANG)
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/check.out
 
 %.c.include:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
-	$(INCLUDES)
+	$(_INCLUDES_)
 	#ifdef __CLASSIC_C__
 	int main() { return 0; }
 	#else
@@ -38,11 +40,11 @@ VALUE :=
 	#endif
 	
 %.c++.include:[(unclose) (cd -s &/) | (plain c++) (update-file -sp)]
-	$(INCLUDES)
+	$(_INCLUDES_)
 	int main() { return 0; }
 	
 %.symbol:[((SYMBOL)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
-	$(INCLUDES)
+	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
 	  (void)argv;
@@ -55,7 +57,7 @@ VALUE :=
 	}
 	
 %.variable:[((VARIABLE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
-	$(INCLUDES)
+	$(_INCLUDES_)
 	extern int $(VARIABLE)
 	#ifdef __CLASSIC_C__
 	int main()
@@ -65,7 +67,7 @@ VALUE :=
 	{ (void)argv; return $(VARIABLE); }
 	
 %.function:[((FUNCTION)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
-	$(INCLUDES)
+	$(_INCLUDES_)
 	#ifdef __cplusplus
 	extern "C"
 	#endif
@@ -78,7 +80,7 @@ VALUE :=
 	{ $(FUNCTION)(); return 0; }
 	
 %.structmember:[((STRUCT MEMBER)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
-	$(INCLUDES)
+	$(_INCLUDES_)
 	int main() { (void)sizeof((($(STRUCT) *)0)->$(MEMBER)); return 0; }
 	
 %.sizeof:[((TYPE)) (unclose) (cd -s &/) | (plain text) (update-file -sp)]
@@ -118,9 +120,9 @@ pthreads.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	}
 	
 %.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
-	$(VALUE)
+	$(_VALUE_)
 	
 %.c++:[(unclose) (cd -s &/) | (plain c++) (update-file -sp)]
-	$(VALUE)
+	$(_VALUE_)
 	
 `
