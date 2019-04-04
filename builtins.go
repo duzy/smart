@@ -312,11 +312,6 @@ func builtinLogicalOr(pos Position, args... Value) (res Value, err error) {
 
 func builtinLogicalAnd(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
-                /*var s string
-                if s, err = a.Strval(); err != nil { return }
-                if strings.TrimSpace(s) == "" { 
-                        res = a; break
-                }*/
                 if a.True() { res = a } else { res = nil; break }
         }
         return
@@ -324,17 +319,6 @@ func builtinLogicalAnd(pos Position, args... Value) (res Value, err error) {
 
 func builtinBranchIf(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n > 1 {
-                /*var (
-                        cond Value
-                        s string
-                )
-                if cond, err = args[0].expand(expandDelegate); err != nil { return }
-                if s, err = cond.Strval(); err != nil { return }
-                if strings.TrimSpace(s) != "" { 
-                        res = args[1]
-                } else if n > 1 {
-                        res = MakeListOrScalar(args[2:])
-                }*/
                 var cond Value
                 if cond, err = args[0].expand(expandAll); err != nil { return }
                 if cond.True() { 
@@ -1740,6 +1724,7 @@ func builtinRename(pos Position, args... Value) (res Value, err error) {
 func builtinRemove(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
+        // TODO: parse options like -r -v
         var (
                 names []string
                 str string
@@ -2238,10 +2223,11 @@ var (
         rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
 
-func (scope *Scope) expand(s string) (res string) {
+func (scope *Scope) configExpand(pos Position, s string) string {
+        var res = new(bytes.Buffer)
         var index = 0
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
-                res += s[index:m[0]]
+                fmt.Fprint(res, s[index:m[0]])
 
                 var name string
                 switch {
@@ -2251,28 +2237,36 @@ func (scope *Scope) expand(s string) (res string) {
                         name = s[m[4]:m[5]]
                 }
 
-                if def := scope.FindDef(name); def != nil && def.Value != nil {
-                        switch t := def.Value.(type) {
+                if def := scope.FindDef(name); def != nil {
+                        val, err := def.Call(pos)
+                        if err != nil {
+                                fmt.Fprintf(stderr, "%s: %v", pos, err)
+                        } else if val == nil {
+                                continue
+                        }
+                        switch t := val.(type) {
                         case *answer, *boolean:
                                 if v, e := t.Integer(); e == nil {
-                                        res += fmt.Sprintf("%d", v)
+                                        fmt.Fprintf(res, "%d", v)
                                 }
                         default:
-                                if v, e := def.Value.Strval(); e == nil {
-                                        res += v
+                                if v, e := val.Strval(); e == nil {
+                                        fmt.Fprintf(res, "%s", v)
                                 }
                         }
                 }
 
                 index = m[1]
         }
-        if index < len(s) { res += s[index:] }
-        return
+        if index < len(s) {
+                fmt.Fprint(res, s[index:])
+        }
+        return res.String()
 }
 
-func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error) {
+func configure(pos Position, out *bytes.Buffer, scope *Scope, filename, str string) (err error) {
         var index = 0
-        str = scope.expand(str)
+        str = scope.configExpand(pos, str)
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
                 if _, err = out.WriteString(str[index:m[0]]); err != nil { return }
 
@@ -2282,9 +2276,6 @@ func configure(out *bytes.Buffer, scope *Scope, filename, str string) (err error
                 var hasv = m[6] > m[0] && m[7] > m[6]
                 switch def := scope.FindDef(name); verb {
                 case "define":
-                        //if def == nil || def.Value == nil {
-                        //        s = fmt.Sprintf("/* #undef %s */", name)
-                        //} else
                         if hasv && !(def == nil || def.Value == nil) {
                                 v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
                                 s = fmt.Sprintf("#define %s %s", name, v)
@@ -2376,7 +2367,7 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                 var str string
                 if str, err = arg.Strval(); err != nil { return }
                 if str == "" { continue }
-                if err = configure(&data, scope, srcname, str); err != nil {
+                if err = configure(pos, &data, scope, srcname, str); err != nil {
                         return
                 }
         }
