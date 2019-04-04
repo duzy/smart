@@ -1,7 +1,7 @@
 package smart; const configurationInitFile = `project ~ (-nodock -final)
 files (
     (*.c.include *.c++.include *.symbol *.variable *.function \
-     *.structmember *.sizeof *.c *.c++) => &(CTD)/check
+     *.structmember *.sizeof *.c *.c++) => &(CTD)/.configure
 )
 
 SHELL := shell -s
@@ -15,19 +15,19 @@ INCLUDES :=
 VALUE :=
 
 -include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).$(LANG).include
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
 -symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).symbol($(SYMBOL))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
 -function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).function($(FUNCTION))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
 -library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).function($(FUNCTION))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -l$(LIBRARY) -o &(CTD)/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -l$(LIBRARY) -o &(CTD)/.configure/check.out
 -struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).structmember($(STRUCT),$(MEMBER))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
 -sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).sizeof($(TYPE))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
 -compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)] : $(TARGET).$(LANG)
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/check.out
+	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $< $(LOADLIBES) $(LIBS) -o &(CTD)/.configure/check.out
 
 %.c.include:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	$(INCLUDES)
@@ -106,7 +106,7 @@ VALUE :=
 	#endif
 	{ (void)argv; return SIZE; }
 	
-#&(CTD)/check/pthreads.c
+#&(CTD)/.configure/pthreads.c
 pthreads.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	#include <pthread.h>
 	void* routine(void* args) { return args; }

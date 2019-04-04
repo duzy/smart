@@ -519,12 +519,16 @@ ForArgs:
 
         var includes = configuration.project.scope.Lookup("INCLUDES").(*Def)
         if err = includes.set(DefSimple, universalnone); err != nil { return }
-        if value, ok := fields["include"]; ok || strName == "include" {
+
+        var includesValues []Value
+        if strName == "include" && len(params) > 1 {
+                // -include('<xxx.h>')
+                includesValues = append(includesValues, params[1])
+        }
+        if value, ok := fields["include"]; ok { includesValues = append(includesValues, value) }
+        if value, ok := fields["includes"]; ok { includesValues = append(includesValues, value) }
+        for _, value := range includesValues {
                 var ( elems []Value; lines []string )
-                if strName == "include" && len(params) > 1 {
-                        // -include('<xxx.h>')
-                        elems = append(elems, params[1])
-                }
                 if value != nil {
                         switch v := value.(type) {
                         default: elems = []Value{ v }
