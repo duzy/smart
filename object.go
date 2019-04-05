@@ -618,12 +618,17 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err e
         if entry.class == GlobRuleEntry /*|| entry.class == StemmedFileEntry*/ {
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
+ForPrograms:
         for _, program := range entry.programs {
-                var v Value
-                if v, err = program.Execute(entry, a); err != nil {
-                        break
-                } else {
-                        result = append(result, v)
+                var val Value
+                if val, err = program.Execute(entry, a); err == nil {
+                        result = append(result, val)
+                } else if br, ok := err.(*breaker); ok {
+                        switch br.what {
+                        case breakNext: continue ForPrograms
+                        case breakCase, breakDone:
+                                break ForPrograms
+                        }
                 }
         }
         return
@@ -709,16 +714,16 @@ func (entry *RuleEntry) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, entry.target)) }
 ForPrograms:
         for _, prog := range entry.programs {
-                if false && prog == pc.program {
-                        //err = fmt.Errorf("%v: depended on itself", entry.target)
-                        //fmt.Fprintf(os.Stderr, "%s: %v\n", prog.position, err)
-                        fmt.Fprintf(stderr, "%s: %v: depended on itself\n", prog.position, entry.target)
-                        //continue //break ForPrograms
-                }
                 if err = pc.execute(entry, prog); err == nil {
-                        break ForPrograms
+                        // continue with the next program
                 } else if _, ok := err.(targetNotFoundError); ok {
                         break ForPrograms // Don't try other programs if it's undefined.
+                } else if br, ok := err.(*breaker); ok {
+                        switch br.what {
+                        case breakNext: continue ForPrograms
+                        case breakCase, breakDone:
+                                break ForPrograms
+                        }
                 }
         }
         return

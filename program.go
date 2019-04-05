@@ -328,9 +328,11 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
         defer setclosure(setclosure(cloctx.unshift(prog.scope))) // entry.DeclScope()
         defer func() { // leaving after setting execstack to meet the FIFO order of execstack
-                e := leave(prog, enterStop)
-                if err == nil { err = e } else if e != nil {
-                        fmt.Fprintf(stderr, "%s: leaving: %s\n", prog.pc.entry.Position, e)
+                if e := leave(prog, enterStop); e != nil {
+                        // NOTE: err could be breakCase, breakDone, etc.
+                        if err == nil { err = e } else {
+                                fmt.Fprintf(stderr, "%s: leaving: %s\n", prog.pc.entry.Position, e)
+                        }
                 }
         } ()
 
@@ -418,8 +420,14 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         defer func() {
-                pos := prog.position
-                result, err = prog.pc.modifyBuf.Call(pos)
+                var e error
+                result, e = prog.pc.modifyBuf.Call(prog.position)
+                if e != nil {
+                        // NOTE: err could be breakCase, breakDone, etc.
+                        if err == nil { err = e } else {
+                                fmt.Fprintf(stderr, "%s: %s\n", prog.pc.entry.Position, e)
+                        }
+                }
         } ()
         prog.pc.preModifiers, prog.pc.postModifiers = prog.modifiers()
         return prog.pc.exec(prog)
@@ -492,11 +500,20 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
         return
 }
 
-func (pc *preparer) preModify(prog *Program) (done bool, err error) {
+func (pc *preparer) preModify(prog *Program) (done bool, casebreaks []*breaker, err error) {
+ForModifiers:
         for _, m := range pc.preModifiers {
                 if m.name == modifierbar { continue }
                 if err = prog.modify(pc, m, false); err == nil { continue }
                 if br, ok := err.(*breaker); ok /*&& pc.mode == defaultMode*/ {
+                        switch br.what {
+                        case breakCase:
+                                casebreaks = append(casebreaks, br)
+                                continue ForModifiers
+                        case breakNext, breakDone:
+                                done = true
+                                return
+                        }
                         done, err = pc.checkMode4Breaker("pre", m.name, br)
                 }
                 if err != nil { break }
@@ -504,11 +521,20 @@ func (pc *preparer) preModify(prog *Program) (done bool, err error) {
         return
 }
 
-func (pc *preparer) postModify(prog *Program) (done bool, err error) {
+func (pc *preparer) postModify(prog *Program) (done bool, casebreaks []*breaker, err error) {
+ForModifiers:
         for _, m := range pc.postModifiers {
                 if m.name == modifierbar { continue }
                 if err = prog.modify(pc, m, true); err == nil { continue }
                 if br, ok := err.(*breaker); ok /*&& pc.mode == defaultMode*/ {
+                        switch br.what {
+                        case breakCase:
+                                casebreaks = append(casebreaks, br)
+                                continue ForModifiers
+                        case breakNext, breakDone:
+                                done = true
+                                return
+                        }
                         done, err = pc.checkMode4Breaker("post", m.name, br)
                 }
                 if err != nil { break }
@@ -527,10 +553,20 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                 }
         } ()
 
+        var casebreaks []*breaker
         var done bool
-
         // Pre-modifying could change $@, $^, $<, $|, etc.
-        if done, err = pc.preModify(prog); err != nil || done { return }
+        done, casebreaks, err = pc.preModify(prog)
+        if /*err == nil &&*/ casebreaks != nil {
+                defer func(brs []*breaker) {
+                        if err != nil {
+                                fmt.Fprintf(stderr, "%s: %s\n", prog.pc.entry.Position, err)
+                        }
+                        err = brs[0]
+                } (casebreaks)
+        } else if err != nil || done {
+                return
+        }
 
         // Updating $^
         pc.targets = nil // clear the target list
@@ -572,7 +608,18 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         pc.targets = nil // clear the target list
 
         // Post modifying
-        if done, err = pc.postModify(prog); err != nil || done { return }
+        done, casebreaks, err = pc.postModify(prog)
+        if /*err == nil &&*/ casebreaks != nil {
+                defer func(brs []*breaker) {
+                        if err != nil {
+                                fmt.Fprintf(stderr, "%s: %s\n", prog.pc.entry.Position, err)
+                        }
+                        err = brs[0]
+                } (casebreaks)
+        } else if err != nil || done {
+                return
+        }
+
         if pc.interpreted == nil {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {

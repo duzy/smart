@@ -33,6 +33,9 @@ const (
         breakBad breakind = iota
         breakGood // good to continue
         breakUpdates // needs to update
+        breakDone // (cond ...) and (case ...)
+        breakNext // (cond ...) and (case ...)
+        breakCase // (case ...)
 )
 
 type breaker struct {
@@ -103,6 +106,9 @@ var (
                 `extract-configuration`: modifierExtractConfiguration,
 
                 `parallel`:     modifierParallel,
+
+                `case`:         modifierCase,
+                `cond`:         modifierCond,
         }
 
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
@@ -149,6 +155,7 @@ func promptShellResult(value Value, n int) (err error) {
         return
 }
 
+// select element by index from group result: (select 0)
 func modifierSelect(pos Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
@@ -1512,5 +1519,37 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
 }
 
 func modifierParallel(pos Position, prog *Program, args... Value) (result Value, err error) {
+        // TODO: specify parallel options, e.g.:
+        //   (parallel -n=0) # turn off
+        //   (parallel -n=5) # five workers
+        return
+}
+
+func modifierCase(pos Position, prog *Program, args... Value) (result Value, err error) {
+        for _, arg := range args {
+                for _, a := range merge(arg) {
+                        var cond Value
+                        if cond, err = a.expand(expandAll); err != nil { return }
+                        if !cond.True() {
+                                err = &breaker{ pos:pos, what:breakNext }
+                                return
+                        }
+                }
+        }
+        err = &breaker{ pos:pos, what:breakCase }
+        return
+}
+
+func modifierCond(pos Position, prog *Program, args... Value) (result Value, err error) {
+        for _, arg := range args {
+                for _, a := range merge(arg) {
+                        var cond Value
+                        if cond, err = a.expand(expandAll); err != nil { return }
+                        if !cond.True() {
+                                err = &breaker{ pos:pos, what:breakDone }
+                                return
+                        }
+                }
+        }
         return
 }

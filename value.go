@@ -564,8 +564,11 @@ func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
         var res Value
         if res, err = prog.Execute(entry, pc.arguments); err != nil {
                 //if optionTracePrepare { pc.tracef("%s: %s", entry, err) }
-                if br, ok := err.(*breaker); ok && br.what == breakBad {
-                        fmt.Fprintf(stderr, "%s: %v\n", prog.position, err)
+                if br, ok := err.(*breaker); ok {
+                        switch br.what {
+                        case breakBad:
+                                fmt.Fprintf(stderr, "%s: %v\n", prog.position, err)
+                        }
                 }
         }
 

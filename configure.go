@@ -312,6 +312,7 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
         return
 }
 
+/*
 func configureInclude(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
         var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
         for _, value := range params[2:] {
@@ -334,6 +335,7 @@ func configureInclude(pos Position, prog *Program, def *Def, params... Value) (r
         _, result, err = configureEntry(pos, prog, "include", params[:2]...)
         return
 }
+*/
 
 func configureOption(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
         if result, err = prog.scope.Lookup("-").(*Def).Call(pos); err == nil {
