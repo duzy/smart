@@ -39,8 +39,8 @@ var builtins = map[string]BuiltinFunc {
         `and`:          builtinLogicalAnd,
         /*
         `xor`:          builtinLogicalXor,
-        `not`:          builtinLogicalNot,
         */
+        `not`:          builtinLogicalNot,
 
         `if`:           builtinBranchIf,
         `ifeq`:         builtinBranchIfEq,
@@ -300,11 +300,6 @@ func builtinAssertValid(pos Position, args... Value) (Value, error) {
 
 func builtinLogicalOr(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
-                /*var s string
-                if s, err = a.Strval(); err != nil { return }
-                if strings.TrimSpace(s) != "" { 
-                        res = a; break
-                }*/
                 if a.True() { res = a; break }
         }
         return
@@ -313,6 +308,19 @@ func builtinLogicalOr(pos Position, args... Value) (res Value, err error) {
 func builtinLogicalAnd(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 if a.True() { res = a } else { res = nil; break }
+        }
+        return
+}
+
+func builtinLogicalNot(pos Position, args... Value) (res Value, err error) {
+        for _, a := range args {
+                if a.True() {
+                        res = universalfalse;
+                        break
+                }
+        }
+        if res == nil {
+                res = universaltrue;
         }
         return
 }
