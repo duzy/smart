@@ -1415,7 +1415,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
                 return
         }
-
+        
         var optPath, optVerbose bool
         var (
                 nargs = len(args)
@@ -1441,15 +1441,28 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
                 args, nargs = v, len(v) // Reset args
         }
 
+        if nargs > 0 { target = args[0] }
+        if nargs > 1 {
+                if num, err = args[1].Integer(); err != nil { return }
+                perm = os.FileMode(num & 0777)
+        }
+
         // Get target filename
-        if nargs == 0 {
-                if filename, err = target.Strval(); err != nil { return }
-        } else {
-                target = args[0]
-                if filename, err = target.Strval(); err != nil { return }
-                if nargs > 1 {
-                        if num, err = args[1].Integer(); err != nil { return }
-                        perm = os.FileMode(num & 0777)
+        var project = prog.pc.derived //mostDerived() // prog.project
+        switch t := target.(type) {
+        case *File:
+                if filename, err = t.Strval(); err != nil {
+                        return
+                }
+        default:
+                if filename, err = target.Strval(); err != nil {
+                        return
+                } else if file := project.matchFile(filename); file != nil {
+                        if filename, err = file.Strval(); err != nil {
+                                return
+                        } else {
+                                target = file
+                        }
                 }
         }
 
@@ -1496,7 +1509,11 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
 
         if optVerbose {
                 printEnteringDirectory()
-                fmt.Fprintf(stderr, "smart: Updating '%v' …", filename)
+                if false {
+                        fmt.Fprintf(stderr, "smart: Updating '%v' …", filename)
+                } else {
+                        fmt.Fprintf(stderr, "smart: Updating '%v' …", target)
+                }
         }
 
         // Create or update the file with new content
