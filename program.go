@@ -513,8 +513,11 @@ ForModifiers:
                         case breakNext, breakDone:
                                 done = true
                                 return
+                        case breakFail:
+                                return
+                        default:
+                                done, err = pc.checkMode4Breaker("pre", m.name, br)
                         }
-                        done, err = pc.checkMode4Breaker("pre", m.name, br)
                 }
                 if err != nil { break }
         }
@@ -534,8 +537,11 @@ ForModifiers:
                         case breakNext, breakDone:
                                 done = true
                                 return
+                        case breakFail:
+                                return
+                        default:
+                                done, err = pc.checkMode4Breaker("post", m.name, br)
                         }
-                        done, err = pc.checkMode4Breaker("post", m.name, br)
                 }
                 if err != nil { break }
         }

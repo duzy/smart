@@ -36,6 +36,7 @@ const (
         breakDone // (cond ...) and (case ...)
         breakNext // (cond ...) and (case ...)
         breakCase // (case ...)
+        breakFail // (assert ...)
 )
 
 type breaker struct {
@@ -96,8 +97,6 @@ var (
                 //`grep-compare`:      modifierGrepCompare,
                 //`grep-dependencies`: modifierGrepDependencies,
 
-                `check`:          modifierCheck,
-                
                 `write-file`:     modifierWriteFile,
                 `update-file`:    modifierUpdateFile,
                 `configure-file`: modifierConfigureFile,
@@ -107,6 +106,8 @@ var (
 
                 `parallel`:     modifierParallel,
 
+                `check`:        modifierCheck,
+                `assert`:       modifierAssert,
                 `case`:         modifierCase,
                 `cond`:         modifierCond,
         }
@@ -1539,6 +1540,26 @@ func modifierParallel(pos Position, prog *Program, args... Value) (result Value,
         // TODO: specify parallel options, e.g.:
         //   (parallel -n=0) # turn off
         //   (parallel -n=5) # five workers
+        return
+}
+
+// (assert condition,'error message...')
+func modifierAssert(pos Position, prog *Program, args... Value) (result Value, err error) {
+        if len(args) == 0 {
+                err = &breaker{
+                        pos:pos, what:breakFail,
+                        message: "zero-args assertion",
+                }
+        } else if !args[0].True() {
+                var br = &breaker{
+                        pos:pos, what:breakFail,
+                        message: "assertion failed",
+                }
+                if len(args) > 1 {
+                        br.message, _ = args[1].Strval()
+                }
+                err = br
+        }
         return
 }
 

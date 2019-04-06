@@ -7,6 +7,7 @@
 package smart
 
 import (
+        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "os/exec"
         "strings"
@@ -623,6 +624,7 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err e
         if entry.class == GlobRuleEntry /*|| entry.class == StemmedFileEntry*/ {
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
+        var failed bool
 ForPrograms:
         for _, program := range entry.programs {
                 var val Value
@@ -630,11 +632,17 @@ ForPrograms:
                         result = append(result, val)
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
+                        case breakFail:
+                                fmt.Fprintf(stderr, "%s: %s\n", br.pos, br.message)
+                                failed, err = true, nil
                         case breakNext: continue ForPrograms
                         case breakCase, breakDone:
                                 break ForPrograms
                         }
                 }
+        }
+        if err == nil && failed {
+                err = scanner.Errorf(token.Position(pos), "assertion failed")
         }
         return
 }
@@ -717,6 +725,7 @@ func (entry *RuleEntry) dependcompare(c *comparer) (err error) {
 
 func (entry *RuleEntry) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, entry.target)) }
+        var failed bool
 ForPrograms:
         for _, prog := range entry.programs {
                 if err = pc.execute(entry, prog); err == nil {
@@ -725,11 +734,17 @@ ForPrograms:
                         break ForPrograms // Don't try other programs if it's undefined.
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
+                        case breakFail:
+                                fmt.Fprintf(stderr, "%s: %s\n", br.pos, br.message)
+                                failed, err = true, nil
                         case breakNext: continue ForPrograms
                         case breakCase, breakDone:
                                 break ForPrograms
                         }
                 }
+        }
+        if err == nil && failed {
+                err = scanner.Errorf(token.Position(entry.Position), "assertion failed")
         }
         return
 }

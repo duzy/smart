@@ -1500,11 +1500,6 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
         var modifiers []Value
         if clause.Modifier != nil {
                 modifiers = l.exprs(clause.Modifier.Elems)
-                /*if n := len(modifiers); n == 0 {
-                        //l.parser.error(clause.Modifier.Pos(), "empty modifier")
-                } else if m := modifiers[0]; m != nil {
-                        //...
-                }*/
         }
 
         var configure = false

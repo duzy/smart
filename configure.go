@@ -45,8 +45,9 @@ var configuration = &struct{
         libraries map[string]*libraryinfo
         packages map[string]*packageinfo
         done map[*Def]bool
-        configs []*RuleEntry // -configure entries
+        configs []*RuleEntry // -configure entry
         entries []*RuleEntry // order list
+        //assert *RuleEntry // -assert entry
 }{
         fset: token.NewFileSet(),
         libraries: make(map[string]*libraryinfo),
@@ -55,9 +56,9 @@ var configuration = &struct{
 }
 
 var configurationOps = map[string] func(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
-        "bool":         configureBool,
-        "option":       configureOption,
-        "package":      configurePackage,
+        "bool":    configureBool,
+        "option":  configureOption,
+        "package": configurePackage,
 }
 
 func init_configuration(paths searchlist) (err error) {
@@ -165,7 +166,7 @@ func do_configuration() error {
 
         var executed = make(map[*RuleEntry]bool)
         for _, entry := range configuration.configs {
-                if b1, b2 := executed[entry]; b1 && b2 {
+                if a, b := executed[entry]; a && b {
                         continue
                 } else {
                         executed[entry] = true
@@ -180,6 +181,8 @@ func do_configuration() error {
                 }
         }
         executed = nil
+
+        printLeavingDirectory()
         return errs
 }
 
@@ -311,31 +314,6 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
         def.Value = nil
         return
 }
-
-/*
-func configureInclude(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
-        var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
-        for _, value := range params[2:] {
-                var s string
-                if list, ok := value.(*List); ok {
-                        var elems []Value
-                        for _, elem := range list.Elems {
-                                if s, err = elem.Strval(); err != nil { return }
-                                elem = &String{fmt.Sprintf("#include %s\n", s)}
-                                elems = append(elems, elem)
-                        }
-                        value = &List{elements{elems}}
-                } else if s, err = value.Strval(); err == nil {
-                        value = &String{fmt.Sprintf("#include %s\n", s)}
-                } else {
-                        return
-                }
-                if err = includes.append(value); err != nil { return }
-        }
-        _, result, err = configureEntry(pos, prog, "include", params[:2]...)
-        return
-}
-*/
 
 func configureOption(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
         if result, err = prog.scope.Lookup("-").(*Def).Call(pos); err == nil {

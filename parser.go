@@ -1678,6 +1678,9 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                 if !ok {
                         p.error(x.Pos(), "unsupported modifier")
                         goto next
+                } else if l, ok := group.Elems[0].(*ast.ListExpr); ok {
+                        group.Elems = append([]ast.Expr{l.Elems[0]},
+                                append(l.Elems[1:], group.Elems[1:]...)...)
                 }
 
                 switch n := group.Elems[0].(type) {
@@ -1747,7 +1750,7 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                         pos = x.Pos()
                         goto checkName
                 default:
-                        p.error(n.Pos(), "unsupported dialect or modifier (%T)", group.Elems[0])
+                        p.error(n.Pos(), "unsupported dialect or modifier (%T): %v", group.Elems[0], group.Elems[0])
                         goto next
                 }
 
