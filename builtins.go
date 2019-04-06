@@ -312,6 +312,8 @@ func builtinLogicalAnd(pos Position, args... Value) (res Value, err error) {
         return
 }
 
+// $(not x y z) -> (not (or x y z))
+// $(not x,y,z) -> (and (not x) (not y) (not z))
 func builtinLogicalNot(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 if a.True() {

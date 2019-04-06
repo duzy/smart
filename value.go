@@ -642,7 +642,12 @@ func (p *Argumented) cmp(v Value) (res cmpres) {
         return
 }
 func (p *Argumented) Type() Type { return ArgumentedType }
-func (p *Argumented) True() bool { return p.Val.True() }
+func (p *Argumented) True() (res bool) {
+        if p.Val != nil {
+                res = p.Val.True()
+        }
+        return
+}
 func (p *Argumented) Integer() (i int64, err error) {
         var s string
         if s, err = p.Strval(); err == nil {
@@ -860,7 +865,14 @@ func (p *negative) cmp(v Value) (res cmpres) {
         return
 }
 func (p *negative) Type() Type { return NegativeType }
-func (p *negative) True() bool { return !p.x.True() }
+func (p *negative) True() (res bool) {
+        if p.x == nil {
+                res = true
+        } else {
+                res = !p.x.True()
+        }
+        return
+}
 func (p *negative) elemstr(o Object, k elemkind) string { return `!`+elementString(o, p.x, k) }
 func (p *negative) String() (s string) { return p.elemstr(nil, 0) }
 func (p *negative) Strval() (string, error) { return fmt.Sprintf("%v", !p.x.True()), nil }
@@ -1394,7 +1406,7 @@ func (p *elements) Integer() (int64, error) {
 func (p *elements) Len() int                    { return len(p.Elems) }
 func (p *elements) Append(v... Value)           { p.Elems = append(p.Elems, v...) }
 func (p *elements) Get(n int) (v Value)         { if n>=0 && n<len(p.Elems) { v = p.Elems[n] }; return }
-func (p *elements) Slice(n int) (a []Value)     {
+func (p *elements) Slice(n int) (a []Value) {
         if n>=0 && n<len(p.Elems) {
                 a = p.Elems[n:]
         }
@@ -2526,8 +2538,8 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
 type delegate struct { closuredelegate }
 func (p *delegate) Type() Type { return DelegateType }
 func (p *delegate) True() (t bool) {
-        if s, err := p.Strval(); err == nil {
-                t = s != ""
+        if v, err:= p.expand(expandAll); err == nil {
+                t = v.True()
         }
         return
 }

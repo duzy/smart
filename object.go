@@ -294,7 +294,12 @@ func (d *Def) cmp(v Value) (res cmpres) {
 }
 
 func (d *Def) Type() Type { return DefType }
-func (d *Def) True() bool { return d.Value.True() }
+func (d *Def) True() (res bool) {
+        if d.Value != nil {
+                res = d.Value.True()
+        }
+        return
+}
 func (d *Def) elemstr(o Object, k elemkind) (s string) {
         if o != nil {
                 if p := d.OwnerProject(); p != o.OwnerProject() {
