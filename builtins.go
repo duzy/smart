@@ -2354,7 +2354,6 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                 }
                 args = altargs
         }
-        
         if len(args) < 1 {
                 return
         }

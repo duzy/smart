@@ -1030,13 +1030,47 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
         var targetOSFile *os.File
         var savedGrepOSFile *os.File
         var savedGrepFileName string
-        if s := targetName+".d"; filepath.IsAbs(s) {
+        if targetFileName != "" {
+                var grep = joinTmpPath(".", ".grep")
+                var v1 = strings.Split(targetFileName, PathSep)
+                var v2 = strings.Split(grep, PathSep)
+                for i := 0; i < len(v1) && i < len(v2); i += 1 {
+                        if v1[i] != v2[i] {
+                                // Chop off the common prefix.
+                                v1 = v1[i:]
+                                v2 = v2[i:]
+                                break
+                        }
+                }
+                savedGrepFileName = filepath.Join(grep,
+                        filepath.Join(v1...))
+        } else if file := p.matchFile(targetName); file != nil {
+                var name string
+                if name, err = file.Strval(); err == nil {
+                        var grep = joinTmpPath(".", ".grep")
+                        var v1 = strings.Split(name, PathSep)
+                        var v2 = strings.Split(grep, PathSep)
+                        for i := 0; i < len(v1) && i < len(v2); i += 1 {
+                                if v1[i] != v2[i] {
+                                        // Chop off the common prefix.
+                                        v1 = v1[i:]
+                                        v2 = v2[i:]
+                                        break
+                                }
+                        }
+                        savedGrepFileName = filepath.Join(grep,
+                                filepath.Join(v1...))
+                } else {
+                        return
+                }
+        } else if true {
+                fmt.Fprintf(stderr, "%s: grep missing target file: %v (%v)\n", p, target, targetFileName)
+                return
+        } else if s := targetName+".d"; filepath.IsAbs(s) {
                 dir := filepath.Dir(s)
                 s = filepath.Join("_", filepath.Base(s))
                 savedGrepFileName = joinTmpPath(dir, s)
         } else if t := p.absPath; t != "" && t != "." && len(tops) > 0 {
-                ////if strings.HasPrefix(s, "..") { s = filepath.Join("_", s) }
-                //s = strings.Replace(s, "..", "_", -1)
                 istop := func(s string) (res bool) {
                         for _, t := range tops {
                                 if res = s == t; res { break }
