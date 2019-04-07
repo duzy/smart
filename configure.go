@@ -705,12 +705,14 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
 //     config.h:[(compare) (configure-file)]: config.h.in
 //     
 func modifierConfigureFile(pos Position, prog *Program, args... Value) (result Value, err error) {
-        if m := prog.pc.mode; m != updateMode {
-                //return /* only configure in update mode */
+        // Only configure file in update mode.
+        if prog.pc.mode != updateMode {
+                // Return to not overriding the configured file. 
+                return
         }
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var target Value
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         for _, arg := range args {
                 switch a := arg.(type) {
                 case *None, *Flag, *Pair:
@@ -750,12 +752,13 @@ func modifierConfigureFile(pos Position, prog *Program, args... Value) (result V
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
 func modifierExtractConfiguration(pos Position, prog *Program, args... Value) (result Value, err error) {
+        // Only generate configure file in update mode
         if m := prog.pc.mode; m != updateMode {
-                return /* configure in update mode */
+                return
         }
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var target Value
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
 
         var (depends []Value; val Value)

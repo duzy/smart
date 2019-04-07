@@ -345,7 +345,9 @@ func (m traversemode) String() (s string) {
 func (m traversemode) name() (s string) {
         switch m {
         case defaultMode: s = "default"
+        case compareMode: s = "compare"
         case updateMode: s = "update"
+        default: s = "unknown"
         }
         return
 }

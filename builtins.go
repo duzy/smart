@@ -2274,7 +2274,7 @@ func (scope *Scope) configExpand(pos Position, s string) string {
         return res.String()
 }
 
-func configure(pos Position, out *bytes.Buffer, scope *Scope, filename, str string) (err error) {
+func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err error) {
         var index = 0
         str = scope.configExpand(pos, str)
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
@@ -2328,12 +2328,12 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, filename, str stri
 //      	configure-file -p -m=0600 $@ $(read-file $<)
 //     
 func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
         var optVerbose = true
         var optPath = false
         var optMode = os.FileMode(0600)
-        if len(args) > 0 {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if len(args) > 0 {
                 var altargs []Value
                 for _, arg := range args {
                         var opt bool
@@ -2354,9 +2354,7 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                 }
                 args = altargs
         }
-        if len(args) < 1 {
-                return
-        }
+        if len(args) < 1 { return }
 
         var scope *Scope
         switch {
@@ -2368,17 +2366,18 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                 return
         }
 
-        var srcname string
-        // FIXME: source filename
-
         var data bytes.Buffer
         for _, arg := range args[1:] {
                 var str string
                 if str, err = arg.Strval(); err != nil { return }
                 if str == "" { continue }
-                if err = configure(pos, &data, scope, srcname, str); err != nil {
+                if err = configure(pos, &data, scope, str); err != nil {
                         return
                 }
+        }
+        if data.Len() == 0 && len(args) <= 1 {
+                // no content produced
+                return
         }
 
         var file *File
@@ -2396,8 +2395,11 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                 err = fmt.Errorf("invalid file `%v`", file)
                 return
         }
-
-        //if file.Info == nil { file.Info, _ = stat(filename) }
+        if file.info == nil {
+                if f := stat(filename, "", ""); f != nil {
+                        file.info = f.info
+                }
+        }
         if file.info != nil {
                 var f *os.File
                 if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
