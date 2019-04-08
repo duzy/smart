@@ -1072,33 +1072,8 @@ func (l *loader) executeUseRule(pos token.Pos, userule *useRuleEntry, params []V
                 switch t := elem.(type) {
                 case *None: // does nothing
                 case *undetermined:
-                        /*if def := l.determine(pos, t.tok, t.identifier, t.value); def != nil {
-                                // ...
-                        }*/
                         if sel, ok := t.identifier.(*selection); ok && sel != nil {
-                                var ( val Value; def *Def )
-                                if val, err = sel.value(); err != nil { return }
-                                if def, ok = val.(*Def); !ok && def == nil {
-                                        err = scanner.Errorf(position, "`%v` not defined", t.identifier)
-                                        return
-                                }
-
-                                var alt Object
-                                
-                                // FIXES: 'user->xxx' is selecting 'xxx'
-                                // from the base if the current project has
-                                // no 'xxx' defined. So we have to fix it by
-                                // having it defined in the current project.
-                                if def.OwnerProject() != l.project {
-                                        if def, alt = l.def(def.name); alt != nil && t.tok != token.QUE_ASSIGN {
-                                                err = scanner.Errorf(position, "`%s` already defined", alt.Name())
-                                                return
-                                        }
-                                }
-
-                                if err = l.assign(pos, t.tok, def, alt, t.value); err != nil {
-                                        return
-                                }
+                                l.determine(pos, t.tok, sel, t.value, true)
                         } else {
                                 err = scanner.Errorf(position, "unsupported using def `%v` (%T)", t.identifier, t.identifier)
                                 return
@@ -1249,11 +1224,12 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         return
 }
 
-func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value) (def *Def) {
-        var alt, derived Object
+func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value, defineSel bool) (def *Def) {
+        var ( alt Object ; derived *Def )
         switch t := identifier.(type) {
         case *selection:
-                if v, err := t.value(); err != nil {
+                var v, err = t.value()
+                if err != nil {
                         l.parser.error(pos, "determine `%v`: %v", t, err)
                         return
                 } else if d, ok := v.(*Def); ok {
@@ -1262,40 +1238,60 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                         l.parser.error(pos, "`%v` is not a def (%T)", t, v)
                         return
                 }
+
+                // user: The selection 'user->xxx' finds 'xxx'
+                // from the base if the current project has
+                // no 'xxx' defined. We define the variable
+                // for the current project in this case.
+                if defineSel && def.owner != l.project /*l.project.hasBase(def.owner)*/ {
+                        derived = def // Derive the base definition
+                        if def, alt = l.def(def.name); alt != nil && tok != token.QUE_ASSIGN {
+                                l.parser.error(pos, "`%s` already defined", alt.Name())
+                                return
+                        }
+                }
+
         case *Bareword, *Barecomp:
-                if name, err := t.Strval(); err != nil {
+                var name, err = t.Strval()
+                if err != nil {
                         l.parser.error(pos, "determine `%v`: %v", t, err)
                         return
                 } else if _, ok := builtins[name]; ok {
                         l.parser.error(pos, "`%v` (%v) is builtin name", identifier, name)
                         return
-                } else {
-                        _, derived = l.scope.Find(name) // value to derive
-                        if def, alt = l.def(name); alt != nil {
-                                def = alt.(*Def)
-                        }
                 }
-        }
 
-        if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
-                if alt.OwnerProject() == l.project {
-                        l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
-                        return
-                } else if def, alt = l.def(alt.Name()); alt != nil {
-                        l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
-                        return
+                // Resolve base value to derive.
+                var prev Object
+                prev, err = l.project.resolveObject(name)
+                if err != nil { l.parser.error(pos, "%v", err) }
+                if prev != nil && prev.OwnerProject() == l.project {
+                        derived, _ = prev.(*Def)
                 }
-        }
 
-        if derived != nil && derived != def && tok == token.ADD_ASSIGN {
-                // If it's the first time this name was determined.
-                if d, _ := derived.(*Def); d != nil && !def.Value.refs(d) {
-                        // Unshift the delegation to derive value.
-                        position := Position(l.parser.file.Position(pos))
-                        if err := def.append(MakeDelegate(position, token.LPAREN, d)); err != nil {
-                                l.parser.error(pos, "%v", err)
+                if def, alt = l.def(name); alt == nil {
+                        // does nothing...
+                } else if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
+                        if alt.OwnerProject() == l.project {
+                                l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
                                 return
                         }
+                        // Overrides the previous definition.
+                        if def, alt = l.def(alt.Name()); alt != nil {
+                                l.parser.error(pos, "`%v` already defined (%T)", identifier, alt)
+                                return
+                        }
+                } else if alt != nil {
+                        def = alt.(*Def)
+                }
+        }
+
+        if derived != nil && derived != def && tok == token.ADD_ASSIGN && !def.Value.refs(derived) {
+                // Unshift the delegation to derive value.
+                position := Position(l.parser.file.Position(pos))
+                err := def.append(MakeDelegate(position, token.LPAREN, derived))
+                if err != nil {
+                        l.parser.error(pos, "%v", err)
                 }
         }
 
@@ -1420,7 +1416,7 @@ func (l *loader) configuration(spec *ast.ConfigurationSpec) (res Value) {
         var value = l.expr(spec.Value)
         defer func(scope *Scope) { l.scope = scope } (l.scope)
         l.scope = configuration.project.scope
-        res = l.determine(spec.Pos(), spec.Tok, name, value)
+        res = l.determine(spec.Pos(), spec.Tok, name, value, false)
         return
 }
 
@@ -1454,7 +1450,7 @@ func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
 func (l *loader) define(clause *ast.DefineClause) {
         var identifier = l.expr(clause.Name)
         var value = l.expr(clause.Value)
-        l.determine(clause.Pos(), clause.Tok, identifier, value)
+        l.determine(clause.Pos(), clause.Tok, identifier, value, false)
 }
 
 func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast.Expr) (entries []*RuleEntry) {

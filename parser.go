@@ -2182,6 +2182,8 @@ func (p *parser) parseFile() *ast.File {
                                         p.next() // skip empty lines
                                 case token.IMPORT:
                                         clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
+                                case token.EVAL:
+                                        clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(token.EVAL), p.parseEvalSpec))
                                 default:
                                         if p.tok.IsKeyword() {
                                                 break ForInit
