@@ -42,6 +42,8 @@ var builtins = map[string]BuiltinFunc {
         */
         `not`:          builtinLogicalNot,
 
+        `match`:        builtinMatch,
+
         `if`:           builtinBranchIf,
         `ifeq`:         builtinBranchIfEq,
         `ifne`:         builtinBranchIfNE,
@@ -323,6 +325,31 @@ func builtinLogicalNot(pos Position, args... Value) (res Value, err error) {
         }
         if res == nil {
                 res = universaltrue;
+        }
+        return
+}
+
+func builtinMatch(pos Position, args... Value) (res Value, err error) {
+        if n := len(args); n != 2 {
+                err = scanner.Errorf(token.Position(pos), "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
+                return
+        }
+        var rexList = merge(args[0])
+        var srcList = merge(args[1])
+ForMatchValues:
+        for _, valRex := range rexList {
+                var ( r *regexp.Regexp ; s string )
+                if s, err = valRex.Strval(); err != nil { return }
+                if r, err = regexp.Compile(s); err != nil { return }
+                for _, valSrc := range srcList {
+                        var src string
+                        if src, err = valSrc.Strval(); err != nil {
+                                break ForMatchValues
+                        } else if r.MatchString(src) {
+                                res = universaltrue
+                                break ForMatchValues
+                        }
+                }
         }
         return
 }

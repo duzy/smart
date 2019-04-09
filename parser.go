@@ -1284,7 +1284,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 // ----------------------------------------------------------------------------
 // Clauses & Declarations
 
-type parseSpecFunc func(doc *ast.CommentGroup, keyword token.Token, options []ast.Expr, iota int) ast.Spec
+type parseSpecFunc func(doc *ast.CommentGroup, keyword token.Token, dontOperate bool, options []Value, iota int) ast.Spec
 
 func isValidImport(lit string) bool {
 	const illegalChars = `!"#$%&'()*,:;<=>?[\]^{|}` + "`\uFFFD"
@@ -1297,13 +1297,16 @@ func isValidImport(lit string) bool {
 	return s != ""
 }
 
-func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, options []ast.Expr, _ int) (res ast.Spec) {
+func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, options []Value, _ int) (res ast.Spec) {
 	var spec = &ast.ImportSpec{ p.parseDirectiveSpec() }
         p.imports = append(p.imports, spec)
         res = spec
+        if dontOperate {
+                return
+        }
 
         var ( opts importoptions ; err error )
-        for _, v := range p.exprs(options) {
+        for _, v := range options {
                 var opt bool
                 switch t := v.(type) {
                 case *Flag:
@@ -1329,7 +1332,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, options [
         return
 }
 
-func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Expr, _ int) ast.Spec {
+func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
 	if p.tracing.enabled {
 		defer un(trace(p, "Spec"))
 	}
@@ -1353,32 +1356,39 @@ func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.
                 Comment: comment,
                 EndPos: p.pos,
         }}
-        p.include(spec)
+        if !dontOperate {
+                p.include(spec)
+        }
         return spec
 }
 
-func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Expr, _ int) ast.Spec {
+func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
         spec := &ast.UseSpec{ p.parseDirectiveSpec() }
-        p.use(spec)
+        if !dontOperate {
+                p.use(spec)
+        }
         return spec
 
 }
 
-func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Expr, _ int) ast.Spec {
+func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
         return &ast.InstanceSpec{ p.parseDirectiveSpec() }
 }
 
-func (p *parser) parseConfigurationSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Expr, _ int) ast.Spec {
+func (p *parser) parseConfigurationSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
         name := p.parseExpr(false)
         define := p.parseDefineClause(p.tok, name)
         spec := &ast.ConfigurationSpec{ *define }
-        p.configuration(spec)
+        if !dontOperate {
+                p.configuration(spec)
+        }
         return spec
 }
 
-func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Expr, _ int) ast.Spec {
+func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, options []Value, _ int) ast.Spec {
         defer p.setbits(p.setbit(parsingFilesSpec))
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
+        if dontOperate { return spec }
         for _, prop := range spec.Props {
                 switch v := p.expr(prop).(type) {
                 case *Pair:
@@ -1403,7 +1413,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Ex
         return spec
 }
 
-func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Expr, _ int) ast.Spec {
+func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
         spec := &ast.EvalSpec{ p.parseDirectiveSpec(), nil }
         if prop0 := p.expr(spec.Props[0]); prop0 == nil {
                 p.error(spec.Props[0].Pos(), "`%v` illegal", spec.Props[0])
@@ -1413,6 +1423,8 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, _ []ast.Exp
                 p.error(spec.Pos(), err)
         } else if spec.Resolved == nil {
                 p.error(spec.Props[0].Pos(), "undefined eval symbol `%s' (%v).", name, prop0)
+        } else if dontOperate {
+                // NOOP
         } else {
                 p.evalspec(spec)
         }
@@ -1461,20 +1473,50 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
         var (
                 doc = p.leadComment
                 lparen, rparen token.Pos
-                options []ast.Expr
+                options []Value
                 specs []ast.Spec
+                dontOperate bool // don't operate
         )
 
         for p.tok == token.MINUS {
-                opt := p.checkExpr(p.parseExpr(false))
-                options = append(options, opt)
+                var conds []Value
+                x := p.checkExpr(p.parseExpr(false))
+                opt := p.expr(x)
+                switch t := opt.(type) {
+                case *Argumented:
+                        if s, err := t.Val.Strval(); err != nil {
+                                p.error(x.Pos(), "bad argumented option `%v` (%v)", x, t.Val)
+                        } else if s == "cond" {
+                                conds = t.Args
+                        }
+                case *Pair:
+                        if s, err := t.Key.Strval(); err != nil {
+                                p.error(x.Pos(), "bad option key `%v` (%v)", x, t.Key)
+                        } else if s == "cond" {
+                                if g, ok := t.Value.(*Group); ok {
+                                        conds = g.Elems
+                                } else {
+                                        conds = append(conds, t.Value)
+                                }
+                        }
+                }
+                if conds == nil {
+                        options = append(options, opt)
+                        continue
+                }
+                for _, cond := range conds {
+                        if !cond.True() {
+                                dontOperate = true
+                                break
+                        }
+                }
         }
 
 	if p.tok == token.LPAREN {
 		lparen = p.pos
 		p.next()
 		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF; iota++ {
-			specs = append(specs, f(p.leadComment, keyword, options, iota))
+			specs = append(specs, f(p.leadComment, keyword, dontOperate, options, iota))
                         if p.tok == token.COMMA || p.tok == token.LINEND {
                                 p.next()
                         }
@@ -1485,7 +1527,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                 }
 	} else {
 		for iota := 0; p.tok != token.LINEND && p.tok != token.EOF; iota++ {
-                        spec := f(nil, keyword, options, iota)
+                        spec := f(nil, keyword, dontOperate, options, iota)
                         specs = append(specs, spec)
                         if p.lineComment != nil {
                                 break
@@ -2175,8 +2217,8 @@ func (p *parser) parseFile() *ast.File {
 	var clauses []ast.Clause
 	if p.mode&ModuleClauseOnly == 0 {
                 if p.mode&Flat == 0 {
-                        // import & define clauses
-                        ForInit: for p.tok != token.EOF {
+                ForInit:
+                        for p.tok != token.EOF {
                                 switch p.tok {
                                 case token.LINEND:
                                         p.next() // skip empty lines
