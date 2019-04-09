@@ -2513,7 +2513,12 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
                 s += elementString(o, a, k)
         }
         switch name := p.o.Name(); p.l {
-        case token.COLON: s = fmt.Sprintf(":%s%s:", name, s)
+        case token.LCOLON:
+                if p.o == context.globe.os.self {
+                        s = ":os:"
+                } else {
+                        s = fmt.Sprintf(":%s%s:", name, s)
+                }
         case token.LPAREN: s = fmt.Sprintf("(%s%s)", name, s)
         case token.LBRACE:
                 if k&elemNoBrace == 0 {

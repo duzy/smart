@@ -1484,13 +1484,17 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                 opt := p.expr(x)
                 switch t := opt.(type) {
                 case *Argumented:
-                        if s, err := t.Val.Strval(); err != nil {
+                        if flag, ok := t.Val.(*Flag); !ok {
+                                // does nothing
+                        } else if s, err := flag.Name.Strval(); err != nil {
                                 p.error(x.Pos(), "bad argumented option `%v` (%v)", x, t.Val)
                         } else if s == "cond" {
                                 conds = t.Args
                         }
                 case *Pair:
-                        if s, err := t.Key.Strval(); err != nil {
+                        if flag, ok := t.Key.(*Flag); !ok {
+                                // does nothing
+                        } else if s, err := flag.Name.Strval(); err != nil {
                                 p.error(x.Pos(), "bad option key `%v` (%v)", x, t.Key)
                         } else if s == "cond" {
                                 if g, ok := t.Value.(*Group); ok {
