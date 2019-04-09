@@ -22,7 +22,6 @@ import (
 )
 
 const (
-        enable_statcache = true
         enable_assertions = true
         enable_grep_bench = true
 )

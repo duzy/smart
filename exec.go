@@ -638,6 +638,16 @@ ForArgs:
                                 return
                         }
                 }
+                if err != nil { return }
+                if file, ok := target.(*File); ok {
+                        fullname := file.FullName()
+                        file.info, err = os.Stat(fullname)
+                        prog.globe.timestamps[fullname] = file.info.ModTime()
+                } else if path, ok := target.(*Path); ok && path.File != nil {
+                        fullname := path.File.FullName()
+                        path.File.info, err = os.Stat(fullname)
+                        prog.globe.timestamps[fullname] = path.File.info.ModTime()
+                }
         }
 
         if len(prog.callers) > 0 {

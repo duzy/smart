@@ -634,6 +634,20 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                         err = fmt.Errorf("no default dialect")
                 }
         }
+
+        // Update file info.
+        /*if err == nil {
+                var target Value
+                target, err = prog.pc.targetDef.Call(prog.position)
+                if err != nil { return }
+                if file, ok := target.(*File); ok {
+                        fullname := file.FullName()
+                        file.info, err = os.Stat(fullname)
+                } else if path, ok := target.(*Path); ok && path.File != nil {
+                        fullname := path.File.FullName()
+                        path.File.info, err = os.Stat(fullname)
+                }
+        }*/
         return
 }
 
