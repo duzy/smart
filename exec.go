@@ -639,20 +639,22 @@ ForArgs:
                         }
                 }
                 if err != nil { return }
-                var t Value
-                if t, err = target.expand(expandAll); err != nil {
-                        return
-                }
-                if file, ok := t.(*File); ok {
-                        fullname := file.FullName()
-                        file.info, err = os.Stat(fullname)
-                        prog.globe.stamp(fullname, file.info.ModTime())
-                        fmt.Printf("Updated: %v (%v)\n", target, file.info.ModTime())
-                } else if path, ok := t.(*Path); ok && path.File != nil {
-                        fullname := path.File.FullName()
-                        path.File.info, err = os.Stat(fullname)
-                        prog.globe.stamp(fullname, path.File.info.ModTime())
-                        fmt.Printf("Updated: %v (%v)\n", target, path.File.info.ModTime())
+                if !prompt {
+                        var t Value
+                        if t, err = target.expand(expandAll); err != nil {
+                                return
+                        }
+                        if file, ok := t.(*File); ok {
+                                fullname := file.FullName()
+                                file.info, err = os.Stat(fullname)
+                                prog.globe.stamp(fullname, file.info.ModTime())
+                                fmt.Printf("Updated: %v (%v)\n", target, file.info.ModTime())
+                        } else if path, ok := t.(*Path); ok && path.File != nil {
+                                fullname := path.File.FullName()
+                                path.File.info, err = os.Stat(fullname)
+                                prog.globe.stamp(fullname, path.File.info.ModTime())
+                                fmt.Printf("Updated: %v (%v)\n", target, path.File.info.ModTime())
+                        }
                 }
         }
 
