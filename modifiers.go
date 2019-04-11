@@ -703,55 +703,54 @@ ForArgs:
         // no targets are updated
         prog.pc.mode = compareMode
 
-        if true {
-                var c *comparer
-                if c, err = newcompariation(prog, target); err == nil {
-                        if optVerbose || optionVerboseChecks {
-                                if true {
-                                        fmt.Fprintf(stderr, "smart: Checking %s …", target)
+        var c *comparer
+        if c, err = newcompariation(prog, target); err != nil {
+                return
+        }
+
+        if optVerbose || optionVerboseChecks {
+                if true {
+                        fmt.Fprintf(stderr, "smart: Checking %s …", target)
+                } else {
+                        tar, _ := filepath.Rel(prog.project.absPath, targetStr)
+                        fmt.Fprintf(stderr, "smart: Checking %s …", tar)
+                }
+        }
+
+        c.nomiss, c.nocomp = optDiscardMissing, optNoUpdate
+        if err = c.Compare(pos, depends); err == nil {
+                result = universaltrue
+        } else {
+                result = universalfalse
+        }
+        if optVerbose || optionVerboseChecks {
+                if err == nil {
+                        fmt.Fprintf(stderr, "… (done)")
+                } else if br, ok := err.(*breaker); ok {
+                        switch br.what {
+                        case breakBad: fmt.Fprintf(stderr, "… Bad (%s)", br)
+                        case breakGood: fmt.Fprintf(stderr, "… Good")
+                        case breakUpdates:
+                                if a := br.prerequisites(); len(a) == 0 {
+                                        fmt.Fprintf(stderr, "… Outdated")
                                 } else {
-                                        tar, _ := filepath.Rel(prog.project.absPath, targetStr)
-                                        fmt.Fprintf(stderr, "smart: Checking %s …", tar)
+                                        fmt.Fprintf(stderr, "… %v", a)
                                 }
-                        }
-                        c.nomiss, c.nocomp = optDiscardMissing, optNoUpdate
-                        if err = c.Compare(pos, depends); err == nil {
-                                result = universaltrue
-                        } else {
-                                result = universalfalse
-                        }
-                        if optVerbose || optionVerboseChecks {
-                                if err == nil {
-                                        fmt.Fprintf(stderr, "… (done)")
-                                } else if br, ok := err.(*breaker); ok {
-                                        switch br.what {
-                                        case breakBad: fmt.Fprintf(stderr, "… Bad (%s)", br)
-                                        case breakGood: fmt.Fprintf(stderr, "… Good")
-                                        case breakUpdates:
-                                                if a := br.prerequisites(); len(a) == 0 {
-                                                        fmt.Fprintf(stderr, "… Outdated")
-                                                } else {
-                                                        fmt.Fprintf(stderr, "… %v", a)
-                                                }
-                                        }
-                                }
-                                fmt.Fprintf(stderr, "\n")
-                        }
-                        if len(c.updated) > 0 && enable_assertions {
-                                assert(err != nil, "expects update breaker")
-                                e, ok := err.(*breaker)
-                                assert(ok, "expects update breaker")
-                                assert(e.what == breakUpdates, "expects update breaker")
-                                assert(e.updated != nil, "nil updated target")
-                                //assert(e.updated.target == c.target, "updated target differs")
-                                //assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
-                                //for i, preq := range e.updated.prerequisites {
-                                //       assert(preq == c.updated[i], "updated target differs")
-                                //}
                         }
                 }
-        } else {
-                unreachable("compare in", prog.pc.mode.name(), "mode")
+                fmt.Fprintf(stderr, "\n")
+        }
+        if len(c.updated) > 0 && enable_assertions {
+                assert(err != nil, "expects update breaker")
+                e, ok := err.(*breaker)
+                assert(ok, "expects update breaker")
+                assert(e.what == breakUpdates, "expects update breaker")
+                assert(e.updated != nil, "nil updated target")
+                //assert(e.updated.target == c.target, "updated target differs")
+                //assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
+                //for i, preq := range e.updated.prerequisites {
+                //       assert(preq == c.updated[i], "updated target differs")
+                //}
         }
         return
 }
