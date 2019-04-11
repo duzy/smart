@@ -1557,7 +1557,9 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         if err == nil && f != nil {
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
-                        result = stat(filename, "", "")
+                        var file = stat(filename, "", "")
+                        context.globe.stamp(filename, file.info.ModTime())
+                        result = file
                         if optVerbose { fmt.Fprintf(stderr, "… (ok)\n") }
                 } else {
                         os.Remove(filename)
