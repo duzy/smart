@@ -77,7 +77,6 @@ func (m *modifier) String() (s string) {
 type Program struct {
         mutex *sync.Mutex // execution mutex
         pc *preparer // current prepare context
-        globe   *Globe
         project *Project
         scope   *Scope
         params  []string

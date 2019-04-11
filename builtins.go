@@ -2474,6 +2474,7 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
         if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err == nil {
                 if file.info != nil { res = file } else {
                         if file.info, err = os.Stat(filename); err == nil {
+                                context.globe.stamp(filename, file.info.ModTime())
                                 res = file
                         }
                 }

@@ -260,8 +260,8 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
                                 if opt, err = a.is(0, ""); err != nil { return } else if opt {
                                         var dir = findBacktrackDir()
                                         // Back to main project if no backtracks.
-                                        if dir == "" && prog.globe.main != nil {
-                                                dir = prog.globe.main.AbsPath()
+                                        if dir == "" && context.globe.main != nil {
+                                                dir = context.globe.main.AbsPath()
                                         }
                                         v = append(v, &String{dir})
                                 }
@@ -347,7 +347,7 @@ func compareTargetDepend(pos Position, prog *Program, target, depend Value, tt t
         if dependFile, okay := depend.(*File); okay && dependFile != nil {
                 var str string
                 if str, err = dependFile.Strval(); err != nil { return }
-                if t := prog.globe.timestamp(str); t.After(tt) {
+                if t := context.globe.timestamp(str); t.After(tt) {
                         outdated = true; return // target is outdated
                 } else if dependFile.info == nil {
                         dependFile.info, _ = os.Stat(str)
@@ -358,7 +358,7 @@ func compareTargetDepend(pos Position, prog *Program, target, depend Value, tt t
                 }
                 if t := dependFile.info.ModTime(); t.After(tt) {
                         if str, err = target.Strval(); err != nil { return }
-                        prog.globe.stamp(str, t)
+                        context.globe.stamp(str, t)
                         outdated = true; return // target is outdated
                 } else {
                         var (

@@ -247,16 +247,15 @@ func (c *comparer) compareDepend(value interface{}) (err error) {
 
 func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err error) {
         var tt, dt time.Time
-
-        if ds == "" {
+        if f, ok := d.(*File); ok && f.info != nil {
+                d, ds, dt = f, f.FullName(), f.info.ModTime()
+        } else if ds == "" {
                 err = break_bad(c.program.position, "'%v' unknown depend", d)
                 return
-        } else if t := c.program.globe.timestamp(ds); !t.IsZero() {
+        } else if t := context.globe.timestamp(ds); !t.IsZero() {
                 dt = t
         } else if di != nil {
                 dt = di.ModTime()
-        } else if f, ok := d.(*File); ok && f.info != nil {
-                d, ds, dt = f, f.FullName(), f.info.ModTime()
         } else {
                 for _, project := range c.program.pc.related {
                         if t := project.searchFile(ds); t != nil {
@@ -268,15 +267,15 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         }
 
         var ts string
-        if ts, err = c.target.Strval(); err != nil {
+        if f, ok := c.target.(*File); ok && f.info != nil {
+                ts, tt = f.FullName(), f.info.ModTime()
+        } else if ts, err = c.target.Strval(); err != nil {
                 return
         } else if ts == "" {
                 err = break_bad(c.program.position, "'%v' unknown target", c.target)
                 return
-        } else if t := c.program.globe.timestamp(ts); !t.IsZero() {
+        } else if t := context.globe.timestamp(ts); !t.IsZero() {
                 tt = t
-        } else if f, ok := c.target.(*File); ok && f.info != nil {
-                ts, tt = f.FullName(), f.info.ModTime()
         } else {
                 for _, project := range c.program.pc.related {
                         if t := project.searchFile(ts); t != nil {
@@ -310,13 +309,13 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                         //        timestamps, it may cause some targets
                         //        updated multiple times if target is
                         //        compared with different deps.
-                        c.program.globe.stamp(ts, dt)
-                        c.program.globe.stamp(ds, dt)
+                        context.globe.stamp(ts, dt)
+                        context.globe.stamp(ds, dt)
                 }
         } else if true {
                 // Just save the timestamps to optimize further stats.
-                if !tt.IsZero() { c.program.globe.stamp(ts, tt) }
-                if !dt.IsZero() { c.program.globe.stamp(ds, dt) }
+                if !tt.IsZero() { context.globe.stamp(ts, tt) }
+                if !dt.IsZero() { context.globe.stamp(ds, dt) }
         }
         return
 }
