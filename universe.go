@@ -11,6 +11,7 @@ package smart
 import (
         "runtime"
         "strconv"
+        "sync"
         "time"
         "fmt"
         "os"
@@ -192,7 +193,8 @@ type Globe struct {
         scope  *Scope
 	os     *Project
         main   *Project
-        timestamps map[string]time.Time
+        _timestamps map[string]time.Time
+        _timestampx *sync.Mutex
 }
 
 // Scope returns the globe scope.
@@ -203,6 +205,19 @@ func (g *Globe) Main() *Project { return g.main }
 
 func (g *Globe) SetScopeOuter(scope *Scope) {
         scope.outer = g.scope
+}
+
+func (g *Globe) timestamp(s string) (t time.Time) {
+        g._timestampx.Lock()
+        t, _ = g._timestamps[s]
+        g._timestampx.Unlock()
+        return
+}
+
+func (g *Globe) stamp(s string, t time.Time) {
+        g._timestampx.Lock()
+        g._timestamps[s] = t
+        g._timestampx.Unlock()
 }
 
 // project returns a new Project for the given project path and name;
@@ -257,7 +272,8 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
 func NewGlobe(name string) (g *Globe) {
         g = &Globe{
                 scope: NewScope(universe, nil, fmt.Sprintf("globe %q", name)),
-                timestamps: make(map[string]time.Time),
+                _timestamps: make(map[string]time.Time),
+                _timestampx: new(sync.Mutex),
         }
 
         var absPath, relPath, tmpPath, spec string

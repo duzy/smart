@@ -251,7 +251,7 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         if ds == "" {
                 err = break_bad(c.program.position, "'%v' unknown depend", d)
                 return
-        } else if t, ok := c.program.globe.timestamps[ds]; ok && !t.IsZero() {
+        } else if t := c.program.globe.timestamp(ds); !t.IsZero() {
                 dt = t
         } else if di != nil {
                 dt = di.ModTime()
@@ -273,7 +273,7 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         } else if ts == "" {
                 err = break_bad(c.program.position, "'%v' unknown target", c.target)
                 return
-        } else if t, ok := c.program.globe.timestamps[ts]; ok && !t.IsZero() {
+        } else if t := c.program.globe.timestamp(ts); !t.IsZero() {
                 tt = t
         } else if f, ok := c.target.(*File); ok && f.info != nil {
                 ts, tt = f.FullName(), f.info.ModTime()
@@ -310,13 +310,13 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                         //        timestamps, it may cause some targets
                         //        updated multiple times if target is
                         //        compared with different deps.
-                        c.program.globe.timestamps[ts] = dt
-                        c.program.globe.timestamps[ds] = dt
+                        c.program.globe.stamp(ts, dt)
+                        c.program.globe.stamp(ds, dt)
                 }
         } else if true {
                 // Just save the timestamps to optimize further stats.
-                if !tt.IsZero() { c.program.globe.timestamps[ts] = tt }
-                if !dt.IsZero() { c.program.globe.timestamps[ds] = dt }
+                if !tt.IsZero() { c.program.globe.stamp(ts, tt) }
+                if !dt.IsZero() { c.program.globe.stamp(ds, dt) }
         }
         return
 }

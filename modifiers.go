@@ -347,7 +347,7 @@ func compareTargetDepend(pos Position, prog *Program, target, depend Value, tt t
         if dependFile, okay := depend.(*File); okay && dependFile != nil {
                 var str string
                 if str, err = dependFile.Strval(); err != nil { return }
-                if t, ok := prog.globe.timestamps[str]; ok && t.After(tt) {
+                if t := prog.globe.timestamp(str); t.After(tt) {
                         outdated = true; return // target is outdated
                 } else if dependFile.info == nil {
                         dependFile.info, _ = os.Stat(str)
@@ -358,7 +358,7 @@ func compareTargetDepend(pos Position, prog *Program, target, depend Value, tt t
                 }
                 if t := dependFile.info.ModTime(); t.After(tt) {
                         if str, err = target.Strval(); err != nil { return }
-                        prog.globe.timestamps[str] = t
+                        prog.globe.stamp(str, t)
                         outdated = true; return // target is outdated
                 } else {
                         var (
