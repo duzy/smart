@@ -1284,7 +1284,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
 // ----------------------------------------------------------------------------
 // Clauses & Declarations
 
-type parseSpecFunc func(doc *ast.CommentGroup, keyword token.Token, dontOperate bool, options []Value, iota int) ast.Spec
+type parseSpecFunc func(doc *ast.CommentGroup, generic *genericoptions, iota int) ast.Spec
 
 func isValidImport(lit string) bool {
 	const illegalChars = `!"#$%&'()*,:;<=>?[\]^{|}` + "`\uFFFD"
@@ -1297,16 +1297,16 @@ func isValidImport(lit string) bool {
 	return s != ""
 }
 
-func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, options []Value, _ int) (res ast.Spec) {
+func (p *parser) parseImportSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) (res ast.Spec) {
 	var spec = &ast.ImportSpec{ p.parseDirectiveSpec() }
         p.imports = append(p.imports, spec)
         res = spec
-        if dontOperate {
+        if generic.dontOperate {
                 return
         }
 
         var ( opts importoptions ; err error )
-        for _, v := range options {
+        for _, v := range generic.options {
                 var opt bool
                 switch t := v.(type) {
                 case *Flag:
@@ -1332,7 +1332,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, _ token.Token, dontOpera
         return
 }
 
-func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
+func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
 	if p.tracing.enabled {
 		defer un(trace(p, "Spec"))
 	}
@@ -1356,39 +1356,39 @@ func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, _ token.Token, dontOper
                 Comment: comment,
                 EndPos: p.pos,
         }}
-        if !dontOperate {
+        if !generic.dontOperate {
                 p.include(spec)
         }
         return spec
 }
 
-func (p *parser) parseUseSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
+func (p *parser) parseUseSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
         spec := &ast.UseSpec{ p.parseDirectiveSpec() }
-        if !dontOperate {
+        if !generic.dontOperate {
                 p.use(spec)
         }
         return spec
 
 }
 
-func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
+func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
         return &ast.InstanceSpec{ p.parseDirectiveSpec() }
 }
 
-func (p *parser) parseConfigurationSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
+func (p *parser) parseConfigurationSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
         name := p.parseExpr(false)
         define := p.parseDefineClause(p.tok, name)
         spec := &ast.ConfigurationSpec{ *define }
-        if !dontOperate {
+        if !generic.dontOperate {
                 p.configuration(spec)
         }
         return spec
 }
 
-func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, options []Value, _ int) ast.Spec {
+func (p *parser) parseFilesSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
         defer p.setbits(p.setbit(parsingFilesSpec))
         spec := &ast.FilesSpec{ p.parseDirectiveSpec() }
-        if dontOperate { return spec }
+        if generic.dontOperate { return spec }
         for _, prop := range spec.Props {
                 switch v := p.expr(prop).(type) {
                 case *Pair:
@@ -1413,7 +1413,7 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, _ token.Token, dontOperat
         return spec
 }
 
-func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, dontOperate bool, _ []Value, _ int) ast.Spec {
+func (p *parser) parseEvalSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
         spec := &ast.EvalSpec{ p.parseDirectiveSpec(), nil }
         if prop0 := p.expr(spec.Props[0]); prop0 == nil {
                 p.error(spec.Props[0].Pos(), "`%v` illegal", spec.Props[0])
@@ -1423,7 +1423,7 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, _ token.Token, dontOperate
                 p.error(spec.Pos(), err)
         } else if spec.Resolved == nil {
                 p.error(spec.Props[0].Pos(), "undefined eval symbol `%s' (%v).", name, prop0)
-        } else if dontOperate {
+        } else if generic.dontOperate {
                 // NOOP
         } else {
                 p.evalspec(spec)
@@ -1473,9 +1473,10 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
         var (
                 doc = p.leadComment
                 lparen, rparen token.Pos
-                options []Value
+                generic = genericoptions{
+                        keyword: keyword,
+                }
                 specs []ast.Spec
-                dontOperate bool // don't operate
         )
 
         for p.tok == token.MINUS {
@@ -1505,12 +1506,12 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                         }
                 }
                 if conds == nil {
-                        options = append(options, opt)
+                        generic.options = append(generic.options, opt)
                         continue
                 }
                 for _, cond := range conds {
                         if !cond.True() {
-                                dontOperate = true
+                                generic.dontOperate = true
                                 break
                         }
                 }
@@ -1520,7 +1521,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
 		lparen = p.pos
 		p.next()
 		for iota := 0; p.tok != token.RPAREN && p.tok != token.EOF; iota++ {
-			specs = append(specs, f(p.leadComment, keyword, dontOperate, options, iota))
+			specs = append(specs, f(p.leadComment, &generic, iota))
                         if p.tok == token.COMMA || p.tok == token.LINEND {
                                 p.next()
                         }
@@ -1531,7 +1532,7 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                 }
 	} else {
 		for iota := 0; p.tok != token.LINEND && p.tok != token.EOF; iota++ {
-                        spec := f(nil, keyword, dontOperate, options, iota)
+                        spec := f(nil, &generic, iota)
                         specs = append(specs, spec)
                         if p.lineComment != nil {
                                 break

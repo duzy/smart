@@ -1367,7 +1367,7 @@ func builtinBase(pos Position, args... Value) (res Value, err error) {
                 if s, err = a.Strval(); err != nil {
                         return
                 }
-                s = filepath.Base(s)
+                s = filepath.Base(s) // the last element of path
                 l = append(l, &String{s})
         }
         res = MakeListOrScalar(l)

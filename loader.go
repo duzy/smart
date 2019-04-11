@@ -256,6 +256,13 @@ func (l *loader) searchSpecPath(linfo *loadinfo, specName string) (absPath strin
         return
 }
 
+type genericoptions struct {
+        keyword token.Token
+        verbose bool // TODO: verbose operation
+        dontOperate bool
+        options []Value
+}
+
 type useoptions struct {
         allowReuse bool
 }
@@ -1265,7 +1272,7 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 var prev Object
                 prev, err = l.project.resolveObject(name)
                 if err != nil { l.parser.error(pos, "%v", err) }
-                if prev != nil && prev.OwnerProject() == l.project {
+                if prev != nil && prev.OwnerProject() != l.project {
                         derived, _ = prev.(*Def)
                 }
 
