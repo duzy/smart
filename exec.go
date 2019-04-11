@@ -638,24 +638,10 @@ ForArgs:
                                 return
                         }
                 }
-                if err != nil { return }
-                if !prompt {
-                        var t Value
-                        if t, err = target.expand(expandAll); err != nil {
-                                return
-                        } else if file, ok := t.(*File); ok {
-                                fullname := file.FullName()
-                                file.info, err = os.Stat(fullname)
-                                context.globe.stamp(fullname, file.info.ModTime())
-                                fmt.Printf("Updated: %v (%v)\n", target, file.info.ModTime())
-                        } else if path, ok := t.(*Path); ok && path.File != nil {
-                                fullname := path.File.FullName()
-                                path.File.info, err = os.Stat(fullname)
-                                context.globe.stamp(fullname, path.File.info.ModTime())
-                                fmt.Printf("Updated: %v (%v)\n", target, path.File.info.ModTime())
-                        } else {
-                                fmt.Printf("Updated: %v (%T)\n", target, target)
-                        }
+                if err == nil {
+                        err = stamp(target, !prompt)
+                } else {
+                        return
                 }
         }
 
@@ -666,6 +652,43 @@ ForArgs:
         } else {
                 run()
                 result = exeres
+        }
+        return
+}
+
+func stamp(target Value, verb bool) (err error) {
+        var t Value
+        if t, err = target.expand(expandAll); err != nil {
+                return
+        }
+        switch t := t.(type) {
+        case *Flag:
+                // does nothing...
+        case *File:
+                fullname := t.FullName()
+                t.info, err = os.Stat(fullname)
+                context.globe.stamp(fullname, t.info.ModTime())
+                if verb {
+                        fmt.Printf("smart: Updated %v (%v)\n", target, t.info.ModTime())
+                }
+        case *Path:
+                if t.File == nil { break }
+                fullname := t.File.FullName()
+                t.File.info, err = os.Stat(fullname)
+                context.globe.stamp(fullname, t.File.info.ModTime())
+                if verb {
+                        fmt.Printf("smart: Updated %v (%v)\n", target, t.File.info.ModTime())
+                }
+        case *List:
+                for _, elem := range t.Elems {
+                        if err = stamp(elem, verb); err != nil {
+                                return
+                        }
+                }
+        default:
+                if verb {
+                        fmt.Printf("smart: Updated %v (%T)\n", target, target)
+                }
         }
         return
 }
