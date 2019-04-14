@@ -1708,7 +1708,7 @@ func builtinChdir(pos Position, args... Value) (res Value, err error) {
         if len(args) == 1 {
                 var str string
                 if str, err = args[0].Strval(); err != nil { return }
-                err = os.Chdir(str)
+                err = safeCD(str, 0)
         } else {
                 err = errors.New("Wrong number of arguments.")
         }

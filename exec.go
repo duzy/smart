@@ -217,9 +217,9 @@ func docksFindEnt(docks []*Project, name string) (entry *RuleEntry) {
 
 func (p *executor) runContainer(prog *Program, docks []*Project) (err error) {
         if run := docksFindEnt(docks, "run"); run != nil {
-                _, err = run.Execute(prog.Position()/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
+                _, err = run.Execute(prog.position/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
         } else {
-                err = fmt.Errorf("dock=>run undefined")
+                err = fmt.Errorf("dock⇒run undefined")
         }
         return
 }
@@ -359,13 +359,10 @@ ForArgs:
                 }
         }
 
-        var recipes []Value
-        if recipes, err = mergeresult(ExpandAll(prog.recipes...)); err != nil { return }
-
         var docks []*Project
         if !p.bare {
-                if prog.Project().Name() == "dock" {
-                        docks = append(docks, prog.Project())
+                if prog.project.name == "dock" {
+                        docks = append(docks, prog.project)
                 } else {
                         for _, scope := range cloctx {
                                 if _, sym := scope.Find("dock"); sym != nil {
@@ -375,7 +372,7 @@ ForArgs:
                                 }
                         }
                         if docks == nil {
-                                if _, dockSym := prog.Project().Scope().Find("dock"); dockSym != nil {
+                                if _, dockSym := prog.project.scope.Find("dock"); dockSym != nil {
                                         if pn, _ := dockSym.(*ProjectName); pn != nil {
                                                 docks = append(docks, pn.NamedProject())
                                         }
@@ -455,6 +452,8 @@ ForArgs:
                 }
         }
 
+        var recipes []Value
+        if recipes, err = mergeresult(ExpandAll(prog.recipes...)); err != nil { return }
         for _, recipe := range recipes {
                 if str, err = recipe.Strval(); err != nil { return }
                 if source += str; strings.HasSuffix(source, "\\") {
@@ -542,7 +541,14 @@ ForArgs:
                 }
 
                 var cwd string
-                if v := prog.scope.Lookup("CWD").(*Def).Value; v != nil {
+                /*if v, e := prog.scope.Lookup("/").(*Def).Call(prog.position); e != nil {
+                        err = e; return
+                } else if v != nil {
+                        if slash, err = v.Strval(); err != nil { return }
+                }*/
+                if v, e := prog.scope.Lookup("CWD").(*Def).Call(prog.position); e != nil {
+                        err = e; return
+                } else if v != nil {
                         if cwd, err = v.Strval(); err != nil { return }
                 }
                 for _, src := range sources {
@@ -556,7 +562,7 @@ ForArgs:
                         }
                         if src = strings.TrimSpace(src); src == "" {
                                 continue
-                        } else if cwd != "" && !nocd && prog.changedWD == "" {
+                        } else if cwd != "" && !nocd /*&& prog.changedWD == ""*/ {
                                 if strings.HasPrefix(src, "#") {
                                         src = fmt.Sprintf("cd '%s' %s", cwd, src)
                                 } else {
@@ -574,16 +580,27 @@ ForArgs:
                         // sometimes even the 'sh.Dir' is set to cwd.
                         // So we force to change the work directory
                         // before running the shell command.
-                        if s, _ := os.Getwd(); s != cwd {
-                                if err = os.Chdir(cwd); err != nil {
-                                        // FIXME: deal with errors
+                        */
+                        var dir = cwd
+                        if prog.changedWD != "" {
+                                if filepath.IsAbs(prog.changedWD) {
+                                        dir = prog.changedWD
+                                } else {
+                                        dir = filepath.Join(prog.project.absPath, prog.changedWD)
                                 }
-                        }*/
+                        }
+                        safeCD(dir, 5*time.Millisecond)
+                        if s, _ := os.Getwd(); s != dir {
+                                assert(false, "wrong work directory")
+                                if false {
+                                        fmt.Printf("exec: %v %v (%v %v)\n", dir, s, cwd, prog.changedWD)
+                                }
+                        }
 
                         var num = 0
                         var skips = make(map[string]bool)
                         var sh = exec.Command(cmd, aa...)
-                        sh.Dir = cwd // always set command work directory
+                        sh.Dir = dir // always set command work directory
                         sh.Env = envs
                         sh.Stdout = &exeres.Stdout
                         sh.Stderr = &exeres.Stderr
@@ -603,8 +620,8 @@ ForArgs:
 
                         // Parse errors of execution
                         if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
-                                var ( tag string ; retry bool; pos = prog.position )
-                                err, tag, retry = exeres.Stderr.parseKnownErrors(pos, targetName, !verberr && !silent)
+                                var ( tag string ; retry bool )
+                                err, tag, retry = exeres.Stderr.parseKnownErrors(prog.position, targetName, !verberr && !silent)
                                 if err == nil && retry {
                                         if num > 2 { continue } // only retry once
                                         fmt.Fprintf(stderr, "smart: good to retry (%s)\n", source)
@@ -626,7 +643,7 @@ ForArgs:
                                                 sh = c; goto RunCommand
                                         }
                                 } else {
-                                        err = scanner.Errorf(token.Position(pos), "`%s` no such container", tag)
+                                        err = scanner.Errorf(token.Position(prog.position), "`%s` no such container", tag)
                                 }
                         } else {
                                 exeres.Status = -1 //values.String(s)
@@ -662,7 +679,7 @@ func stamp(target Value, verb bool) (err error) {
                 return
         }
         switch t := t.(type) {
-        case *Flag:
+        case *Bareword, *Flag:
                 // does nothing...
         case *File:
                 fullname := t.FullName()
@@ -687,7 +704,7 @@ func stamp(target Value, verb bool) (err error) {
                 }
         default:
                 if verb {
-                        fmt.Printf("smart: Updated %v (%T)\n", target, target)
+                        fmt.Printf("smart: Updated %v (stamp %T)\n", target, target)
                 }
         }
         return

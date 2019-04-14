@@ -13,6 +13,9 @@ import (
         "strings"
         "plugin"
         "bytes"
+        //"sync"
+        "sync/atomic"
+        "time"
         "fmt"
         "os"
 )
@@ -894,6 +897,25 @@ func (p *Project) usees(post bool) (res []*Project) {
         return
 }
 
+//var cdUnlocked = make(chan bool, 1)
+var cdUnlockTime atomic.Value
+
+func safeCD(dir string, lockDura time.Duration) error {
+        if v := cdUnlockTime.Load(); v == nil {
+                // ...
+        } else if t, ok := v.(time.Time); ok && t.After(time.Now()) {
+                //for t.After(time.Now())
+                select {
+                //case <-cdUnlocked: //cdLocker.Wait():
+                case <-time.After(time.Until(t)): //(t.Sub(time.Now())):
+                }
+        }
+        if lockDura > 0 {
+                cdUnlockTime.Store(time.Now().Add(lockDura))
+        }
+        return os.Chdir(dir)
+}
+
 func enter(prog *Program, dir string) (err error) {
         if optionTraceEntering {
                 fmt.Fprintf(stderr, "entering: %v (%v)\n", dir, prog.project.name)
@@ -901,7 +923,7 @@ func enter(prog *Program, dir string) (err error) {
 
         var wd string
         if wd, err = os.Getwd(); err != nil { return }
-        if err = os.Chdir(dir); err != nil { return }
+        if err = safeCD(dir, 0); err != nil { return }
         if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
         prog.auto("CWD", &String{dir})
 
@@ -931,7 +953,7 @@ func leave(prog *Program, stop *enterec) (err error) {
                                 enter.print = false
                                 fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
                         }
-                        err = os.Chdir(enter.wd)
+                        err = safeCD(enter.wd, 0)
                         break
                 }
         }

@@ -282,6 +282,9 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
                         err = scanner.Errorf(token.Position(pos), "no trackback (tracks=%v)", len(execstack))
                         return
                 }
+                if !filepath.IsAbs(dir) {
+                        dir = filepath.Join(prog.project.absPath, dir)
+                }
                 if optPath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
@@ -598,22 +601,28 @@ ForGroupElems:
         return
 }
 
-func modifierCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+var uniqueCompareGood = make(map[string]*breaker)
 
+func modifierCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
         var va []Value
         var optDiscardMissing, optVerbose bool
-        var optPath, optNoUpdate bool
+        var optPath, optNoUpdate, optMulti bool
         var optGrep Value
         var opts = []string{
                 "p,path",
                 "e,report",
                 "i,ignore",
                 "n,no-time",
+                "m,multi", // multiple compare/execution
                 "g,grep", // -grep=(regexp=(sys='...' '...') $^)
                 "r,recursive",
                 "v,verbose",
         }
+
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        }
+
 ForArgs:
         for _, v := range args {
                 var ( runes []rune ; names []string )
@@ -642,17 +651,16 @@ ForArgs:
                         case 'i': optDiscardMissing = true
                         case 'p': optPath = true
                         case 'n': optNoUpdate = true
+                        case 'm': optMulti = true
                         case 'g': optGrep = v
                         }
                 }
         }
         args = va // reset args
         
-        if err = prog.waitForPrerequisites(); err != nil {
-                return
-        }
-
-        var targetDef = prog.pc.targetDef
+        var target Value
+        var targetStr string
+        var targetDef = prog.pc.targetDef // $@
         if n := len(args); n == 1 {
                 // Change $@ to args[0]
                 targetDef.set(DefDefault, args[0])
@@ -661,7 +669,7 @@ ForArgs:
                 return
         }
 
-        var target Value
+        // Get target value from $@.
         if target, err = targetDef.Call(pos); err != nil {
                 err = break_bad(pos, "comparing %v: %v", targetDef, err)
                 return
@@ -670,7 +678,7 @@ ForArgs:
                 return
         }
 
-        var targetStr string
+        // Target string value (name).
         if targetStr, err = target.Strval(); err != nil { return }
         if optPath {
                 var s string = filepath.Dir(targetStr)
@@ -678,6 +686,24 @@ ForArgs:
                         if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
                                 return
                         }
+                }
+        }
+
+        // Block until all prerequisites are good.
+        if err = prog.waitForPrerequisites(); err != nil {
+                return
+        }
+
+        var comparedGood bool
+        if !optMulti {
+                good, found := uniqueCompareGood[targetStr]
+                if found && good != nil {
+                        comparedGood = true
+                        fmt.Printf("compare: %v (%v)\n", targetStr, good)
+
+                        //// Return if the target has already compared
+                        //err =  good
+                        //return
                 }
         }
 
@@ -708,7 +734,7 @@ ForArgs:
                 return
         }
 
-        if optVerbose || optionVerboseChecks {
+        if (optVerbose || optionVerboseChecks) && !comparedGood {
                 if true {
                         fmt.Fprintf(stderr, "smart: Checking %s …", target)
                 } else {
@@ -722,8 +748,15 @@ ForArgs:
                 result = universaltrue
         } else {
                 result = universalfalse
+                if br, ok := err.(*breaker); ok {
+                        switch br.what {
+                        case breakGood:
+                                uniqueCompareGood[targetStr] = br
+                        }
+                }
         }
-        if optVerbose || optionVerboseChecks {
+
+        if (optVerbose || optionVerboseChecks) && !comparedGood {
                 if err == nil {
                         fmt.Fprintf(stderr, "… (done)")
                 } else if br, ok := err.(*breaker); ok {
@@ -740,6 +773,7 @@ ForArgs:
                 }
                 fmt.Fprintf(stderr, "\n")
         }
+
         if len(c.updated) > 0 && enable_assertions {
                 assert(err != nil, "expects update breaker")
                 e, ok := err.(*breaker)
