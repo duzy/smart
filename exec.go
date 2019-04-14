@@ -551,6 +551,20 @@ ForArgs:
                 } else if v != nil {
                         if cwd, err = v.Strval(); err != nil { return }
                 }
+
+                // Fixes work directory conflicts. It happens
+                // sometimes even the 'sh.Dir' is set to cwd.
+                // Because the current work directory is not
+                // thread safe.
+                var dir = cwd
+                if prog.changedWD != "" {
+                        if filepath.IsAbs(prog.changedWD) {
+                                dir = prog.changedWD
+                        } else {
+                                dir = filepath.Join(prog.project.absPath, prog.changedWD)
+                        }
+                }
+
                 for _, src := range sources {
                         if strings.HasPrefix(src, "@") {
                                 src = src[1:]
@@ -562,31 +576,21 @@ ForArgs:
                         }
                         if src = strings.TrimSpace(src); src == "" {
                                 continue
-                        } else if cwd != "" && !nocd /*&& prog.changedWD == ""*/ {
+                        } else if dir != "" && !nocd /*&& prog.changedWD == ""*/ {
                                 if strings.HasPrefix(src, "#") {
-                                        src = fmt.Sprintf("cd '%s' %s", cwd, src)
+                                        src = fmt.Sprintf("cd '%s' %s", dir, src)
                                 } else {
                                         // Insert a "\n" before the right paren ')' to ensure that
                                         // it's working with comments like "true #comment...".
-                                        src = fmt.Sprintf("cd '%s' && (%s\n)", cwd, src)
+                                        src = fmt.Sprintf("cd '%s' && (%s\n)", dir, src)
                                 }
                         }
                         if cmd == "docker" && len(envstr) > 0 {
                                 src = fmt.Sprintf("%s && %s", envstr, src)
                         }
 
-                        // Fixes work directory conflicts. It happens
-                        // sometimes even the 'sh.Dir' is set to cwd.
-                        // Because the current work directory is not
-                        // thread safe.
-                        var dir = cwd
-                        if prog.changedWD != "" {
-                                if filepath.IsAbs(prog.changedWD) {
-                                        dir = prog.changedWD
-                                } else {
-                                        dir = filepath.Join(prog.project.absPath, prog.changedWD)
-                                }
-                        }
+                        //fmt.Printf("%s\n", src)
+
                         lockCD(dir, 5*time.Millisecond)
                         if s, _ := os.Getwd(); s != dir {
                                 assert(false, "wrong work directory")
