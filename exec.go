@@ -589,7 +589,7 @@ ForArgs:
                                         dir = filepath.Join(prog.project.absPath, prog.changedWD)
                                 }
                         }
-                        safeCD(dir, 5*time.Millisecond)
+                        lockCD(dir, 5*time.Millisecond)
                         if s, _ := os.Getwd(); s != dir {
                                 assert(false, "wrong work directory")
                                 if false {

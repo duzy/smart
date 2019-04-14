@@ -900,7 +900,7 @@ func (p *Project) usees(post bool) (res []*Project) {
 //var cdUnlocked = make(chan bool, 1)
 var cdUnlockTime atomic.Value
 
-func safeCD(dir string, lockDura time.Duration) error {
+func lockCD(dir string, lockDura time.Duration) error {
         if v := cdUnlockTime.Load(); v == nil {
                 // ...
         } else if t, ok := v.(time.Time); ok && t.After(time.Now()) {
@@ -923,7 +923,7 @@ func enter(prog *Program, dir string) (err error) {
 
         var wd string
         if wd, err = os.Getwd(); err != nil { return }
-        if err = safeCD(dir, 0); err != nil { return }
+        if err = lockCD(dir, 0); err != nil { return }
         if !filepath.IsAbs(dir) { dir = filepath.Join(wd, dir) }
         prog.auto("CWD", &String{dir})
 
@@ -953,7 +953,7 @@ func leave(prog *Program, stop *enterec) (err error) {
                                 enter.print = false
                                 fmt.Fprintf(stderr, "smart:  Leaving directory '%s'\n", enter.dir)
                         }
-                        err = safeCD(enter.wd, 0)
+                        err = lockCD(enter.wd, 0)
                         break
                 }
         }
