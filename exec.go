@@ -575,12 +575,10 @@ ForArgs:
                                 src = fmt.Sprintf("%s && %s", envstr, src)
                         }
 
-                        /*** FIXME: the error is not fixed ***
                         // Fixes work directory conflicts. It happens
                         // sometimes even the 'sh.Dir' is set to cwd.
-                        // So we force to change the work directory
-                        // before running the shell command.
-                        */
+                        // Because the current work directory is not
+                        // thread safe.
                         var dir = cwd
                         if prog.changedWD != "" {
                                 if filepath.IsAbs(prog.changedWD) {
