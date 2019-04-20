@@ -525,10 +525,10 @@ ForArgs:
                                         }
                                 } ()
                         } else {
-                                fmt.Fprintf(stderr, "%s%s …… ……\n", promStr, targetStr)
+                                fmt.Fprintf(stderr, "%s%s ……\n", promStr, targetStr)
                                 defer func() {
                                         if err == nil {
-                                                fmt.Fprintf(stderr, "%s%s …… ok\n", promStr, targetStr)
+                                                //fmt.Fprintf(stderr, "%s%s …… ok\n", promStr, targetStr)
                                         } else if _, ok := err.(*scanner.Error); ok {
                                                 fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
                                         } else if _, ok := err.(*scanner.Errors); ok {
@@ -589,11 +589,11 @@ ForArgs:
                                 src = fmt.Sprintf("%s && %s", envstr, src)
                         }
 
-                        //fmt.Printf("%s\n", src)
+                        //fmt.Printf("exec: %s\n", dir)
 
                         lockCD(dir, 5*time.Millisecond)
                         if s, _ := os.Getwd(); s != dir {
-                                assert(false, "wrong work directory")
+                                assert(s == dir, "wrong work directory (%s != %s)", s, dir)
                                 if false {
                                         fmt.Printf("exec: %v %v (%v %v)\n", dir, s, cwd, prog.changedWD)
                                 }
@@ -658,7 +658,7 @@ ForArgs:
                         }
                 }
                 if err == nil {
-                        err = stamp(target, !prompt)
+                        err = stamp(target, /*!prompt*/true)
                 } else {
                         return
                 }

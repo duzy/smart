@@ -699,7 +699,7 @@ ForArgs:
                 good, found := uniqueCompareGood[targetStr]
                 if found && good != nil {
                         comparedGood = true
-                        fmt.Printf("compare: %v (%v)\n", targetStr, good)
+                        //fmt.Printf("compare: %v (%v)\n", targetStr, good)
 
                         //// Return if the target has already compared
                         //err =  good
