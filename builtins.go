@@ -91,6 +91,7 @@ var builtins = map[string]BuiltinFunc {
         `subst`:        builtinSubst,
         `patsubst`:     builtinPatsubst,
 
+        `contains`:     builtinContains,
         `filter`:       builtinFilter,
         `filter-out`:   builtinFilterOut,
 
@@ -1270,6 +1271,44 @@ func builtinIndent(pos Position, args... Value) (res Value, err error) {
 
 func builtinFindstring(pos Position, args... Value) (res Value, err error) {
         // $(findstring find,text)
+        return
+}
+
+func builtinContains(pos Position, args... Value) (res Value, err error) {
+        // $(contains v1 v2 v3,a b c … x y z)
+        if len(args) < 2 { return }
+
+        var vals []Value
+        var list []Value
+        if vals, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+        if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+        // TODO: -and -or
+        if true { // -or
+                for _, val := range vals {
+                        for _, v := range list {
+                                if val.cmp(v) == cmpEqual {
+                                        res = universaltrue
+                                        return
+                                }
+                        }
+                }
+        } else { // -and
+                num := 0
+                for _, val := range vals {
+                        for _, v := range list {
+                                if val.cmp(v) == cmpEqual {
+                                        num += 1
+                                        break
+                                }
+                        }
+                }
+                if num == len(vals) {
+                        res = universaltrue
+                }
+        }
+        if res == nil {
+                res = universalfalse
+        }
         return
 }
 
