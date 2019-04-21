@@ -1424,6 +1424,7 @@ func (p *elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *elements) ToList() *List { return &List{*p} }
 func (p *elements) True() (t bool) {
         for _, elem := range p.Elems {
+                if elem == nil { continue }
                 if t = elem.True(); t { break }
         }
         return
