@@ -1734,6 +1734,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
                 dec, declared = linfo.declares[name]
+                isMainProj bool
         )
         if !declared {
                 var (
@@ -1751,6 +1752,10 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 // Avoid nesting project scopes!
                 for strings.HasPrefix(outer.Comment(), "project \"") {
                         outer = outer.outer
+                }
+
+                if l.globe.main == nil && l.project == nil && name != "~" {
+                        isMainProj = true
                 }
 
                 dec = new(declare)
@@ -1799,6 +1804,13 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         l.useesExecuted = nil
         l.project = dec.project
         l.scope = l.project.scope
+
+        if isMainProj && l.preargs != "" {
+                err = l.loadCommandArguments(l.preargs)
+                if err != nil {
+                        return
+                }
+        }
 
         if err = l.loadPlugin(); err != nil { return }
 

@@ -41,9 +41,11 @@ const (
 
 type Context struct {
         workdir string
+        preargs string // pre-loading command arguments (evaluated on the first project declaration)
         prefix  string // FIXME: prefix for distribution
         globe   *Globe
         loader  *loader
+        goals []Value
 }
 
 var context Context
@@ -52,7 +54,7 @@ func current() (proj *Project) {
         switch {
         case context.loader != nil: // at load time
                 proj = context.loader.project
-        case len(execstack) > 0: // at run time
+        case len(execstack) > 0: // at runtime
                 proj = execstack[0].project
         }
         return
@@ -85,14 +87,14 @@ func mostDerived() (proj *Project) {
         return
 }
 
-func (ctx *Context) run(targets... Value) (result []Value, err error) {
+func (ctx *Context) run() (result []Value, err error) {
         if ctx.globe.main == nil {
-                err = fmt.Errorf("no targets to update `%v`", targets)
+                err = fmt.Errorf("no targets to update `%v`", ctx.goals)
                 return
         }
 
         var updated int
-        if len(targets) == 0 {
+        if len(ctx.goals) == 0 {
                 if entry := ctx.globe.main.DefaultEntry(); entry != nil {
                         if result, err = entry.Execute(entry.Position); err == nil {
                                 updated += 1
@@ -100,7 +102,7 @@ func (ctx *Context) run(targets... Value) (result []Value, err error) {
                 }
         } else {
                 defer setclosure(setclosure(cloctx.unshift(ctx.globe.main.scope)))
-                for _, target := range targets {
+                for _, target := range ctx.goals {
                         var ( entry *RuleEntry; ok bool )
                         if entry, ok = target.(*RuleEntry); !ok || entry == nil {
                                 fmt.Fprintf(stderr, "`%v` is not an entry", target)
@@ -209,9 +211,60 @@ func processCommandOption(flag *Flag, args... Value) (err error) {
         return
 }
 
+func (ctx *Context) loadCommandArguments(text string) (err error) {
+        for _, target := range ctx.loader.loadText("@", text) {
+                switch t := target.(type) {
+                case *Flag:
+                        if t.Name == nil || t.Name.Type() == NoneType {
+                                // TODO: bare '-'
+                        } else if err = processCommandOption(t); err != nil {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                        }
+                case *Pair:
+                        switch k := t.Key.(type) {
+                        case *Flag:
+                                if err = processCommandOption(k, t.Value); err != nil {
+                                        fmt.Fprintf(stderr, "%s\n", err)
+                                }
+                        case *Bareword:
+                                if proj := ctx.loader.project; proj != nil {
+                                        def, alt := ctx.loader.def(k.string)
+                                        if def == nil && alt != nil {
+                                                def = alt.(*Def)
+                                        }
+                                        def.set(DefDefault, t.Value)
+                                }
+                        default:
+                                fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, ctx.loader.project)
+                        }
+                case *Bareword:
+                        if entry, err := ctx.loader.project.resolveEntry(t.string); err != nil {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                        } else if entry == nil {
+                                fmt.Fprintf(stderr, "no such entry `%s`\n", t)
+                        } else {
+                                ctx.goals = append(ctx.goals, entry)
+                        }
+                case *delegate:
+                        if s, err := t.Strval(); err != nil {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                        } else if entry, err := ctx.loader.project.resolveEntry(s); err != nil {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                        } else if entry == nil {
+                                fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)
+                        } else {
+                                ctx.goals = append(ctx.goals, entry)
+                        }
+                default:
+                        fmt.Fprintf(stderr, "unknown target `%s` (of %T)\n", target, target)
+                }
+        }
+        return
+}
+
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
-func (ctx *Context) loadwork() (targets []Value, err error) {
+func (ctx *Context) loadwork() (err error) {
         defer func(l *loader) { ctx.loader = l } (ctx.loader)
         ctx.loader = &loader{
                 Context:  ctx,
@@ -227,7 +280,7 @@ func (ctx *Context) loadwork() (targets []Value, err error) {
         if optionVerbose || optionBenchImport {
                 defer func(t time.Time) {
                         var d = time.Now().Sub(t)
-                        fmt.Fprintf(stderr, "smart: Targets %v (%s)\n", targets, d)
+                        fmt.Fprintf(stderr, "smart: Goals %v (%s)\n", ctx.goals, d)
                 } (time.Now())
         }
 
@@ -336,49 +389,27 @@ AtLookupLoop:
                 }
         } (time.Now())
         if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
+
+        var commandText string
+        for i, s := range args {
+                if s == "-" {
+                        ctx.preargs = strings.Join(args[:i], " ")
+                        commandText = strings.Join(args[i:], " ")
+                        break
+                }
+        }
+        if ctx.preargs == "" && commandText == "" && len(args) > 0 {
+                ctx.preargs = strings.Join(args, " ")
+        }
+
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
         if ctx.loader.globe.main == nil {
                 fmt.Fprintf(stderr, "no projects loaded\n")
                 return
         }
 
-        text := strings.Join(args, " ")
-        for _, target := range ctx.loader.loadText("@", text) {
-                switch t := target.(type) {
-                case *Flag:
-                        if err = processCommandOption(t); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        }
-                case *Pair:
-                        switch k := t.Key.(type) {
-                        case *Flag:
-                                if err = processCommandOption(k, t.Value); err != nil {
-                                        fmt.Fprintf(stderr, "%s\n", err)
-                                }
-                        default:
-                                fmt.Fprintf(stderr, "unknown target `%v`\n", t)
-                        }
-                case *Bareword:
-                        if entry, err := ctx.loader.project.resolveEntry(t.string); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        } else if entry == nil {
-                                fmt.Fprintf(stderr, "no such entry `%s`\n", t)
-                        } else {
-                                targets = append(targets, entry)
-                        }
-                case *delegate:
-                        if s, err := t.Strval(); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        } else if entry, err := ctx.loader.project.resolveEntry(s); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        } else if entry == nil {
-                                fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)
-                        } else {
-                                targets = append(targets, entry)
-                        }
-                default:
-                        fmt.Fprintf(stderr, "unknown target `%s` (of %T)\n", target, target)
-                }
+        if commandText != "" {
+                err = ctx.loadCommandArguments(commandText)
         }
         return
 }
@@ -410,13 +441,13 @@ func CommandLine() {
         context.globe = NewGlobe("smart")
         if err := init_configuration(packagePaths); err != nil {
                 report(err)
-        } else if works, err := context.loadwork(); err != nil {
+        } else if err = context.loadwork(); err != nil {
                 report(err)
         } else if optionHelp {
                 do_helpscreen()
         } else if optionConfigure {
                 report(do_configuration())
-        } else if result, err := context.run(works...); err != nil {
+        } else if result, err := context.run(); err != nil {
                 if _, ok := err.(*breaker); ok && false {
                         panic(err)
                 } else {
