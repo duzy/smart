@@ -662,17 +662,13 @@ func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
         )
         if p.next(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
                 switch p.tok {
-                case token.COMMA, token.RPAREN:
+                case token.COMMA, token.RPAREN, token.COLON, token.LINEND:
                 default:
                         y = p.checkExpr(p.parseExpr(false))
                 }
         }
 
-        return &ast.PercExpr{
-                X: x,
-                OpPos: pos,
-                Y: y,
-        }
+        return &ast.PercExpr{ X:x, OpPos:pos, Y:y }
 }
 
 func (p *parser) parseRegexpExpr() (x ast.Expr) {
