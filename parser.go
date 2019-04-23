@@ -1397,6 +1397,11 @@ func (p *parser) parseFilesSpec(doc *ast.CommentGroup, generic *genericoptions, 
                         case *Group: pats = k.Elems
                         default: pats = append(pats, v.Key)
                         }
+                        if v, err := mergeresult(ExpandAll(pats...)); err != nil {
+                                p.error(prop.Pos(), "%v", err)
+                        } else {
+                                pats = v
+                        }
                         switch vv := v.Value.(type) {
                         case *Group: paths = vv.Elems
                         default: paths = append(paths, vv)

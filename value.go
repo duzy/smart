@@ -2544,7 +2544,7 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
 type delegate struct { closuredelegate }
 func (p *delegate) Type() Type { return DelegateType }
 func (p *delegate) True() (t bool) {
-        if v, err:= p.expand(expandAll); err == nil {
+        if v, err := p.expand(expandAll); err == nil {
                 t = v.True()
         }
         return

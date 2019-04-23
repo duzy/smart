@@ -652,6 +652,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                 case "os": obj = context.globe.os.self
                 case "self": obj = l.project.self
                 case "usee": obj = l.project.using
+                //case "goals": obj = ...
                 default:
                         l.parser.error(x.Name.Pos(), "unsupported special delegation")
                         return
