@@ -585,21 +585,6 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
         }
         names = nil // clean names cache
 
-        /*
-        var full = filepath.Clean(file.FullName())
-        for _, pp := range p.patterns {
-                var ( s string ; stems []string )
-                var path = pp.target.(*Path)
-                fmt.Printf("file: %v %v %v\n", file, full, path)
-                if s, stems, err = path.match(full); err != nil {
-                        return
-                } else if s == "" || stems == nil {
-                        continue
-                }
-                fmt.Printf("file: %v %v %v %v\n", file, path, stems, s)
-        }
-        */
-
         if file.exists() {
                 pc.addNotExistedTarget1(file)
                 okay = true
