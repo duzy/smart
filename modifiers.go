@@ -97,6 +97,7 @@ var (
                 //`grep-compare`:      modifierGrepCompare,
                 //`grep-dependencies`: modifierGrepDependencies,
 
+                `copy-file`:      modifierCopyFile,
                 `write-file`:     modifierWriteFile,
                 `update-file`:    modifierUpdateFile,
                 `configure-file`: modifierConfigureFile,
@@ -642,11 +643,11 @@ ForArgs:
                 }
                 for _, ru := range runes {
                         switch ru {
-                        case 'v': optVerbose = true
-                        case 'i': optDiscardMissing = true
-                        case 'p': optPath = true
-                        case 'n': optNoUpdate = true
-                        case 'm': optMulti = true
+                        case 'v': optVerbose = trueVal(v, true)
+                        case 'i': optDiscardMissing = trueVal(v, true)
+                        case 'p': optPath = trueVal(v, true)
+                        case 'n': optNoUpdate = trueVal(v, true)
+                        case 'm': optMulti = trueVal(v, true)
                         case 'g': optGrep = v
                         }
                 }
@@ -825,9 +826,9 @@ func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Val
                         }
                         for _, ru := range runes {
                                 switch ru {
-                                case 'p': optPath = true
-                                case 'i': optDisMiss = true
-                                case 'n': optNoUpdate = true
+                                case 'p': optPath = trueVal(v, true)
+                                case 'i': optDisMiss = trueVal(v, true)
+                                case 'n': optNoUpdate = trueVal(v, true)
                                 case 't': optTarget = v
                                 }
                         }
@@ -1433,6 +1434,178 @@ ForPairs:
         return
 }
 
+// (copy-file -vp)
+// (copy-file -p,filename)
+// (copy-file -p,filename,source)
+func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value, err error) {
+        var (
+                opts = []string{
+                        "p,path",
+                        "v,verbose",
+                        "m,mode",
+                }
+                optPath bool
+                optVerbose bool
+                optMode = os.FileMode(0640) // sys default 0666
+                va []Value
+        )
+
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        }
+
+ForArgs:
+        for _, v := range args {
+                var ( runes []rune ; names []string )
+                switch a := v.(type) {
+                case *Flag:
+                        if runes, names, err = a.opts(opts...); err != nil { return }
+                        v = nil // no flag value
+                case *Pair:
+                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                if runes, names, err = flag.opts(opts...); err != nil { return }
+                                v = a.Value // use flag value
+                        } else {
+                                err = scanner.Errorf(token.Position(pos), "`%v` unknown argument", a)
+                                return
+                        }
+                default:
+                        va = append(va, a)
+                        continue ForArgs
+                }
+                if enable_assertions {
+                        assert(len(runes) == len(names), "Flag.opts(...) error")
+                }
+                for _, ru := range runes {
+                        switch ru {
+                        case 'v': optVerbose = trueVal(v, true)
+                        case 'p': optPath = trueVal(v, true)
+                        case 'm':
+                                if v != nil {
+                                        var num int64
+                                        if num, err = v.Integer(); err != nil {
+                                                return
+                                        } else {
+                                                optMode = os.FileMode(num & 0777)
+                                        }
+                                }
+                        }
+                }
+        }
+        args = va // reset args
+        
+        var target Value
+        var source Value
+        if len(args) > 0 {
+                target = args[0]
+        } else if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+                return
+        }
+        if len(args) > 1 {
+                source = args[1]
+        } else if source, err = prog.scope.Lookup("<").(*Def).Call(pos); err != nil {
+                return
+        }
+
+        // Get target filename
+        var (
+                project = prog.pc.derived //mostDerived() // prog.project
+                filename, srcname string
+                filetime, srctime time.Time
+        )
+        switch t := target.(type) {
+        case *File:
+                if filename, err = t.Strval(); err != nil {
+                        return
+                } else if t.info != nil {
+                        filetime = t.info.ModTime()
+                }
+        default:
+                if filename, err = target.Strval(); err != nil {
+                        return
+                } else if file := project.matchFile(filename); file != nil {
+                        if filename, err = file.Strval(); err != nil {
+                                return
+                        } else {
+                                target = file
+                        }
+                        if file.info != nil {
+                                filetime = file.info.ModTime()
+                        }
+                }
+        }
+        switch t := source.(type) {
+        case *File:
+                if srcname, err = t.Strval(); err != nil {
+                        return
+                } else if t.info != nil {
+                        srctime = t.info.ModTime()
+                }
+        default:
+                if srcname, err = target.Strval(); err != nil {
+                        return
+                } else if file := project.matchFile(srcname); file != nil {
+                        if srcname, err = file.Strval(); err != nil {
+                                return
+                        } else {
+                                target = file
+                        }
+                        if file.info != nil {
+                                srctime = file.info.ModTime()
+                        }
+                }
+        }
+
+        if !filetime.IsZero() && filetime.After(srctime) {
+                if optVerbose {
+                        fmt.Fprintf(stderr, "smart: Copying %v …… existed.\n", target)
+                }
+                return
+        }
+
+        // Make path (mkdir -p)
+        if optPath {
+                if p := filepath.Dir(filename); p != "." && p != "/" {
+                        if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
+                                return
+                        }
+                }
+        }
+
+        if optVerbose {
+                fmt.Fprintf(stderr, "smart: Copying %v …", target)
+        }
+        
+        var (
+                src, file *os.File
+        )
+        if src, err = os.Open(srcname); err == nil && src != nil {
+                defer src.Close()
+
+                file, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode)
+                if err == nil && file != nil {
+                        defer file.Close()
+                        srcbuf := bufio.NewReader(src)
+                        dstbuf := bufio.NewWriter(file)
+                        if _, err = io.Copy(dstbuf, srcbuf); err == nil {
+                                dstbuf.Flush() // flush content
+                                defer func() {
+                                        var file = stat(filename, "", "")
+                                        context.globe.stamp(filename, file.info.ModTime())
+                                } ()
+                        }
+                }
+        }
+        if optVerbose {
+                if err != nil {
+                        fmt.Fprintf(stderr, "… (%v)\n", err)
+                } else {
+                        fmt.Fprintf(stderr, "… ok\n")
+                }
+        }
+        return
+}
+
 func modifierWriteFile(pos Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
@@ -1469,9 +1642,9 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         //if m := prog.pc.mode; m == compareMode {
         //        return /* not working in compare mode */
         //}
-        if m := prog.pc.mode; m != updateMode {
-                //return /* only configure in update mode */
-        }
+        //if m := prog.pc.mode; m != updateMode {
+        //        //return /* only configure in update mode */
+        //}
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var target Value
