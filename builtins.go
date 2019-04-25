@@ -825,9 +825,11 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
                         //fmt.Fprintf(stderr, "filter: (%T %v) (%T %v)\n", pat, pat, v, v)
                         switch p := pat.(type) {
                         case *PercPattern:
-                                var ( s string ; m bool )
-                                if m, s, err = p.match(v); err != nil { break }
-                                if m && s != "" { return true }
+                                var ( s string ; stems []string )
+                                if s, stems, err = p.match(v); err != nil { break }
+                                if s != "" && stems != nil {
+                                        return true
+                                }
                         default:
                                 if pat.cmp(v) == cmpEqual {
                                         return true
@@ -972,9 +974,14 @@ ForSources:
         ForSrcPats:
                 for _, elem := range srcPats {
                         switch pat := elem.(type) {
-                        case *PercPattern:
-                                if matched, stem.string, err = pat.match(src); err != nil { break ForSources }
-                                if matched && stem.string != "" { break ForSrcPats }
+                        case Pattern:
+                                var ( s string ; ss []string )
+                                if s, ss, err = pat.match(src); err != nil {
+                                        break ForSources
+                                } else if s != "" && ss != nil {
+                                        stem.string = ss[0]
+                                        break ForSrcPats
+                                }
                         }
                 }
 
@@ -2234,6 +2241,8 @@ func builtinReadFile(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
+        // $(write-file filename,content)
+        // $(write-file -p filename,content)
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]

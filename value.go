@@ -361,7 +361,7 @@ type preparecontext struct {
         updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
         derived *Project // the most derived project
         related []*Project // the related projects in the context
-        stem string // set by StemmedEntry
+        stems []string // set by StemmedEntry
         level int // prepare/trace level
 }
 
@@ -1800,6 +1800,111 @@ func (p *Path) cmp(v Value) (res cmpres) {
         return
 }
 
+func (p *Path) match(i interface{}) (result string, stems []string, err error) {
+        var (
+                srcs []string
+                segs []Value
+                idx = 0
+        )
+        switch t := i.(type) {
+        case []string: srcs = t
+        case string: srcs = strings.Split(t, PathSep)
+        case *File: srcs = strings.Split(t.FullName(), PathSep)
+        case *filestub:
+                s := filepath.Join(t.dir, t.sub, t.name)
+                srcs = strings.Split(s, PathSep)
+        case Value:
+                var s string
+                if s, err = t.Strval(); err != nil { return }
+                srcs = strings.Split(s, PathSep)
+        default:
+                unreachable("path.match: %T %v", i, i)
+        }
+
+        if segs, err = ExpandAll(p.Elems...); err != nil {
+                return
+        }
+
+ForPathSegs:
+        for _, seg := range segs {
+                var s string
+                //fmt.Printf("path.match: %T %v %v %v\n", seg, seg, idx, srcs)
+                switch t := seg.(type) {
+                case *Path:// Note that Path is also a Pattern!
+                        var ss []string
+                        if len(srcs) <= idx {
+                                return
+                        } else if s, ss, err = t.match(srcs[idx:]); err != nil {
+                                break ForPathSegs
+                        } else if s == "" {
+                                return
+                        }
+                        stems = append(stems, ss...)
+                        idx += len(strings.Split(s, PathSep))
+                        //fmt.Printf("path.match:1: %v, %v; %v,%v\n", s, ss, srcs[:idx], srcs[idx:])
+                case Pattern:// Note that Path is also a Pattern!
+                        var ss []string
+                        if len(srcs) <= idx {
+                                return
+                        } else if s, ss, err = t.match(srcs[idx]); err != nil {
+                                break ForPathSegs
+                        } else if s == "" || ss == nil {
+                                return
+                        }
+                        stems = append(stems, ss...)
+                        idx += 1
+                        //fmt.Printf("path.match:2: %v %v %v\n", seg, srcs[:idx], srcs[idx:])
+                default:
+                        if s, err = seg.Strval(); err != nil { break ForPathSegs }
+                        for _, s := range strings.Split(s, PathSep) {
+                                if len(srcs) <= idx || srcs[idx] != s {
+                                        return
+                                }
+                                idx += 1
+                                //fmt.Printf("path.match:3: %v %v %v\n", seg, srcs[:idx], srcs[idx:])
+                        }
+                }
+        }
+
+        if 0 < idx && idx <= len(srcs) {
+                // Don't use filepath.Join as in the case that ""
+                // have to be root "/".
+                result = strings.Join(srcs[:idx], PathSep)
+                //TODO: fullmatch = idx == len(srcs)
+        }
+        return
+}
+
+func (p *Path) stencil(stems []string) (result string, rest []string, err error) {
+        var (
+                strs []string
+                segs []Value
+        )
+        if segs, err = ExpandAll(p.Elems...); err != nil {
+                return
+        }
+
+ForPathSegs:
+        for _, seg := range segs {
+                var s string
+                switch t := seg.(type) {
+                case Pattern: // including *Path
+                        s, stems, err = t.stencil(stems)
+                        if err != nil { return }
+                        strs = append(strs, s) // strings.Split(s, PathSep)...
+                default:
+                        if s, err = seg.Strval(); err != nil { break ForPathSegs }
+                        strs = append(strs, s) // strings.Split(s, PathSep)...
+                }
+        }
+        if err == nil {
+                result = strings.Join(strs, PathSep)
+                rest = stems // the rest stems
+                //fmt.Printf("path.stencil: %v %v; %v %v\n", p, stems, result, rest)
+        }
+        return
+}
+
 type PathSeg struct { rune }
 func (p *PathSeg) refs(_ Value) bool { return false }
 func (p *PathSeg) closured() bool { return false }
@@ -2103,23 +2208,41 @@ func (p *File) prepare(pc *preparer) (err error) {
         return pc.updateFile(p)
 }
 
-func checkPatternFileDepend(pc *preparer, project *Project, ps *StemmedEntry, prog *Program, g *PercPattern) (res bool, err error) {
-        var name string
-        if name, err = g.MakeString(ps.Stem); err != nil { return }
-        if file := project.searchFile(name); file != nil { // Matches a FileMap (IsKnown(), may exists or not)
-                if file.exists() {
-                        res = true; return
+func checkPatternDepends(pc *preparer, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
+        for _, dep := range prog.depends {
+                switch d := dep.(type) {
+                case Pattern:
+                        res, err = checkPatternFileDepend(pc, project, se, prog, d)
+                        if err != nil { return }
+                        if !res { break }
                 }
+        }
+        return
+}
+
+func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, prog *Program, g Pattern) (res bool, err error) {
+        var name string
+        var rest []string // rest stems
+        if name, rest, err = g.stencil(se.Stems); err != nil { return }
+        if len(rest) > 0 { panic("FIXME: unhandled stems") }
+
+        // Matches a FileMap (IsKnown(), may exists or not)
+        if file := project.searchFile(name); file != nil {
+                if file.exists() { return true, nil }
         }
 
         var entry *RuleEntry
         if entry, err = project.resolveEntry(name); err != nil {
                 return
         } else if entry != nil {
-                res = true; return
+                return true, nil
         }
 
         // TODO: project.resolvePatterns(name)
+        return
+}
+
+func checkPatternPathDepend(pc *preparer, project *Project, se *StemmedEntry, prog *Program, g Pattern) (res bool, err error) {
         return
 }
 
@@ -3067,9 +3190,8 @@ func (p *selection) cmp(v Value) (res cmpres) {
 // Pattern
 type Pattern interface {
         Value
-        //concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error)
-        match(i interface{}) (matched bool, stem string, err error)
-        MakeString(stem string) (s string, err error)
+        match(i interface{}) (s string, stems []string, err error)
+        stencil(stems []string) (s string, rest []string, err error)
 }
 
 type pattern struct {}
@@ -3130,29 +3252,36 @@ func (p *PercPattern) Strval() (s string, err error) {
         }
         return
 }
-func (p *PercPattern) match(i interface{}) (matched bool, stem string, err error) {
+func (p *PercPattern) match(i interface{}) (result string, stems []string, err error) {
         var prefix, suffix, s string
         switch t := i.(type) {
         case string: s = t
         case *File: s = t.name
-        default: if v, ok := i.(Value); ok {
-                if s, err = v.Strval(); err != nil { return }
-        }}
+        case *filestub: s = t.name
+        case Value:
+                s, err = t.Strval()
+                if err != nil { return }
+        default:
+                unreachable("perc.match: %T %v", i, i)
+        }
         if prefix, err = p.Prefix.Strval(); err == nil && strings.HasPrefix(s, prefix) {
                 if suffix, err = p.Suffix.Strval(); err == nil && strings.HasSuffix(s, suffix) {
                         if a, b := len(prefix), len(s)-len(suffix); a < b {
-                                matched, stem = true, s[a:b]
+                                stems = []string{ s[a:b] }
+                                result = s
                         }
                 }
         }
         return
 }
 
-func (p *PercPattern) MakeString(stem string) (s string, err error) {
+func (p *PercPattern) stencil(stems []string) (s string, rest []string, err error) {
         if s, err = p.Prefix.Strval(); err == nil {
                 var v string
                 if v, err = p.Suffix.Strval(); err == nil {
-                        s += stem + v
+                        // FIXME: multile stems
+                        s += stems[0] + v
+                        rest = stems[1:]
                 }
         }
         return
@@ -3161,7 +3290,7 @@ func (p *PercPattern) MakeString(stem string) (s string, err error) {
 /*
 func (p *PercPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         var target string
-        if target, err = p.MakeString(stem); err == nil {
+        if target, err = p.stencil(stem); err == nil {
                 entry, err = p.pattern.concrete(patent, target, stem)
         }
         return
@@ -3174,17 +3303,21 @@ func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.c
 func (p *PercPattern) dependcompare(c *comparer) (err error) {
         if enable_assertions { assert(c.target != p, "self comparation") }
         
-        var stem string
+        var stems []string
         if len(c.program.callers) == 0 {
                 //err = fmt.Errorf("no calltrace (%s)", p)
                 return
-        } else if stem = c.program.callers[0].stem; stem == "" {
+        } else if stems = c.program.callers[0].stems; stems == nil {
                 //err = fmt.Errorf("empty stem (%s)", p)
                 return
         }
 
         var target string
-        if target, err = p.MakeString(stem); err != nil { return }
+        var rest []string
+        if target, rest, err = p.stencil(stems); err != nil { return }
+        if len(rest) > 0 {
+                panic("FIXME: unhandled stems")
+        }
 
         if err = c.compareDepend(target); err != nil {
                 err = patternCompareError{err}
@@ -3194,13 +3327,15 @@ func (p *PercPattern) dependcompare(c *comparer) (err error) {
 
 func (p *PercPattern) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        if pc.stem == "" {
+        if pc.stems == nil {
                 err = fmt.Errorf("empty stem (%s)", p)
                 return
         }
 
         var target string
-        if target, err = p.MakeString(pc.stem); err != nil { return }
+        var rest []string
+        if target, rest, err = p.stencil(pc.stems); err != nil { return }
+        if len(rest) > 0 { panic("FIXME: unhandled stems") }
         if err = pc.updateTarget(target); err != nil {
                 err = patternPrepareError{err}
         }
@@ -3261,30 +3396,36 @@ func (p *GlobPattern) Strval() (s string, err error) {
         }
         return
 }
-func (p *GlobPattern) match(i interface{}) (matched bool, stem string, err error) {
+func (p *GlobPattern) match(i interface{}) (result string, stems []string, err error) {
         var pat, s string
         switch t := i.(type) {
         case string: s = t
         case *File: s = t.name
-        default: if v, ok := i.(Value); ok {
-                if s, err = v.Strval(); err != nil { return }
-        }}
-        if pat, err = p.Strval(); err == nil {
-                matched, err = filepath.Match(pat, s)
+        case *filestub: s = t.name
+        case Value:
+                s, err = t.Strval()
+                if err != nil { return }
+        default:
+                unreachable("glob.match: %T %v", i, i)
         }
-        // FIXME: calculate stem from matching
+        if pat, err = p.Strval(); err == nil {
+                var matched bool
+                matched, err = filepath.Match(pat, s)
+                if matched { result = s }
+        }
+        // FIXME: calculate stems from matching
         return
 }
 
-func (p *GlobPattern) MakeString(stem string) (s string, err error) {
-        unreachable("FIXME: make string from stem")
+func (p *GlobPattern) stencil(stems []string) (s string, rest []string, err error) {
+        unreachable("FIXME: GlobPattern stencil(%v)", stems)
         return
 }
 
 /*
 func (p *GlobPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEntry, err error) {
         var target string
-        if target, err = p.MakeString(stem); err == nil {
+        if target, err = p.stencil(stem); err == nil {
                 entry, err = p.pattern.concrete(patent, target, stem)
         }
         return
@@ -3307,17 +3448,19 @@ func (p *GlobPattern) closured() (res bool) {
 func (p *GlobPattern) dependcompare(c *comparer) (err error) {
         if enable_assertions { assert(c.target != p, "self comparation") }
 
-        var stem string
+        var stems []string
         if len(c.program.callers) == 0 {
                 //err = fmt.Errorf("no calltrace (%s)", p)
                 return
-        } else if stem = c.program.callers[0].stem; stem == "" {
+        } else if stems = c.program.callers[0].stems; stems == nil {
                 //err = fmt.Errorf("empty stem (%s)", p)
                 return
         }
 
         var target string
-        if target, err = p.MakeString(stem); err != nil { return }
+        var rest []string
+        if target, rest, err = p.stencil(stems); err != nil { return }
+        if len(rest) > 0 { panic("FIXME: unhandled stems") }
 
         if err = c.compareDepend(target); err != nil {
                 err = patternCompareError{err}
@@ -3327,13 +3470,15 @@ func (p *GlobPattern) dependcompare(c *comparer) (err error) {
 
 func (p *GlobPattern) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        if pc.stem == "" {
+        if pc.stems == nil {
                 err = fmt.Errorf("empty stem (%s)", p)
                 return
         }
 
         var target string
-        if target, err = p.MakeString(pc.stem); err != nil { return }
+        var rest []string
+        if target, rest, err = p.stencil(pc.stems); err != nil { return }
+        if len(rest) > 0 { panic("FIXME: unhandled stems") }
         if err = pc.updateTarget(target); err != nil {
                 err = patternPrepareError{err}
         }
@@ -3364,8 +3509,8 @@ func (p *RegexpPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *RegexpPattern) Type() Type { return RegexpPatternType }
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
-func (p *RegexpPattern) match(i interface{}) (matched bool, stem string, err error) {
-        panic("TODO: regexp matching...")
+func (p *RegexpPattern) match(i interface{}) (result string, stems []string, err error) {
+        unreachable("regexp.match: %T %v", i, i)
         return
 }
 /*
@@ -3374,8 +3519,8 @@ func (p *RegexpPattern) concrete(patent *RuleEntry, stem string) (entry *RuleEnt
         return
 }
 */
-func (p *RegexpPattern) MakeString(stem string) (s string, err error) {
-        panic("TODO: regexp makestring...")
+func (p *RegexpPattern) stencil(stems []string) (s string, rest []string, err error) {
+        unreachable("regexp.stencil: %v", stems)
         return
 }
 func (p *RegexpPattern) cmp(v Value) (res cmpres) {

@@ -662,16 +662,22 @@ func walkFileInfos(root string, pats []Value, fn filepath.WalkFunc) (err error) 
                 if err != nil { return err }
         ForPats:
                 for _, p := range pats {
-                        var matched bool
                         switch pat := p.(type) {
-                        case Pattern: //*PercPattern, *GlobPattern, *RegexpPattern
-                                if matched, _, err = pat.match(path); err != nil { break ForPats }
-                                if !matched {
-                                        var s = filepath.Base(path)
-                                        if matched, _, err = pat.match(s); err != nil { break ForPats }
+                        case Pattern: //*PercPattern, *GlobPattern, *RegexpPattern, *Path
+                                var ( s string ; ss []string )
+                                if s, ss, err = pat.match(path); err != nil {
+                                        break ForPats
                                 }
-                                if matched {
-                                        if err = fn(path, info, err); err != nil { break ForPats }
+                                if s == "" || ss == nil {
+                                        var s = filepath.Base(path)
+                                        if s, ss, err = pat.match(s); err != nil {
+                                                break ForPats
+                                        }
+                                }
+                                if s != "" && ss != nil {
+                                        if err = fn(path, info, err); err != nil {
+                                                break ForPats
+                                        }
                                 }
                         default:
                                 var s string

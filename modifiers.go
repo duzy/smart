@@ -321,12 +321,7 @@ func parseDependList(pos Position, prog *Program, dependList *List) (depends *Li
                         }
                 case *RuleEntry:
                         switch d.Class() {
-                        /*case ExplicitFileEntry:
-                                var name string
-                                if name, err = d.Strval(); err == nil {
-                                        depends.Append(...)
-                                }*/
-                        case GeneralRuleEntry, GlobRuleEntry:
+                        case GeneralRuleEntry, PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
                                 depends.Append(d)
                         default:
                                 err = scanner.Errorf(token.Position(pos), "unsupported entry depend `%v' (%v)", d, d.Class())

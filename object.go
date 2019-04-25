@@ -534,15 +534,19 @@ type RuleEntryClass int
 
 const (
         GeneralRuleEntry RuleEntryClass = iota
+        PercRuleEntry
         GlobRuleEntry
         RegexpRuleEntry
+        PathPattRuleEntry
         UseRuleEntry
 )
 
 var namesForRuleEntryClass = []string{
         GeneralRuleEntry:  "GeneralRuleEntry",
+        PercRuleEntry:     "PercRuleEntry",
         GlobRuleEntry:     "GlobRuleEntry",
         RegexpRuleEntry:   "RegexpRuleEntry",
+        PathPattRuleEntry: "PathPattRuleEntry",
         UseRuleEntry:      "UseRuleEntry",
 }
 
@@ -621,7 +625,8 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) {
 
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err error) {
-        if entry.class == GlobRuleEntry /*|| entry.class == StemmedFileEntry*/ {
+        switch entry.class {
+        case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
         var failed bool
@@ -791,7 +796,7 @@ func (p *PatternEntry) cmp(v Value) (res cmpres) {
 
 type StemmedEntry struct {
         *PatternEntry
-        Stem string // stem string
+        Stems []string // stem string
         target string // source target matching the pattern
         stub *filestub // source file matching the pattern
 }
@@ -802,7 +807,7 @@ func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
         if v, err = p.PatternEntry.expand(w); err != nil {
                 return
         } else if v != p.PatternEntry {
-                res = &StemmedEntry{v.(*PatternEntry),p.Stem,p.target,p.stub}
+                res = &StemmedEntry{v.(*PatternEntry),p.Stems,p.target,p.stub}
         }
         return
 }
@@ -810,33 +815,34 @@ func (p *StemmedEntry) cmp(v Value) (res cmpres) {
         if v.Type() == PatternEntryType {
                 a, ok := v.(*StemmedEntry)
                 assert(ok, "value is not StemmedEntry")
-                if p.Stem == a.Stem {
-                        res = p.PatternEntry.cmp(a.PatternEntry)
+                if len(p.Stems) != len(p.Stems) { return }
+                for i, stem := range p.Stems {
+                        if stem != a.Stems[i] { return }
                 }
+                res = p.PatternEntry.cmp(a.PatternEntry)
         }
         return
 }
 
 func (p *StemmedEntry) String() (s string) {
-        return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stem)
+        return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
 
-func (p *StemmedEntry) concrete(pc *preparer, stem string) (entry *RuleEntry, err error) {
+func (p *StemmedEntry) concrete(pc *preparer, stems []string) (entry *RuleEntry, err error) {
         entry = new(RuleEntry)
-
-        // Copy the rule entry bits
-        *entry = *p.RuleEntry
+        *entry = *p.RuleEntry // copy RuleEntry bits
 
         var name string
-        if name, err = p.Pattern.MakeString(stem); err != nil {
-                return
-        }
+        var rest []string
+        name, rest, err = p.Pattern.stencil(stems)
+        if err != nil { return }
+        if len(rest) > 0 { panic("FIXME: unhandled stems") }
 
         if p.stub != nil {
                 file := stat(name, p.stub.sub, p.stub.dir, nil)
                 entry.target = file
                 if enable_assertions {
-                        assert(name == p.stub.name, "'%s' stemmed name is wrong (!= %s)", name, p.stub.name)
+                        //assert(name == p.stub.name, "'%s' stemmed name is wrong (!= %s)", name, p.stub.name)
                         //assert(file.filebase == p.file.filebase, "'%v' stemmed file is wrong (!= %v)", file, p.file)
                 }
         } else {
@@ -873,27 +879,41 @@ func (p *StemmedEntry) prepare(pc *preparer) (err error) {
         }
 
         // Find all useful stems.
-        var stems = []string{ p.Stem }
+        var stemsList = [][]string{ p.Stems }
 ForNames:
         for _, source := range names {
-                var ( stem string; ok bool )
+                var ( s string ; ss []string )
                 if source == "" { continue }
-                if ok, stem, err = p.Pattern.match(source); ok && stem != "" {
-                        for _, s := range stems { if s == stem { continue ForNames } }
-                        stems = append(stems, stem)
+                s, ss, err = p.Pattern.match(source)
+                if s != "" && ss != nil {
+                ForStemsList:
+                        for _, s := range stemsList {
+                                if len(s) != len(ss) {
+                                        continue ForStemsList
+                                }
+                                for i, t := range s {
+                                        if ss[i] != t {
+                                                continue ForStemsList
+                                        }
+                                }
+                                continue ForNames
+                        }
+                        stemsList = append(stemsList, ss)
                 }
         }
 
         // Recover pc.stem when done.
-        defer func(s string) { pc.stem = s } (pc.stem)
+        defer func(ss []string) { pc.stems = ss } (pc.stems)
 
         // Try preparing target with all stems.
 ForStems:
-        for _, stem := range stems {
+        for _, stems := range stemsList {
                 var entry *RuleEntry
-                if entry, err = p.concrete(pc, stem); err != nil { return }
+                if entry, err = p.concrete(pc, stems); err != nil {
+                        return
+                }
 
-                pc.stem = stem // set current stem string
+                pc.stems = stems // set current stem string
                 if err = entry.prepare(pc); err == nil {
                         break ForStems // Good!
                 } else if ute, ok := err.(targetNotFoundError); ok {

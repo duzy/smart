@@ -237,9 +237,11 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
         //      xxx: mergeresult(ExpandAll(args...))
         for _, arg := range args {
                 switch a := arg.(type) {
-                case *PercPattern:
+                case Pattern: //*PercPattern:
                         var s string
-                        if s, err = a.MakeString(prog.pc.stem); err != nil { return }
+                        var rest []string
+                        if s, rest, err = a.stencil(prog.pc.stems); err != nil { return }
+                        if len(rest) > 0 { panic("FIXME: unhandled stems") }
                         if file := prog.pc.derived.matchFile(s); file != nil {
                                 result = append(result, file)
                                 break
@@ -294,7 +296,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 var caller = prog.callers[0]
                 ctx.level = caller.level
                 //ctx.mode = caller.mode
-                ctx.stem = caller.stem
+                ctx.stems = caller.stems
         }
 
         // Build related project list from derived.
@@ -414,8 +416,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.pc.orderedDef.append(ordered...)
         }
 
-        if prog.pc.stem != "" {
-                prog.pc.stemDef.set(DefDefault, &String{prog.pc.stem})
+        if prog.pc.stems != nil {
+                prog.pc.stemDef.set(DefDefault, &String{prog.pc.stems[0]})
         }
 
         defer func() {

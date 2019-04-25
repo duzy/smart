@@ -467,22 +467,22 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
         return
 }
 
-func (p *Project) resolvePatterns(s string) (res []*StemmedEntry, err error) {
+func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error) {
         for _, p := range p.patterns {
-                var ( stem string; found bool )
-                if found, stem, err = p.Pattern.match(s); err != nil {
+                var ( s string ; stems []string )
+                if s, stems, err = p.Pattern.match(i); err != nil {
                         return
-                } else if found && stem != "" {
-                        res = append(res, &StemmedEntry{ p, stem, s, nil })
+                } else if s != "" && stems != nil {
+                        res = append(res, &StemmedEntry{
+                                p, stems, s, nil,
+                        })
                 }
         }
         for _, base := range p.bases {
-                var a []*StemmedEntry
-                if a, err = base.resolvePatterns(s); err == nil {
-                        res = append(res, a...)
-                } else {
-                        return
-                }
+                var ses []*StemmedEntry
+                ses, err = base.resolvePatterns(i)
+                if err != nil { return }
+                res = append(res, ses...)
         }
         return
 }
@@ -525,11 +525,11 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 return
         }
 
-        var pss []*StemmedEntry
-        if pss, err = p.resolvePatterns(target); err == nil {
-                for _, ps := range pss {
-                        ps.target = target // Bounds StemmedEntry with the source.
-                        if err = ps.prepare(pc); err == nil {
+        var ses []*StemmedEntry
+        if ses, err = p.resolvePatterns(target); err == nil {
+                for _, se := range ses {
+                        se.target = target // Bounds StemmedEntry with the source.
+                        if err = se.prepare(pc); err == nil {
                                 return // Updated successfully!
                         } else if _, ok := err.(patternPrepareError); ok {
                                 // Discard pattern unfit errors and caller stack.
@@ -548,36 +548,57 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
 }
 
 func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
-        var names = make(map[string]int)
+        var names = make(map[string]bool)
         for stub := file.filestub; true; stub = stub.other {
-                if strings.Index(stub.name, "IntrinsicEnums") > 0 {
-                        fmt.Fprintf(stderr, "update: %v : file{%v %v %v}\n", pc.entry.target, stub.dir, stub.sub, stub.name)
-                }
-                names[stub.name] += 1 // mark to avoid retrying later
+                names[stub.name] = true // mark to avoid retrying later
                 okay, err = p.updateFileStub(pc, stub)
                 if err != nil || okay { file.filestub = stub; return }
                 if stub.other == file.filestub { break }
         }
 
-        // Try other shorter names
+        // Try other names
         var name string
-        for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i > 0; {
-                name = filepath.Join(s[i+1:], name)
+        for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i >= 0; {
+                if i == 0 {
+                        name = file.FullName()
+                } else {
+                        name = filepath.Join(s[i+1:], name)
+                }
                 s = s[:i] // slice out the prefix 
                 if _, tried := names[name]; !tried {
-                        names[name] += 1 // mark to avoid duplication
+                        names[name] = true // mark to avoid duplication
 
                         var sub = filepath.Join(file.sub, s)
-                        var stub = &filestub{ file.dir, sub, name, file.match, file.filestub.other }
+                        var stub = &filestub{
+                                file.dir, sub, name,
+                                file.match, file.filestub.other,
+                        }
                         file.filestub.other = stub
 
                         okay, err = p.updateFileStub(pc, stub)
-                        if err != nil || okay { file.filestub = stub; return }
+                        if err != nil || okay {
+                                file.filestub = stub
+                                return
+                        }
                 }
                 i = strings.LastIndex(s, PathSep)
         }
-
         names = nil // clean names cache
+
+        /*
+        var full = filepath.Clean(file.FullName())
+        for _, pp := range p.patterns {
+                var ( s string ; stems []string )
+                var path = pp.target.(*Path)
+                fmt.Printf("file: %v %v %v\n", file, full, path)
+                if s, stems, err = path.match(full); err != nil {
+                        return
+                } else if s == "" || stems == nil {
+                        continue
+                }
+                fmt.Printf("file: %v %v %v %v\n", file, path, stems, s)
+        }
+        */
 
         if file.exists() {
                 pc.addNotExistedTarget1(file)
@@ -625,26 +646,22 @@ func (p *Project) updateFileStub(pc *preparer, stub *filestub) (okay bool, err e
                 return
         }
 
-        var pss []*StemmedEntry
-        if pss, err = p.resolvePatterns(stub.name); err != nil {
+        var ses []*StemmedEntry
+        if ses, err = p.resolvePatterns(stub); err != nil {
                 return
-        } else if len(pss) == 0 {
-                return //goto SearchFile
+        } else if len(ses) == 0 {
+                return
         }
 
 ForPatterns:
-        for _, ps := range pss {
-                for _, prog := range ps.programs {
-                        for _, dep := range prog.depends {
-                                if g, ok := dep.(*PercPattern); ok && g != nil {
-                                        ok, err = checkPatternFileDepend(pc, p, ps, prog, g)
-                                        if err != nil { return }
-                                        if !ok { continue ForPatterns }
-                                }
-                        }
+        for _, se := range ses {
+                for _, prog := range se.programs {
+                        var ok bool
+                        ok, err = checkPatternDepends(pc, p, se, prog)
+                        if !ok { continue ForPatterns }
                 }
-                ps.stub = stub // Bounds StemmedEntry with the File.
-                if err = ps.prepare(pc); err == nil {
+                se.stub = stub // Bounds StemmedEntry with the File.
+                if err = se.prepare(pc); err == nil {
                         okay = true
                         return // Updated successfully!
                 } else if e, ok := err.(patternPrepareError); ok {
@@ -709,14 +726,51 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
         }
 
         // Looking for pattern rule entries.
-        if pat, ok := target.(*PercPattern); ok {
-                assert(pat != nil, "nil pattern")
+        switch t := target.(type) {
+        case *PercPattern:
+                assert(t != nil, "nil PercPattern")
+                entry = &RuleEntry{
+                        class: PercRuleEntry,
+                        target: target,
+                }
+                p.patterns = append(p.patterns, &PatternEntry{ t, entry })
+                return
+        case *GlobPattern:
+                assert(t != nil, "nil GlobPattern")
                 entry = &RuleEntry{
                         class: GlobRuleEntry,
                         target: target,
                 }
-                p.patterns = append(p.patterns, &PatternEntry{ pat, entry })
-                return
+                panic("TODO: GlobPattern target")
+        case *RegexpPattern:
+                assert(t != nil, "nil RegexpRuleEntry")
+                entry = &RuleEntry{
+                        class: RegexpRuleEntry,
+                        target: target,
+                }
+                panic("TODO: RegexpPattern target")
+        case *Path:
+                var isPathPattern bool
+        ForPathElements:
+                for _, elem := range t.Elems {
+                        switch elem.(type) {
+                        case *PercPattern:
+                                isPathPattern = true
+                                break ForPathElements
+                        case *GlobPattern:
+                                panic("TODO: GlobPattern path target")
+                        case *RegexpPattern:
+                                panic("TODO: RegexpPattern path target")
+                        }
+                }
+                if isPathPattern {
+                        entry = &RuleEntry{
+                                class: PathPattRuleEntry,
+                                target: target,
+                        }
+                        p.patterns = append(p.patterns, &PatternEntry{ t, entry })
+                        return
+                }
         }
 
         // Looking for concrete rule entries.

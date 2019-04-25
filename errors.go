@@ -93,7 +93,7 @@ func (e pathNotFoundError) Error() string {
 
 func (e fileNotFoundError) Error() string {
         if false { debug.PrintStack() }
-        return fmt.Sprintf("%s: `%v` file not found", e.project.name, e.file.name)
+        return fmt.Sprintf("%s: `%v` file not found (as `%s`)", e.project.name, e.file.name, e.file.FullName())
 }
 
 func report(err error) error {
