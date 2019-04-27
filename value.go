@@ -1730,8 +1730,11 @@ func (p *Path) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         var s string // path/file target
-        if s, err = p.Strval(); err != nil {
+        var rest []string
+        if s, rest, err = p.stencil(pc.stems); err != nil {
                 return
+        } else if len(rest) > 0 {
+                panic("FIXME: unhandled stems")
         }
 
         if p.File == nil {
@@ -1801,6 +1804,16 @@ func (p *Path) cmp(v Value) (res cmpres) {
 }
 
 func (p *Path) match(i interface{}) (result string, stems []string, err error) {
+        var retained []string
+        result, retained, stems, err = p.match1(i)
+        if len(retained) > 0 {
+                // clear results if not fully matched
+                result, stems = "", nil
+        }
+        return
+}
+
+func (p *Path) match1(i interface{}) (result string, retained, stems []string, err error) {
         var (
                 srcs []string
                 segs []Value
@@ -1827,21 +1840,21 @@ func (p *Path) match(i interface{}) (result string, stems []string, err error) {
 
 ForPathSegs:
         for _, seg := range segs {
-                var s string
-                //fmt.Printf("path.match: %T %v %v %v\n", seg, seg, idx, srcs)
+                var ( s string ; r []string )
                 switch t := seg.(type) {
                 case *Path:// Note that Path is also a Pattern!
                         var ss []string
                         if len(srcs) <= idx {
                                 return
-                        } else if s, ss, err = t.match(srcs[idx:]); err != nil {
+                        } else if s, r, ss, err = t.match1(srcs[idx:]); err != nil {
                                 break ForPathSegs
                         } else if s == "" {
                                 return
+                        } else if len(r) > 0 {
+                                // not fully matched
                         }
                         stems = append(stems, ss...)
                         idx += len(strings.Split(s, PathSep))
-                        //fmt.Printf("path.match:1: %v, %v; %v,%v\n", s, ss, srcs[:idx], srcs[idx:])
                 case Pattern:// Note that Path is also a Pattern!
                         var ss []string
                         if len(srcs) <= idx {
@@ -1853,7 +1866,6 @@ ForPathSegs:
                         }
                         stems = append(stems, ss...)
                         idx += 1
-                        //fmt.Printf("path.match:2: %v %v %v\n", seg, srcs[:idx], srcs[idx:])
                 default:
                         if s, err = seg.Strval(); err != nil { break ForPathSegs }
                         for _, s := range strings.Split(s, PathSep) {
@@ -1861,7 +1873,6 @@ ForPathSegs:
                                         return
                                 }
                                 idx += 1
-                                //fmt.Printf("path.match:3: %v %v %v\n", seg, srcs[:idx], srcs[idx:])
                         }
                 }
         }
@@ -1870,7 +1881,7 @@ ForPathSegs:
                 // Don't use filepath.Join as in the case that ""
                 // have to be root "/".
                 result = strings.Join(srcs[:idx], PathSep)
-                //TODO: fullmatch = idx == len(srcs)
+                retained = srcs[idx:]
         }
         return
 }
@@ -2215,21 +2226,40 @@ func checkPatternDepends(pc *preparer, project *Project, se *StemmedEntry, prog 
                         res, err = checkPatternFileDepend(pc, project, se, prog, d)
                         if err != nil { return }
                         if !res { break }
+                default:
+                        /*
+                        var name, str string
+                        var rest []string // rest stems
+                        name, rest, err = se.stencil(se.Stems)
+                        if err != nil { return }
+                        if len(rest) > 0 { panic("FIXME: unhandled stems") }
+                        if str, err = dep.Strval(); err != nil { return }
+                        if res = str == name; !res { break }
+                        */
                 }
         }
         return
 }
 
-func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, prog *Program, g Pattern) (res bool, err error) {
+func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
         var name string
         var rest []string // rest stems
-        if name, rest, err = g.stencil(se.Stems); err != nil { return }
+        if name, rest, err = pat.stencil(se.Stems); err != nil { return }
         if len(rest) > 0 { panic("FIXME: unhandled stems") }
 
         // Matches a FileMap (IsKnown(), may exists or not)
-        if file := project.searchFile(name); file != nil {
-                if file.exists() { return true, nil }
+        var file = project.searchFile(name)
+        if file != nil && file.exists() {
+                return true, nil
         }
+
+        if filepath.IsAbs(name) {
+                file = stat(name, "", "")
+                if file != nil && file.exists() {
+                        return true, nil
+                }
+        }
+        // TODO: check filepath.Join(project.absPath, name)
 
         var entry *RuleEntry
         if entry, err = project.resolveEntry(name); err != nil {
@@ -2239,10 +2269,6 @@ func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, pr
         }
 
         // TODO: project.resolvePatterns(name)
-        return
-}
-
-func checkPatternPathDepend(pc *preparer, project *Project, se *StemmedEntry, prog *Program, g Pattern) (res bool, err error) {
         return
 }
 

@@ -32,8 +32,20 @@ type FileMap struct {
 func (filemap *FileMap) String() string { return filemap.Pattern.String() }
 
 // Match split filename into list and match each part with the pattern correspondingly.
-func (filemap *FileMap) Match(filename string) (bool, string) {
-        return globMatch(filemap.Pattern, filename)
+func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
+        matched, pre = globMatch(filemap.Pattern, filename)
+        if matched { return }
+        if false {
+                var ( s, t string ; e error )
+                if t, e = filemap.Pattern.Strval(); e != nil { return }
+                for _, p := range filemap.Paths {
+                        if s, e = p.Strval(); e != nil { return }
+                        if filename == filepath.Join(s, t) {
+                                matched = true
+                        }
+                }
+        }
+        return
 }
 
 func (filemap *FileMap) stat(base, name string) (file *File) {
@@ -602,6 +614,8 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
                 okay = true
                 return
         }
+
+        fmt.Printf("missing: %v %v\n", file, file.FullName())
 
         /*
         for _, other := range pc.related {

@@ -411,6 +411,30 @@ func init () {
         }
 }
 
+func parseOpts(val Value, opts []string) (res Value, runes []rune, names []string, err error) {
+        switch a := val.(type) {
+        case *Flag:
+                runes, names, err = a.opts(opts...)
+                if err != nil { return } else {
+                        res = nil // no flag value
+                }
+        case *Pair:
+                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                        runes, names, err = flag.opts(opts...)
+                        if err != nil { return } else {
+                                res = a.Value // use flag value
+                        }
+                } else {
+                        err = fmt.Errorf("`%v` unknown argument", a)
+                        return
+                }
+        }
+        if enable_assertions {
+                assert(len(runes) == len(names), "Flag.opts(...) error")
+        }
+        return
+}
+
 type grepCacheFiles struct {
         file *File
         list []*File
@@ -423,17 +447,7 @@ var grepCacheFilebase = make(map[*filebase]*grepCacheFiles)
 //   (regexp='...' sys='...' $^)
 //   (regexp='...' s='~' $^)
 func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value, err error) {
-        var group *Group
-        if g, ok := optGrep.(*Group); ok { group = g } else {
-                err = scanner.Errorf(token.Position(pos), "`%T` non-group grep option", optGrep)
-                return
-        }
-
         var (
-                top []Value
-                rxs []*greprex
-                vals []Value
-                store Value
                 opts = []string{
                         "e,report",
                         "i,ignore",
@@ -445,85 +459,96 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                 optDiscardMissing bool
                 optRecursive bool
                 optLang string
+                rxs []*greprex
+                vals []Value
+                top []Value
+                store Value
+                group *Group
         )
-ForGroupElems:
-        for _, elem := range group.Elems {
-                var ( runes []rune ; names []string ; v Value )
-                switch a := elem.(type) {
-                case *Flag:
-                        if runes, names, err = a.opts(opts...); err != nil { return }
-                        v = nil // no flag value
-                case *Pair:
-                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                if runes, names, err = flag.opts(opts...); err != nil { return }
-                                v = a.Value // got flag value
-                                break
-                        }
+        if g, ok := optGrep.(*Group); !ok {
+                err = scanner.Errorf(token.Position(pos), "`%T` non-group grep option", optGrep)
+                return
+        } else {
+                group = g
+        ForGroupElems:
+                for _, elem := range group.Elems {
+                        var ( runes []rune ; names []string ; v Value )
+                        switch a := elem.(type) {
+                        case *Flag:
+                                if runes, names, err = a.opts(opts...); err != nil { return }
+                                v = nil // no flag value
+                        case *Pair:
+                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                        if runes, names, err = flag.opts(opts...); err != nil { return }
+                                        v = a.Value // got flag value
+                                        break
+                                }
 
-                        var s string
-                        if s, err = a.Key.Strval(); err != nil { return }
-                        switch s {
-                        case "regexp", "exp":
-                                switch v := a.Value.(type) {
-                                case *Group: for _, v := range v.Elems {
-                                        if p, ok := v.(*Pair); ok {
-                                                if s, err = p.Key.Strval(); err != nil { return }
-                                                switch s {
-                                                case "sys":
-                                                        if s, err = p.Value.Strval(); err != nil { return }
-                                                        rxs = append(rxs, &greprex{s, true, nil})
-                                                case "top":
-                                                        if g, ok := p.Value.(*Group); ok {
-                                                                top = merge(g.Elems...)
-                                                        } else {
-                                                                top = merge(a.Value)
+                                var s string
+                                if s, err = a.Key.Strval(); err != nil { return }
+                                switch s {
+                                case "regexp", "exp":
+                                        switch v := a.Value.(type) {
+                                        case *Group: for _, v := range v.Elems {
+                                                if p, ok := v.(*Pair); ok {
+                                                        if s, err = p.Key.Strval(); err != nil { return }
+                                                        switch s {
+                                                        case "sys":
+                                                                if s, err = p.Value.Strval(); err != nil { return }
+                                                                rxs = append(rxs, &greprex{s, true, nil})
+                                                        case "top":
+                                                                if g, ok := p.Value.(*Group); ok {
+                                                                        top = merge(g.Elems...)
+                                                                } else {
+                                                                        top = merge(a.Value)
+                                                                }
+                                                        default:
+                                                                err = scanner.Errorf(token.Position(pos), "`%s` unknown regexp (%v)", s, p.Value)
+                                                                return
                                                         }
-                                                default:
-                                                        err = scanner.Errorf(token.Position(pos), "`%s` unknown regexp (%v)", s, p.Value)
-                                                        return
+                                                } else {
+                                                        if s, err = v.Strval(); err != nil { return }
+                                                        rxs = append(rxs, &greprex{s, false, nil})
                                                 }
-                                        } else {
+                                        }
+                                        default:
                                                 if s, err = v.Strval(); err != nil { return }
                                                 rxs = append(rxs, &greprex{s, false, nil})
                                         }
+                                case "lang":
+                                        optLang, _ = a.Value.Strval()
+                                        if optLang == "" {/* ... */}
+                                case "s":
+                                        store = a.Value
                                 }
-                                default:
-                                        if s, err = v.Strval(); err != nil { return }
-                                        rxs = append(rxs, &greprex{s, false, nil})
-                                }
-                        case "lang":
-                                optLang, _ = a.Value.Strval()
-                                if optLang == "" {/* ... */}
-                        case "s":
-                                store = a.Value
+                                continue ForGroupElems
+                        default:
+                                vals = append(vals, merge(a)...)
+                                continue ForGroupElems
                         }
-                        continue ForGroupElems
-                default:
-                        vals = append(vals, merge(a)...)
-                        continue ForGroupElems
-                }
-                if enable_assertions {
-                        assert(len(runes) == len(names), "Flag.opts(...) error")
-                }
-                for _, ru := range runes {
-                        switch ru {
-                        case 'e':
-                                if v == nil {
-                                        optReportMissing = true
-                                } else {
-                                        optReportMissing = v.True()
-                                }
-                        case 'i':
-                                if v == nil {
-                                        optDiscardMissing = true
-                                } else {
-                                        optDiscardMissing = v.True()
-                                }
-                        case 'r':
-                                if v == nil {
-                                        optRecursive = true
-                                } else {
-                                        optRecursive = v.True()
+                        if enable_assertions {
+                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'e':
+                                        if v == nil {
+                                                optReportMissing = true
+                                        } else {
+                                                optReportMissing = v.True()
+                                        }
+                                case 'i':
+                                        if v == nil {
+                                                optDiscardMissing = true
+                                        } else {
+                                                optDiscardMissing = v.True()
+                                        }
+                                case 'r':
+                                        if v == nil {
+                                                optRecursive = true
+                                        } else {
+                                                optRecursive = v.True()
+                                        }
                                 }
                         }
                 }
@@ -600,59 +625,50 @@ ForGroupElems:
 var uniqueCompareGood = make(map[string]*breaker)
 
 func modifierCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
-        var va []Value
-        var optDiscardMissing, optVerbose bool
-        var optPath, optNoUpdate, optMulti bool
-        var optGrep Value
-        var opts = []string{
-                "p,path",
-                "e,report",
-                "i,ignore",
-                "n,no-time",
-                "m,multi", // multiple compare/execution
-                "g,grep", // -grep=(regexp=(sys='...' '...') $^)
-                "r,recursive",
-                "v,verbose",
-        }
-
+        var (
+                opts = []string{
+                        "p,path",
+                        "e,report",
+                        "i,ignore",
+                        "n,no-time",
+                        "m,multi", // multiple compare/execution
+                        "g,grep", // -grep=(regexp=(sys='...' '...') $^)
+                        "r,recursive",
+                        "v,verbose",
+                }
+                optDiscardMissing, optVerbose bool
+                optPath, optNoUpdate, optMulti bool
+                optGrep Value
+        )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        }
-
-ForArgs:
-        for _, v := range args {
-                var ( runes []rune ; names []string )
-                switch a := v.(type) {
-                case *Flag:
-                        if runes, names, err = a.opts(opts...); err != nil { return }
-                        v = nil // no flag value
-                case *Pair:
-                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                if runes, names, err = flag.opts(opts...); err != nil { return }
-                                v = a.Value // use flag value
-                        } else {
-                                err = scanner.Errorf(token.Position(pos), "`%v` unknown argument", a)
+        } else {
+                var va []Value
+        ForArgs:
+                for _, arg := range args {
+                        var ( v Value ; runes []rune ; names []string )
+                        v, runes, names, err = parseOpts(arg, opts)
+                        if err != nil {
+                                err = scanner.WrapError(token.Position(pos), err)
                                 return
                         }
-                default:
-                        va = append(va, a)
-                        continue ForArgs
-                }
-                if enable_assertions {
-                        assert(len(runes) == len(names), "Flag.opts(...) error")
-                }
-                for _, ru := range runes {
-                        switch ru {
-                        case 'v': optVerbose = trueVal(v, true)
-                        case 'i': optDiscardMissing = trueVal(v, true)
-                        case 'p': optPath = trueVal(v, true)
-                        case 'n': optNoUpdate = trueVal(v, true)
-                        case 'm': optMulti = trueVal(v, true)
-                        case 'g': optGrep = v
+                        if v == nil && runes == nil && names == nil {
+                                va = append(va, arg)
+                                continue ForArgs
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'p': optPath = trueVal(v, true)
+                                case 'm': optMulti = trueVal(v, true)
+                                case 'v': optVerbose = trueVal(v, true)
+                                case 'n': optNoUpdate = trueVal(v, true)
+                                case 'i': optDiscardMissing = trueVal(v, true)
+                                case 'g': optGrep = v
+                                }
                         }
                 }
+                args = va // reset args
         }
-        args = va // reset args
         
         var target Value
         var targetStr string
@@ -790,39 +806,31 @@ ForArgs:
 //      (grep-compare '\s*#\s*include\s*<(.*)>')
 //      
 func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
-        var optPath, optNoUpdate, optDisMiss bool
-        var optTarget Value
-        var opts = []string{
-                "p,path",
-                "i,ignore",
-                "n,no-update",
-                "t,target",
-        }
-        if len(args) > 0 {
+        var (
+                opts = []string{
+                        "p,path",
+                        "i,ignore",
+                        "n,no-update",
+                        "t,target",
+                }
+                optPath, optNoUpdate, optDisMiss bool
+                optTarget Value
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if len(args) > 0 {
                 var va []Value
         ForArgs:
-                for _, v := range args {
-                        var ( runes []rune ; names []string )
-                        switch a := v.(type) {
-                        case *Flag:
-                                if runes, names, err = a.opts(opts...); err != nil { return }
-                                v = nil // no flag value
-                        case *Pair:
-                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                        if runes, names, err = flag.opts(opts...); err != nil { return }
-                                        v = a.Value // use flag value
-                                } else {
-                                        va = append(va, a)
-                                        continue ForArgs
-                                }
-                        default:
-                                va = append(va, a)
-                                continue ForArgs
+                for _, arg := range args {
+                        var ( v Value ; runes []rune ; names []string )
+                        v, runes, names, err = parseOpts(arg, opts)
+                        if err != nil {
+                                err = scanner.WrapError(token.Position(pos), err)
+                                return
                         }
-                        if enable_assertions {
-                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                        if v == nil && runes == nil && names == nil {
+                                va = append(va, arg)
+                                continue ForArgs
                         }
                         for _, ru := range runes {
                                 switch ru {
@@ -1447,52 +1455,41 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
                 optPath bool
                 optVerbose bool
                 optMode = os.FileMode(0640) // sys default 0666
-                va []Value
         )
-
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        }
-
-ForArgs:
-        for _, v := range args {
-                var ( runes []rune ; names []string )
-                switch a := v.(type) {
-                case *Flag:
-                        if runes, names, err = a.opts(opts...); err != nil { return }
-                        v = nil // no flag value
-                case *Pair:
-                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                if runes, names, err = flag.opts(opts...); err != nil { return }
-                                v = a.Value // use flag value
-                        } else {
-                                err = scanner.Errorf(token.Position(pos), "`%v` unknown argument", a)
+        } else {
+                var va []Value
+        ForArgs:
+                for _, arg := range args {
+                        var ( v Value ; runes []rune ; names []string )
+                        v, runes, names, err = parseOpts(arg, opts)
+                        if err != nil {
+                                err = scanner.WrapError(token.Position(pos), err)
                                 return
                         }
-                default:
-                        va = append(va, a)
-                        continue ForArgs
-                }
-                if enable_assertions {
-                        assert(len(runes) == len(names), "Flag.opts(...) error")
-                }
-                for _, ru := range runes {
-                        switch ru {
-                        case 'v': optVerbose = trueVal(v, true)
-                        case 'p': optPath = trueVal(v, true)
-                        case 'm':
-                                if v != nil {
-                                        var num int64
-                                        if num, err = v.Integer(); err != nil {
-                                                return
-                                        } else {
-                                                optMode = os.FileMode(num & 0777)
+                        if v == nil && runes == nil && names == nil {
+                                va = append(va, arg)
+                                continue ForArgs
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'p': optPath = trueVal(v, true)
+                                case 'v': optVerbose = trueVal(v, true)
+                                case 'm':
+                                        if v != nil {
+                                                var num int64
+                                                if num, err = v.Integer(); err != nil {
+                                                        return
+                                                } else {
+                                                        optMode = os.FileMode(num & 0777)
+                                                }
                                         }
                                 }
                         }
                 }
+                args = va // reset args
         }
-        args = va // reset args
         
         var target Value
         var source Value
@@ -1645,42 +1642,65 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         //if m := prog.pc.mode; m != updateMode {
         //        //return /* only configure in update mode */
         //}
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+
+        var (
+                opts = []string{
+                        "p,path",
+                        "v,verbose",
+                        "m,mode",
+                }
+                optPath bool
+                optVerbose bool
+                optMode = os.FileMode(0640) // sys default 0666
+                filename, content string
+        )
+
+        // Process flags
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if len(args) > 0 {
+                var va []Value
+        ForArgs:
+                for _, arg := range args {
+                        var ( v Value ; runes []rune ; names []string )
+                        v, runes, names, err = parseOpts(arg, opts)
+                        if err != nil {
+                                err = scanner.WrapError(token.Position(pos), err)
+                                return
+                        }
+                        if v == nil && runes == nil && names == nil {
+                                va = append(va, arg)
+                                continue ForArgs
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'p': optPath = trueVal(v, true)
+                                case 'v': optVerbose = trueVal(v, true)
+                                case 'm':
+                                        if v != nil {
+                                                var num int64
+                                                if num, err = v.Integer(); err != nil {
+                                                        return
+                                                } else {
+                                                        optMode = os.FileMode(num & 0777)
+                                                }
+                                        }
+                                }
+                        }
+                }
+                args = va // reset args
+        }
 
         var target Value
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
                 return
         }
         
-        var optPath, optVerbose bool
-        var (
-                nargs = len(args)
-                perm = os.FileMode(0640) // sys default 0666
-                filename, content string
-                num int64
-                f *os.File
-        )
-
-        // Process flags
-        if nargs > 0 {
-                var v []Value
-                for _, arg := range args {
-                        switch a := arg.(type) {
-                        default: v = append(v, arg)
-                        case *Flag:
-                                var opt bool
-                                if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
-                                if opt, err = a.is('v', "verbose"); err != nil { return } else if opt { optVerbose = opt }
-                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optVerbose = !opt }
-                        }
-                }
-                args, nargs = v, len(v) // Reset args
-        }
-
-        if nargs > 0 { target = args[0] }
-        if nargs > 1 {
+        if len(args) > 0 { target = args[0] }
+        if len(args) > 1 {
+                var num int64
                 if num, err = args[1].Integer(); err != nil { return }
-                perm = os.FileMode(num & 0777)
+                optMode = os.FileMode(num & 0777)
         }
 
         // Get target filename
@@ -1716,11 +1736,12 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
         if content, err = value.Strval(); err != nil { return }
 
+        var f *os.File
         if f, err = os.Open(filename); err == nil && f != nil {
                 defer f.Close()
                 if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", target) }
-                if st, _ := f.Stat(); st.Mode().Perm() != perm {
-                        if err = f.Chmod(perm); err != nil {
+                if st, _ := f.Stat(); st.Mode().Perm() != optMode {
+                        if err = f.Chmod(optMode); err != nil {
                                 fmt.Fprintf(stderr, "… (error: %s)\n", err)
                                 return
                         }
@@ -1754,7 +1775,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
 
         // Create or update the file with new content
         
-        f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, perm)
+        f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode)
         if err == nil && f != nil {
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
