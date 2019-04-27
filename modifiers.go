@@ -1539,13 +1539,13 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
                         srctime = t.info.ModTime()
                 }
         default:
-                if srcname, err = target.Strval(); err != nil {
+                if srcname, err = source.Strval(); err != nil {
                         return
                 } else if file := project.matchFile(srcname); file != nil {
                         if srcname, err = file.Strval(); err != nil {
                                 return
                         } else {
-                                target = file
+                                source = file
                         }
                         if file.info != nil {
                                 srctime = file.info.ModTime()
@@ -1572,7 +1572,7 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         if optVerbose {
                 fmt.Fprintf(stderr, "smart: Copying %v …", target)
         }
-        
+
         var (
                 src, file *os.File
         )
