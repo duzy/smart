@@ -615,8 +615,6 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
                 return
         }
 
-        fmt.Printf("missing: %v %v\n", file, file.FullName())
-
         /*
         for _, other := range pc.related {
                 if other == p { continue }

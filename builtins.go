@@ -948,8 +948,8 @@ func builtinSubst(pos Position, args... Value) (res Value, err error) {
 //   $(var:suffix=replacement)
 func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
         // $(patsubst pattern,replacement,text)
-        var ( list []Value ; nargs = len(args) )
-        if nargs < 3 { return }
+        var list []Value
+        if len(args) < 3 { return }
 
         var srcPats, dstPats, sources []Value
         if srcPats, err = mergeresult(Disclose(args[0])); err != nil { return }
@@ -980,6 +980,7 @@ ForSources:
                                         break ForSources
                                 } else if s != "" && ss != nil {
                                         stem.string = ss[0]
+                                        matched = true
                                         break ForSrcPats
                                 }
                         }
