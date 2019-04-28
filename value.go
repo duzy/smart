@@ -2211,8 +2211,8 @@ func (p *File) prepare(pc *preparer) (err error) {
                 case *File: s = t.name
                 }
                 if s == p.name {
-                        pc.tracef("error:%d: `%s` file depends on itself", pc.level, s)
-                        unreachable(s, "file depends on itself")
+                        //pc.tracef("error:%d: `%s` file depends on itself", pc.level, s)
+                        //unreachable(s, "file depends on itself")
                 }
         }
 

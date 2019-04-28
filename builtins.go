@@ -952,8 +952,8 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
         if len(args) < 3 { return }
 
         var srcPats, dstPats, sources []Value
-        if srcPats, err = mergeresult(Disclose(args[0])); err != nil { return }
-        if dstPats, err = mergeresult(Disclose(args[1])); err != nil { return }
+        if srcPats, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+        if dstPats, err = mergeresult(ExpandAll(args[1])); err != nil { return }
         if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { return }
 
         var proj = mostDerived()
@@ -964,29 +964,27 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
 
         // Using the most derived context for correct &(...)
         defer setclosure(setclosure(cloctx.unshift(proj.scope)))
-
         var filemaps = proj.filemaps(false)
 
 ForSources:
         for _, src := range sources {
-                var ( matched bool ; stem = new(String) )
+                var ( matched bool ; stems []string )
 
         ForSrcPats:
                 for _, elem := range srcPats {
                         switch pat := elem.(type) {
                         case Pattern:
-                                var ( s string ; ss []string )
-                                if s, ss, err = pat.match(src); err != nil {
+                                var s string
+                                if s, stems, err = pat.match(src); err != nil {
                                         break ForSources
-                                } else if s != "" && ss != nil {
-                                        stem.string = ss[0]
+                                } else if s != "" && stems != nil {
                                         matched = true
                                         break ForSrcPats
                                 }
                         }
                 }
 
-                if !matched || stem.string == "" {
+                if !matched {
                         // Just return what the src is if not matched.
                         if src.Type().Kind() != NoneKind {
                                 list = append(list, src)
@@ -997,25 +995,25 @@ ForSources:
                 // Compose the matched results with stem value.
         ForDstPats:
                 for _, dst := range dstPats {
-                        var prefix, suffix Value
+                        var name string
                         switch pat := dst.(type) {
-                        case *PercPattern:
-                                prefix, suffix = pat.Prefix, pat.Suffix
+                        case Pattern:
+                                var rest []string
+                                name, rest, err = pat.stencil(stems)
+                                if err != nil { break ForSources }
+                                if len(rest) > 0 {
+                                        err = fmt.Errorf("the rest stems (%v)", rest)
+                                        return
+                                }
                         default:
-                                // FIXME: *GlobPattern, *RegexpPattern, etc.
-                                prefix, suffix = universalnone, universalnone
+                                if name, err = pat.Strval(); err != nil {
+                                        break ForSources
+                                }
                         }
-
-                        // Just compose the regular value
-                        var comp = new(Barecomp)
-                        comp.Append(prefix, stem, suffix)
 
                         // Deal with special source value
                         switch t := src.(type) {
                         case *File:
-                                var name string
-                                if name, err = comp.Strval(); err != nil { break ForSources }
-
                                 var match *FileMap
                                 for _, m := range filemaps {
                                         if ok, _ := m.Match(name); ok {
@@ -1048,7 +1046,7 @@ ForSources:
                                 continue ForDstPats
 
                         default:
-                                list = append(list, comp)
+                                list = append(list, &String{name})
                                 continue ForDstPats
                         }
                 }
