@@ -1900,18 +1900,22 @@ ForPathSegs:
                 var s string
                 switch t := seg.(type) {
                 case Pattern: // including *Path
-                        s, stems, err = t.stencil(stems)
-                        if err != nil { return }
-                        strs = append(strs, s) // strings.Split(s, PathSep)...
-                default:
-                        if s, err = seg.Strval(); err != nil { break ForPathSegs }
-                        strs = append(strs, s) // strings.Split(s, PathSep)...
+                        if len(stems) > 0 {
+                                s, stems, err = t.stencil(stems)
+                                if err != nil { return }
+                                strs = append(strs, s)
+                                continue ForPathSegs
+                        }
+                }
+                if s, err = seg.Strval(); err != nil {
+                        break ForPathSegs
+                } else {
+                        strs = append(strs, s)
                 }
         }
         if err == nil {
                 result = strings.Join(strs, PathSep)
                 rest = stems // the rest stems
-                //fmt.Printf("path.stencil: %v %v; %v %v\n", p, stems, result, rest)
         }
         return
 }

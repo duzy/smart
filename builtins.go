@@ -968,7 +968,7 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
 
 ForSources:
         for _, src := range sources {
-                var ( matched bool ; stems []string )
+                var ( stems []string ; matched bool )
 
         ForSrcPats:
                 for _, elem := range srcPats {
@@ -977,7 +977,7 @@ ForSources:
                                 var s string
                                 if s, stems, err = pat.match(src); err != nil {
                                         break ForSources
-                                } else if s != "" && stems != nil {
+                                } else if s != "" && len(stems) > 0 {
                                         matched = true
                                         break ForSrcPats
                                 }
@@ -1002,8 +1002,9 @@ ForSources:
                                 name, rest, err = pat.stencil(stems)
                                 if err != nil { break ForSources }
                                 if len(rest) > 0 {
-                                        err = fmt.Errorf("the rest stems (%v)", rest)
-                                        return
+                                        //err = fmt.Errorf("stems rest (%v)", rest)
+                                        //return
+                                        continue ForDstPats
                                 }
                         default:
                                 if name, err = pat.Strval(); err != nil {
