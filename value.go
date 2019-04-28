@@ -1839,14 +1839,14 @@ func (p *Path) match1(i interface{}) (result string, retained, stems []string, e
         }
 
 ForPathSegs:
-        for _, seg := range segs {
+        for n, seg := range segs {
+                if len(srcs) <= idx { break ForPathSegs }
+
                 var ( s string ; r []string )
                 switch t := seg.(type) {
                 case *Path:// Note that Path is also a Pattern!
                         var ss []string
-                        if len(srcs) <= idx {
-                                return
-                        } else if s, r, ss, err = t.match1(srcs[idx:]); err != nil {
+                        if s, r, ss, err = t.match1(srcs[idx:]); err != nil {
                                 break ForPathSegs
                         } else if s == "" {
                                 return
@@ -1857,9 +1857,56 @@ ForPathSegs:
                         idx += len(strings.Split(s, PathSep))
                 case Pattern:// Note that Path is also a Pattern!
                         var ss []string
-                        if len(srcs) <= idx {
-                                return
-                        } else if s, ss, err = t.match(srcs[idx]); err != nil {
+
+                        // Special case of "%%" to match multiple
+                        // segs at once.
+                        if pp, ok := seg.(*PercPattern); ok {
+                                if ps, ok := pp.Suffix.(*PercPattern); ok {
+                                        if ps.Prefix.Type() == NoneType && ps.Suffix.Type() == NoneType {
+                                                if n+1 < len(segs) && idx+1 < len(srcs) {
+                                                        // Find segs[n+1] in srcs[idx:]
+                                                        var next = segs[n+1]
+                                                        switch t := next.(type) {
+                                                        case Pattern:
+                                                                for x, src := range srcs[idx+1:] {
+                                                                        var res string
+                                                                        res, ss, err = t.match(src)
+                                                                        if err != nil { return }
+                                                                        if res != "" && len(ss) > 0 {
+                                                                                end := idx + 1 + x
+                                                                                stem := strings.Join(srcs[idx:end], PathSep)
+                                                                                stems = append(stems, stem)
+                                                                                idx = end
+                                                                                continue ForPathSegs
+                                                                        }
+                                                                }
+                                                        default:
+                                                                for x, src := range srcs[idx+1:] {
+                                                                        var res string
+                                                                        if res, err = t.Strval(); err != nil {
+                                                                                return
+                                                                        }
+                                                                        if res == src {
+                                                                                end := idx + 1 + x
+                                                                                stem := strings.Join(srcs[idx:end], PathSep)
+                                                                                stems = append(stems, stem)
+                                                                                idx = end
+                                                                                continue ForPathSegs
+                                                                        }
+                                                                }
+                                                        }
+                                                        continue ForPathSegs
+                                                } else {
+                                                        stem := strings.Join(srcs[idx:], PathSep)
+                                                        stems = append(stems, stem)
+                                                        idx = len(srcs)
+                                                        break ForPathSegs
+                                                }
+                                        }
+                                }
+                        }
+
+                        if s, ss, err = t.match(srcs[idx]); err != nil {
                                 break ForPathSegs
                         } else if s == "" || ss == nil {
                                 return
@@ -1867,11 +1914,11 @@ ForPathSegs:
                         stems = append(stems, ss...)
                         idx += 1
                 default:
-                        if s, err = seg.Strval(); err != nil { break ForPathSegs }
+                        if s, err = seg.Strval(); err != nil {
+                                break ForPathSegs
+                        }
                         for _, s := range strings.Split(s, PathSep) {
-                                if len(srcs) <= idx || srcs[idx] != s {
-                                        return
-                                }
+                                if srcs[idx] != s { return }
                                 idx += 1
                         }
                 }
@@ -3250,7 +3297,7 @@ func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleE
 
 // PercPattern represents percent pattern expressions (e.g. '%.o')
 type PercPattern struct {
-        pattern
+        pattern // TODO: supporting multiple %: foo%bar%xxx
         Prefix Value
         Suffix Value
 }
@@ -3283,7 +3330,7 @@ func (p *PercPattern) Strval() (s string, err error) {
         return
 }
 func (p *PercPattern) match(i interface{}) (result string, stems []string, err error) {
-        var prefix, suffix, s string
+        var s string
         switch t := i.(type) {
         case string: s = t
         case *File: s = t.name
@@ -3294,25 +3341,71 @@ func (p *PercPattern) match(i interface{}) (result string, stems []string, err e
         default:
                 unreachable("perc.match: %T %v", i, i)
         }
-        if prefix, err = p.Prefix.Strval(); err == nil && strings.HasPrefix(s, prefix) {
-                if suffix, err = p.Suffix.Strval(); err == nil && strings.HasSuffix(s, suffix) {
-                        if a, b := len(prefix), len(s)-len(suffix); a < b {
-                                stems = []string{ s[a:b] }
+
+        var prefix string
+        if p.Prefix != nil && p.Prefix.Type() != NoneType {
+                prefix, err = p.Prefix.Strval()
+                if err != nil { return }
+                if !strings.HasPrefix(s, prefix) {
+                        return
+                }
+        }
+
+        switch t := p.Suffix.(type) {
+        case *None:
+                if a, b := len(prefix), len(s); a < b {
+                        stems = []string{ s[a:] }
+                        result = s
+                }                
+        case Pattern:
+                if a, b := len(prefix), len(s); a < b {
+                        var res string
+                        res, stems, err = t.match(s[a:])
+                        if res != "" && len(stems) > 0 {
                                 result = s
                         }
+                }
+        default:
+                var suffix string
+                suffix, err = t.Strval()
+                if err != nil { break }
+                if !strings.HasSuffix(s, suffix) { break }
+                if a, b := len(prefix), len(s)-len(suffix); a < b {
+                        stems = []string{ s[a:b] }
+                        result = s
                 }
         }
         return
 }
 
 func (p *PercPattern) stencil(stems []string) (s string, rest []string, err error) {
-        if s, err = p.Prefix.Strval(); err == nil {
-                var v string
-                if v, err = p.Suffix.Strval(); err == nil {
-                        // FIXME: multile stems
-                        s += stems[0] + v
-                        rest = stems[1:]
+        // FIXME: the prefix is possible to be Glob, Regexp, etc.
+        if p.Prefix.Type() != NoneType {
+                s, err = p.Prefix.Strval()
+                if err != nil { return }
+        }
+
+        var v string
+        if p.Suffix.Type() == NoneType {
+                s += stems[0] + v
+                rest = stems[1:]
+        } else if pp, ok := p.Suffix.(*PercPattern); ok {
+                // Special cases like '%%...' use only one stem,
+                // other cases like '%xxx%...' use multiple stems.
+                if pp.Prefix.Type() != NoneType {
+                        s += stems[0]
+                        stems = stems[1:]
                 }
+                var ss string
+                ss, rest, err = pp.stencil(stems)
+                if err == nil { s += ss }
+        } else if pp, ok := p.Suffix.(Pattern); ok {
+                var ss string
+                ss, rest, err = pp.stencil(stems)
+                if err == nil { s += ss }
+        } else if v, err = p.Suffix.Strval(); err == nil {
+                s += stems[0] + v
+                rest = stems[1:]
         }
         return
 }
