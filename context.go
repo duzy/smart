@@ -88,24 +88,51 @@ func mostDerived() (proj *Project) {
 }
 
 func (ctx *Context) run() (result []Value, err error) {
-        if ctx.globe.main == nil {
+        var main = ctx.globe.main
+        if main == nil {
                 err = fmt.Errorf("no targets to update `%v`", ctx.goals)
                 return
         }
 
+        var goals []Value
+        for _, goal := range ctx.goals {
+                switch t := goal.(type) {
+                case *Bareword:
+                        if entry, err := main.resolveEntry(t.string); err != nil {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                        } else if entry == nil {
+                                fmt.Fprintf(stderr, "no such entry `%s`\n", t)
+                        } else {
+                                goals = append(goals, entry)
+                        }
+                case *delegate:
+                        if s, err := t.Strval(); err != nil {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                        } else if entry, err := main.resolveEntry(s); err != nil {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                        } else if entry == nil {
+                                fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)
+                        } else {
+                                goals = append(goals, entry)
+                        }
+                default:
+                        fmt.Fprintf(stderr, "unknown target `%v` (%T)\n", goal, goal)
+                }
+        }
+
         var updated int
-        if len(ctx.goals) == 0 {
-                if entry := ctx.globe.main.DefaultEntry(); entry != nil {
+        if len(goals) == 0 {
+                if entry := main.DefaultEntry(); entry != nil {
                         if result, err = entry.Execute(entry.Position); err == nil {
                                 updated += 1
                         }
                 }
         } else {
-                defer setclosure(setclosure(cloctx.unshift(ctx.globe.main.scope)))
-                for _, target := range ctx.goals {
+                defer setclosure(setclosure(cloctx.unshift(main.scope)))
+                for _, goal := range goals {
                         var ( entry *RuleEntry; ok bool )
-                        if entry, ok = target.(*RuleEntry); !ok || entry == nil {
-                                fmt.Fprintf(stderr, "`%v` is not an entry", target)
+                        if entry, ok = goal.(*RuleEntry); !ok || entry == nil {
+                                fmt.Fprintf(stderr, "`%v` is not an entry", goal)
                                 break
                         }
 
@@ -238,23 +265,27 @@ func (ctx *Context) loadCommandArguments(text string) (err error) {
                                 fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, ctx.loader.project)
                         }
                 case *Bareword:
-                        if entry, err := ctx.loader.project.resolveEntry(t.string); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        } else if entry == nil {
-                                fmt.Fprintf(stderr, "no such entry `%s`\n", t)
-                        } else {
-                                ctx.goals = append(ctx.goals, entry)
-                        }
+                        // if entry, err := ctx.loader.project.resolveEntry(t.string); err != nil {
+                        //         fmt.Fprintf(stderr, "%s\n", err)
+                        // } else if entry == nil {
+                        //         //fmt.Fprintf(stderr, "no such entry `%s`\n", t)
+                        //         ctx.goals = append(ctx.goals, t)
+                        // } else {
+                        //         ctx.goals = append(ctx.goals, entry)
+                        // }
+                        ctx.goals = append(ctx.goals, t)
                 case *delegate:
-                        if s, err := t.Strval(); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        } else if entry, err := ctx.loader.project.resolveEntry(s); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        } else if entry == nil {
-                                fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)
-                        } else {
-                                ctx.goals = append(ctx.goals, entry)
-                        }
+                        // if s, err := t.Strval(); err != nil {
+                        //         fmt.Fprintf(stderr, "%s\n", err)
+                        // } else if entry, err := ctx.loader.project.resolveEntry(s); err != nil {
+                        //         fmt.Fprintf(stderr, "%s\n", err)
+                        // } else if entry == nil {
+                        //         //fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)
+                        //         ctx.goals = append(ctx.goals, t)
+                        // } else {
+                        //         ctx.goals = append(ctx.goals, entry)
+                        // }
+                        ctx.goals = append(ctx.goals, t)
                 default:
                         fmt.Fprintf(stderr, "unknown target `%s` (of %T)\n", target, target)
                 }
