@@ -460,8 +460,8 @@ func configureArgumented(pos Position, prog *Program, target Value, def *Def, ar
                 return
         }
 
-        var pipe = prog.scope.Lookup("-").(*Def)
         var params = []Value{ target }
+        var pipe = prog.scope.Lookup("-").(*Def)
         var fields = map[string]Value{ "name": name }
 ForArgs:
         for _, arg := range arged.Args {

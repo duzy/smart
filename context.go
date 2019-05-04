@@ -224,6 +224,21 @@ func processCommandOption(flag *Flag, args... Value) (err error) {
         if opt, err = flag.is('h', "help"); err != nil { return } else if opt {
                 optionHelp = true; return
         }
+        if opt, err = flag.is('b', "build-plugins"); err != nil { return } else if opt {
+                optionAlwaysBuildPlugins = true; return
+        }
+        if opt, err = flag.is(0, "bench-import"); err != nil { return } else if opt {
+                optionBenchImport = true; return
+        }
+        if opt, err = flag.is('v', "verbose"); err != nil { return } else if opt {
+                optionVerbose = true; return
+        }
+        if opt, err = flag.is(0, "verbose-import"); err != nil { return } else if opt {
+                optionVerboseImport = true; return
+        }
+        if opt, err = flag.is(0, "verbose-checks"); err != nil { return } else if opt {
+                optionVerboseChecks = true; return
+        }
         if opt, err = flag.is(0, "rc"); err != nil { return } else if opt {
                 optionConfigure, optionReconfig = true, true; return
         } else {
@@ -264,27 +279,7 @@ func (ctx *Context) loadCommandArguments(text string) (err error) {
                         default:
                                 fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, ctx.loader.project)
                         }
-                case *Bareword:
-                        // if entry, err := ctx.loader.project.resolveEntry(t.string); err != nil {
-                        //         fmt.Fprintf(stderr, "%s\n", err)
-                        // } else if entry == nil {
-                        //         //fmt.Fprintf(stderr, "no such entry `%s`\n", t)
-                        //         ctx.goals = append(ctx.goals, t)
-                        // } else {
-                        //         ctx.goals = append(ctx.goals, entry)
-                        // }
-                        ctx.goals = append(ctx.goals, t)
-                case *delegate:
-                        // if s, err := t.Strval(); err != nil {
-                        //         fmt.Fprintf(stderr, "%s\n", err)
-                        // } else if entry, err := ctx.loader.project.resolveEntry(s); err != nil {
-                        //         fmt.Fprintf(stderr, "%s\n", err)
-                        // } else if entry == nil {
-                        //         //fmt.Fprintf(stderr, "no such entry `%s` (via `%v`)\n", s, t)
-                        //         ctx.goals = append(ctx.goals, t)
-                        // } else {
-                        //         ctx.goals = append(ctx.goals, entry)
-                        // }
+                case *Bareword, *delegate:
                         ctx.goals = append(ctx.goals, t)
                 default:
                         fmt.Fprintf(stderr, "unknown target `%s` (of %T)\n", target, target)
@@ -390,6 +385,7 @@ AtLookupLoop:
         restoreLoadingInfo(ctx.loader)
 
         var args []string
+        var commandText string
         for _, a := range os.Args[1:] {
                 switch a {
                 case "-b", "-build-plugins":
@@ -406,6 +402,16 @@ AtLookupLoop:
                         args = append(args, a)
                 }
         }
+        for i, s := range args {
+                if s == "-" {
+                        ctx.preargs = strings.Join(args[:i], " ")
+                        commandText = strings.Join(args[i:], " ")
+                        break
+                }
+        }
+        if ctx.preargs == "" && commandText == "" && len(args) > 0 {
+                ctx.preargs = strings.Join(args, " ")
+        }
 
         defer func(t time.Time) {
                 var name string
@@ -420,18 +426,6 @@ AtLookupLoop:
                 }
         } (time.Now())
         if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
-
-        var commandText string
-        for i, s := range args {
-                if s == "-" {
-                        ctx.preargs = strings.Join(args[:i], " ")
-                        commandText = strings.Join(args[i:], " ")
-                        break
-                }
-        }
-        if ctx.preargs == "" && commandText == "" && len(args) > 0 {
-                ctx.preargs = strings.Join(args, " ")
-        }
 
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
         if ctx.loader.globe.main == nil {
