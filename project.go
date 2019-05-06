@@ -186,7 +186,7 @@ func (p *Project) mapfile(pat Value, paths []Value) {
         p.filemap = append(p.filemap, &FileMap{ pat, paths })
 }
 
-func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
+func (p *Project) filemaps(imports bool) (filemaps []*FileMap) {
         var unique = make(map[*FileMap]int)
         var app = func(a []*FileMap) {
                 for _, m := range a {
@@ -197,11 +197,19 @@ func (p *Project) filemaps(using bool) (filemaps []*FileMap) {
         }
         app(p.filemap)
         for _, base := range p.bases {
-                app(base.filemaps(using))
+                app(base.filemaps(imports))
         }
-        if using {
-                for _, u := range p.using.list {
-                        app(u.project.filemaps(using))
+        if false && optionSearchImportedFiles {
+                if imports {
+                        for _, u := range p.using.list {
+                                app(u.project.filemaps(imports))
+                        }
+                }
+        } else if optionSearchImportedFiles {
+                if imports {
+                        for _, proj := range p.imports {
+                                app(proj.filemaps(imports))
+                        }
                 }
         }
         unique = nil

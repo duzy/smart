@@ -22,10 +22,14 @@ var (
         optionConfigure = false
         optionAlwaysBuildPlugins = false
         optionVerbose = false
+        optionVerboseUsing = false
+        optionVerboseParsing = false
+        optionVerboseLoading = false
         optionVerboseImport = false
         optionVerboseChecks = false
         optionBenchImport = false
         optionBenchSlow = false
+        optionBenchBuiltin = false
 )
 const (
         optionTraceParsing = false
@@ -35,8 +39,13 @@ const (
 
         optionExecuteUseRulesRecursively = false
         optionExecuteUseRuleMultiTimes = false
+        optionExecuteUseLightly = true
+        optionExecuteUseBases = false
+
+        optionSearchImportedFiles = false // time consuming
 
         optionNoDeprecatedFeatures = true
+        optionUseImportedProjects = true
 )
 
 type Context struct {
@@ -392,8 +401,16 @@ AtLookupLoop:
                         optionAlwaysBuildPlugins = true
                 case "-bi", "-bench-import":
                         optionBenchImport = true
+                case "-bb", "-bench-builtins":
+                        optionBenchBuiltin = true
                 case "-v", "-verbose":
                         optionVerbose = true
+                case "-vp", "-verbose-parsing":
+                        optionVerboseParsing = true
+                case "-vl", "-verbose-loading":
+                        optionVerboseLoading = true
+                case "-vu", "-verbose-using":
+                        optionVerboseUsing = true
                 case "-vi", "-verbose-import":
                         optionVerboseImport = true
                 case "-vc", "-verbose-checks":

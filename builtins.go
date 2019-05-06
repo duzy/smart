@@ -19,6 +19,7 @@ import (
         "errors"
         "regexp"
         "bytes"
+        "time"
         "fmt"
         "os"
         "io"
@@ -584,6 +585,12 @@ func builtinMinus(pos Position, args... Value) (result Value, err error) {
 }
 
 func builtinUnique(pos Position, args... Value) (res Value, err error) {
+        if optionBenchBuiltin {
+                defer func(t time.Time) {
+                        var d = time.Now().Sub(t)
+                        fmt.Fprintf(stderr, "%s:(%8s) unique\n", pos, d)
+                } (time.Now())
+        }
         var optReverse bool
         if len(args) > 0 {
                 var head []Value

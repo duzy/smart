@@ -366,6 +366,7 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                 l.parser.error(spec.Pos(), "missing `%s` (in %v)", specName, l.paths)
                 return
         }
+
         // Checking circular import.
         for i, load := range l.loads {
                 if load.absDir == absPath {
@@ -400,9 +401,7 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
         // │└──→───⇥─┴─⇤────┬──┴──┬──┘  │
         // └──→           ⇠─┘     ↓     └─→ ⇒ …
         if optionVerboseImport {
-                //for i := 0; i < l.importDepth; i += 1 {
-                //        if i == 0 { vs = "" } else { vs += "│" }
-                //}
+                // vs = strings.Repeat("|", l.importDepth)
                 if l.importDepth > 1 {
                         defer func(s string) { l.vs = s } (l.vs)
                         l.vs += "│"
@@ -414,10 +413,10 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                 }
                 defer func(t time.Time) {
                         var name string
-                        if loaded != nil { name = loaded.name }
                         var d = time.Now().Sub(t)//*time.Millisecond // µs, ms, s
                         var ds = fmt.Sprintf("(%s)", d)
                         if d>=1*time.Second { ds = fmt.Sprintf("▶%s◀",ds) }
+                        if loaded != nil { name = loaded.name }
                         fmt.Fprintf(stderr, "%s├┴·\"%s\" ⇢ %s %s\n", l.vs, specName, name, ds)
                 } (time.Now())
         }
@@ -514,7 +513,19 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                 // override reuse option
                 useopts.allowReuse = true
         }
-        err = l.useProject(spec.Props[0].Pos(), loaded, params, useopts)
+
+        if optionVerboseImport {
+                defer func(t time.Time) {
+                        var d = time.Now().Sub(t)//*time.Millisecond // µs, ms, s ┼
+                        fmt.Fprintf(stderr, "%s├┤ %s:import(%s) (%s)\n", l.vs, l.project, specName, d)
+                } (time.Now())
+        }
+        if optionUseImportedProjects {
+                var pos = spec.Props[0].Pos()
+                err = l.useProject(pos, loaded, params, useopts)
+        } else if false && !l.project.isUsingDirectly(loaded) {
+                l.project.using.append(loaded, params, useopts)
+        }
         return
 }
 
@@ -1049,6 +1060,17 @@ func (l *loader) exprs(exprs []ast.Expr) (values []Value) {
 }
 
 func (l *loader) useProject(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
+        if optionVerboseUsing && optionVerboseImport && optionBenchImport {
+                defer func(t time.Time) {
+                        var d = time.Now().Sub(t)
+                        fmt.Fprintf(stderr, "%s││ using(%8s) %s ⇒ %v\n", l.vs, d, l.project, l.project.using)
+                } (time.Now())
+        } else if optionVerboseUsing {
+                defer func(t time.Time) {
+                        var d = time.Now().Sub(t)
+                        fmt.Fprintf(stderr, "using(%8s) %s ⇒ %v\n", d, l.project, l.project.using)
+                } (time.Now())
+        }
         if l.usefunc == nil {
                 l.parser.error(pos, "`%v` use clause forbiden", usee.name)
         } else if err = l.usefunc(l, pos, usee, params, opts); err != nil {
@@ -1068,16 +1090,53 @@ func (l *loader) isExecutedUsee(usee *Project) (res bool) {
         return
 }
 
-func (l *loader) executeUseRule(pos token.Pos, userule *useRuleEntry, params []Value) (err error) {
+func (l *loader) executeUseRule(pos token.Pos, usee *Project, userule *useRuleEntry, params []Value) (err error) {
         position := l.parser.file.Position(pos)
         for _, prog := range userule.programs {
                 defer prog.setUser(prog.setUser(l.project))
         }
-        results, err := mergeresult(userule.Execute(Position(position), params...))
+
+        var t time.Time
+        var results []Value
+        if optionVerboseImport && optionBenchImport { t = time.Now() }
+        if optionExecuteUseLightly {
+                for _, prog := range userule.programs {
+                ForRecipes:
+                        for _, recipe := range prog.recipes {
+                                var list *List
+                                switch t := recipe.(type) {
+                                case *None: continue ForRecipes
+                                case *List: list = t
+                                default: unreachable("unknown type: %T", recipe)
+                                }
+                                switch t := list.Elems[0].(type) {
+                                case *undetermined:
+                                        results = append(results, t)
+                                default:
+                                        fmt.Fprintf(stderr, "%s: unsupported use expression: %v", prog.position, list)
+                                }
+                        }
+                }
+        } else {
+                // Performs the full execution of use rules, this is
+                // taking more time to finish.
+                results, err = mergeresult(userule.Execute(Position(position), params...))
+        }
+        if optionVerboseImport && optionBenchImport {
+                var d = time.Now().Sub(t)
+                fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s)\n", l.vs, l.project.name, usee.name, d)
+                for _, prog := range userule.programs {
+                        for _, recipe := range prog.recipes {
+                                fmt.Fprintf(stderr, "%s││   %v\n", l.vs, recipe)
+                        }
+                }
+        }
+
         if err != nil { return }
 
-        for _, elem := range results {
-                switch t := elem.(type) {
+        if optionVerboseImport && optionBenchImport { t = time.Now() }
+        for _, result := range results {
+                switch t := result.(type) {
                 case *None: // does nothing
                 case *undetermined:
                         if sel, ok := t.identifier.(*selection); ok && sel != nil {
@@ -1087,8 +1146,15 @@ func (l *loader) executeUseRule(pos token.Pos, userule *useRuleEntry, params []V
                                 return
                         }
                 default:
-                        err = scanner.Errorf(position, "todo: using def `%T`", elem)
+                        err = scanner.Errorf(position, "todo: using def `%T`", result)
                         return
+                }
+        }
+        if optionVerboseImport && optionBenchImport {
+                var d = time.Now().Sub(t)
+                fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s)\n", l.vs, l.project.name, usee.name, d)
+                for _, result := range results {
+                        fmt.Fprintf(stderr, "%s││ ⇒ %v\n", l.vs, result)
                 }
         }
         return
@@ -1107,16 +1173,16 @@ func (l *loader) executeUseRulesRecursively(pos token.Pos, usee *Project, params
                 if optionVerboseImport {
                         if optionBenchImport && d > 1*time.Millisecond {
                                 var s = l.usePathStr()
-                                fmt.Fprintf(stderr, "%s││▶%s:use(%s).execute() … (%s) (%s)◀\n", l.vs, l.project.name, usee.name, d, s)
+                                fmt.Fprintf(stderr, "%s││▶%s:use(%s) … (%s) (%s)◀\n", l.vs, l.project.name, usee.name, d, s)
                         }
                 } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s).execute()◀ … (%s)\n", l.project.name, usee.name, d)
+                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
                 }
         } (time.Now())
 
         for _, userule := range usee.userules {
                 if userule.post { continue }
-                err = l.executeUseRule(pos, userule, params)
+                err = l.executeUseRule(pos, usee, userule, params)
                 if err != nil { return }
         }
         if !usee.breakRecursiveUsing {
@@ -1127,34 +1193,34 @@ func (l *loader) executeUseRulesRecursively(pos token.Pos, usee *Project, params
         }
         for _, userule := range usee.userules {
                 if !userule.post { continue }
-                err = l.executeUseRule(pos, userule, params)
+                err = l.executeUseRule(pos, usee, userule, params)
                 if err != nil { return }
         }
         return
 }
 
 func (l *loader) executeUseRuleDirectly(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
+        // Monitor the execution time of the :use: rule.
+        defer func(t time.Time) {
+                var d = time.Now().Sub(t)
+                if optionVerboseImport {
+                        if optionBenchImport /*&& d > 1*time.Millisecond*/ {
+                                var s = l.usePathStr()
+                                fmt.Fprintf(stderr, "%s││ %s:usex(%s) … (%s) (%s)\n", l.vs, l.project.name, usee.name, d, s)
+                        }
+                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
+                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
+                }
+        } (time.Now())
+
         // Return immediately if this usee is executed. If the use rule
         // accumulates values (e.g. += or =+), it may take very long time.
         if !(opts.allowReuse || optionExecuteUseRuleMultiTimes) && l.isExecutedUsee(usee) {
                 return // execute use rule only once
         }
 
-        // Monitor the execution time of the :use: rule.
-        defer func(t time.Time) {
-                var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport && d > 1*time.Millisecond {
-                                var s = l.usePathStr()
-                                fmt.Fprintf(stderr, "%s││▶%s:use(%s).execute() … (%s) (%s)◀\n", l.vs, l.project.name, usee.name, d, s)
-                        }
-                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s).execute()◀ … (%s)\n", l.project.name, usee.name, d)
-                }
-        } (time.Now())
-
         for _, rule := range usee.userules {
-                err = l.executeUseRule(pos, rule, params)
+                err = l.executeUseRule(pos, usee, rule, params)
                 l.useesExecuted = append(l.useesExecuted, usee)
         }
         return
@@ -1185,9 +1251,9 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseImport {
-                        if optionBenchImport && d > 1*time.Millisecond {
+                        if optionBenchImport /*&& d > 1*time.Millisecond*/ {
                                 var s = l.usePathStr()
-                                fmt.Fprintf(stderr, "%s││▶%s:use(%s) … (%s) (%s)◀\n", l.vs, l.project.name, usee.name, d, s)
+                                fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s) (%s)\n", l.vs, l.project.name, usee.name, d, s)
                         }
                 } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
                         fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
@@ -1197,7 +1263,7 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         defer func(a []*Project) { l.usePath = a } (l.usePath)
         l.usePath = append(l.usePath, usee) // build the use path
 
-        if false { 
+        if optionExecuteUseBases {
                 // Also use the bases and usee's using list, so that all
                 // dependencies are included.
                 for _, base := range usee.bases {
@@ -1210,7 +1276,9 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
 
         // Execute the :use: rule if presented to apply the conditions
         // of using the project.
-        if optionExecuteUseRulesRecursively {
+        if true {
+                // does nothing
+        } else if optionExecuteUseRulesRecursively {
                 if false {
                         err = l.executeUseRulesRecursively(pos, usee, params, opts)
                 } else {
@@ -2162,6 +2230,17 @@ ListLoop:
 // first error encountered are returned.
 //
 func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Project, hasConfDir bool, first error) {
+        defer func(t time.Time) {
+                var d = time.Now().Sub(t)
+                if optionVerboseParsing /*&& d > 50*time.Millisecond*/ {
+                        fmt.Fprintf(stderr, "parse(%15s) %s ⇒ %s\n", d, l.project, path)
+                } else if optionBenchSlow && l.project == nil && d>5000*time.Millisecond {
+                        fmt.Fprintf(stderr, "smart: slow ▶parse(%s)◀ … (%s)\n", path, d)
+                } else if optionBenchSlow && l.project != nil && d>2500*time.Millisecond {
+                        fmt.Fprintf(stderr, "smart: %s: slow ▶parse(%s)◀ … (%s)\n", l.project, path, d)
+                }
+        } (time.Now())
+
 	fd, err := os.Open(path)
 	if err != nil { return nil, false, err }
 	defer fd.Close()
@@ -2250,9 +2329,12 @@ ListLoop:
 func (l *loader) load(specName, absPath string, source interface{}) (err error) {
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport && d > 50*time.Millisecond {
-                                fmt.Fprintf(stderr, "%s││▶%s:load(%s) … (%s)◀\n", l.vs, l.project.name, specName, d)
+                if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
+                        loaded, _ := l.loaded[absPath]
+                        if l.project == nil {
+                                fmt.Fprintf(stderr, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName)
+                        } else {
+                                fmt.Fprintf(stderr, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, loaded, specName)
                         }
                 } else if optionBenchSlow && d > 100*time.Millisecond {
                         fmt.Fprintf(stderr, "smart: %s: slow ▶load(%s) … (%s)◀\n", l.project.name, specName, d)
@@ -2291,13 +2373,12 @@ func (l *loader) load(specName, absPath string, source interface{}) (err error) 
 func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (hasConfDir bool, err error) {
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport && d > 50*time.Millisecond {
-                                if l.project == nil {
-                                        fmt.Fprintf(stderr, "%s│▶load(%s) … (%s)◀\n", l.vs, specName, d)
-                                } else {
-                                        fmt.Fprintf(stderr, "%s││▶%s:load(%s) … (%s)◀\n", l.vs, l.project.name, specName, d)
-                                }
+                if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
+                        loaded, _ := l.loaded[absDir]
+                        if l.project == nil {
+                                fmt.Fprintf(stderr, "load (%15s) ⇒ %s (%s)\n", d, loaded, specName)
+                        } else {
+                                fmt.Fprintf(stderr, "load (%15s) %s ⇒ %s (%s)\n", d, l.project.name, loaded, specName)
                         }
                 } else if optionBenchSlow && l.project == nil && d>5000*time.Millisecond {
                         fmt.Fprintf(stderr, "smart: slow ▶load(%s)◀ … (%s)\n", specName, d)

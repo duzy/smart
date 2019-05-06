@@ -665,6 +665,15 @@ func (entry *RuleEntry) redecl(scope *Scope) {
         panic("RuleEntry.redecl not supported")
 }
 
+func (entry *RuleEntry) recipes() (recipes []Value) {
+        for _, prog := range entry.programs {
+                for _, recipe := range prog.recipes {
+                        recipes = append(recipes, recipe)
+                }
+        }
+        return
+}
+
 func (entry *RuleEntry) refs(v Value) bool {
         if entry.target.refs(v) { return true }
         
