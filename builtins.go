@@ -1300,6 +1300,10 @@ func builtinContains(pos Position, args... Value) (res Value, err error) {
         if true { // -or
                 for _, val := range vals {
                         for _, v := range list {
+                                if val == nil || v == nil {
+                                        fmt.Fprintf(stderr, "%s: nil values (%v,%v)\n", pos, val, v)
+                                        continue
+                                }
                                 if val.cmp(v) == cmpEqual {
                                         res = universaltrue
                                         return

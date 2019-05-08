@@ -1606,19 +1606,21 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         l.parser.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])
                         return
                 }
+                var ( name string ; err error )
+                if name, err = target.Strval(); err != nil {
+                        l.parser.error(clause.Targets[n].Pos(), "%v", err)
+                }                
                 if true {// it should work too if not checking against files
                         switch target.(type) {
                         default:
-                                if s, err := target.Strval(); err != nil {
-                                        l.parser.error(clause.Targets[n].Pos(), "%v", err)
-                                } else if file := l.project.matchFile(s); file != nil {
-                                        target = file
-                                }
+                                file := l.project.matchFile(name)
+                                if file != nil { target = file }
                         case *File, *Path:
                         case *PercPattern:
                         }
                 }
-                var entry, err = l.project.entry(special, optionVals, target, prog)
+                var entry *RuleEntry
+                entry, err = l.project.entry(special, optionVals, target, prog)
                 if err != nil {
                         l.parser.error(clause.Targets[n].Pos(), "%v", err)
                         return
@@ -1632,6 +1634,11 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         }
                 } else if configure {
                         configuration.entries = append(configuration.entries, entry)
+                        if def, alt := l.def(name); alt != nil {
+                                // TODO: configure option already defined
+                        } else /*if def != nil*/ {
+                                def.set(DefExecute, nil)
+                        }
                 }
         }
         return
