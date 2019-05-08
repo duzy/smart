@@ -2271,6 +2271,10 @@ func (p *File) prepare(pc *preparer) (err error) {
 }
 
 func checkPatternDepends(pc *preparer, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
+        if len(prog.depends) == 0 {
+                // Pattern is always good as no depends to check.
+                return true, nil
+        }
         for _, dep := range prog.depends {
                 switch d := dep.(type) {
                 case Pattern:

@@ -1606,7 +1606,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         l.parser.error(clause.Targets[n].Pos(), "nil target (%T)", clause.Targets[n])
                         return
                 }
-                var ( name string ; err error )
+                var ( name string ; entry *RuleEntry ; err error )
                 if name, err = target.Strval(); err != nil {
                         l.parser.error(clause.Targets[n].Pos(), "%v", err)
                 }                
@@ -1618,7 +1618,6 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                                 if file != nil { target = file }
                         }
                 }
-                var entry *RuleEntry
                 entry, err = l.project.entry(special, optionVals, target, prog)
                 if err != nil {
                         l.parser.error(clause.Targets[n].Pos(), "%v", err)
