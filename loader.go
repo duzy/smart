@@ -1612,11 +1612,10 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 }                
                 if true {// it should work too if not checking against files
                         switch target.(type) {
+                        case *File, *Path, Pattern:
                         default:
                                 file := l.project.matchFile(name)
                                 if file != nil { target = file }
-                        case *File, *Path:
-                        case *PercPattern:
                         }
                 }
                 var entry *RuleEntry
