@@ -220,10 +220,15 @@ func configinfox(pos Position, fields map[string]Value, args... Value) {
                         if len(args) > 1 { str += "s" }
                 }
         }
-        for _, a := range args {
+        for i, a := range args {
                 s, _ := a.Strval()
                 ints = append(ints, s)
-                str += " %v"
+                if i == 0 {
+                        str += " (%v"
+                } else {
+                        str += " %v"
+                }
+                if i+1 == len(args) { str += ")" }
         }
         str += " …"
         configinfo(pos, str, ints...)
@@ -501,7 +506,7 @@ ForArgs:
                 if err == nil {
                         if result == nil {
                                 configinfon(pos, "… <nil>")
-                        } else if true {
+                        } else if false {
                                 s := elementString(nil, result, elemExpand)
                                 configinfon(pos, "… %v", s)
                         } else {
@@ -653,7 +658,7 @@ ForArgs:
         delete(fields, "lib")
         delete(fields, "libs")
         */
-        configmessage(pos, strName, fields, params/*arged.Args*/...)
+        configmessage(pos, strName, fields, params...)
         configured, result, err = configureEntry(pos, prog, strName, params...)
         return 
 }
