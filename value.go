@@ -1422,10 +1422,13 @@ func (p *elements) Take(n int) (v Value) {
 func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *elements) ToList() *List { return &List{*p} }
-func (p *elements) True() (t bool) {
+func (p *elements) True() (t bool) { // (or elems...)
         for _, elem := range p.Elems {
-                if elem == nil { continue }
-                if t = elem.True(); t { break }
+                if elem != nil {
+                        if t = elem.True(); t {
+                                break
+                        }
+                }
         }
         return
 }
@@ -3769,6 +3772,14 @@ func mergeresult(res []Value, err error) ([]Value, error) {
 
 func trueVal(v Value, res bool) bool {
         if v != nil { res = v.True() }
+        return res
+}
+
+func intVal(v Value, res int) int {
+        if v != nil {
+                n, _ := v.Integer()
+                res = int(n)
+        }
         return res
 }
 

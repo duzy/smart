@@ -424,9 +424,9 @@ func parseOpts(val Value, opts []string) (res Value, runes []rune, names []strin
                         if err != nil { return } else {
                                 res = a.Value // use flag value
                         }
-                } else {
+                /*} else {
                         err = fmt.Errorf("`%v` unknown argument", a)
-                        return
+                        return*/
                 }
         }
         if enable_assertions {

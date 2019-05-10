@@ -36,12 +36,12 @@ var builtins = map[string]BuiltinFunc {
 
         `assert-valid`: builtinAssertValid,
 
-        `or`:           builtinLogicalOr,
-        `and`:          builtinLogicalAnd,
+        `or`:           builtinOr,
+        `and`:          builtinAnd,
         /*
-        `xor`:          builtinLogicalXor,
+        `xor`:          builtinXor,
         */
-        `not`:          builtinLogicalNot,
+        `not`:          builtinNot,
 
         `match`:        builtinMatch,
 
@@ -302,14 +302,14 @@ func builtinAssertValid(pos Position, args... Value) (Value, error) {
         return nil, nil
 }
 
-func builtinLogicalOr(pos Position, args... Value) (res Value, err error) {
+func builtinOr(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 if a.True() { res = a; break }
         }
         return
 }
 
-func builtinLogicalAnd(pos Position, args... Value) (res Value, err error) {
+func builtinAnd(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 if a.True() { res = a } else { res = nil; break }
         }
@@ -318,7 +318,7 @@ func builtinLogicalAnd(pos Position, args... Value) (res Value, err error) {
 
 // $(not x y z) -> (not (or x y z))
 // $(not x,y,z) -> (and (not x) (not y) (not z))
-func builtinLogicalNot(pos Position, args... Value) (res Value, err error) {
+func builtinNot(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 if a.True() {
                         res = universalfalse;
@@ -2062,10 +2062,45 @@ ForVals:
 }
 
 func builtinFileExists(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
-        // TODO: $(file-exists -f filename)
-        // TODO: $(file-exists -d dirname)
+        var va []Value
+        var optKind rune
+        var opts = []string{
+                "d,dir", // check for directory
+                "f,file", // check for regular file
+                "s,symbol", // check for symbolic link
+        }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        }
+ForArgs:
+        for _, arg := range args {
+                var ( runes []rune ; names []string ; v Value )
+                switch a := arg.(type) {
+                case *Flag:
+                        if runes, names, err = a.opts(opts...); err != nil { return }
+                        v = nil // no flag value
+                case *Pair:
+                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                if runes, names, err = flag.opts(opts...); err != nil { return }
+                                v = a.Value // got flag value
+                        } else {
+                                err = fmt.Errorf("`%v` unknown argument", a)
+                                return
+                        }
+                default:
+                        va = append(va, a)
+                        continue ForArgs
+                }
+                if enable_assertions {
+                        assert(len(runes) == len(names), "Flag.opts(...) error")
+                }
+                for _, ru := range runes {
+                        switch ru {
+                        case 'f', 'd', 's':
+                                if v.True() { optKind = ru }
+                        }
+                }
+        }
 
         var proj = current()
         if proj == nil {
@@ -2073,18 +2108,60 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
                 return
         }
 
-        var l []Value
-        for _, a := range args {
-                var (str string)
-                if str, err = a.Strval(); err != nil { return }
-                if file := proj.searchFile(str); file != nil {
-                        if file.exists() {
-                                l = append(l, file)
-                        }
+        var reses []Value
+        var check = func(file *File) {
+                if file.info == nil {
+                        reses = append(reses, universalfalse)
+                        return
+                }
+                var mode = file.info.Mode()
+                switch optKind {
+                case 'd': if mode&os.ModeDir != 0 { // IsDir()
+                        reses = append(reses, universaltrue)//file
+                        return
+                }
+                case 's': if mode&os.ModeSymlink != 0 {
+                        reses = append(reses, universaltrue)//file
+                        return
+                }
+                case 'f': if mode&os.ModeType != 0 { // IsRegular()
+                        reses = append(reses, universaltrue)//file
+                        return
+                }
+                default:
+                        reses = append(reses, universaltrue)//file
+                        return
                 }
         }
+
+        var checkstat = func(a Value) {
+                var ( s string ; file *File )
+                if s, err = a.Strval(); err != nil { return }
+                if filepath.IsAbs(s) {
+                        file = stat(s, "", "")
+                } else {
+                        file = stat(s, "", proj.absPath)
+                }
+                if file == nil { file = proj.searchFile(s) }
+                if file != nil { check(file) }
+        }
+
+        for _, a := range va {
+                switch t := a.(type) {
+                case *File: check(t)
+                case *Path:
+                        if t.File != nil {
+                                check(t.File)
+                        } else {
+                                checkstat(a)
+                        }
+                default:
+                        checkstat(a)
+                }
+                //fmt.Printf("file-exists: %T %v %v\n", a, a, reses)
+        }
         if err == nil {
-                res = MakeListOrScalar(l)
+                res = MakeListOrScalar(reses)
         }
         return
 }
@@ -2113,14 +2190,15 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinFile(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
         var va []Value
         var optCallerContext bool
         var optReportMissing bool
         var opts = []string{
                 "c,caller", // in the caller context
                 "e,report", // report if not exists
+        }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
         }
 ForArgs:
         for _, arg := range args {

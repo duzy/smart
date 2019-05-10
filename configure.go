@@ -56,7 +56,9 @@ var configuration = &struct{
 }
 
 var configurationOps = map[string] func(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
+        "answer":  configureAnswer,
         "bool":    configureBool,
+        "dump":    configureDump,
         "option":  configureOption,
         "package": configurePackage,
 }
@@ -267,33 +269,32 @@ func configmessage(pos Position, s string, fields map[string]Value, params... Va
         }
 }
 
-// (configure xxx=foobar)
-func configurePair(pos Position, prog *Program, key, val Value) (result Value, err error) {
-        switch k := key.(type) {
-        case *Bareword:
-                def, alt := prog.project.scope.Def(prog.project, k.string, universalnone)
-                if alt != nil {
-                        if p, _ := alt.(*Def); p != nil && p != def { def = p }
-                }
-                err = def.set(DefSimple, val)
-        default:
-                err = scanner.Errorf(token.Position(pos), "unknown configuration `%v = %v` (%T %T)\n", key, key, val)
-        }
+func configureDump(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
+        result = def.Value
         return
 }
 
+// (configure -bool)
+// (configure -bool(opt_true,opt_false))
 func configureBool(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
-        //fmt.Printf("-bool: %v %v\n", def, params)
         var positive bool
         var previous Value
         if previous, err = def.Call(pos); err != nil {
                 return
+        } else {
+                var res Value
+                res, err = previous.expand(expandAll)
+                if err == nil && res != previous {
+                        previous = res
+                }
         }
+
         for i, v := range merge(previous) {
+                if v == nil { continue }
                 if i == 0 {
                         positive = v.True()
                 } else {
-                        positive = positive && !v.True()
+                        positive = positive && v.True()
                 }
                 if !positive { break }
         }
@@ -301,23 +302,32 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
                 if len(params) > 1 { // [NAME 1 0]
                         result = params[1]
                 } else {
-                        result = nil
+                        result = universaltrue
                 }
         } else {
                 if len(params) > 2 { // [NAME 1 0]
                         result = params[2]
                 } else {
-                        result = nil
+                        result = universalfalse
                 }
         }
-        // Clear def value
-        def.Value = nil
         return
 }
 
+// (configure -answer)
+// (configure -answer(opt_true,opt_false))
+func configureAnswer(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
+        return configureBool(pos, prog, def, params[0], universalyes, universalno)
+}
+
 func configureOption(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
-        if result, err = prog.scope.Lookup("-").(*Def).Call(pos); err == nil {
+        if result, err = def.Call(pos); err == nil {
                 if result == nil { result = universalno }
+        } else if result != nil {
+                var res Value
+                if res, err = result.expand(expandAll); err == nil && res != result {
+                        result = res
+                }
         }
         return
 }
@@ -444,16 +454,10 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
         return
 }
 
+// (configure -xxx)
+// (configure -xxx=yyy)
 // (configure -xxx(...))
-func configureArgumented(pos Position, prog *Program, target Value, def *Def, arged *Argumented) (configured bool, result Value, err error) {
-        var name Value
-        switch val := arged.Val.(type) {
-        case *Flag: name = val.Name
-        default:
-                err = scanner.Errorf(token.Position(pos), "unknown argumented configuration `%v` (%T)\n", val, val)
-                return
-        }
-
+func configureAction(pos Position, prog *Program, target Value, def, pipe *Def, name Value, args []Value) (configured bool, result Value, err error) {
         var strName string
         if strName, err = name.Strval(); err != nil { return } else if strName == "" {
                 err = fmt.Errorf("`%v` empty configuration (%T)", name, name)
@@ -461,10 +465,9 @@ func configureArgumented(pos Position, prog *Program, target Value, def *Def, ar
         }
 
         var params = []Value{ target }
-        var pipe = prog.scope.Lookup("-").(*Def)
         var fields = map[string]Value{ "name": name }
 ForArgs:
-        for _, arg := range arged.Args {
+        for _, arg := range args {
                 if list := arg.(*List); list != nil && list.Len() > 0 {
                         var key string
                         switch t := list.Elems[0].(type) {
@@ -527,8 +530,8 @@ ForArgs:
         //   -package
         //   ...
         if config, ok := configurationOps[strName]; ok {
-                configmessage(pos, strName, fields, params/*arged.Args*/...)
-                result, err = config(pos, prog, def, params...)
+                configmessage(pos, strName, fields, params...)
+                result, err = config(pos, prog, pipe, params...)
                 if err == nil { configured = true }
                 return
         }
@@ -935,6 +938,37 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
         // don't configure in compare mode
         if m := prog.pc.mode; m == compareMode { return }
 
+        var (
+                opts = []string{
+                        "a,accumulate",
+                }
+                optAccumulate bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else {
+                var va []Value
+        ForArgs:
+                for _, arg := range args {
+                        var ( v Value ; runes []rune ; names []string )
+                        v, runes, names, err = parseOpts(arg, opts)
+                        if err != nil {
+                                err = scanner.WrapError(token.Position(pos), err)
+                                return
+                        }
+                        if v == nil && runes == nil && names == nil {
+                                va = append(va, arg)
+                                continue ForArgs
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'a': optAccumulate = true
+                                }
+                        }                        
+                }
+                args = va // reset args
+        }
+
         var ( target Value; name string )
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
         if name, err = target.Strval(); err != nil { return }
@@ -942,7 +976,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
         var def, alt = prog.project.scope.Def(prog.project, name, nil)
         if alt != nil { def, _ = alt.(*Def) }
         if def == nil {
-                err = fmt.Errorf("`%s` configuration undefined", name)
+                err = scanner.Errorf(token.Position(pos), "cannot define configuration `%s`", name)
                 return
         }
 
@@ -956,16 +990,18 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                 }
         }
 
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        var pipe = prog.scope.Lookup("-").(*Def)
         if len(args) == 0 { // zero configuration: (configure)
                 var value Value
-                value, err = prog.scope.Lookup("-").(*Def).Call(pos)
-                if err == nil && value != nil {
-                        if value.Type() == NoneType {
-                                err = def.set(DefExecute, nil)
-                        } else {
-                                err = def.set(DefExpand, value)
+                value, err = pipe.Call(pos)
+                if err != nil { return }
+                if value != nil {
+                        switch value.Type() {
+                        case NoneType: err = def.set(DefExecute, nil)
+                        default: err = def.set(DefExpand, value)
                         }
+                } else {
+                        fmt.Fprintf(stderr, "%s: `%v` not configured\n", pos, target)
                 }
                 return
         }
@@ -975,43 +1011,50 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
 
         var ( value Value; configured bool )
 ForConfig:
-        for _, arg := range args {
-                switch a := arg.(type) {
-                case *Argumented:
-                        if configured, value, err = configureArgumented(pos, prog, target, def, a); err != nil {
-                                if false {
-                                        continue ForConfig
-                                } else {
-                                        break ForConfig
+        for i, a := range args {
+                var ( name Value ; para []Value )
+                if def.Value == nil && i > 0 { break ForConfig }
+                switch arg := a.(type) {
+                case *Pair: // Set def
+                        switch k := arg.Key.(type) {
+                        case *Bareword:
+                                def, alt := prog.project.scope.Def(prog.project, k.string, universalnone)
+                                if alt != nil {
+                                        if p, _ := alt.(*Def); p != nil && p != def { def = p }
                                 }
-                        } else if configured {
-                                // marking done (needed for reconfiguring)
-                                configuration.done[def] = true
-                                if value == nil {
-                                        // FIXME: should use `append`, rather then `set`
-                                        if err = def.set(DefExecute, nil); err != nil { return }
-                                } else {
-                                        if err = def.append(value); err != nil { return }
-                                }
+                                err = def.set(DefSimple, arg.Value)
+                                if err == nil { continue ForConfig }
                         }
-                case *Pair:
-                        if value, err = configurePair(pos, prog, a.Key, a.Value); err != nil { break ForConfig } else if value != nil {
-                                //def.Append(value)
+                case *Argumented:
+                        if flag, okay := arg.Val.(*Flag); okay {
+                                name = flag.Name
+                                para = arg.Args
                         }
                 case *Flag:
-                        var s string
-                        if s, err = a.Name.Strval(); err != nil { break ForConfig }
-                        switch s {
-                        case "check":
-                                unreachable("todo: check: ", s)
-                        default:
-                                err = scanner.Errorf(token.Position(pos), "unknown configuration `-%v`\n", a.Name)
-                                break ForConfig
+                        if arg.Name != nil && arg.Name.Type() != NoneType {
+                                name = arg.Name
                         }
-                default:
-                        err = scanner.Errorf(token.Position(pos), ") unknown configuration `%v` (%T)\n", a, a)
-                        break ForConfig
                 }
+                if err == nil && name != nil {
+                        configured, value, err = configureAction(pos, prog, target, def, pipe, name, para)
+                } else if err == nil {
+                        err = scanner.Errorf(token.Position(pos), ") unknown configure action `%v` (%T)\n", a, a)
+                }
+                if err != nil { break ForConfig }
+                if configured {
+                        if value == nil { value = universalnil }
+                        if optAccumulate {
+                                err = def.append(value)
+                        } else {
+                                err = def.set(DefSimple, value)
+                        }
+                        if err != nil { return }
+                        // marking it done (needed for reconfiguring)
+                        configuration.done[def] = true
+                }
+        }
+        if !configured {
+                fmt.Fprintf(stderr, "%s: `%v` not configured\n", pos, target)
         }
         return
 }
