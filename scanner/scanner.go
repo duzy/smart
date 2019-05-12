@@ -10,7 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
         "fmt"
-        "github.com/duzy/smart/token"
+        "extbit.io/smart/token"
 )
 
 // A Scanner holds the scanner's internal state while processing
@@ -39,6 +39,8 @@ type Scanner struct {
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
+
+        DontScanComment bool // don't next scanComment
 }
 
 const bom = 0xFEFF // byte order mark, only permitted as very first character
@@ -124,6 +126,11 @@ const (
         isCompoundCallIdent // $.....
         isCompoundCallParen // $(...)
         isCompoundCallBrace // ${...}
+        isCompoundCallColonL // $:....
+        isCompoundCallColonR // $:...:
+        isCallColonL
+        isCallColonR
+        isCompoundCallColon = isCompoundCallColonL | isCompoundCallColonR
 )
 
 // Init prepares the scanner s to tokenize the text src by setting the
@@ -225,7 +232,6 @@ func (s *Scanner) skipUselessWhitespace(lf bool) {
                                         s.next()
                                 }
                         } else {
-                                //fmt.Printf("escape: %v\n", string(s.ch))
                                 // TODO: escape character
                                 s.next()//; break loopSkip
                         }
@@ -325,11 +331,11 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                 if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
                         s.next() //! The first & or $
                         s.next() //! The second & or $
-                        tok, lit = token.STRING, string(s.src[offs:s.offset])
+                        tok, lit = token.RAW, string(s.src[offs:s.offset])
                 } else if s.ch == '$' {
-                        tok = token.DOLLAR // escape to do token.DOLLAR
+                        tok = token.DELEGATE // escape to do token.DELEGATE
                 } else {
-                        tok = token.AND // escape to do token.AND
+                        tok = token.CLOSURE // escape to do token.CLOSURE
                 }
                 return
         }
@@ -342,7 +348,7 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                         s.next()
                 }
         }
-        tok, lit = token.STRING, string(s.src[offs:s.offset])
+        tok, lit = token.RAW, string(s.src[offs:s.offset])
 	return 
 }
 
@@ -374,11 +380,11 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                 if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
                         s.next() //! The first & or $
                         s.next() //! The second & or $
-                        tok, lit = token.STRING, string(s.src[offs:s.offset])
+                        tok, lit = token.RAW, string(s.src[offs:s.offset])
                 } else if s.ch == '$' {
-                        tok = token.DOLLAR // escape to do token.DOLLAR
+                        tok = token.DELEGATE // escape to do token.DELEGATE
                 } else {
-                        tok = token.AND // escape to do token.AND
+                        tok = token.CLOSURE // escape to do token.CLOSURE
                 }
                 return
         }
@@ -391,8 +397,7 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                         s.next()
                 }
         }
-        //fmt.Printf("line: %v\n", string(s.src[offs:s.offset]))
-	return token.STRING, string(s.src[offs:s.offset])
+	return token.RAW, string(s.src[offs:s.offset])
 }
 
 func digitVal(ch rune) int {
@@ -559,7 +564,6 @@ checkNumOffset:
         o += 5 // consume 00:00
 
 success:
-        //fmt.Printf("datetime: %v\n", string(s.src[s.offset:o]))
         for i := s.offset; i < o; i++ {
                 s.next()
         }
@@ -615,7 +619,6 @@ func (s *Scanner) scanNumber(seenDecimalPoint bool) (token.Token, string) {
 			// octal int or float
 			seenDecimalDigit := false
 			s.scanMantissa(8)
-                        //fmt.Printf("oct: %s\n", string(s.src[offs:s.offset]))
 			if s.ch == '8' || s.ch == '9' {
 				// illegal octal int or float
 				seenDecimalDigit = true
@@ -799,7 +802,6 @@ func (s *Scanner) scanString(ml bool) string {
 }
 
 func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
-//scanAgain:
 	// current token start
 	pos = s.file.Pos(s.offset)
 
@@ -809,8 +811,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 //yaml:[((name port hosts)) (plain yaml)]
                 //	$(indent 4,$(join 'names:',$(names),"\n- "))
                 //
-                //fmt.Printf("context: '%v' (%v)\n", string(s.ch), (s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace)))
-                if s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace) == 0 {
+                if s.context&(isCompoundCallIdent|isCompoundCallParen|isCompoundCallBrace|isCompoundCallColon) == 0 {
                         switch {
                         case s.context&isCompoundLine != 0:
                                 tok, lit = s.scanCompoundLine()
@@ -819,7 +820,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         }
                         
                         switch tok {
-                        case token.DOLLAR, token.AND:
+                        case token.DELEGATE, token.CLOSURE:
                                 // escape from '$', '&'
                         case token.COMPOSED:
                                 // skip spaces after composing: "..."
@@ -872,10 +873,15 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 s.next() // always progress to the next
                 switch ch {
                 case '#':
-                        tok, lit = token.COMMENT, s.scanComment()
-                        s.next() // discard '\n'
+                        tok = token.COMMENT
+                        if !s.DontScanComment {
+                                lit = s.scanComment()
+                                s.next() // discard '\n'
+                        }
                 case '@':
                         tok = token.AT
+                case '|':
+                        tok = token.BAR
                 case '!':
                         tok = token.EXC
                         if s.ch == '=' {
@@ -896,6 +902,8 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 tok = token.ADD_ASSIGN
                                 s.next()
                         }
+                case '→': // different from ' → '
+                        tok = token.SELECT_PROP
                 case '-':
                         if s.ch == '-' { // "-->" => "-", "->"
                                 if s.readOffset < len(s.src) && s.src[s.readOffset] == '>' {
@@ -903,10 +911,28 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 } else {
                                         tok = token.MINUS
                                 }
+                        } else if s.ch == '=' { // -=
+                                tok = token.SUB_ASSIGN
+                                s.next()
+                                if s.ch == '+' { // -=+
+                                        tok = token.SSH_ASSIGN
+                                        s.next()
+                                }
+                        } else if s.ch == '+' { // -+
+                                s.next()
+                                if s.ch == '=' { // -+=
+                                        tok = token.SAD_ASSIGN
+                                        s.next()
+                                } else {
+                                        tok = token.ILLEGAL
+                                }
                         } else if s.ch == '>' {
-                                tok = token.SELECT
+                                tok = token.SELECT_PROP
                                 s.next()
                                 //s.skipPostLineFeeds = true
+                        } else if '0' <= s.ch && s.ch <= '9' {
+                                tok, lit = s.scanNumber(false)
+                                lit = "-" + lit // minus number
                         } else {
                                 tok = token.MINUS
                         }
@@ -914,7 +940,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.PCON
                         /*
                 case '\\':
-                        fmt.Printf("escape:%s %s\n", string(ch), string(s.ch))
+                        fmt.Fprintf(stderr, "escape:%s %s\n", string(ch), string(s.ch))
                         if s.ch == '\n' {
                                 goto scanAgain
                         } */
@@ -924,10 +950,10 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.next()
                                 if s.ch == '\'' { // '''
                                         lit = s.scanRawString(true)
-                                } else {
-                                        // got empty string ''
-                                        offs := s.offset - 2
+                                } else if offs := s.offset - 2; false {
                                         lit = string(s.src[offs:s.offset])
+                                } else {
+                                        lit = "" // empty string ''
                                 }
                         } else {
                                 lit = s.scanRawString(false)
@@ -946,26 +972,30 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.STAR
                 case '$', '&':
                         isDelegate := ch == '$'
-                        tok, ch = token.AND, rune(s.src[s.readOffset-1])
+                        tok, ch = token.CLOSURE, rune(s.src[s.readOffset-1])
                         switch {
-                        case ch == '/': tok = token.AND_R
-                        case ch == '.': tok = token.AND_D
-                        case ch == '@': tok = token.AND_A
-                        case ch == '<': tok = token.AND_L
-                        case ch == '^': tok = token.AND_U
-                        case ch == '*': tok = token.AND_S
-                        case ch == '-': tok = token.AND_M
-                        case ch == '1': tok = token.AND_1
-                        case ch == '2': tok = token.AND_2
-                        case ch == '3': tok = token.AND_3
-                        case ch == '4': tok = token.AND_4
-                        case ch == '5': tok = token.AND_5
-                        case ch == '6': tok = token.AND_6
-                        case ch == '7': tok = token.AND_7
-                        case ch == '8': tok = token.AND_8
-                        case ch == '9': tok = token.AND_9
+                        case ch == '/': tok = token.CLOSURE_R
+                        case ch == '.': tok = token.CLOSURE_D
+                        case ch == '@': tok = token.CLOSURE_A
+                        case ch == '|': tok = token.CLOSURE_B
+                        case ch == '<': tok = token.CLOSURE_L
+                        case ch == '^': tok = token.CLOSURE_U
+                        case ch == '*': tok = token.CLOSURE_S
+                        case ch == '-': tok = token.CLOSURE_M
+                        case ch == '+': tok = token.CLOSURE_P
+                        case ch == '?': tok = token.CLOSURE_Q
+                        case ch == '1': tok = token.CLOSURE_1
+                        case ch == '2': tok = token.CLOSURE_2
+                        case ch == '3': tok = token.CLOSURE_3
+                        case ch == '4': tok = token.CLOSURE_4
+                        case ch == '5': tok = token.CLOSURE_5
+                        case ch == '6': tok = token.CLOSURE_6
+                        case ch == '7': tok = token.CLOSURE_7
+                        case ch == '8': tok = token.CLOSURE_8
+                        case ch == '9': tok = token.CLOSURE_9
+                        case ch == '_': tok = token.CLOSURE__
                         }
-                        if token.AND < tok {
+                        if token.CLOSURE < tok {
                                 lit = string(ch)
                                 s.next() // eat special
                         } else if s.context&(isCompoundString|isCompoundLine) != 0 {
@@ -975,14 +1005,17 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                         s.context |= isCompoundCallParen
                                 case '{':
                                         s.context |= isCompoundCallBrace
+                                case ':':
+                                        s.context |= isCompoundCallColonL
                                 default:
                                         s.context |= isCompoundCallIdent
                                 }
+                        } else if ch == ':' {
+                                s.context |= isCallColonL
                         }
                         if isDelegate {
-                                tok = token.Token(token.DOLLAR + (tok - token.AND))
+                                tok = token.Token(token.DELEGATE + (tok - token.CLOSURE))
                         }
-
                 case '(':
                         tok = token.LPAREN
                         s.skipPostLineFeeds = true
@@ -995,7 +1028,6 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.parenDepth--
                         }
                         if s.context&isCompoundCallParen != 0 {
-                                //fmt.Printf("call-paren: %v %v\n", s.callPdepth, s.parenDepth)
                                 var (
                                         l = len(s.callParenDepths)
                                         callDepth = s.callParenDepths[l-1]
@@ -1007,10 +1039,15 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                         }
                                 }
                         }
+                case '⇢', '⇒': // '↦', '↣'
+                        tok = token.SELECT_PROG
                 case '=':
                         if s.ch == '>' {
-                                tok = token.ARROW
+                                tok = token.SELECT_PROG
                                 s.next() // concume the '>'
+                        } else if s.ch == '+' {
+                                tok = token.SHI_ASSIGN
+                                s.next()
                         } else {
                                 tok = token.ASSIGN
                         }
@@ -1032,6 +1069,9 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                 case ',':
                         tok = token.COMMA
                         s.skipPostLineFeeds = true
+                case '~':
+                        tok = token.TILDE
+                        s.skipPostLineFeeds = false
                 case '.':
                         if tok = token.PERIOD; s.ch == '.' {
                                 tok = token.DOTDOT
@@ -1045,34 +1085,46 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 }
                         }
                         //s.skipPostLineFeeds = true
+                //case '⩵':
+                //case '⩶':
+                case '≔':
+                        tok = token.SCO_ASSIGN
+                case '⩴':
+                        tok = token.DCO_ASSIGN
                 case ':':
-                        if s.parenDepth == 0 {
-                                switch s.ch {
-                                case ':':
-                                        tok = token.COLON2
-                                        s.next() // consume the second ':'
-                                        if s.ch == '=' {
-                                                tok = token.DCO_ASSIGN
-                                                s.next() // consume '='
-                                        }
-                                case '=':
-                                        tok = token.SCO_ASSIGN
+                        if s.ch == '=' {
+                                tok = token.SCO_ASSIGN
+                                s.next() // consume '='
+                        } else if s.context&isCallColonL != 0 {
+                                tok = token.LCOLON
+                                s.context &^= isCallColonL
+                                s.context  |= isCallColonR
+                        } else if s.context&isCallColonR != 0 {
+                                tok = token.RCOLON
+                                s.context &^= isCallColonR
+                        } else if s.context&isCompoundCallColonL != 0 {
+                                tok = token.LCOLON
+                                s.context &^= isCompoundCallColonL
+                                s.context  |= isCompoundCallColonR
+                        } else if s.context&isCompoundCallColonR != 0 {
+                                tok = token.RCOLON
+                                s.context &= ^isCompoundCallColonR
+                        } else if s.ch == ':' {
+                                tok = token.COLON2
+                                s.next() // consume the second ':'
+                                if s.ch == '=' {
+                                        tok = token.DCO_ASSIGN
                                         s.next() // consume '='
-                                default:
-                                        tok = token.COLON
                                 }
                         } else {
-                                
+                                tok = token.COLON
                         }
+                case ';':
+                        tok = token.SEMICOLON
+                        //s.skipPostLineFeeds = true
                 case '[':
                         tok = token.LBRACK
                 case ']':
-                        /* if s.ch == ':' {
-                                tok = token.COLON_RBK
-                                s.next() // consume ':'
-                        } else {
-                                tok = token.RBRACK
-                        } */
                         tok = token.RBRACK
                 case '{':
                         tok = token.LBRACE
@@ -1090,8 +1142,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	}
 
         // eat consequence spaces
-        if s.context&(isCompoundLine|isCompoundString) == 0 || 
-           s.context&(isCompoundCallParen|isCompoundCallBrace) != 0 {
+        if s.context&(isCompoundLine|isCompoundString) == 0 || s.context&(isCompoundCallParen|isCompoundCallBrace|isCompoundCallColon) != 0 {
                 s.skipUselessWhitespace(false)
         }
 	return

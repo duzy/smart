@@ -1,8 +1,0 @@
-module foo_cc_exe_use_static, cc
-
-me.sources = foo.c
-me.includes = .
-
-use foo_static
-
-commit

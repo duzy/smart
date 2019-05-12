@@ -11,11 +11,12 @@ import (
 
 type Token int
 
+// https://en.wikipedia.org/wiki/Mathematical_operators_and_symbols_in_Unicode
 const (
         // Special tokens.
 	ILLEGAL Token = iota
 	EOF
-	COMMENT
+	COMMENT  // #
         
 	literal_beg
 	// Identifiers and basic type literals
@@ -30,6 +31,7 @@ const (
         DATE     // 1979-05-27 (internet date format - RFC3339)
         TIME     // 07:32:00.999999 (internet time format - RFC3339)
         URI      // 'mailto:duzy.chan@example.com' (uniform resource identifier - RFC3986)
+        RAW      // raw strings
 	STRING   // 'abc'
         ESCAPE   // \", \\n, etc. (see value.EscapeChar)
         COMPOUND // "abc $(foo) 123"
@@ -43,21 +45,28 @@ const (
 	LPAREN    // (
 	LBRACK    // [
 	LBRACE    // {    left curly
+        LCOLON    // :
 	COMMA     // ,
 	PERIOD    // .
         DOTDOT    // ..
-        SELECT    // ->
+	TILDE     // ~
+        SELECT_PROP // -> 'foo→xxx' (different from ' → ')
+        SELECT_PROG // => 'foo⇢xxx' 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
+        // ⤌ ⤍	⤎ ⤏	⤐	⤑
 
 	RPAREN    // )
 	RBRACK    // ]
 	RBRACE    // }    right curly
+        RCOLON    // :
 	SEMICOLON // ;
 
+	EXC       // !    exclamation
+	QUE       // ?
+
         ruledelim_beg
+        BAR       // |
 	COLON     // :
 	COLON2    // ::
-	EXC       // !          exclamation
-	QUE       // ?
         ruledelim_end
 
         AT        // @
@@ -66,56 +75,66 @@ const (
         // NOTE: don't change the order of closures and delegates, scanner
         // relys upon their order.
         closure_beg
-        AND      // &
-        AND_R    // &/
-        AND_D    // &.
-        AND_A    // &@
-        AND_L    // &<
-        AND_U    // &^
-        AND_S    // &*
-        AND_M    // &-
-        AND_1    // &1
-        AND_2    // &2
-        AND_3    // &3
-        AND_4    // &4
-        AND_5    // &5
-        AND_6    // &6
-        AND_7    // &7
-        AND_8    // &8
-        AND_9    // &9
+        CLOSURE      // &
+        CLOSURE_R    // &/
+        CLOSURE_D    // &.
+        CLOSURE_A    // &@
+        CLOSURE_B    // &|
+        CLOSURE_L    // &<
+        CLOSURE_U    // &^
+        CLOSURE_S    // &*
+        CLOSURE_M    // &-
+        CLOSURE_P    // &+
+        CLOSURE_Q    // &?
+        CLOSURE_1    // &1
+        CLOSURE_2    // &2
+        CLOSURE_3    // &3
+        CLOSURE_4    // &4
+        CLOSURE_5    // &5
+        CLOSURE_6    // &6
+        CLOSURE_7    // &7
+        CLOSURE_8    // &8
+        CLOSURE_9    // &9
+        CLOSURE__    // &_
         closure_end
         delegate_beg
-        DOLLAR      // $
-        DOLLAR_R    // $/
-        DOLLAR_D    // $.
-        DOLLAR_A    // $@
-        DOLLAR_L    // $<
-        DOLLAR_U    // $^
-        DOLLAR_S    // $*
-        DOLLAR_M    // $-
-        DOLLAR_1    // $1
-        DOLLAR_2    // $2
-        DOLLAR_3    // $3
-        DOLLAR_4    // $4
-        DOLLAR_5    // $5
-        DOLLAR_6    // $6
-        DOLLAR_7    // $7
-        DOLLAR_8    // $8
-        DOLLAR_9    // $9
+        DELEGATE      // $
+        DELEGATE_R    // $/
+        DELEGATE_D    // $.
+        DELEGATE_A    // $@
+        DELEGATE_B    // $|
+        DELEGATE_L    // $<
+        DELEGATE_U    // $^
+        DELEGATE_S    // $*
+        DELEGATE_M    // $-
+        DELEGATE_P    // $+
+        DELEGATE_Q    // $?
+        DELEGATE_1    // $1
+        DELEGATE_2    // $2
+        DELEGATE_3    // $3
+        DELEGATE_4    // $4
+        DELEGATE_5    // $5
+        DELEGATE_6    // $6
+        DELEGATE_7    // $7
+        DELEGATE_8    // $8
+        DELEGATE_9    // $9
+        DELEGATE__    // $_
         delegate_end
 
         assign_beg
         ASSIGN     //   =       define a new symbol (don't override, neither !=)
+        SHI_ASSIGN //   =+      shift (insert to the front)
         ADD_ASSIGN //  +=       append
         QUE_ASSIGN //  ?=       set if absent (defined, including empty)
         EXC_ASSIGN //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
         // TODO: more assigns like !?=  !:=  !+=
-        SCO_ASSIGN //  :=       simply expanded (also override)
-        DCO_ASSIGN // ::=       simply expanded (POSIX standard)
+        SCO_ASSIGN //  := ≔     simply expanded (also override)
+        DCO_ASSIGN // ::= ⩴    simply expanded (POSIX standard)
+        SUB_ASSIGN //  -=       remove
+        SAD_ASSIGN // -+=       remove-append assign
+        SSH_ASSIGN //  -=+      remove-shift assign
         assign_end
         
-        ARROW // arrow =>
-
 	PLUS  // unary +
 	MINUS // unary -
 	PCON  // path concatenation '/'
@@ -124,16 +143,25 @@ const (
 
 	keyword_beg
         PROJECT    // project a
+        PACKAGE    // package a
         MODULE     // module a
+        CONFIGURE  // configure [...] TODO: use a different keyword
+        CONFIGURATION
         USE        // use b
         EVAL       // evaluate a builtin immediately
-        DOCK       // docking setup: dock (...)
         EXPORT     // export ...
         INCLUDE    // include a.smart
         IMPORT     // import a.smart
         INSTANCE   // instance
         FILES      // files
-	keyword_end
+
+        constant_beg
+        TRUE    // boolean `true`
+        FALSE   // boolean `false`
+        YES     // answer `yes`
+        NO      // answer `no`
+        constant_end
+	keyword_end = constant_end
 )
 
 var tokens = [...]string{
@@ -151,9 +179,11 @@ var tokens = [...]string{
         DATE:     "DATE",
         TIME:     "TIME",
         URI:      "URI",
+        RAW:      "RAW",
         STRING:   "STRING",
         ESCAPE:   "\\",
         COMPOUND: "COMPOUND",
+
         COMPOSED: "COMPOSED",
         RECIPE:   "RECIPE",
         LINEND:   "\\n", //"LINEND",
@@ -161,67 +191,84 @@ var tokens = [...]string{
 	LPAREN: "(",
 	LBRACK: "[",
 	LBRACE: "{",
+	LCOLON: ":", // the left colon like in $:foo:
 	COMMA:  ",",
 	PERIOD: ".",
         DOTDOT: "..",
-        SELECT: "->",
+        TILDE:  "~",
+        SELECT_PROP: "→", // foo->bar
+        SELECT_PROG: "⇢", // foo=>bar ⇒
 
 	RPAREN:    ")",
 	RBRACK:    "]",
 	RBRACE:    "}",
+	RCOLON:    ":", // the right-paired colon like in $:foo:
+        SEMICOLON: ";",
 
-	COLON:     ":",
-        COLON2:    "::",
         EXC:       "!",
         QUE:       "?",
+
+        BAR:       "|",
+	COLON:     ":",
+        COLON2:    "::",
 
         AT:        "@",
         STAR:      "*",
 
-	AND:      "&",
-        AND_R:    "&/",
-        AND_D:    "&.",
-        AND_A:    "&@",
-        AND_L:    "&<",
-        AND_U:    "&^",
-        AND_S:    "&*",
-        AND_M:    "&-",
-        AND_1:    "&1",
-        AND_2:    "&2",
-        AND_3:    "&3",
-        AND_4:    "&4",
-        AND_5:    "&5",
-        AND_6:    "&6",
-        AND_7:    "&7",
-        AND_8:    "&8",
-        AND_9:    "&9",
+	CLOSURE:      "&",
+        CLOSURE_R:    "&/",
+        CLOSURE_D:    "&.",
+        CLOSURE_A:    "&@",
+        CLOSURE_B:    "&|",
+        CLOSURE_L:    "&<",
+        CLOSURE_U:    "&^",
+        CLOSURE_S:    "&*",
+        CLOSURE_M:    "&-",
+        CLOSURE_P:    "&+",
+        CLOSURE_Q:    "&Q",
+        CLOSURE_1:    "&1",
+        CLOSURE_2:    "&2",
+        CLOSURE_3:    "&3",
+        CLOSURE_4:    "&4",
+        CLOSURE_5:    "&5",
+        CLOSURE_6:    "&6",
+        CLOSURE_7:    "&7",
+        CLOSURE_8:    "&8",
+        CLOSURE_9:    "&9",
+        CLOSURE__:    "&_",
 
-	DOLLAR:      "$",
-        DOLLAR_R:    "$/",
-        DOLLAR_D:    "$.",
-        DOLLAR_A:    "$@",
-        DOLLAR_L:    "$<",
-        DOLLAR_U:    "$^",
-        DOLLAR_S:    "$*",
-        DOLLAR_M:    "$-",
-        DOLLAR_1:    "$1",
-        DOLLAR_2:    "$2",
-        DOLLAR_3:    "$3",
-        DOLLAR_4:    "$4",
-        DOLLAR_5:    "$5",
-        DOLLAR_6:    "$6",
-        DOLLAR_7:    "$7",
-        DOLLAR_8:    "$8",
-        DOLLAR_9:    "$9",
+	DELEGATE:      "$",
+        DELEGATE_R:    "$/",
+        DELEGATE_D:    "$.",
+        DELEGATE_A:    "$@",
+        DELEGATE_B:    "$|",
+        DELEGATE_L:    "$<",
+        DELEGATE_U:    "$^",
+        DELEGATE_S:    "$*",
+        DELEGATE_M:    "$-",
+        DELEGATE_P:    "$+",
+        DELEGATE_Q:    "$?",
+        DELEGATE_1:    "$1",
+        DELEGATE_2:    "$2",
+        DELEGATE_3:    "$3",
+        DELEGATE_4:    "$4",
+        DELEGATE_5:    "$5",
+        DELEGATE_6:    "$6",
+        DELEGATE_7:    "$7",
+        DELEGATE_8:    "$8",
+        DELEGATE_9:    "$9",
+        DELEGATE__:    "$_",
 
         ASSIGN:     "=",
+        SHI_ASSIGN: "=+",
         ADD_ASSIGN: "+=",
         QUE_ASSIGN: "?=",
         EXC_ASSIGN: "!=",
         SCO_ASSIGN: ":=",
         DCO_ASSIGN: "::=",
-
-        ARROW:      "=>",
+        SUB_ASSIGN: "-=",
+        SAD_ASSIGN: "-+=",
+        SSH_ASSIGN: "-=+",
 
         PLUS:  "+",
         MINUS: "-",
@@ -229,15 +276,22 @@ var tokens = [...]string{
 	PERC:  "%",
         
         PROJECT:    "project",
+        PACKAGE:    "package",
         MODULE:     "module",
+        CONFIGURE:  "configure",
+        CONFIGURATION: "configuration",
         USE:        "use",
         EVAL:       "eval",
-        DOCK:       "dock",
         EXPORT:     "export",
         INCLUDE:    "include",
         IMPORT:     "import",
         INSTANCE:   "instance",
         FILES:      "files",
+
+        TRUE:   "true",
+        FALSE:  "false",
+        YES:    "yes",
+        NO:     "no",
 }
 
 func (tok Token) String() (s string) {
@@ -250,10 +304,9 @@ func (tok Token) String() (s string) {
 	return
 }
 
-var keywords map[string]Token
+var keywords = make(map[string]Token)
 
 func init() {
-	keywords = make(map[string]Token)
 	for i := keyword_beg + 1; i < keyword_end; i++ {
 		keywords[tokens[i]] = i
 	}
@@ -271,7 +324,13 @@ func Lookup(ident string) Token {
 func (tok Token) IsLiteral() bool { return literal_beg < tok && tok < literal_end }
 func (tok Token) IsOperator() bool { return operator_beg < tok && tok < operator_end }
 func (tok Token) IsKeyword() bool { return keyword_beg < tok && tok < keyword_end }
+func (tok Token) IsConstant() bool { return constant_beg < tok && tok < constant_end }
 func (tok Token) IsClosure() bool { return closure_beg < tok && tok < closure_end }
 func (tok Token) IsDelegate() bool { return delegate_beg < tok && tok < delegate_end }
 func (tok Token) IsAssign() bool { return assign_beg < tok && tok < assign_end }
 func (tok Token) IsRuleDelim() bool { return ruledelim_beg < tok && tok < ruledelim_end }
+func (tok Token) IsListDelim() bool {
+        return tok.IsRuleDelim() ||
+               tok == RPAREN || tok == RBRACK || tok == RBRACE || tok == RCOLON ||
+               tok == SEMICOLON || tok == COMMA || tok == LINEND || tok == EOF
+}

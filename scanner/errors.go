@@ -9,11 +9,11 @@
 package scanner
 
 import (
-        "github.com/duzy/smart/token"
+        "extbit.io/smart/token"
         "errors"
+	"sort"
 	"fmt"
 	"io"
-	"sort"
 )
 
 // In an Errors, an error is represented by an *Error.
@@ -27,11 +27,19 @@ type Error struct {
 }
 
 // Error implements the error interface.
-func (e Error) Error() string {
+func (e *Error) Error() (s string) {
 	if e.Pos.Filename != "" || e.Pos.IsValid() {
-		return e.Pos.String() + ": " + e.Err.Error()
-	}
-	return e.Err.Error()
+                switch t := e.Err.(type) {
+                case *Error:
+                        //s = fmt.Sprintf("%s: …\n%s", e.Pos, t)
+                        s = fmt.Sprintf("%s\n%s: …", t, e.Pos)
+                default:
+                        s = fmt.Sprintf("%s: %s", e.Pos, e.Err)
+                }
+	} else {
+                s = e.Err.Error()
+        }
+	return
 }
 
 // Errors is a list of *Errors.
@@ -46,13 +54,9 @@ func (p *Errors) Add(pos token.Position, err error) {
                 *p = append(*p, t)
                 *p = append(*p, &Error{pos, errors.New("from here")})
         case *Errors:
-                for _, e := range *t {
-                        *p = append(*p, e)
-                }
+                for _, e := range *t { *p = append(*p, e) }
         case Errors:
-                for _, e := range t {
-                        *p = append(*p, e)
-                }
+                for _, e := range t { *p = append(*p, e) }
         default:
                 *p = append(*p, &Error{pos, err})
         }
@@ -87,9 +91,7 @@ func (p Errors) Less(i, j int) bool {
 // other errors are sorted by error message, and before any *Error
 // entry.
 //
-func (p Errors) Sort() {
-	sort.Sort(p)
-}
+func (p Errors) Sort() { sort.Sort(p) }
 
 // RemoveMultiples sorts an Errors and removes all but the first error per line.
 func (p *Errors) RemoveMultiples() {
@@ -113,6 +115,8 @@ func (p Errors) Error() string {
 		return "no errors"
 	case 1:
 		return p[0].Error()
+        case 2:
+                return fmt.Sprintf("%s (and one more error)", p[0])
 	}
 	return fmt.Sprintf("%s (and %d more errors)", p[0], len(p)-1)
 }
@@ -131,11 +135,50 @@ func (p Errors) Err() error {
 // it prints the err string.
 //
 func PrintError(w io.Writer, err error) {
-	if list, ok := err.(Errors); ok {
-		for _, e := range list {
-			fmt.Fprintf(w, "%s\n", e)
-		}
-	} else if err != nil {
+        switch e := err.(type) {
+        case Errors: for _, i := range e { PrintError(w, i) }
+        /*case *Error:
+                if _, ok := e.Err.(*Error); ok {
+                        fmt.Fprintf(w, "%s: …\n", e.Pos)
+                        PrintError(w, e.Err)
+                } else {
+                        fmt.Fprintf(w, "%s\n", err)
+                }*/
+        default:
 		fmt.Fprintf(w, "%s\n", err)
 	}
+}
+
+func Errorf(pos token.Position, s string, args... interface{}) (err error) {
+        for _, a := range args {
+                switch e := a.(type) {
+                case *Error: panic(e)
+                case Errors: panic(e)
+                }
+        }
+        err = &Error{pos, fmt.Errorf(s, args...)}
+        return
+}
+
+func WrapError(pos token.Position, args ...error) (err error) {
+        var errs Errors
+        for _, a := range args {
+                switch e := a.(type) {
+                case *Error:
+                        errs = append(Errors{e}, errs...)
+                case Errors:
+                        if len(e) == 0 { continue }
+                        var t = &Error{pos, fmt.Errorf("…from here")}
+                        errs = append(append(e, t), errs...)
+                default:
+                        var t = &Error{pos, e}
+                        errs = append(Errors{t}, errs...)
+                }
+        }
+        if n := len(errs); n == 1 {
+                err = errs[0]
+        } else if n > 1 {
+                err = errs
+        }
+        return
 }

@@ -1,0 +1,53 @@
+//
+//  Copyright (C) 2012-2018, Duzy Chan <code@duzy.info>, all rights reserverd.
+//  Use of this source code is governed by a BSD-style license that can be
+//  found in the LICENSE file.
+//
+
+package smart
+
+import (
+        //"encoding/yaml"
+        //"strings"
+        //"io"
+        "fmt"
+)
+
+type YAML struct { Value Value }
+func (p *YAML) refs(_ Value) bool { return false }
+func (p *YAML) closured() bool { return p.Value.closured() }
+func (p *YAML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
+func (p *YAML) Type() Type { return YAMLType }
+func (p *YAML) True() bool { return p.Value.True() }
+func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
+func (p *YAML) Strval() (string, error) { return p.Value.Strval() }
+func (p *YAML) Integer() (int64, error) { return 0, nil }
+func (p *YAML) Float() (float64, error) { return 0, nil }
+func (p *YAML) cmp(v Value) (res cmpres) {
+        if v.Type() == YAMLType {
+                a, ok := v.(*YAML)
+                assert(ok, "value is not YAML")
+                res = p.Value.cmp(a.Value)
+        }
+        return
+}
+
+func DecodeYAML(source string, ws bool) (result Value, err error) {
+        err = fmt.Errorf("DecodeYAML not implemented yet")
+        return 
+}
+
+type _yaml struct {
+        whitespace bool
+}
+
+func (t *_yaml) Evaluate(prog *Program, args []Value) (result Value, err error) {
+        var source string
+        if source, err = joinRecipesString(prog.recipes...); err != nil { return }
+        if result, err = DecodeYAML(source, t.whitespace); err == nil {
+                result = &YAML{ result }
+        } else {
+                result = &YAML{ universalnone }
+        }
+        return
+}
