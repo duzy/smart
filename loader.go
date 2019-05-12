@@ -1276,7 +1276,7 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
 
         // Execute the :use: rule if presented to apply the conditions
         // of using the project.
-        if true {
+        if false {
                 // does nothing
         } else if optionExecuteUseRulesRecursively {
                 if false {
