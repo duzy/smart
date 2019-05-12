@@ -125,6 +125,8 @@ func do_configuration() error {
                                 unreachable()
                         } else if s, err := ctd.Strval(); err != nil {
                                 return err
+                        } else if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+                                return err
                         } else if f, err := os.OpenFile(filepath.Join(s, "configuration.sm"), os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err == nil {
                                 if writer != nil { if err = writer.Flush(); err != nil { return err }}
                                 if file != nil { if err = file.Close(); err != nil { return err }}
