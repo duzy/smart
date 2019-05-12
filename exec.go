@@ -51,6 +51,7 @@ var (
                 errArNoSuchFile,
         }, "|"))
 
+        workingMutex = new(sync.Mutex)
         working atomic.Value // number of working executions
 
         stdmux = &sync.Mutex{}
@@ -600,17 +601,23 @@ ForArgs:
 
                         // Restricts the number of workers.
                         for {
-                                // FIXME: mutex is still needed!
-                                var num = working.Load().(int)
+                                var num int
+                                workingMutex.Lock()
+                                num = working.Load().(int)
                                 if num < maxWorkers {
                                         working.Store(num + 1)
+                                        workingMutex.Unlock()
                                         break
                                 }
+                                workingMutex.Unlock()
                                 time.Sleep(5*time.Millisecond)
                         }
                         defer func() {
-                                var num = working.Load().(int)
+                                var num int
+                                workingMutex.Lock()
+                                num = working.Load().(int)
                                 working.Store(num - 1)
+                                workingMutex.Unlock()
                         } ()
 
                         lockCD(dir, 5*time.Millisecond)
