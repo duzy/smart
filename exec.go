@@ -10,6 +10,7 @@ import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "path/filepath"
+        "sync/atomic"
         "os/exec"
         "strings"
         "strconv"
@@ -50,15 +51,23 @@ var (
                 errArNoSuchFile,
         }, "|"))
 
+        working atomic.Value // number of working executions
+
         stdmux = &sync.Mutex{}
         stdout = &stdWriter{ std:os.Stdout }
         stderr = &stdWriter{ std:os.Stderr }
         dots = []byte("…")
 )
 
+const maxWorkers = 10
+
 type stdWriter struct {
         std io.Writer
         suffixDots bool
+}
+
+func init() {
+        working.Store(0)
 }
 
 func (w *stdWriter) Write(p []byte) (n int, err error) {
@@ -589,7 +598,20 @@ ForArgs:
                                 src = fmt.Sprintf("%s && %s", envstr, src)
                         }
 
-                        //fmt.Printf("exec: %s\n", dir)
+                        // Restricts the number of workers.
+                        for {
+                                // FIXME: mutex is still needed!
+                                var num = working.Load().(int)
+                                if num < maxWorkers {
+                                        working.Store(num + 1)
+                                        break
+                                }
+                                time.Sleep(5*time.Millisecond)
+                        }
+                        defer func() {
+                                var num = working.Load().(int)
+                                working.Store(num - 1)
+                        } ()
 
                         lockCD(dir, 5*time.Millisecond)
                         if s, _ := os.Getwd(); s != dir {
