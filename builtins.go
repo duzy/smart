@@ -2271,7 +2271,7 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
         }
 
         var files []*File
-        if files, err = proj.wildcard(args...); err == nil {
+        if files, err = proj.wildcard(pos, args...); err == nil {
                 var list []Value
                 for _, f := range files {
                         list = append(list, f)

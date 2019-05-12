@@ -216,7 +216,7 @@ func (p *Project) filemaps(imports bool) (filemaps []*FileMap) {
         return
 }
 
-func (p *Project) wildcard(patterns ...Value) (files []*File, err error) {
+func (p *Project) wildcard(pos Position, patterns ...Value) (files []*File, err error) {
         var filemaps = p.filemaps(false)
 ForPats:
         for _, pat := range patterns {
@@ -274,7 +274,10 @@ ForPats:
                                 subfile := filepath.Join(sub, str)
                                 if names, err = filepath.Glob(subfile); err != nil { break ForPats }
                                 if len(names) == 0 {
-                                        fmt.Fprintf(stderr, "%s: no files like '%v' found in %v\n", p.name, fm, sub)
+                                        fmt.Fprintf(stderr, "%s: wildcard '%s' in %s: files like '%v' not found in %v\n", pos, pat, p.name, fm, sub)
+                                        if optionWildcardMissingError {
+                                                err = fmt.Errorf("files like '%v' not found", fm)
+                                        }
                                         continue ForPaths
                                 }
 

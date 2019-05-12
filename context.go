@@ -46,6 +46,9 @@ const (
 
         optionNoDeprecatedFeatures = true
         optionUseImportedProjects = true
+
+        // Return error if wildcard files not found.
+        optionWildcardMissingError = true
 )
 
 type Context struct {

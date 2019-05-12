@@ -148,7 +148,7 @@ func (p *ExecBuffer) parseKnownErrors(pos Position, target string, report bool) 
                 err = scanner.Errorf(token.Position(pos), "%s", m[0][4])
         } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
                 err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", m[0][4], filepath.Base(m[0][1]))
-                if report { fmt.Fprintf(stderr, "%s:%s:%s: `%s` file not found (exec)\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
+                if report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
         } else if m := rxArNoSuchFile.FindAllStringSubmatch(str, -1); m != nil {
                 err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", filepath.Base(m[0][1]), filepath.Base(target))
                 if report { fmt.Fprintf(stderr, "ar: '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
