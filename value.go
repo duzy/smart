@@ -2558,21 +2558,36 @@ func (p *List) dependcompare(c *comparer) (err error) {
 func (p *List) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         var updates, good *breaker
+        /*if pc.entry.Name() == "?" {
+                fmt.Printf("%v: %v %v\n", pc.entry, len(p.Elems), p.Elems)
+                for i, v := range p.Elems {
+                        fmt.Printf("%v:%d: %v\n", pc.entry, i, v)
+                }
+        }*/
         for _, v := range p.Elems {
-                if p, ok := v.(prerequisite); ok {
-                        if err = p.prepare(pc); err == nil { continue }
-                        if br, ok := err.(*breaker); ok {
-                                if br.what == breakUpdates {
-                                        if updates == nil { updates = br } else {
-                                                updates.updated = append(updates.updated, br.updated...)
-                                        }
-                                        err = nil
-                                } else if br.what == breakGood {
-                                        err, good = nil, br
-                                }
-                        }
-                } else {
+                var p, ok = v.(prerequisite)
+                if !ok {
                         err = fmt.Errorf("%s `%s` is not prerequisite", v.Type(), v)
+                        break
+                }
+                if err = p.prepare(pc); err == nil {
+                        // The element target is good!
+                        continue
+                }
+                if br, ok := err.(*breaker); ok {
+                        switch br.what {
+                        case breakUpdates:
+                                if updates == nil { updates = br } else {
+                                        updates.updated = append(updates.updated, br.updated...)
+                                }
+                                err = nil
+                        case breakGood:
+                                err, good = nil, br
+                        case breakDone, breakNext, breakCase:
+                                err = nil
+                        default:
+                                fmt.Printf("%s: %v: %v: %v\n", pc.program.position, pc.entry, br.what, v)
+                        }
                 }
                 if err != nil { break }
         }

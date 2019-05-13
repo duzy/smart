@@ -29,6 +29,19 @@ const (
 
 type breakind int
 
+func (k breakind) String() (s string) {
+        switch k {
+        case breakBad:  s = "break.bad"
+        case breakGood: s = "break.good"
+        case breakUpdates: s = "break.updates"
+        case breakDone: s = "break.done"
+        case breakNext: s = "break.next"
+        case breakCase: s = "break.case"
+        case breakFail: s = "break.fail"
+        }
+        return
+}
+
 const (
         breakBad breakind = iota
         breakGood // good to continue

@@ -299,11 +299,6 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 ctx.stems = caller.stems
         }
 
-        switch entry.Name() {
-        case "gen", "isl_config.h", "isl_srcdir.c":
-                fmt.Printf("execute: %v : %v\n", entry, prog.depends)
-        }
-        
         // Build related project list from derived.
         if owner := entry.OwnerProject(); ctx.derived == nil {
                 ctx.related = append(ctx.related, owner)
