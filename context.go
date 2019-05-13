@@ -48,7 +48,7 @@ const (
         optionUseImportedProjects = true
 
         // Return error if wildcard files not found.
-        optionWildcardMissingError = true
+        optionWildcardMissingError = false
 )
 
 type Context struct {

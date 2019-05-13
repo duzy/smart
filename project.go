@@ -31,6 +31,20 @@ type FileMap struct {
 
 func (filemap *FileMap) String() string { return filemap.Pattern.String() }
 
+func (filemap *FileMap) isRealPattern() (result bool) {
+        switch t := filemap.Pattern.(type) {
+        case Pattern: result = true
+        case *Path:
+                if t.File == nil {
+                        for _, seg := range t.Elems {
+                                _, result = seg.(Pattern)
+                                if result { return }
+                        }
+                }
+        }
+        return
+}
+
 // Match split filename into list and match each part with the pattern correspondingly.
 func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
         matched, pre = globMatch(filemap.Pattern, filename)
@@ -216,7 +230,7 @@ func (p *Project) filemaps(imports bool) (filemaps []*FileMap) {
         return
 }
 
-func (p *Project) wildcard(pos Position, patterns ...Value) (files []*File, err error) {
+func (p *Project) wildcard(pos Position, wo wildcardOpts, patterns ...Value) (files []*File, err error) {
         var filemaps = p.filemaps(false)
 ForPats:
         for _, pat := range patterns {
@@ -266,37 +280,47 @@ ForPats:
                         }
 
                         // Check against paths for non-abs/rel patterns.
-                ForPaths:
                         for _, path := range fm.Paths {
                                 var sub string
-                                if sub, err = path.Strval(); err != nil { break ForPats }
+                                if sub, err = path.Strval(); err != nil {
+                                        break ForPats
+                                }
 
                                 subfile := filepath.Join(sub, str)
-                                if names, err = filepath.Glob(subfile); err != nil { break ForPats }
-                                if len(names) == 0 {
-                                        fmt.Fprintf(stderr, "%s: wildcard '%s' in %s: files like '%v' not found in %v\n", pos, pat, p.name, fm, sub)
-                                        if optionWildcardMissingError {
-                                                err = fmt.Errorf("files like '%v' not found", fm)
-                                        }
-                                        continue ForPaths
+                                if names, err = filepath.Glob(subfile); err != nil {
+                                        break ForPats
                                 }
-
-                                dir := filepath.Dir(subfile)
-                                if !isAbsOrRel(dir) {
-                                        // FIXME: using Getwd()?
-                                        dir = filepath.Join(p.absPath, dir)
-                                }
-
                                 // Chop off path 'sub' prefix to have shorter names
                                 // Aka. trim prefix 'file.Sub+PathSep'
                                 prefix := strings.TrimSuffix(subfile, str)
-                                for _, s := range names {
-                                        name := strings.TrimPrefix(s, prefix)
-                                        file := stat(name, sub, prefix)
-                                        files = append(files, file)
-                                        if enable_assertions {
-                                                assert(file != nil, "`%s` missing (%s)", s, name)
+                                if len(names) > 0 {
+                                        for _, s := range names {
+                                                name := strings.TrimPrefix(s, prefix)
+                                                file := stat(name, sub, prefix)
+                                                files = append(files, file)
+                                                if enable_assertions {
+                                                        assert(file != nil, "`%s` missing (%s)", s, name)
+                                                }
                                         }
+                                } else if ok := fm.isRealPattern(); !ok && wo.optIncludeMissing {
+                                        // If the filemap is not a pattern (e.g. foobar.cpp),
+                                        // we include it in the returning files.
+                                        var name string
+                                        name, err = fm.Pattern.Strval()
+                                        if err != nil { break ForPats }
+
+                                        // Append this non-existed/missing file.
+                                        file := stat(name, sub, prefix, nil)
+                                        files = append(files, file)
+
+                                        if false { fmt.Fprintf(stderr, "%s: %s -> %s\n", pos, pat, file) }
+                                } else if ok {
+                                        // Just report that the pattern matches no files in the
+                                        // file system.
+                                        fmt.Fprintf(stderr, "%s: wildcard '%s' in %s: files like '%v' not found in %v\n", pos, pat, p.name, fm, sub)
+                                } else if optionWildcardMissingError {
+                                        err = fmt.Errorf("files like '%v' not found", fm)
+                                        break ForPats
                                 }
                         }
                 }

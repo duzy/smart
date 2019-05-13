@@ -1959,42 +1959,44 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinSymlink(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
         var va []Value
-        var optForce, optUpdate, optVerbose bool
         var opts = []string{
                 "f,force",
                 "u,update",
                 "v,verbose",
         }
-ForArgs:
-        for _, v := range args {
-                var ( runes []rune ; names []string )
-                switch a := v.(type) {
-                case *Flag:
-                        if runes, names, err = a.opts(opts...); err != nil { return }
-                        a = nil
-                case *Pair:
-                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                if runes, names, err = flag.opts(opts...); err != nil { return }
-                                v = a.Value // use flag value
-                        } else {
+        var optForce, optUpdate, optVerbose bool
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else {
+        ForArgs:
+                for _, v := range args {
+                        var ( runes []rune ; names []string )
+                        switch a := v.(type) {
+                        case *Flag:
+                                if runes, names, err = a.opts(opts...); err != nil { return }
+                                a = nil
+                        case *Pair:
+                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                        if runes, names, err = flag.opts(opts...); err != nil { return }
+                                        v = a.Value // use flag value
+                                } else {
+                                        va = append(va, a)
+                                        continue ForArgs
+                                }
+                        default:
                                 va = append(va, a)
                                 continue ForArgs
                         }
-                default:
-                        va = append(va, a)
-                        continue ForArgs
-                }
-                if enable_assertions {
-                        assert(len(runes) == len(names), "Flag.opts(...) error")
-                }
-                for _, ru := range runes {
-                        switch ru {
-                        case 'f': optForce = trueVal(v, true)
-                        case 'u': optUpdate = trueVal(v, true)
-                        case 'v': optVerbose = trueVal(v, true)
+                        if enable_assertions {
+                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'f': optForce = trueVal(v, true)
+                                case 'u': optUpdate = trueVal(v, true)
+                                case 'v': optVerbose = trueVal(v, true)
+                                }
                         }
                 }
         }
@@ -2261,8 +2263,50 @@ ForArgs:
         return
 }
 
+type wildcardOpts struct {
+        optIncludeMissing bool
+        optVerbose bool
+}
+
 func builtinWildcard(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        var va []Value
+        var wo wildcardOpts
+        var opts = []string{
+                "m,include-missing",
+        }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else {
+        ForArgs:
+                for _, v := range args {
+                        var ( runes []rune ; names []string )
+                        switch a := v.(type) {
+                        case *Flag:
+                                if runes, names, err = a.opts(opts...); err != nil { return }
+                                a = nil
+                        case *Pair:
+                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                        if runes, names, err = flag.opts(opts...); err != nil { return }
+                                        v = a.Value // use flag value
+                                } else {
+                                        va = append(va, a)
+                                        continue ForArgs
+                                }
+                        default:
+                                va = append(va, a)
+                                continue ForArgs
+                        }
+                        if enable_assertions {
+                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'm': wo.optIncludeMissing = trueVal(v, true)
+                                case 'v': wo.optVerbose = trueVal(v, true)
+                                }
+                        }
+                }
+        }
 
         var proj = mostDerived()
         if proj == nil {
@@ -2271,7 +2315,7 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
         }
 
         var files []*File
-        if files, err = proj.wildcard(pos, args...); err == nil {
+        if files, err = proj.wildcard(pos, wo, args...); err == nil {
                 var list []Value
                 for _, f := range files {
                         list = append(list, f)
