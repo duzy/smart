@@ -240,7 +240,10 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                 case Pattern: //*PercPattern:
                         var s string
                         var rest []string
-                        if s, rest, err = a.stencil(prog.pc.stems); err != nil { return }
+                        if s, rest, err = a.stencil(prog.pc.stems); err != nil {
+                                err = scanner.WrapError(token.Position(prog.position), err)
+                                return
+                        }
                         if len(rest) > 0 { panic("FIXME: unhandled stems") }
                         if file := prog.pc.derived.matchFile(s); file != nil {
                                 result = append(result, file)
@@ -322,7 +325,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         // before changes.
         var enterStop *enterec
         if len(cd.stack) > 0 { enterStop = cd.stack[0] }
-        if err = enter(prog, prog.project.absPath); err != nil { return }
+        if err = enter(prog, prog.project.absPath); err != nil {
+                err = scanner.WrapError(token.Position(prog.position), err)
+                return
+        }
         cd.stack[0].silent = !prog.pc.print
 
         // must set execstack after entering project
@@ -354,7 +360,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         default:
                 var name string
                 var target = prog.pc.entry.target
-                if name, err = target.Strval(); err != nil { return }
+                if name, err = target.Strval(); err != nil {
+                        err = scanner.WrapError(token.Position(prog.position), err)
+                        return
+                }
                 if file := prog.project.searchFile(name); file != nil {
                         target = file
                 }
@@ -369,7 +378,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         } ()
         for i, param := range prog.params {
                 var def *Def
-                if def, err = prog.auto(param, universalnone); err != nil { return }
+                if def, err = prog.auto(param, universalnone); err != nil {
+                        err = scanner.WrapError(token.Position(prog.position), err)
+                        return
+                }
                 prog.scope.replace(strconv.Itoa(i+1), def)
                 prog.pc.params = append(prog.pc.params, def)
         }
@@ -401,13 +413,22 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         }
                         argnum += 1
                 }
-                if err != nil { return }
+                if err != nil {
+                        err = scanner.WrapError(token.Position(prog.position), err)
+                        return
+                }
         }
 
         // Expanding all dependencies after pre-modifiers.
         var depends, ordered []Value
-        if depends, err = prog.prerequisites(prog.depends); err != nil { return }
-        if ordered, err = prog.prerequisites(prog.ordered); err != nil { return }
+        if depends, err = prog.prerequisites(prog.depends); err != nil {
+                err = scanner.WrapError(token.Position(prog.position), err)
+                return
+        }
+        if ordered, err = prog.prerequisites(prog.ordered); err != nil {
+                err = scanner.WrapError(token.Position(prog.position), err)
+                return
+        }
         if len(depends) > 0 {
                 prog.pc.dependsDef.append(depends...)
                 prog.pc.depend0Def.append(depends[0])
@@ -426,7 +447,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 if e != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
                         if err == nil { err = e } else {
-                                fmt.Fprintf(stderr, "%s: %s\n", prog.pc.entry.Position, e)
+                                fmt.Fprintf(stderr, "%s: execute: %s\n", prog.pc.entry.Position, e)
                         }
                 }
         } ()
@@ -567,7 +588,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         if /*err == nil &&*/ casebreaks != nil {
                 defer func(brs []*breaker) {
                         if err != nil {
-                                fmt.Fprintf(stderr, "%s: %s\n", prog.pc.entry.Position, err)
+                                fmt.Fprintf(stderr, "%s: pre-exec: %s\n", prog.pc.entry.Position, err)
                         }
                         err = brs[0]
                 } (casebreaks)
@@ -577,7 +598,10 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Updating $^
         pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.dependsDef); err != nil { return }
+        if err = pc.traverseAll(pc.dependsDef); err != nil {
+                err = scanner.WrapError(token.Position(prog.position), err)
+                return
+        }
         if n := len(pc.targets); n == 0 {
                 //if optionTracePrepare { pc.tracef("%v:$^: <none>", pc.entry) }
                 pc.dependsDef.set(DefDefault, universalnone)
@@ -594,7 +618,10 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Updating $|
         pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.orderedDef); err != nil { return }
+        if err = pc.traverseAll(pc.orderedDef); err != nil {
+                err = scanner.WrapError(token.Position(prog.position), err)
+                return
+        }
         if n := len(pc.targets); n == 0 {
                 pc.orderedDef.set(DefDefault, universalnone)
         } else {
@@ -604,7 +631,10 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Updating $~
         pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.greppedDef); err != nil { return }
+        if err = pc.traverseAll(pc.greppedDef); err != nil {
+                err = scanner.WrapError(token.Position(prog.position), err)
+                return
+        }
         if n := len(pc.targets); n == 0 {
                 pc.greppedDef.set(DefDefault, universalnone)
         } else {
@@ -619,20 +649,25 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         if /*err == nil &&*/ casebreaks != nil {
                 defer func(brs []*breaker) {
                         if err != nil {
-                                fmt.Fprintf(stderr, "%s: %s\n", prog.pc.entry.Position, err)
+                                fmt.Fprintf(stderr, "%s: post-exec: %s\n", prog.pc.entry.Position, err)
                         }
                         err = brs[0]
                 } (casebreaks)
-        } else if err != nil || done {
+        } else if err != nil {
+                err = scanner.WrapError(token.Position(prog.position), err)
+                return
+        } else if done {
                 return
         }
 
         if pc.interpreted == nil {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
-                        err = prog.interpret(pc, i, nil)
+                        if err = prog.interpret(pc, i, nil); err != nil {
+                                err = scanner.WrapError(token.Position(prog.position), err)
+                        }
                 } else {
-                        err = fmt.Errorf("no default dialect")
+                        err = scanner.Errorf(token.Position(prog.position), "no default dialect")
                 }
         }
 

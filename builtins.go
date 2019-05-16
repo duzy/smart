@@ -2244,11 +2244,14 @@ ForArgs:
         for _, a := range va {
                 var str string
                 if file, ok := a.(*File); ok {
-                        if !file.exists() && optReportMissing {
+                        list = append(list, file)
+                        if file.exists() { continue }
+                        if optReportMissing {
                                 fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
                         }
                 } else if str, err = a.Strval(); err != nil {
-                        fmt.Fprintf(stderr, "%s: %v", pos, err)
+                        //fmt.Fprintf(stderr, "%s: %v", pos, err)
+                        err = scanner.WrapError(token.Position(pos), err)
                         return
                 } else if file = proj.matchFile(str); file != nil {
                         list = append(list, file)
@@ -2256,7 +2259,8 @@ ForArgs:
                                 fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
                         }
                 } else {
-                        fmt.Fprintf(stderr, "%s: `%v` is not a file (%v)\n", pos, a, proj)
+                        //fmt.Fprintf(stderr, "%s: `%v` is not a file (%v)\n", pos, a, proj)
+                        err = scanner.Errorf(token.Position(pos), "`%v` is not a file", a)
                 }
         }
         res = MakeListOrScalar(list)

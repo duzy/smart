@@ -576,7 +576,7 @@ func (entry *RuleEntry) Name() string {
         if entry == nil {
                 panic("entry is nil")
         } else if entry.target == nil {
-                fmt.Fprintf(stderr, "%v: nil target", entry.Position)
+                fmt.Fprintf(stderr, "%v: nil target\n", entry.Position)
                 panic("entry target is nil")
         }
         s, err := entry.target.Strval()
@@ -638,7 +638,7 @@ ForPrograms:
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
                         case breakFail:
-                                fmt.Fprintf(stderr, "%s: %s\n", br.pos, br.message)
+                                fmt.Fprintf(stderr, "%s: entry.execute: %s\n", br.pos, br.message)
                                 failed, err = true, nil
                         case breakNext: continue ForPrograms
                         case breakCase, breakDone:
@@ -749,7 +749,7 @@ ForPrograms:
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
                         case breakFail:
-                                fmt.Fprintf(stderr, "%s: %s\n", br.pos, br.message)
+                                fmt.Fprintf(stderr, "%s: entry.prepare: %s\n", br.pos, br.message)
                                 failed, err = true, nil
                         case breakNext: continue ForPrograms
                         case breakCase, breakDone:

@@ -2558,23 +2558,15 @@ func (p *List) dependcompare(c *comparer) (err error) {
 func (p *List) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         var updates, good *breaker
-        /*if pc.entry.Name() == "?" {
-                fmt.Printf("%v: %v %v\n", pc.entry, len(p.Elems), p.Elems)
-                for i, v := range p.Elems {
-                        fmt.Printf("%v:%d: %v\n", pc.entry, i, v)
-                }
-        }*/
         for _, v := range p.Elems {
-                var p, ok = v.(prerequisite)
+                var pre, ok = v.(prerequisite)
                 if !ok {
                         err = fmt.Errorf("%s `%s` is not prerequisite", v.Type(), v)
                         break
                 }
-                if err = p.prepare(pc); err == nil {
-                        // The element target is good!
-                        continue
-                }
-                if br, ok := err.(*breaker); ok {
+                if err = pre.prepare(pc); err == nil {
+                        continue // The element target is good!
+                } else if br, ok := err.(*breaker); ok {
                         switch br.what {
                         case breakUpdates:
                                 if updates == nil { updates = br } else {
@@ -2588,10 +2580,13 @@ func (p *List) prepare(pc *preparer) (err error) {
                         default:
                                 fmt.Printf("%s: %v: %v: %v\n", pc.program.position, pc.entry, br.what, v)
                         }
+                } else {
+                        break
                 }
-                if err != nil { break }
         }
-        if updates != nil && err != updates {
+        if err != nil {
+                //fmt.Printf("%s: %v: prepare list error\n", pc.program.position, pc.entry)
+        } else if updates != nil && err != updates {
                 err = updates
         } else if err == nil && good != nil {
                 err = good

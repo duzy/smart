@@ -117,8 +117,9 @@ func (p Errors) Error() string {
 		return p[0].Error()
         case 2:
                 return fmt.Sprintf("%s (and one more error)", p[0])
+        default:
+                return fmt.Sprintf("%s (and %d more errors)", p[0], len(p)-1)
 	}
-	return fmt.Sprintf("%s (and %d more errors)", p[0], len(p)-1)
 }
 
 // Err returns an error equivalent to this error list.

@@ -59,11 +59,26 @@ type breaker struct {
         updated []*updatedtarget
 }
 
-func (p *breaker) Error() string {
-        if p.what == breakUpdates {
-                return fmt.Sprintf("updated %v", p.updated)
+func (p *breaker) Error() (s string) {
+        switch p.what {
+        case breakBad: s = "break baddly"
+        case breakGood: s = "break normally"
+        case breakDone: s = "break conditional"
+        case breakNext: s = "break for next case"
+        case breakCase: s = "break with cases done"
+        case breakFail: s = "break with failure"
+        case breakUpdates:
+                s = "break with updates"
+                p.message = fmt.Sprintf("%v", p.updated)
         }
-        return p.message
+        if p.message != "" {
+                if s == "" {
+                        s = p.message
+                } else {
+                        s += ": " + p.message
+                }
+        }
+        return
 }
 
 func (p *breaker) prerequisites() (res []*updatedtarget) {
