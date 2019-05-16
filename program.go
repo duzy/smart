@@ -581,18 +581,25 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                 }
         } ()
 
-        var casebreaks []*breaker
         var done bool
+        var casebreaks []*breaker
         // Pre-modifying could change $@, $^, $<, $|, etc.
         done, casebreaks, err = pc.preModify(prog)
-        if /*err == nil &&*/ casebreaks != nil {
+        if casebreaks != nil {
+                // RuleEntry.Execute needs to handle breakers.
                 defer func(brs []*breaker) {
                         if err != nil {
-                                fmt.Fprintf(stderr, "%s: pre-exec: %s\n", prog.pc.entry.Position, err)
+                                fmt.Fprintf(stderr, "%s: pre-modify: %s\n", prog.pc.entry.Position, err)
                         }
                         err = brs[0]
                 } (casebreaks)
-        } else if err != nil || done {
+        } else if _, ok := err.(*breaker); ok {
+                // breakNext, breakDone, breakFail
+                return
+        } else if err != nil {
+                err = scanner.WrapErrors(token.Position(prog.position), err)
+                return
+        } else if done {
                 return
         }
 
@@ -646,16 +653,17 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Post modifying
         done, casebreaks, err = pc.postModify(prog)
-        if /*err == nil &&*/ casebreaks != nil {
+        if casebreaks != nil {
+                // RuleEntry.Execute needs to handle breakers.
                 defer func(brs []*breaker) {
                         if err != nil {
-                                //fmt.Fprintf(stderr, "%s: post-exec: %s\n", prog.pc.entry.Position, err)
-                                err = scanner.WrapErrors(token.Position(prog.position), err)
+                                fmt.Fprintf(stderr, "%s: post-modify: %s\n", prog.pc.entry.Position, err)
                         }
-                        for _, br := range brs {
-                                err = scanner.WrapErrors(token.Position(prog.position), br, err)
-                        }
+                        err = brs[0]
                 } (casebreaks)
+        } else if _, ok := err.(*breaker); ok {
+                // breakNext, breakDone, breakFail
+                return
         } else if err != nil {
                 err = scanner.WrapErrors(token.Position(prog.position), err)
                 return

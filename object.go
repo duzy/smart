@@ -629,7 +629,7 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err e
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
-        var failed bool
+        var failed bool // for (assert) failure
 ForPrograms:
         for _, program := range entry.programs {
                 var val Value
@@ -637,11 +637,16 @@ ForPrograms:
                         result = append(result, val)
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
-                        case breakFail:
-                                fmt.Fprintf(stderr, "%s: entry.execute: %s\n", br.pos, br.message)
+                        case breakFail: // (assert) failure
+                                fmt.Fprintf(stderr, "%s: assert: %s\n", br.pos, br.message)
                                 failed, err = true, nil
-                        case breakNext: continue ForPrograms
+                                continue ForPrograms // break ForPrograms
+                        case breakNext: // continue with the next (case)
+                                err = nil
+                                continue ForPrograms
                         case breakCase, breakDone:
+                                // finish (case) or (cond) peacefully
+                                err = nil
                                 break ForPrograms
                         }
                 }

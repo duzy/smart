@@ -63,12 +63,11 @@ func (p *breaker) Error() (s string) {
         switch p.what {
         case breakBad: s = "break baddly"
         case breakGood: s = "break normally"
-        case breakDone: s = "break conditional"
+        case breakDone: s = "break conditional" // ineligible (cond) is ignored
         case breakNext: s = "break for next case"
         case breakCase: s = "break with cases done"
-        case breakFail: s = "break with failure"
-        case breakUpdates:
-                s = "break with updates"
+        case breakFail: s = "break with failure" // 
+        case breakUpdates: s = "break with updates"
                 p.message = fmt.Sprintf("%v", p.updated)
         }
         if p.message != "" {

@@ -104,8 +104,8 @@ func init_configuration(paths searchlist) (err error) {
         return
 }
 
-func do_configuration() error {
-        var ( errs scanner.Errors; project *Project; num int )
+func do_configuration() (err error) {
+        var ( project *Project; num int )
         var reportConfiguredNum = func() {
                 if project != nil {
                         fmt.Fprintf(stderr, "configure: Project %v configured %v items.\n", project.name, num)
@@ -120,36 +120,44 @@ func do_configuration() error {
         } ()
 
         for _, entry := range configuration.entries {
+                var pos = token.Position(entry.Position)
                 if p := entry.OwnerProject(); project != p {
                         if ctd := p.scope.FindDef("CTD"); ctd == nil {
                                 unreachable()
-                        } else if s, err := ctd.Strval(); err != nil {
-                                return err
-                        } else if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-                                return err
-                        } else if f, err := os.OpenFile(filepath.Join(s, "configuration.sm"), os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); err == nil {
-                                if writer != nil { if err = writer.Flush(); err != nil { return err }}
-                                if file != nil { if err = file.Close(); err != nil { return err }}
+                        } else if s, e := ctd.Strval(); e != nil {
+                                err = scanner.WrapErrors(pos, e, err)
+                                return
+                        } else if e = os.MkdirAll(s, os.FileMode(0755)); e != nil {
+                                err = scanner.WrapErrors(pos, e, err)
+                                return
+                        } else if f, e := os.OpenFile(filepath.Join(s, "configuration.sm"), os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); e == nil {
+                                if writer != nil {
+                                        if e = writer.Flush(); e != nil {
+                                                err = scanner.WrapErrors(pos, e, err)
+                                                return
+                                        }
+                                }
+                                if file != nil {
+                                        if e = file.Close(); e != nil {
+                                                err = scanner.WrapErrors(pos, e, err)
+                                                return
+                                        }
+                                }
                                 file, writer = f, bufio.NewWriter(f)
                                 fmt.Fprintf(writer, "# %s (%s) configuration\n", p.name, p.relPath)
                         } else {
-                                return err
+                                err = scanner.WrapErrors(pos, e, err)
+                                return
                         }
                         reportConfiguredNum()
                         fmt.Fprintf(stderr, "configure: Project %s …… (%s)\n", p.name, p.relPath)
                         project, num = p, 0
                 }
 
-                var pos = entry.Position
-                if _, err := entry.Execute(pos); err != nil {
-                        switch e := err.(type) {
-                        case *scanner.Error: errs = append(errs, e)
-                        case scanner.Errors: errs = append(errs, e...)
-                        default: errs = append(errs, &scanner.Error{ token.Position(pos), e })
-                        }
-                } else if s, err := entry.target.Strval(); err != nil {
-                        e := scanner.WrapErrors(token.Position(pos), err)
-                        errs = append(errs, e.(*scanner.Error))
+                if _, e := entry.Execute(entry.Position); e != nil {
+                        err = scanner.WrapErrors(pos, e, err)
+                } else if s, e := entry.target.Strval(); e != nil {
+                        err = scanner.WrapErrors(pos, e, err)
                 } else if def := project.scope.FindDef(s); def != nil {
                         if def.Value == nil {
                                 // Set <nil> value with exec-assigning ('!=')
@@ -161,12 +169,12 @@ func do_configuration() error {
                         }
                         num += 1
                 } else {
-                        e := scanner.Errorf(token.Position(pos), "`%s` unconfigured", s)
-                        errs = append(errs, e.(*scanner.Error))
+                        //e := scanner.Errorf(token.Position(pos), "`%s` unconfigured", s)
+                        e := fmt.Errorf("`%s` unconfigured", s)
+                        err = scanner.WrapErrors(pos, e, err)
                 }
         }
-
-        if len(errs) > 0 { return errs}
+        if err != nil { return }
 
         var executed = make(map[*RuleEntry]bool)
         for _, entry := range configuration.configs {
@@ -175,19 +183,15 @@ func do_configuration() error {
                 } else {
                         executed[entry] = true
                 }
-                var pos = entry.Position
-                if _, err := entry.Execute(pos); err != nil {
-                        switch e := err.(type) {
-                        case *scanner.Error: errs = append(errs, e)
-                        case scanner.Errors: errs = append(errs, e...)
-                        default: errs = append(errs, &scanner.Error{ token.Position(pos), e })
-                        }
+                if _, e := entry.Execute(entry.Position); e != nil {
+                        pos := token.Position(entry.Position)
+                        err = scanner.WrapErrors(pos, e, err)
                 }
         }
         executed = nil
 
         printLeavingDirectory()
-        return errs
+        return
 }
 
 func configinfo(pos Position, str string, args... interface{}) {

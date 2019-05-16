@@ -164,6 +164,7 @@ func Errorf(pos token.Position, s string, args... interface{}) (err error) {
 func WrapErrors(pos token.Position, args ...error) (err error) {
         var errs Errors
         for _, a := range args {
+                if a == nil { continue }
                 switch e := a.(type) {
                 case *Error:
                         errs = append(Errors{e}, errs...)
