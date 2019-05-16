@@ -66,7 +66,7 @@ func (p *breaker) Error() (s string) {
         case breakDone: s = "break conditional" // ineligible (cond) is ignored
         case breakNext: s = "break for next case"
         case breakCase: s = "break with cases done"
-        case breakFail: s = "break with failure" // 
+        case breakFail: s = "assert" // "break with failure"
         case breakUpdates: s = "break with updates"
                 p.message = fmt.Sprintf("%v", p.updated)
         }

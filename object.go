@@ -632,28 +632,25 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err e
         var failed token.Position // for (assert) failure
 ForPrograms:
         for _, program := range entry.programs {
-                var val Value
-                if val, err = program.Execute(entry, a); err == nil {
+                var ( val Value ; e error )
+                if val, e = program.Execute(entry, a); e == nil {
                         result = append(result, val)
-                } else if br, ok := err.(*breaker); ok {
+                } else if br, ok := e.(*breaker); ok {
                         switch br.what {
                         case breakFail: // (assert) failure
-                                fmt.Fprintf(stderr, "%s: assert: %s\n", br.pos, br.message)
-                                failed = token.Position(program.position)
-                                err = nil
+                                failed = token.Position(br.pos)//program.position
+                                err = scanner.WrapErrors(failed, e, err)
                                 continue ForPrograms // break ForPrograms
                         case breakNext: // continue with the next (case)
-                                err = nil
                                 continue ForPrograms
                         case breakCase, breakDone:
                                 // finish (case) or (cond) peacefully
-                                err = nil
                                 break ForPrograms
                         }
                 }
         }
         if err == nil && failed.IsValid() {
-                err = scanner.Errorf(failed, "assertion failed")
+                //err = scanner.Errorf(failed, "assertion failed")
         }
         return
 }
