@@ -241,7 +241,7 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                         var s string
                         var rest []string
                         if s, rest, err = a.stencil(prog.pc.stems); err != nil {
-                                err = scanner.WrapError(token.Position(prog.position), err)
+                                err = scanner.WrapErrors(token.Position(prog.position), err)
                                 return
                         }
                         if len(rest) > 0 { panic("FIXME: unhandled stems") }
@@ -326,7 +326,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         var enterStop *enterec
         if len(cd.stack) > 0 { enterStop = cd.stack[0] }
         if err = enter(prog, prog.project.absPath); err != nil {
-                err = scanner.WrapError(token.Position(prog.position), err)
+                err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
         cd.stack[0].silent = !prog.pc.print
@@ -361,7 +361,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 var name string
                 var target = prog.pc.entry.target
                 if name, err = target.Strval(); err != nil {
-                        err = scanner.WrapError(token.Position(prog.position), err)
+                        err = scanner.WrapErrors(token.Position(prog.position), err)
                         return
                 }
                 if file := prog.project.searchFile(name); file != nil {
@@ -379,7 +379,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         for i, param := range prog.params {
                 var def *Def
                 if def, err = prog.auto(param, universalnone); err != nil {
-                        err = scanner.WrapError(token.Position(prog.position), err)
+                        err = scanner.WrapErrors(token.Position(prog.position), err)
                         return
                 }
                 prog.scope.replace(strconv.Itoa(i+1), def)
@@ -414,7 +414,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         argnum += 1
                 }
                 if err != nil {
-                        err = scanner.WrapError(token.Position(prog.position), err)
+                        err = scanner.WrapErrors(token.Position(prog.position), err)
                         return
                 }
         }
@@ -422,11 +422,11 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         // Expanding all dependencies after pre-modifiers.
         var depends, ordered []Value
         if depends, err = prog.prerequisites(prog.depends); err != nil {
-                err = scanner.WrapError(token.Position(prog.position), err)
+                err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
         if ordered, err = prog.prerequisites(prog.ordered); err != nil {
-                err = scanner.WrapError(token.Position(prog.position), err)
+                err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
         if len(depends) > 0 {
@@ -599,7 +599,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         // Updating $^
         pc.targets = nil // clear the target list
         if err = pc.traverseAll(pc.dependsDef); err != nil {
-                err = scanner.WrapError(token.Position(prog.position), err)
+                err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
         if n := len(pc.targets); n == 0 {
@@ -619,7 +619,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         // Updating $|
         pc.targets = nil // clear the target list
         if err = pc.traverseAll(pc.orderedDef); err != nil {
-                err = scanner.WrapError(token.Position(prog.position), err)
+                err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
         if n := len(pc.targets); n == 0 {
@@ -632,7 +632,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         // Updating $~
         pc.targets = nil // clear the target list
         if err = pc.traverseAll(pc.greppedDef); err != nil {
-                err = scanner.WrapError(token.Position(prog.position), err)
+                err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
         if n := len(pc.targets); n == 0 {
@@ -649,12 +649,15 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
         if /*err == nil &&*/ casebreaks != nil {
                 defer func(brs []*breaker) {
                         if err != nil {
-                                fmt.Fprintf(stderr, "%s: post-exec: %s\n", prog.pc.entry.Position, err)
+                                //fmt.Fprintf(stderr, "%s: post-exec: %s\n", prog.pc.entry.Position, err)
+                                err = scanner.WrapErrors(token.Position(prog.position), err)
                         }
-                        err = brs[0]
+                        for _, br := range brs {
+                                err = scanner.WrapErrors(token.Position(prog.position), br, err)
+                        }
                 } (casebreaks)
         } else if err != nil {
-                err = scanner.WrapError(token.Position(prog.position), err)
+                err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         } else if done {
                 return
@@ -664,7 +667,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
                         if err = prog.interpret(pc, i, nil); err != nil {
-                                err = scanner.WrapError(token.Position(prog.position), err)
+                                err = scanner.WrapErrors(token.Position(prog.position), err)
                         }
                 } else {
                         err = scanner.Errorf(token.Position(prog.position), "no default dialect")

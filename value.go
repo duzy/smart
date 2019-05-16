@@ -507,7 +507,7 @@ func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, 
                 }*/
                 return nil, err, done
         } else {
-                switch e := scanner.WrapError(pos, err).(type) {
+                switch e := scanner.WrapErrors(pos, err).(type) {
                 case *scanner.Error: errs = append(errs, e)
                 case scanner.Errors: errs = append(errs, e...)
                 }
@@ -2810,7 +2810,7 @@ func (p *delegate) reveal() (res Value, err error) {
         case Caller:
                 if res, err = o.Call(p.p, args...); err != nil {
                         if p.o.Name() != "error" {
-                                err = scanner.WrapError(token.Position(p.p), err)
+                                err = scanner.WrapErrors(token.Position(p.p), err)
                         } else {
                                 return
                         }
@@ -2818,7 +2818,7 @@ func (p *delegate) reveal() (res Value, err error) {
         case Executer:
                 if args, err = o.Execute(p.p, args...); err != nil {
                         if p.o.Name() != "error" {
-                                err = scanner.WrapError(token.Position(p.p), err)
+                                err = scanner.WrapErrors(token.Position(p.p), err)
                         } else {
                                 return
                         }

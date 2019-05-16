@@ -161,7 +161,7 @@ func Errorf(pos token.Position, s string, args... interface{}) (err error) {
         return
 }
 
-func WrapError(pos token.Position, args ...error) (err error) {
+func WrapErrors(pos token.Position, args ...error) (err error) {
         var errs Errors
         for _, a := range args {
                 switch e := a.(type) {

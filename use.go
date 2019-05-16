@@ -57,7 +57,7 @@ func (p *using) prepare(pc *preparer) (err error) {
                                         return nil
                                 }
                         }
-                        err = scanner.WrapError(token.Position(entry.Position), err)
+                        err = scanner.WrapErrors(token.Position(entry.Position), err)
                 } else {
                         usingPrepared[p.project] += 1
                 }

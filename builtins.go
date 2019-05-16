@@ -2251,7 +2251,7 @@ ForArgs:
                         }
                 } else if str, err = a.Strval(); err != nil {
                         //fmt.Fprintf(stderr, "%s: %v", pos, err)
-                        err = scanner.WrapError(token.Position(pos), err)
+                        err = scanner.WrapErrors(token.Position(pos), err)
                         return
                 } else if file = proj.matchFile(str); file != nil {
                         list = append(list, file)

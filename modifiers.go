@@ -677,7 +677,7 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
                         var ( v Value ; runes []rune ; names []string )
                         v, runes, names, err = parseOpts(arg, opts)
                         if err != nil {
-                                err = scanner.WrapError(token.Position(pos), err)
+                                err = scanner.WrapErrors(token.Position(pos), err)
                                 return
                         }
                         if v == nil && runes == nil && names == nil {
@@ -853,7 +853,7 @@ func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Val
                         var ( v Value ; runes []rune ; names []string )
                         v, runes, names, err = parseOpts(arg, opts)
                         if err != nil {
-                                err = scanner.WrapError(token.Position(pos), err)
+                                err = scanner.WrapErrors(token.Position(pos), err)
                                 return
                         }
                         if v == nil && runes == nil && names == nil {
@@ -1493,7 +1493,7 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
                         var ( v Value ; runes []rune ; names []string )
                         v, runes, names, err = parseOpts(arg, opts)
                         if err != nil {
-                                err = scanner.WrapError(token.Position(pos), err)
+                                err = scanner.WrapErrors(token.Position(pos), err)
                                 return
                         }
                         if v == nil && runes == nil && names == nil {
@@ -1693,7 +1693,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
                         var ( v Value ; runes []rune ; names []string )
                         v, runes, names, err = parseOpts(arg, opts)
                         if err != nil {
-                                err = scanner.WrapError(token.Position(pos), err)
+                                err = scanner.WrapErrors(token.Position(pos), err)
                                 return
                         }
                         if v == nil && runes == nil && names == nil {
