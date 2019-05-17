@@ -1028,7 +1028,7 @@ ForConfig:
                 if def.Value == nil && i > 0 { break ForConfig }
                 switch arg := a.(type) {
                 case *Pair: // Set def
-                        switch k := arg.Key.(type) {
+                        /*switch k := arg.Key.(type) {
                         case *Bareword:
                                 def, alt := prog.project.scope.Def(prog.project, k.string, universalnone)
                                 if alt != nil {
@@ -1036,7 +1036,8 @@ ForConfig:
                                 }
                                 err = def.set(DefSimple, arg.Value)
                                 if err == nil { continue ForConfig }
-                        }
+                        }*/
+                        err = scanner.Errorf(token.Position(pos), "`%v` is useless for assignment\n", a)
                 case *Argumented:
                         if flag, okay := arg.Val.(*Flag); okay {
                                 name = flag.Name
