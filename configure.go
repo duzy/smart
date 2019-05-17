@@ -395,7 +395,7 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
                 }
                 if len(mems) > 2 {
                         str += " ("
-                        for _, val := range mems[2:] {
+                        for _, val := range mems[3:] {
                                 if p, ok := val.(*Pair); ok {
                                         s, err = p.Key.Strval()
                                         if err != nil { return }
@@ -408,6 +408,32 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
                                                 s, err = p.Value.Strval()
                                                 if err != nil { return }
                                                 str += ", -l" + s
+                                        }
+                                }
+                        }
+                        str += ")"
+                }
+                str += " …"
+                configPrintf(pos, str)
+        case "type":
+                var typs = params[1:]
+                var s string
+                s, err = typs[0].Strval()
+                if err != nil { return }
+                str += "Checking type " + s
+                if len(typs) > 1 {
+                        s, err = typs[1].Strval()
+                        if err != nil { return }
+                        str += " (" + s
+                        for _, lib := range typs[2:] {
+                                if p, ok := lib.(*Pair); ok {
+                                        s, err = p.Key.Strval()
+                                        if err != nil { return }
+                                        switch s {
+                                        case "include":
+                                                s, err = p.Value.Strval()
+                                                if err != nil { return }
+                                                str += ", #include " + s
                                         }
                                 }
                         }
