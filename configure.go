@@ -119,6 +119,7 @@ func do_configuration() (err error) {
                 if file != nil { if err := file.Close(); err != nil {}}
         } ()
 
+        var defs = make(map[string]Value)
         for _, entry := range configuration.entries {
                 var pos = token.Position(entry.Position)
                 if p := entry.OwnerProject(); project != p {
@@ -159,6 +160,10 @@ func do_configuration() (err error) {
                 } else if s, e := entry.target.Strval(); e != nil {
                         err = scanner.WrapErrors(pos, e, err)
                 } else if def := project.scope.FindDef(s); def != nil {
+                        if _, ok := defs[s]; ok {
+                                // already defined
+                                continue
+                        }
                         if def.Value == nil {
                                 // Set <nil> value with exec-assigning ('!=')
                                 // to a None value.
@@ -167,6 +172,7 @@ func do_configuration() (err error) {
                                 vs := elementString(def, def.Value, elemNoBrace)
                                 fmt.Fprintf(writer, "%v = %v\n", def.name, vs)
                         }
+                        defs[s] = def.Value
                         num += 1
                 } else {
                         //e := scanner.Errorf(token.Position(pos), "`%s` unconfigured", s)
