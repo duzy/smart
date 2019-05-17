@@ -194,22 +194,22 @@ func do_configuration() (err error) {
         return
 }
 
-func configinfo(pos Position, str string, args... interface{}) {
+func configPrintf(pos Position, str string, args... interface{}) {
         var debug bool
         if o := configuration.scope.Lookup("DEBUG"); o != nil { debug = o.True() }
         if debug { str = fmt.Sprintf("%v:info: %s", pos, str) }
         fmt.Fprintf(stderr, str, args...)
 }
 
-func configinfon(pos Position, str string, args... interface{}) {
+func configMessageDone(pos Position, str string, args... interface{}) {
         if !strings.HasSuffix(str, "\n") { str += "\n" }
-        configinfo(pos, str, args...)
+        configPrintf(pos, str, args...)
 }
 
-func configinfox(pos Position, fields map[string]Value, args... Value) {
+func configPrintMessageHead(pos Position, fields map[string]Value, args... Value) {
         var str string
         var ints []interface{}
-        if msg, ok := fields["info"]; ok {
+        /*if msg, ok := fields["info"]; ok {
                 str = "configure: "
                 if s, err := msg.Strval(); err == nil && len(s) > 0 {
                         r, size := utf8.DecodeRuneInString(s)
@@ -219,7 +219,7 @@ func configinfox(pos Position, fields map[string]Value, args... Value) {
                                 str += "Checking " + s
                         }
                 }
-        } else if name, ok := fields["name"]; ok {
+        } else */if name, ok := fields["name"]; ok {
                 str = "configure: Checking"
                 if s, err := name.Strval(); err == nil {
                         str += " " + s
@@ -237,47 +237,168 @@ func configinfox(pos Position, fields map[string]Value, args... Value) {
                 if i+1 == len(args) { str += ")" }
         }
         str += " …"
-        configinfo(pos, str, ints...)
+        configPrintf(pos, str, ints...)
 }
 
-func configmessage(pos Position, s string, fields map[string]Value, params... Value) {
-        if _, ok := fields["info"]; ok {
-                configinfox(pos, fields)
+var strStructMember = &String{ "struct member" }
+func configMessageHead(pos Position, name string, fields map[string]Value, params... Value) (err error) {
+        var str = "configure: "
+        if v, ok := fields["info"]; ok {
+                var s string
+                s, err = v.Strval()
+                if err == nil && len(s) > 0 {
+                        r, size := utf8.DecodeRuneInString(s)
+                        if size > 0 && unicode.IsUpper(r) {
+                                str += s
+                        } else {
+                                str += "Checking " + s
+                        }
+                        str += " …"
+                        configPrintf(pos, str)
+                }
                 return
         }
-        switch n := len(params); s {
+        switch n := len(params); name {
         case "if":
-                configinfox(pos, fields, params[0])
+                configPrintMessageHead(pos, fields, params[0])
         case "option":
-                configinfox(pos, fields, params[0])
+                configPrintMessageHead(pos, fields, params[0])
         case "compiles":
-                configinfox(pos, fields, params[0])
+                configPrintMessageHead(pos, fields, params[0])
         case "library":
-                if n == 2 {
-                        s := fmt.Sprintf("%v(%v)", params[0], params[1])
-                        configinfox(pos, fields, &String{s})
+                // Examples:
+                //   -library(foo,func,include='<foo.h>')
+                //   -library(foo,func)
+                //   -library(foobar)
+                // TODO: using this form instead:
+                //   -library(foo [,function=func] [,include='<foo.h>']...)
+                var libs = params[1:]
+                /*str += "Checking "
+                if len(libs) == 1 {
+                        str += "library "
+                } else if len(libs) > 1 {
+                        str += "libraries "
                 } else {
-                        configinfox(pos, fields, params...)
+                        str += "library (but none)"
                 }
-        case "include", "symbol", "function", "package":
-                if n > 2 {
-                        configinfox(pos, fields, params[2])
-                } else {
-                        configinfox(pos, fields, params[0])
+                for i, param := range libs {
+                        var s string
+                        s, err = param.Strval()
+                        if err != nil { return }
+                        if i > 0 { str += "," }
+                        str += s
+                }*/
+                var s string
+                s, err = libs[0].Strval()
+                if err != nil { return }
+                str += "Checking library " + s
+                if len(libs) > 1 {
+                        s, err = libs[1].Strval()
+                        if err != nil { return }
+                        str += " (" + s
+                        for _, lib := range libs[2:] {
+                                if p, ok := lib.(*Pair); ok {
+                                        s, err = p.Key.Strval()
+                                        if err != nil { return }
+                                        if s == "include" {
+                                                s, err = p.Value.Strval()
+                                                if err != nil { return }
+                                                str += ", #include " + s
+                                        }
+                                }
+                        }
+                        str += ")"
                 }
+                str += " …"
+                configPrintf(pos, str)
+        case "include":
+                var incs = params[1:]
+                var s string
+                s, err = incs[0].Strval()
+                if err != nil { return }
+                str += "Checking include " + s
+                str += " …"
+                configPrintf(pos, str)
+        case "symbol":
+                var syms = params[1:]
+                var s string
+                s, err = syms[0].Strval()
+                if err != nil { return }
+                str += "Checking symbol " + s
+                if len(syms) > 1 {
+                        s, err = syms[1].Strval()
+                        if err != nil { return }
+                        str += " (" + s
+                        for _, lib := range syms[2:] {
+                                if p, ok := lib.(*Pair); ok {
+                                        s, err = p.Key.Strval()
+                                        if err != nil { return }
+                                        switch s {
+                                        case "include":
+                                                s, err = p.Value.Strval()
+                                                if err != nil { return }
+                                                str += ", #include " + s
+                                        case "library":
+                                                s, err = p.Value.Strval()
+                                                if err != nil { return }
+                                                str += ", -l" + s
+                                        }
+                                }
+                        }
+                        str += ")"
+                }
+                str += " …"
+                configPrintf(pos, str)
+        case "function":
+                var funcs = params[1:]
+                var s string
+                s, err = funcs[0].Strval()
+                if err != nil { return }
+                str += "Checking function " + s
+                if len(funcs) > 1 {
+                        s, err = funcs[1].Strval()
+                        if err != nil { return }
+                        str += " (" + s
+                        for _, lib := range funcs[2:] {
+                                if p, ok := lib.(*Pair); ok {
+                                        s, err = p.Key.Strval()
+                                        if err != nil { return }
+                                        switch s {
+                                        case "include":
+                                                s, err = p.Value.Strval()
+                                                if err != nil { return }
+                                                str += ", #include " + s
+                                        case "library":
+                                                s, err = p.Value.Strval()
+                                                if err != nil { return }
+                                                str += ", -l" + s
+                                        }
+                                }
+                        }
+                        str += ")"
+                }
+                str += " …"
+                configPrintf(pos, str)
         case "struct-member":
-                fields["name"] = &String{"struct member"}
+                fields["name"] = strStructMember
                 if n >= 2 {
                         s1, _ := params[0].Strval()
                         s2, _ := params[1].Strval()
                         s := fmt.Sprintf("(%s) %s", s1, s2)
-                        configinfox(pos, fields, &String{s})
+                        configPrintMessageHead(pos, fields, &String{s})
                 } else {
-                        configinfox(pos, fields, params[0])
+                        configPrintMessageHead(pos, fields, params[0])
+                }
+        case "package":
+                if n > 2 {
+                        configPrintMessageHead(pos, fields, params[2])
+                } else {
+                        configPrintMessageHead(pos, fields, params[0])
                 }
         default:
-                configinfox(pos, fields, params...)
+                configPrintMessageHead(pos, fields, params...)
         }
+        return
 }
 
 func configureDump(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
@@ -512,27 +633,27 @@ ForArgs:
 
                 if err == nil {
                         if result == nil {
-                                configinfon(pos, "… <nil>")
+                                configMessageDone(pos, "… <nil>")
                         } else if false {
                                 s := elementString(nil, result, elemExpand)
-                                configinfon(pos, "… %v", s)
+                                configMessageDone(pos, "… %v", s)
                         } else {
                                 s, _ := result.Strval()
-                                configinfon(pos, "… %v", s)
+                                configMessageDone(pos, "… %v", s)
                         }
                         return
                 }
                 switch e := err.(type) {
                 case scanner.Errors:
                         if n := len(e); n == 1 {
-                                configinfon(pos, "… (%v, and %d errors)", e[0].Err, len(e))
+                                configMessageDone(pos, "… (%v, and %d errors)", e[0].Err, len(e))
                         } else if n == 2 {
-                                configinfon(pos, "… (%v, and 1 more error)", e[0].Err)
+                                configMessageDone(pos, "… (%v, and 1 more error)", e[0].Err)
                         } else if n > 2 {
-                                configinfon(pos, "… (%v, and %d more errors)", e[0].Err, len(e)-1)
+                                configMessageDone(pos, "… (%v, and %d more errors)", e[0].Err, len(e)-1)
                         }
-                case *scanner.Error: configinfon(pos, "… (%v)", e.Err)
-                default: configinfon(pos, "… (%v).", err)
+                case *scanner.Error: configMessageDone(pos, "… (%v)", e.Err)
+                default: configMessageDone(pos, "… (%v).", err)
                 }
         } ()
 
@@ -542,9 +663,11 @@ ForArgs:
         //   -package
         //   ...
         if config, ok := configurationOps[strName]; ok {
-                configmessage(pos, strName, fields, params...)
-                result, err = config(pos, prog, pipe, params...)
-                if err == nil { configured = true }
+                err = configMessageHead(pos, strName, fields, params...)
+                if err == nil {
+                        result, err = config(pos, prog, pipe, params...)
+                        if err == nil { configured = true }
+                }
                 return
         }
 
@@ -665,8 +788,9 @@ ForArgs:
         delete(fields, "lib")
         delete(fields, "libs")
         */
-        configmessage(pos, strName, fields, params...)
-        configured, result, err = configureEntry(pos, prog, strName, params...)
+        if err = configMessageHead(pos, strName, fields, params...); err == nil {
+                configured, result, err = configureEntry(pos, prog, strName, params...)
+        }
         return 
 }
 
