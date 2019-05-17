@@ -470,7 +470,8 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
 // (configure -xxx(...))
 func configureAction(pos Position, prog *Program, target Value, def, pipe *Def, name Value, args []Value) (configured bool, result Value, err error) {
         var strName string
-        if strName, err = name.Strval(); err != nil { return } else if strName == "" {
+        if strName, err = name.Strval(); err != nil { return }
+        if strName == "" {
                 err = fmt.Errorf("`%v` empty configuration (%T)", name, name)
                 return
         }
@@ -1048,6 +1049,9 @@ ForConfig:
                 }
                 if err == nil && name != nil {
                         configured, value, err = configureAction(pos, prog, target, def, pipe, name, para)
+                        if err != nil {
+                                err = scanner.WrapErrors(token.Position(pos), err)
+                        }
                 } else if err == nil {
                         err = scanner.Errorf(token.Position(pos), ") unknown configure action `%v` (%T)\n", a, a)
                 }
@@ -1059,7 +1063,10 @@ ForConfig:
                         } else {
                                 err = def.set(DefSimple, value)
                         }
-                        if err != nil { return }
+                        if err != nil {
+                                err = scanner.WrapErrors(token.Position(pos), err)
+                                return
+                        }
                         // marking it done (needed for reconfiguring)
                         configuration.done[def] = true
                 }
