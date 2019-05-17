@@ -241,7 +241,7 @@ func configPrintMessageHead(pos Position, fields map[string]Value, args... Value
 }
 
 var strStructMember = &String{ "struct member" }
-func configMessageHead(pos Position, name string, fields map[string]Value, params... Value) (err error) {
+func configMessageHead(pos Position, op string, fields map[string]Value, params... Value) (err error) {
         var str = "configure: "
         if v, ok := fields["info"]; ok {
                 var s string
@@ -258,7 +258,7 @@ func configMessageHead(pos Position, name string, fields map[string]Value, param
                 }
                 return
         }
-        switch n := len(params); name {
+        switch n := len(params); op {
         case "if":
                 configPrintMessageHead(pos, fields, params[0])
         case "option":
@@ -380,15 +380,41 @@ func configMessageHead(pos Position, name string, fields map[string]Value, param
                 str += " …"
                 configPrintf(pos, str)
         case "struct-member":
-                fields["name"] = strStructMember
-                if n >= 2 {
-                        s1, _ := params[0].Strval()
-                        s2, _ := params[1].Strval()
-                        s := fmt.Sprintf("(%s) %s", s1, s2)
-                        configPrintMessageHead(pos, fields, &String{s})
-                } else {
-                        configPrintMessageHead(pos, fields, params[0])
+                // Examples:
+                //   -struct-member('struct stat',st_mtimespec.tv_nsec,include=('<sys/types.h>','<sys/stat.h>'))
+                var mems = params[1:]
+                var s string
+                if len(mems) > 1 {
+                        s, err = mems[0].Strval()
+                        if err != nil { return }
+                        str += "Checking struct member (" + s + ") "
+
+                        s, err = mems[1].Strval()
+                        if err != nil { return }
+                        str += s
                 }
+                if len(mems) > 2 {
+                        str += " ("
+                        for _, val := range mems[2:] {
+                                if p, ok := val.(*Pair); ok {
+                                        s, err = p.Key.Strval()
+                                        if err != nil { return }
+                                        switch s {
+                                        case "include":
+                                                s, err = p.Value.Strval()
+                                                if err != nil { return }
+                                                str += ", #include " + s
+                                        case "library":
+                                                s, err = p.Value.Strval()
+                                                if err != nil { return }
+                                                str += ", -l" + s
+                                        }
+                                }
+                        }
+                        str += ")"
+                }
+                str += " …"
+                configPrintf(pos, str)
         case "package":
                 if n > 2 {
                         configPrintMessageHead(pos, fields, params[2])
