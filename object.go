@@ -629,12 +629,16 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err e
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
                 return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
         }
-        var failed token.Position // for (assert) failure
+
+        // The position where (assert) failed.
+        var failed token.Position
+
 ForPrograms:
         for _, program := range entry.programs {
                 var ( val Value ; e error )
                 if val, e = program.Execute(entry, a); e == nil {
                         result = append(result, val)
+                        continue ForPrograms
                 } else if br, ok := e.(*breaker); ok {
                         switch br.what {
                         case breakFail: // (assert) failure
@@ -648,8 +652,12 @@ ForPrograms:
                                 break ForPrograms
                         }
                 }
+                var pp = program.position
+                err = scanner.WrapErrors(token.Position(pp), e, err)
         }
-        if err == nil && failed.IsValid() {
+        if err != nil {
+                err = scanner.WrapErrors(token.Position(pos), err)
+        } else if failed.IsValid() {
                 //err = scanner.Errorf(failed, "assertion failed")
         }
         return

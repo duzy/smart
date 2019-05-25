@@ -109,17 +109,14 @@ func (p *Errors) RemoveMultiples() {
 }
 
 // An Errors implements the error interface.
-func (p Errors) Error() string {
+func (p Errors) Error() (s string) {
 	switch len(p) {
-	case 0:
-		return "no errors"
-	case 1:
-		return p[0].Error()
-        case 2:
-                return fmt.Sprintf("%s (and one more error)", p[0])
-        default:
-                return fmt.Sprintf("%s (and %d more errors)", p[0], len(p)-1)
+	case  0: s = "no errors"
+	case  1: s = p[0].Error()
+        case  2: s = fmt.Sprintf("%s (and one more error)", p[0])
+        default: s = fmt.Sprintf("%s (and %d more errors)", p[0], len(p)-1)
 	}
+        return
 }
 
 // Err returns an error equivalent to this error list.
@@ -164,14 +161,44 @@ func Errorf(pos token.Position, s string, args... interface{}) (err error) {
 func WrapErrors(pos token.Position, args ...error) (err error) {
         var errs Errors
         for _, a := range args {
+                var duplicated bool
                 if a == nil { continue }
                 switch e := a.(type) {
                 case *Error:
-                        errs = append(Errors{e}, errs...)
+                        if duplicated = pos.Equals(&e.Pos); !duplicated {
+                                for _, t := range errs {
+                                        if pos.Equals(&t.Pos) {
+                                                duplicated = true
+                                                break
+                                        }
+                                }
+                        }
+                        if duplicated {
+                                errs = append(Errors{e}, errs...)
+                        } else {
+                                var t = &Error{pos, fmt.Errorf("…from here")}
+                                errs = append(Errors{e, t}, errs...)
+                        }
                 case Errors:
                         if len(e) == 0 { continue }
-                        var t = &Error{pos, fmt.Errorf("…from here")}
-                        errs = append(append(e, t), errs...)
+                        for _, t := range e {
+                                duplicated = pos.Equals(&t.Pos)
+                                if !duplicated {
+                                        for _, t := range errs {
+                                                if pos.Equals(&t.Pos) {
+                                                        duplicated = true
+                                                        break
+                                                }
+                                        }
+                                }
+                                if duplicated { break }
+                        }
+                        if duplicated {
+                                errs = append(e, errs...)
+                        } else {
+                                var t = &Error{pos, fmt.Errorf("…from here")}
+                                errs = append(append(e, t), errs...)
+                        }
                 default:
                         var t = &Error{pos, e}
                         errs = append(Errors{t}, errs...)
