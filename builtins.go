@@ -31,6 +31,8 @@ type BuiltinFunc func(pos Position, args... Value) (Value, error)
 var builtins = map[string]BuiltinFunc {
         `typeof`:       builtinTypeOf,
 
+        `position`:     builtinPosition,
+
         `error`:        builtinError,
         `warning`:      builtinWarning,
 
@@ -252,6 +254,57 @@ func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
                 elems = append(elems, &String{s})
         }
         return MakeListOrScalar(elems), nil
+}
+
+func builtinPosition(pos Position, args... Value) (res Value, err error) {
+        var vals []Value
+        var opts = []string{
+                "f,filename",
+                "q,quote-filename",
+                "l,line",
+                "c,column",
+        }
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else {
+        ForArgs:
+                for _, v := range args {
+                        var ( runes []rune ; names []string )
+                        switch a := v.(type) {
+                        case *Flag:
+                                if runes, names, err = a.opts(opts...); err != nil { return }
+                                a = nil
+                        case *Pair:
+                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                        if runes, names, err = flag.opts(opts...); err != nil { return }
+                                        v = a.Value // use flag value
+                                } else {
+                                        //va = append(va, a)
+                                        continue ForArgs
+                                }
+                        default:
+                                //va = append(va, a)
+                                continue ForArgs
+                        }
+                        if enable_assertions {
+                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'f': vals = append(vals, &String{pos.Filename})
+                                case 'q': vals = append(vals, &String{"\""+pos.Filename+"\""})
+                                case 'l': vals = append(vals, &Int{integer{int64(pos.Line)}})
+                                case 'c': vals = append(vals, &Int{integer{int64(pos.Column)}})
+                                }
+                        }
+                }
+                if len(vals) > 0 {
+                        res = MakeListOrScalar(vals)
+                } else {
+                        res = &String{pos.String()}
+                }
+        }
+        return
 }
 
 func builtinError(pos Position, args... Value) (res Value, err error) {
