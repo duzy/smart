@@ -12,6 +12,7 @@ import (
         "strconv"
         "sync"
         "fmt"
+        "os"
 )
 
 type dependPatternUnfit struct {
@@ -303,13 +304,13 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         // Build related project list from derived.
-        if owner := entry.OwnerProject(); ctx.derived == nil {
+        /*if owner := entry.OwnerProject(); ctx.derived == nil {
                 ctx.related = append(ctx.related, owner)
         } else if ctx.derived.isa(owner) {
                 ctx.related = append(ctx.related, ctx.derived)
         } else {
                 ctx.related = append(ctx.related, owner, ctx.derived)
-        }
+        }*/
 
         defer func(pc *preparer) { prog.pc = pc } (prog.pc)
         prog.pc = &preparer{program:prog, preparecontext:ctx, print:true}
@@ -455,28 +456,6 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         return prog.pc.exec(prog)
 }
 
-func (pc *preparer) checkUpdates(src error) (err error) {
-        if src != nil {
-                var br, ok = src.(*breaker)
-                if ok && br.what == breakUpdates {
-                        pc.updated = append(pc.updated, br.updated...)
-                        for _, updated := range br.updated {
-                                pc.updatedDef.append(updated.target)
-                        }
-
-                        if len(pc.updated) > 0 {
-                                // switch into update mode
-                                pc.mode = updateMode
-                        } else {
-                                err = pc.checkTargetMode()
-                        }
-                } else {
-                        err = src
-                }
-        }
-        return
-}
-
 func (pc *preparer) checkTargetMode() (err error) {
         // Check (file) target existence
         var s string
@@ -503,7 +482,16 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
         case breakGood:
                 //if optionTracePrepare { pc.trace(tag, "(good)") }
                 err = pc.checkTargetMode()
-        case breakUpdates:
+        case breakModified:
+                for _, m := range br.modified {
+                        t, ok1 := m.target.(*File)
+                        r, ok2 := m.result.(*File)
+                        if ok1 && ok2 {
+                                assert(t.filebase == r.filebase, "two instance for the same file")
+                        }
+                }
+                err = br
+        case breakUpdates: // found prerequiste updates
                 if optionTracePrepare { pc.trace(tag, "(updates)", br.updated) }
 
                 // Collect updates, so that the updated targets could be
@@ -575,9 +563,11 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Defers to collect all updates.
         defer func() {
-                if err == nil && pc.updated != nil {
-                        // Return the updates to caller program.
-                        err = break_updates(prog.position, pc.updated...)
+                if err == nil {
+                        if pc.updated != nil {
+                                // Return the updates to caller program.
+                                err = break_updates(prog.position, pc.updated...)
+                        }
                 }
         } ()
 
@@ -594,7 +584,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                         err = brs[0]
                 } (casebreaks)
         } else if _, ok := err.(*breaker); ok {
-                // breakNext, breakDone, breakFail
+                // breakNext, breakDone, breakFail, breakModified
                 return
         } else if err != nil {
                 err = scanner.WrapErrors(token.Position(prog.position), err)
@@ -605,7 +595,12 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Updating $^
         pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.dependsDef); err != nil {
+        if err = pc.traverseAll(pc.dependsDef); err == nil {
+                // Good!
+        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
+                pc.modified = append(pc.modified, br.modified...)
+                err = nil // reset error
+        } else {
                 err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
@@ -625,7 +620,12 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Updating $|
         pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.orderedDef); err != nil {
+        if err = pc.traverseAll(pc.orderedDef); err == nil {
+                // Good!
+        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
+                pc.modified = append(pc.modified, br.modified...)
+                err = nil // reset error
+        } else {
                 err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
@@ -638,7 +638,12 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
 
         // Updating $~
         pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.greppedDef); err != nil {
+        if err = pc.traverseAll(pc.greppedDef); err == nil {
+                // Good!
+        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
+                pc.modified = append(pc.modified, br.modified...)
+                err = nil // reset error
+        } else {                
                 err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
@@ -662,7 +667,7 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                         err = brs[0]
                 } (casebreaks)
         } else if _, ok := err.(*breaker); ok {
-                // breakNext, breakDone, breakFail
+                // breakNext, breakDone, breakFail, breakModified
                 return
         } else if err != nil {
                 err = scanner.WrapErrors(token.Position(prog.position), err)
@@ -682,19 +687,24 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                 }
         }
 
-        // Update file info.
-        /*if err == nil {
+        // Update file info and timestamp.
+        if false && err == nil {
                 var target Value
                 target, err = prog.pc.targetDef.Call(prog.position)
                 if err != nil { return }
                 if file, ok := target.(*File); ok {
                         fullname := file.FullName()
                         file.info, err = os.Stat(fullname)
+                        context.globe.stamp(fullname, file.info.ModTime())
                 } else if path, ok := target.(*Path); ok && path.File != nil {
                         fullname := path.File.FullName()
                         path.File.info, err = os.Stat(fullname)
+                        context.globe.stamp(fullname, path.File.info.ModTime())
+                } else {
+                        //var file = stat(filename, "", "")
+                        //context.globe.stamp(filename, file.info.ModTime())
                 }
-        }*/
+        }
         return
 }
 

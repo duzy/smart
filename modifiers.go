@@ -33,6 +33,7 @@ func (k breakind) String() (s string) {
         switch k {
         case breakBad:  s = "break.bad"
         case breakGood: s = "break.good"
+        case breakModified: s = "break.modified"
         case breakUpdates: s = "break.updates"
         case breakDone: s = "break.done"
         case breakNext: s = "break.next"
@@ -45,18 +46,29 @@ func (k breakind) String() (s string) {
 const (
         breakBad breakind = iota
         breakGood // good to continue
-        breakUpdates // needs to update
+        breakModified // target modified
+        breakUpdates // needs to update (updated depends)
         breakDone // (cond ...) and (case ...)
         breakNext // (cond ...) and (case ...)
         breakCase // (case ...)
         breakFail // (assert ...)
 )
 
+type modification struct {
+        target Value
+        result Value
+}
+
+func (m *modification) String() string {
+        return m.target.String()
+}
+
 type breaker struct {
         pos Position
         what breakind
         message string
         updated []*updatedtarget
+        modified []*modification
 }
 
 func (p *breaker) Error() (s string) {
@@ -67,6 +79,7 @@ func (p *breaker) Error() (s string) {
         case breakNext: s = "break for next case"
         case breakCase: s = "break with cases done"
         case breakFail: s = "assert" // "break with failure"
+        case breakModified: s = "break with modification"
         case breakUpdates: s = "break with updates"
                 p.message = fmt.Sprintf("%v", p.updated)
         }
@@ -88,19 +101,26 @@ func (p *breaker) prerequisites() (res []*updatedtarget) {
 }
 
 func break_bad(pos Position, s string, a... interface{}) *breaker {
-        return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil }
+        return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil, nil }
 }
 
 func break_good(pos Position, s string, a... interface{}) *breaker {
-        return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil }
+        return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil, nil }
 }
 
+// break with prerequisite updates
 func break_updates(pos Position, v ...*updatedtarget) *breaker {
-        return &breaker{ pos, breakUpdates, "", v }
+        return &breaker{ pos, breakUpdates, "", v, nil }
+}
+
+// break with modified target
+func break_modified(pos Position, old, new Value) *breaker {
+        var m = []*modification{&modification{ old, new }}
+        return &breaker{ pos, breakModified, "", nil, m }
 }
 
 func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
-        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil }
+        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil }
 }
 
 type ModifierFunc func(pos Position, prog *Program, args... Value) (Value, error)
@@ -695,6 +715,13 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
                         }
                 }
                 args = va // reset args
+        }
+
+        // No need to do further comparation if any prerequisites
+        // already modified. We have to update the target if so.
+        if len(prog.pc.modified) > 0 {
+                // Just return to continue with the rest modifiers.
+                return
         }
         
         var target Value
@@ -1808,7 +1835,8 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
                 if _, err = f.WriteString(content); err == nil {
                         var file = stat(filename, "", "")
                         context.globe.stamp(filename, file.info.ModTime())
-                        result = file
+                        err = break_modified(pos, target, file)
+                        result = file // resulting the updated file
                         if optVerbose { fmt.Fprintf(stderr, "… (ok)\n") }
                 } else {
                         os.Remove(filename)

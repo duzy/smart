@@ -257,11 +257,12 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         } else if di != nil {
                 dt = di.ModTime()
         } else {
-                for _, project := range c.program.pc.related {
+                //for _, project := range c.program.pc.related {
+                if project := mostDerived(); project != nil {
                         if t := project.searchFile(ds); t != nil {
                                 d, ds, dt = t, t.FullName(), t.info.ModTime()
                                 if f != nil { *f = *t } // replace the file 
-                                break
+                                //break
                         }
                 }
         }
@@ -277,11 +278,12 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         } else if t := context.globe.timestamp(ts); !t.IsZero() {
                 tt = t
         } else {
-                for _, project := range c.program.pc.related {
+                //for _, project := range c.program.pc.related {
+                if project := mostDerived(); project != nil {
                         if t := project.searchFile(ts); t != nil {
                                 ts, tt = t.FullName(), t.info.ModTime()
                                 if f != nil { *f = *t } // replace the file
-                                break
+                                //break
                         }
                 }
         }
@@ -358,9 +360,10 @@ type preparecontext struct {
         //visitInsteadUpdate bool // target don't really need to update
         args, arguments []Value // target and argumented prerequisite args
         targets []Value // prerequisite targets ($^ $<)
+        modified []*modification // modified prerequisite targets
         updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
         derived *Project // the most derived project
-        related []*Project // the related projects in the context
+        //related []*Project // the related projects in the context
         stems []string // set by StemmedEntry
         level int // prepare/trace level
 }
@@ -488,6 +491,28 @@ func (pc *preparer) traverse(value interface{}) (err error) {
         return
 }
 
+func (pc *preparer) checkUpdates(src error) (err error) {
+        if src != nil {
+                var br, ok = src.(*breaker)
+                if ok && br.what == breakUpdates {
+                        pc.updated = append(pc.updated, br.updated...)
+                        for _, updated := range br.updated {
+                                pc.updatedDef.append(updated.target)
+                        }
+
+                        if len(pc.updated) > 0 {
+                                // switch into update mode
+                                pc.mode = updateMode
+                        } else {
+                                err = pc.checkTargetMode()
+                        }
+                } else {
+                        err = src
+                }
+        }
+        return
+}
+
 func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, error, bool) {
         var pos = token.Position(pc.program.position)
         if br, done := err.(*breaker); done {
@@ -522,20 +547,24 @@ func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, 
 
 func (pc *preparer) updateFile(file *File) (err error) {
         var ( errs scanner.Errors ; done bool )
-        for _, project := range pc.related {
+        /*for _, project := range pc.related {
                 if _, err = project.updateFile(pc, file); err == nil { break }
                 if errs, err, done = pc.updateErrs(errs, err); done { break }
-        }
+        }*/
+        var project = mostDerived()
+        if _, err = project.updateFile(pc, file); err == nil { return }
+        if errs, err, done = pc.updateErrs(errs, err); done {  }
         if errs != nil && err != nil { err = errs }
         return
 }
 
 func (pc *preparer) updateTargetErrs(target string) (errs scanner.Errors) {
-        for _, project := range pc.related {
+        //for _, project := range pc.related {
+        if project := mostDerived(); project != nil {
                 var done bool
                 var err = project.updateTarget(pc, target)
-                if err == nil { /* Good! */ break }
-                if errs, err, done = pc.updateErrs(errs, err); done { break }
+                if err == nil { /* Good! */ return/*break*/ }
+                if errs, err, done = pc.updateErrs(errs, err); done { /*break*/ }
         }
         return
 }
@@ -2273,6 +2302,8 @@ func (p *File) prepare(pc *preparer) (err error) {
         return pc.updateFile(p)
 }
 
+// check pattern depends to find out if all depends are updatable
+// or updated/exists.
 func checkPatternDepends(pc *preparer, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
         if len(prog.depends) == 0 {
                 // Pattern is always good as no depends to check.
@@ -2305,6 +2336,30 @@ func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, pr
         if name, rest, err = pat.stencil(se.Stems); err != nil { return }
         if len(rest) > 0 { panic("FIXME: unhandled stems") }
 
+        // Check entires (and patterns) no matter if the file exists or
+        // or not.
+        var entry *RuleEntry
+        if entry, err = project.resolveEntry(name); err != nil {
+                return
+        } else if entry != nil {
+                return true, nil
+        }
+
+        var ses []*StemmedEntry
+        if ses, err = project.resolvePatterns(name); err != nil {
+                return
+        } else /*if len(ses) > 0*/ {
+        ForPatterns:
+                for _, se := range ses {
+                        for _, prog := range se.programs {
+                                var ok bool
+                                ok, err = checkPatternDepends(pc, project, se, prog)
+                                if !ok { continue ForPatterns }
+                        }
+                        return true, nil
+                }
+        }
+
         // Matches a FileMap (IsKnown(), may exists or not)
         var file = project.searchFile(name)
         if file != nil && file.exists() {
@@ -2317,16 +2372,8 @@ func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, pr
                         return true, nil
                 }
         }
+
         // TODO: check filepath.Join(project.absPath, name)
-
-        var entry *RuleEntry
-        if entry, err = project.resolveEntry(name); err != nil {
-                return
-        } else if entry != nil {
-                return true, nil
-        }
-
-        // TODO: project.resolvePatterns(name)
         return
 }
 
@@ -2557,7 +2604,7 @@ func (p *List) dependcompare(c *comparer) (err error) {
 
 func (p *List) prepare(pc *preparer) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
-        var updates, good *breaker
+        var modified, updates, good *breaker
         for _, v := range p.Elems {
                 var pre, ok = v.(prerequisite)
                 if !ok {
@@ -2568,6 +2615,10 @@ func (p *List) prepare(pc *preparer) (err error) {
                         continue // The element target is good!
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
+                        case breakModified:
+                                if modified == nil { modified = br } else {
+                                        modified.modified = append(modified.modified, br.modified...)
+                                }
                         case breakUpdates:
                                 if updates == nil { updates = br } else {
                                         updates.updated = append(updates.updated, br.updated...)
@@ -2578,7 +2629,7 @@ func (p *List) prepare(pc *preparer) (err error) {
                         case breakDone, breakNext, breakCase:
                                 err = nil
                         default:
-                                fmt.Printf("%s: %v: %v: %v\n", pc.program.position, pc.entry, br.what, v)
+                                fmt.Fprintf(stderr, "%s: list: %v: %v (%v)\n", pc.program.position, pc.entry, v, br.what)
                         }
                 } else {
                         break
@@ -2586,6 +2637,8 @@ func (p *List) prepare(pc *preparer) (err error) {
         }
         if err != nil {
                 //fmt.Printf("%s: %v: prepare list error\n", pc.program.position, pc.entry)
+        } else if modified != nil && err != modified {
+                err = modified
         } else if updates != nil && err != updates {
                 err = updates
         } else if err == nil && good != nil {

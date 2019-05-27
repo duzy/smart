@@ -871,9 +871,9 @@ func (p *StemmedEntry) concrete(pc *preparer, stems []string) (entry *RuleEntry,
                 }
 
                 var proj = pc.derived
-                if proj == nil {
+                /*if proj == nil {
                         proj = pc.related[0]
-                }
+                }*/
 
                 if file := proj.matchFile(name); file != nil {
                         if enable_assertions {
@@ -925,13 +925,12 @@ ForNames:
         // Recover pc.stem when done.
         defer func(ss []string) { pc.stems = ss } (pc.stems)
 
-        // Try preparing target with all stems.
 ForStems:
+        // Try preparing target with all stems.
         for _, stems := range stemsList {
                 var entry *RuleEntry
-                if entry, err = p.concrete(pc, stems); err != nil {
-                        return
-                }
+                entry, err = p.concrete(pc, stems)
+                if err != nil { return }
 
                 pc.stems = stems // set current stem string
                 if err = entry.prepare(pc); err == nil {

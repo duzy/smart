@@ -636,9 +636,7 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
                 pc.addNotExistedTarget1(file)
                 okay = true
                 return
-        }
-
-        if file.match != nil {
+        } else if file.match != nil {
                 if file.searchInMatchedPaths(p) {
                         pc.addNotExistedTarget1(file)
                         okay = true
@@ -670,6 +668,7 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
 }
 
 func (p *Project) updateFileStub(pc *preparer, stub *filestub) (okay bool, err error) {
+        /// Searching entries from the most derived project.
         var entry *RuleEntry
         if entry, err = p.resolveEntry(stub.name); err != nil {
                 return
@@ -678,6 +677,7 @@ func (p *Project) updateFileStub(pc *preparer, stub *filestub) (okay bool, err e
                 return
         }
 
+        /// Searching patterns from the most derived project.
         var ses []*StemmedEntry
         if ses, err = p.resolvePatterns(stub); err != nil {
                 return
