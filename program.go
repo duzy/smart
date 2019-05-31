@@ -286,9 +286,13 @@ func (prog *Program) modifiers() (preModifiers, postModifiers []*modifier) {
         return
 }
 
+// Execute could be nested called, a program.mutex.lock could cause
+// dead-lock.
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
-        prog.mutex.Lock()
-        defer prog.mutex.Unlock()
+        if false {
+                prog.mutex.Lock()
+                defer prog.mutex.Unlock()
+        }
 
         var ctx = preparecontext{
                 group: new(sync.WaitGroup),

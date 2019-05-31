@@ -18,8 +18,8 @@ import (
 var (
         optionHelp = false
         optionClean = false
-        optionReconfig = false
         optionConfigure = false
+        optionReconfig = false
         optionAlwaysBuildPlugins = false
         optionVerbose = false
         optionVerboseUsing = false

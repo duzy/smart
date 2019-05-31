@@ -587,6 +587,8 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 }
         }
 
+        fmt.Printf("update:4: %v ; %T %v\n", pc.entry, target, target)
+
         err = targetNotFoundError{ p, target }
         if optionTracePrepare {
                 pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)

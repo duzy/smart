@@ -499,7 +499,6 @@ func (pc *preparer) checkUpdates(src error) (err error) {
                         for _, updated := range br.updated {
                                 pc.updatedDef.append(updated.target)
                         }
-
                         if len(pc.updated) > 0 {
                                 // switch into update mode
                                 pc.mode = updateMode
@@ -547,10 +546,6 @@ func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, 
 
 func (pc *preparer) updateFile(file *File) (err error) {
         var ( errs scanner.Errors ; done bool )
-        /*for _, project := range pc.related {
-                if _, err = project.updateFile(pc, file); err == nil { break }
-                if errs, err, done = pc.updateErrs(errs, err); done { break }
-        }*/
         var project = mostDerived()
         if _, err = project.updateFile(pc, file); err == nil { return }
         if errs, err, done = pc.updateErrs(errs, err); done {  }
@@ -559,7 +554,6 @@ func (pc *preparer) updateFile(file *File) (err error) {
 }
 
 func (pc *preparer) updateTargetErrs(target string) (errs scanner.Errors) {
-        //for _, project := range pc.related {
         if project := mostDerived(); project != nil {
                 var done bool
                 var err = project.updateTarget(pc, target)
@@ -1799,11 +1793,6 @@ func (p *Path) prepare(pc *preparer) (err error) {
                         pc.addNotExistedTarget1(p) // Append unknown path anyway.
                         err.Err = pathNotFoundError{e.project, p}
                         errs = append(errs, err)
-                        if optionTracePrepare {
-                                //pc.tracef("execstack: %s", execstack)
-                                //pc.tracef("%s: %s", e.project.name, err)
-                                pc.tracef("%s", err)
-                        }
                 } else if p.File.info != nil {
                         if p.File.info.IsDir() {
                                 pc.addNotExistedTarget1(p)
