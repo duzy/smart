@@ -39,6 +39,14 @@ func NewScope(outer *Scope, project *Project, comment string) *Scope {
         return scope
 }
 
+func (s *Scope) copyElems() (result map[string]Object) {
+        s.mutex.Lock()
+        defer s.mutex.Unlock()
+        result = make(map[string]Object, len(s.elems))
+        for k, o := range s.elems { result[k] = o }
+        return
+}
+
 func (s *Scope) Comment() string { return s.comment }
 
 // Outer returns the scope's containing (outer) scope.

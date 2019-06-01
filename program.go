@@ -316,8 +316,45 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 ctx.related = append(ctx.related, owner, ctx.derived)
         }*/
 
-        defer func(pc *preparer) { prog.pc = pc } (prog.pc)
-        prog.pc = &preparer{program:prog, preparecontext:ctx, print:true}
+        var nestedExecution bool
+        if pc := prog.pc; pc != nil {
+                var vals []Value
+                var defs = []*Def{
+                        pc.targetDef,
+                        pc.dependsDef,
+                        pc.depend0Def,
+                        pc.orderedDef,
+                        pc.greppedDef,
+                        pc.updatedDef,
+                        pc.stemDef,
+                        pc.modifyBuf,
+                }
+                for _, def := range defs {
+                        var val Value
+                        if def != nil {
+                                val = def.Value
+                        }
+                        vals = append(vals, val)
+                }
+                //var elems = prog.scope.copyElems()
+                defer func() {
+                        //prog.scope.elems = elems
+                        for i, def := range defs {
+                                if def != nil {
+                                        def.Value = vals[i]
+                                }
+                        }
+                        prog.pc = pc
+                } ()
+                nestedExecution = true
+        } else {
+                defer func() { prog.pc = nil } ()
+        }
+        prog.pc = &preparer{
+                program:prog,
+                preparecontext:ctx,
+                print:true,
+        }
 
         // Flag targets (-foo) turn off printing
         if _, ok := prog.pc.entry.target.(*Flag); ok { prog.pc.print = false }
@@ -457,7 +494,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 }
         } ()
         prog.pc.preModifiers, prog.pc.postModifiers = prog.modifiers()
-        return prog.pc.exec(prog)
+        return prog.pc.exec(prog, nestedExecution)
 }
 
 func (pc *preparer) checkTargetMode() (err error) {
@@ -562,7 +599,7 @@ ForModifiers:
         return
 }
 
-func (pc *preparer) exec(prog *Program) (result Value, err error) {
+func (pc *preparer) exec(prog *Program, nested bool) (result Value, err error) {
         pc.updatedDef.set(DefDefault, universalnone)
 
         // Defers to collect all updates.
@@ -597,68 +634,9 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                 return
         }
 
-        // Updating $^
-        pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.dependsDef); err == nil {
-                // Good!
-        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
-                pc.modified = append(pc.modified, br.modified...)
-                err = nil // reset error
-        } else {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
+        if err = pc.prepareAllPrerequites(prog, nested); err != nil {
                 return
         }
-        if n := len(pc.targets); n == 0 {
-                //if optionTracePrepare { pc.tracef("%v:$^: <none>", pc.entry) }
-                pc.dependsDef.set(DefDefault, universalnone)
-                pc.depend0Def.set(DefDefault, universalnone)
-        } else if n == 1 {
-                //if optionTracePrepare { pc.tracef("%v:$^: %v", pc.entry, pc.targets[0]) }
-                pc.dependsDef.set(DefDefault, pc.targets[0])
-                pc.depend0Def.set(DefDefault, pc.targets[0])
-        } else if n > 1 {
-                //if optionTracePrepare { pc.tracef("%v:$^: (%d) %v", pc.entry, n, pc.targets) }
-                pc.dependsDef.set(DefDefault, MakeList(pc.targets...))
-                pc.depend0Def.set(DefDefault, pc.targets[0])
-        }
-
-        // Updating $|
-        pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.orderedDef); err == nil {
-                // Good!
-        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
-                pc.modified = append(pc.modified, br.modified...)
-                err = nil // reset error
-        } else {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
-                return
-        }
-        if n := len(pc.targets); n == 0 {
-                pc.orderedDef.set(DefDefault, universalnone)
-        } else {
-                if optionTracePrepare { pc.tracef("$|: (%d) %v", n, pc.targets) }
-                pc.orderedDef.set(DefDefault, MakeList(pc.targets...))
-        }
-
-        // Updating $~
-        pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.greppedDef); err == nil {
-                // Good!
-        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
-                pc.modified = append(pc.modified, br.modified...)
-                err = nil // reset error
-        } else {                
-                err = scanner.WrapErrors(token.Position(prog.position), err)
-                return
-        }
-        if n := len(pc.targets); n == 0 {
-                pc.greppedDef.set(DefDefault, universalnone)
-        } else {
-                if optionTracePrepare { pc.tracef("$~: (%d) %v", n, pc.targets) }
-                pc.greppedDef.set(DefDefault, MakeList(pc.targets...))
-        }
-
-        pc.targets = nil // clear the target list
 
         // Post modifying
         done, casebreaks, err = pc.postModify(prog)
@@ -709,6 +687,76 @@ func (pc *preparer) exec(prog *Program) (result Value, err error) {
                         //context.globe.stamp(filename, file.info.ModTime())
                 }
         }
+        return
+}
+
+func (pc *preparer) prepareAllPrerequites(prog *Program, nested bool) (err error) {
+        // Updating $^
+        pc.targets = nil // clear the target list
+        if err = pc.traverseAll(pc.dependsDef, nested); err == nil {
+                // Good!
+        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
+                pc.modified = append(pc.modified, br.modified...)
+                err = nil // reset error
+        } else {
+                err = scanner.WrapErrors(token.Position(prog.position), err)
+                return
+        }
+        if n := len(pc.targets); n == 0 {
+                //if optionTracePrepare { pc.tracef("%v:$^: <none>", pc.entry) }
+                pc.dependsDef.set(DefDefault, universalnone)
+                pc.depend0Def.set(DefDefault, universalnone)
+        } else if n == 1 {
+                //if optionTracePrepare { pc.tracef("%v:$^: %v", pc.entry, pc.targets[0]) }
+                pc.dependsDef.set(DefDefault, pc.targets[0])
+                pc.depend0Def.set(DefDefault, pc.targets[0])
+        } else if n > 1 {
+                //if optionTracePrepare { pc.tracef("%v:$^: (%d) %v", pc.entry, n, pc.targets) }
+                pc.dependsDef.set(DefDefault, MakeList(pc.targets...))
+                pc.depend0Def.set(DefDefault, pc.targets[0])
+        }
+
+        // Updating $|
+        pc.targets = nil // clear the target list
+        if err = pc.traverseAll(pc.orderedDef, nested); err == nil {
+                // Good!
+        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
+                pc.modified = append(pc.modified, br.modified...)
+                err = nil // reset error
+        } else {
+                err = scanner.WrapErrors(token.Position(prog.position), err)
+                return
+        }
+        if n := len(pc.targets); n == 0 {
+                pc.orderedDef.set(DefDefault, universalnone)
+        } else {
+                if optionTracePrepare {
+                        pc.tracef("$|: (%d) %v", n, pc.targets)
+                }
+                pc.orderedDef.set(DefDefault, MakeList(pc.targets...))
+        }
+
+        // Updating $~
+        pc.targets = nil // clear the target list
+        if err = pc.traverseAll(pc.greppedDef, nested); err == nil {
+                // Good!
+        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
+                pc.modified = append(pc.modified, br.modified...)
+                err = nil // reset error
+        } else {                
+                err = scanner.WrapErrors(token.Position(prog.position), err)
+                return
+        }
+        if n := len(pc.targets); n == 0 {
+                pc.greppedDef.set(DefDefault, universalnone)
+        } else {
+                if optionTracePrepare {
+                        pc.tracef("$~: (%d) %v", n, pc.targets)
+                }
+                pc.greppedDef.set(DefDefault, MakeList(pc.targets...))
+        }
+
+        pc.targets = nil // clear the target list
         return
 }
 

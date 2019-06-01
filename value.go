@@ -460,7 +460,7 @@ func (pc *preparer) addNotExistedTargets(targets ...Value) {
         }
 }
 
-func (pc *preparer) traverseAll(value interface{}) (err error) {
+func (pc *preparer) traverseAll(value interface{}, nested bool) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
                         if err = pc.traverse(v.Index(i).Interface()); err == nil {
@@ -479,14 +479,12 @@ func (pc *preparer) traverse(value interface{}) (err error) {
         var pos = token.Position(pc.entry.Position)
         if value == nil {
                 err = scanner.Errorf(pos, "updating nil prerequisite")
-        } else if p, ok := value.(prerequisite); ok {
-                if p != nil {
-                        err = pc.checkUpdates(p.prepare(pc))
-                } else { // this could happen
-                        err = scanner.Errorf(pos, "updating nil prerequisite")
-                }
-        } else {
+        } else if p, ok := value.(prerequisite); !ok {
                 err = scanner.Errorf(pos, "'%v' is not prerequisite", value)
+        } else if p == nil { // this could happen
+                err = scanner.Errorf(pos, "updating nil prerequisite")
+        } else if err = p.prepare(pc); err != nil {
+                err = pc.checkUpdates(err)
         }
         return
 }
@@ -2941,9 +2939,6 @@ func (p *delegate) prepare(pc *preparer) (err error) {
 
         var val Value
         if val, err = p.expand(expandDelegate); err != nil { return }
-        /*for _, d := range merge(val) {
-                if err = pc.traverse(d); err != nil { break }
-        }*/
         err = pc.traverse(val) //err = pc.traverseAll(merge(val))
         return
 }

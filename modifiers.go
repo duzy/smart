@@ -739,8 +739,11 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
         if target, err = targetDef.Call(pos); err != nil {
                 err = break_bad(pos, "comparing %v: %v", targetDef, err)
                 return
-        } else if target == nil || target.Type() == NoneType {
-                err = break_bad(pos, "`%s` target type invalid", target.Type())
+        } else if target == nil {
+                err = break_bad(pos, "comparing nil target")
+                return
+        } else if target.Type() == NoneType {
+                err = break_bad(pos, "comparing 'none' target")
                 return
         }
 
