@@ -263,6 +263,7 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
                 "q,quote-filename",
                 "l,line",
                 "c,column",
+                "a,add", // add value to the last argument
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
@@ -295,6 +296,10 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
                                 case 'q': vals = append(vals, &String{"\""+pos.Filename+"\""})
                                 case 'l': vals = append(vals, &Int{integer{int64(pos.Line)}})
                                 case 'c': vals = append(vals, &Int{integer{int64(pos.Column)}})
+                                case 'a':
+                                        if len(vals) == 0 { break }
+                                        var last, okay = vals[len(vals)-1].(*Int)
+                                        if okay { last.int64 += int64(intVal(v, 0)) }
                                 }
                         }
                 }
