@@ -25,7 +25,7 @@ import (
 )
 
 // Note that it's is also used with Sscanf.
-const errCommandFailedFmt = "smart: Updating `%s' failed (exit status %d)"
+const errCommandFailedFmt = "failed: exit status %d (%s)"
 var (
         defaultShell = "bash"
 
