@@ -664,7 +664,7 @@ ForArgs:
                                         if silent { err = nil }
                                 } else if tag == "" {
                                         if tag = promStr; tag == "" { tag = targetName }
-                                        err = fmt.Errorf(errCommandFailedFmt, tag, exeres.Status)
+                                        err = fmt.Errorf(errCommandFailedFmt, exeres.Status, tag)
                                 } else if v, ok := skips[tag]; !v && !ok && docks != nil {
                                         skips[tag] = true // save it to skip next time
                                         if err = p.runContainer(prog, docks); err == nil {
