@@ -587,9 +587,22 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 }
         }
 
-        err = targetNotFoundError{ p, target }
-        if optionTracePrepare {
-                pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)
+        if len(execstack) > 0 && execstack[0].project.name == "~" {
+                conf := execstack[0].project // configuration targets
+                err = conf.updateTarget(pc, target)
+                if err != nil {
+                        if e, ok := err.(*breaker); ok {
+                                switch e.what {
+                                case breakModified:
+                                        err = nil
+                                }
+                        }
+                }
+        } else {
+                err = targetNotFoundError{ p, target }
+                if optionTracePrepare {
+                        pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)
+                }
         }
         return
 }
