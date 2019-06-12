@@ -489,7 +489,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 if e != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
                         if err == nil { err = e } else {
-                                fmt.Fprintf(stderr, "%s: execute: %s\n", prog.pc.entry.Position, e)
+                                err = scanner.WrapErrors(token.Position(prog.position), err)
                         }
                 }
         } ()

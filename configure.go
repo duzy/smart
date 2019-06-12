@@ -608,6 +608,22 @@ func configurePackage(pos Position, prog *Program, def *Def, args... Value) (res
         return
 }
 
+func scanCommandFailedError(err error) (n, en int, tag string) {
+        switch e := err.(type) {
+        case scanner.Errors:
+                for _, p := range e {
+                        n, en, tag = scanCommandFailedError(p.Err)
+                        if n == 2 { return }
+                }
+        case *scanner.Error:
+                n, en, tag = scanCommandFailedError(e.Err)
+        default:
+                var s = err.Error()
+                n, _ = fmt.Sscanf(s, errCommandFailedFmt, &tag, &en)
+        }
+        return
+}
+
 func configureEntry(pos Position, prog *Program, s string, params... Value) (configured bool, result Value, err error) {
         var res []Value
         var entry *RuleEntry
@@ -616,26 +632,11 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
         } else if entry == nil {
                 err = scanner.Errorf(token.Position(pos), "unknown configuration `%v` (no such entry)", s)
         } else if res, err = prog.passExecution(pos, entry, params...); err != nil {
-                switch e := err.(type) {
-                case scanner.Errors:
-                        var t = scanner.Errors{
-                                scanner.Errorf(token.Position(pos), "configure %v error", s).(*scanner.Error),
-                        }
-                        err = append(t, e...)
-                        return
-                case *scanner.Error:
-                        err = scanner.Errors{
-                                scanner.Errorf(token.Position(pos), "configure %v error", s).(*scanner.Error),
-                                e,
-                        }
-                        return
-                }
-
-                var ( n, en int ; tag string; es = err.Error() )
-                if n, err = fmt.Sscanf(es, errCommandFailedFmt, &tag, &en); err == nil && n == 2 {
+                n, _, _ := scanCommandFailedError(err)
+                if n == 2 {
                         configured, err = true, nil
                 } else {
-                        err = scanner.Errorf(token.Position(pos), "configure %v error", s)
+                        err = scanner.WrapErrors(token.Position(pos), err)
                 }
         } else {
                 if res != nil { result = MakeListOrScalar(res) }
@@ -1195,7 +1196,8 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                         default: err = def.set(DefExpand, value)
                         }
                 } else {
-                        fmt.Fprintf(stderr, "%s: `%v` not configured\n", pos, target)
+                        err = fmt.Errorf("`%v` not configured (%v)", target, value)
+                        err = scanner.WrapErrors(token.Position(pos), err)
                 }
                 return
         }
@@ -1255,7 +1257,10 @@ ForConfig:
                 }
         }
         if !configured {
-                fmt.Fprintf(stderr, "%s: `%v` not configured\n", pos, target)
+                if err == nil {
+                        err = fmt.Errorf("`%v` not configured", target)
+                }
+                err = scanner.WrapErrors(token.Position(pos), err)
         }
         return
 }

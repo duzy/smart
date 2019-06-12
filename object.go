@@ -429,7 +429,6 @@ func (d *Def) Get(name string) (Value, error) {
         case "name": return &String{d.name}, nil
         case "value": return d.Value, nil
         }
-        //fmt.Printf("%v %v\n", d.name, d.parent)
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
 }
 
