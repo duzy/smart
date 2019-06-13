@@ -2365,10 +2365,12 @@ func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, pr
 }
 
 func (p *File) cmp(v Value) (res cmpres) {
-        if v.Type() == FileType {
+        if v != nil && v.Type() == FileType {
                 a, ok := v.(*File)
                 assert(ok, "value is not File")
-                if p.filebase == a.filebase {
+                if a == nil {
+                        //assert(a != nil, "nil file")
+                } else if p.filebase == a.filebase {
                         res = cmpEqual
                 } else if p.FullName() == a.FullName() {
                         s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.FullName())
