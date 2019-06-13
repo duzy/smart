@@ -593,7 +593,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 if err != nil {
                         if e, ok := err.(*breaker); ok {
                                 switch e.what {
-                                case breakModified:
+                                case breakGood, breakModified, breakUpdates:
                                         err = nil
                                 }
                         }
