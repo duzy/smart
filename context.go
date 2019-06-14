@@ -57,7 +57,7 @@ type Context struct {
         prefix  string // FIXME: prefix for distribution
         globe   *Globe
         loader  *loader
-        goals []Value
+        goals   *Def
 }
 
 var context Context
@@ -107,7 +107,7 @@ func (ctx *Context) run() (result []Value, err error) {
         }
 
         var goals []Value
-        for _, goal := range ctx.goals {
+        for _, goal := range merge(ctx.goals.Value) {
                 switch t := goal.(type) {
                 case *Bareword:
                         if entry, err := main.resolveEntry(t.string); err != nil {
@@ -268,6 +268,7 @@ func processCommandOption(flag *Flag, args... Value) (err error) {
 func (ctx *Context) loadCommandArguments(text string) (err error) {
         for _, target := range ctx.loader.loadText("@", text) {
                 switch t := target.(type) {
+                case *None: // ignore
                 case *Flag:
                         if t.Name == nil || t.Name.Type() == NoneType {
                                 // TODO: bare '-'
@@ -292,7 +293,7 @@ func (ctx *Context) loadCommandArguments(text string) (err error) {
                                 fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, ctx.loader.project)
                         }
                 case *Bareword, *delegate:
-                        ctx.goals = append(ctx.goals, t)
+                        ctx.goals.append(t)
                 default:
                         fmt.Fprintf(stderr, "unknown target `%s` (of %T)\n", target, target)
                 }
@@ -313,6 +314,15 @@ func (ctx *Context) loadwork() (err error) {
                 includeFunc: includespec,
                 usefunc:  useProject,
                 scope:    ctx.globe.scope,
+        }
+        ctx.goals = &Def{
+                knownobject{
+                        unknownobject{
+                                scope: ctx.globe.scope,
+                                owner: nil,
+                        }, ":goals:",
+                },
+                DefDefault, universalnone,
         }
 
         if optionVerbose || optionBenchImport {
