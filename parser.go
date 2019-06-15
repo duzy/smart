@@ -479,7 +479,7 @@ func (p *parser) parseSelect(lhs ast.Expr) (res ast.Expr) {
 
         rhs := p.checkExpr(p.parseExpr(false))
         res = &ast.SelectionExpr{ lhs, tok, rhs }
-        if (p.tok == token.SELECT_PROP || p.tok == token.SELECT_PROG) && rhs.End() == p.pos {
+        if (p.tok == token.SELECT_PROP || p.tok == token.SELECT_PROG1 || p.tok == token.SELECT_PROG2) && rhs.End() == p.pos {
                 // Continue the selection recursivly.
                 res = p.parseSelect(res)
         }
@@ -1191,13 +1191,13 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
 	if p.tracing.enabled { defer un(trace(p, "Composed")) }
 
         switch x = p.parseUnaryExpr(lhs); p.tok { // check composible expressions
-        case token.SELECT_PROP, token.SELECT_PROG: // foo->bar  foo=>bar
+        case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
                 if p.bits&composingNoSelect == 0 {
                         if x.End() == p.pos { // accepts 'foo=>bar', but 'foo => bar' is different
                                 x = p.parseSelect(x); break
                         }
                 }
-                if p.tok == token.SELECT_PROG /*&& p.bits&composingNoPair == 0*/ {
+                if (p.tok == token.SELECT_PROG1 || p.tok == token.SELECT_PROG2) /*&& p.bits&composingNoPair == 0*/ {
                         /*if x.End() < p.pos {
                                 x = p.parseKeyValueExpr(x); break
                         }*/
@@ -1243,7 +1243,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                         if !lhs && p.bits&composingNoPair == 0 {
                                 x = p.parseKeyValueExpr(x)
                         }
-                case token.SELECT_PROG:
+                case token.SELECT_PROG1, token.SELECT_PROG2:
                         if p.bits&composingNoPair == 0 {
                                 x = p.parseKeyValueExpr(x)
                         }

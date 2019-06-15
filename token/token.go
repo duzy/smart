@@ -51,7 +51,8 @@ const (
         DOTDOT    // ..
 	TILDE     // ~
         SELECT_PROP // -> 'foo→xxx' (different from ' → ')
-        SELECT_PROG // => 'foo⇢xxx' 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
+        SELECT_PROG1 // => 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
+        SELECT_PROG2 // ~> 'foo⇢xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
         // ⤌ ⤍	⤎ ⤏	⤐	⤑
 
 	RPAREN    // )
@@ -197,7 +198,8 @@ var tokens = [...]string{
         DOTDOT: "..",
         TILDE:  "~",
         SELECT_PROP: "→", // foo->bar
-        SELECT_PROG: "⇢", // foo=>bar ⇒
+        SELECT_PROG1: "⇒", // foo=>bar foo⇒bar
+        SELECT_PROG2: "⇢", // foo~>bar foo⇢bar
 
 	RPAREN:    ")",
 	RBRACK:    "]",

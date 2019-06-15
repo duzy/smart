@@ -1039,11 +1039,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                         }
                                 }
                         }
-                case '⇢', '⇒': // '↦', '↣'
-                        tok = token.SELECT_PROG
+                case '⇒': // =>
+                        tok = token.SELECT_PROG1
+                case '⇢': // ~>
+                        tok = token.SELECT_PROG2
                 case '=':
-                        if s.ch == '>' {
-                                tok = token.SELECT_PROG
+                        if s.ch == '>' { // =>
+                                tok = token.SELECT_PROG1
                                 s.next() // concume the '>'
                         } else if s.ch == '+' {
                                 tok = token.SHI_ASSIGN
@@ -1070,8 +1072,13 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         tok = token.COMMA
                         s.skipPostLineFeeds = true
                 case '~':
-                        tok = token.TILDE
-                        s.skipPostLineFeeds = false
+                        if s.ch == '>' { // ~>
+                                tok = token.SELECT_PROG2
+                                s.next() // concume the '>'
+                        } else {
+                                tok = token.TILDE
+                                s.skipPostLineFeeds = false
+                        }
                 case '.':
                         if tok = token.PERIOD; s.ch == '.' {
                                 tok = token.DOTDOT

@@ -785,14 +785,22 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
                         l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
                         return
                 } else if o == nil {
-                        l.parser.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                        if x.Tok == token.SELECT_PROG2 {
+                                v = universalnil // ignore
+                        } else {
+                                l.parser.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                        }
                         return
                 } else {
                         obj = o
                 }
         }
         if prop := l.expr(x.Rhs); prop == nil {
-                l.parser.error(x.Rhs.Pos(), "`%s` invalid property expression (%T)", x, x.Rhs)
+                if x.Tok == token.SELECT_PROG2 {
+                        v = universalnil // ignore
+                } else {
+                        l.parser.error(x.Rhs.Pos(), "`%s` invalid property expression (%T)", x, x.Rhs)
+                }
         } else {
                 v = &selection{ x.Tok, obj, prop }
         }
