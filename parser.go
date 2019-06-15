@@ -2199,12 +2199,6 @@ func (p *parser) parseFile() *ast.File {
 
                 var params []Value
                 if p.tok == token.LPAREN {
-                        /*value, err := p.eval(p.parseGroupExpr(false), StringValue)
-                        if err == nil {
-                                params = value.(*Group).Elems
-                        } else {
-                                p.error(p.pos, err)
-                        }*/
                         params = p.expr(p.parseGroupExpr(false)).(*Group).Elems
                 }
 

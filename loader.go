@@ -127,6 +127,7 @@ type loader struct {
         tracing // tracing/debugging
         fset     *token.FileSet
         paths    searchlist
+        loadArgs []Value
         loads    []*loadinfo
         loaded   map[string]*Project // loaded projects
         usePath []*Project // use path
@@ -1739,20 +1740,39 @@ func (l *loader) closeScope(ls loaderScope) {
         return
 }
 
-func (l *loader) loadProjectBases(linfo *loadinfo, params []Value) (err error) {
+func (l *loader) setArgs(args []Value) (oldArgs []Value) {
+        oldArgs = l.loadArgs
+        l.loadArgs = args
+        return
+}
+
+func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
         var isDir bool
         var absPath, specName string
+
+        // For &(foobar) set from loadArgs
+        defer setclosure(setclosure(cloctx.unshift(l.project.scope)))
+
         ParamsLoop: for _, elem := range params {
+                var args []Value
+                if arged, ok := elem.(*Argumented); ok {
+                        elem, args = arged.Val, arged.Args
+                }
+
                 if specName, err = elem.Strval(); err != nil { return }
+                if specName == "" {
+                        err = fmt.Errorf("%v: empty base name `%v` (%T)", l.project, elem, elem)
+                        break ParamsLoop
+                }
                 if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
                         break ParamsLoop
                 }
 
                 var hasConfDir bool
                 if isDir {
-                        hasConfDir, err = l.loadDir(specName, absPath, nil)
+                        hasConfDir, err = l.loadDirWithArgs(specName, absPath, args, nil)
                 } else {
-                        err = l.load(specName, absPath, nil)
+                        err = l.loadWithArgs(specName, absPath, args, nil)
                 }
 
                 // chain loaded base project, note that err might not be nil
@@ -1762,7 +1782,7 @@ func (l *loader) loadProjectBases(linfo *loadinfo, params []Value) (err error) {
                         err = fmt.Errorf("`%v` base on configuration. (%T, %s)", elem, elem, absPath)
                         break ParamsLoop
                 } else {
-                        err = fmt.Errorf("project `%v` not loaded. (%T, %s)", elem, elem, absPath)
+                        err = fmt.Errorf("project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath)
                         break ParamsLoop
                 }
 
@@ -1893,13 +1913,29 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         return
                 }
         }
+        for _, arg := range merge(l.loadArgs...) {
+                switch t := arg.(type) {
+                case *Pair:
+                        var name string
+                        name, err = t.Key.Strval()
+                        if err != nil { return }
+
+                        var def, alt = l.def(name)
+                        if alt != nil {
+                                def, _ = alt.(*Def)
+                        }
+                        if def != nil {
+                                def.set(DefDefault, t.Value)
+                        }
+                }
+        }
 
         if err = l.loadPlugin(); err != nil { return }
 
         // no bases or docking for external packages
         if keyword == token.PACKAGE { return }
         if !optFinal {
-                err = l.loadProjectBases(linfo, bases)
+                err = l.loadBases(linfo, bases)
                 if err != nil { return }
         }
 
@@ -2434,6 +2470,16 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
                 err = fmt.Errorf("`%s` not loaded (%s)", specName, absDir)
         }
         return
+}
+
+func (l *loader) loadWithArgs(specName, absPath string, args []Value, source interface{}) (err error) {
+        defer l.setArgs(l.setArgs(args))
+        return l.load(specName, absPath, source)
+}
+
+func (l *loader) loadDirWithArgs(specName, absPath string, args []Value, filter func(os.FileInfo) bool) (hasConfDir bool, err error) {
+        defer l.setArgs(l.setArgs(args))
+        return l.loadDir(specName, absPath, filter)
 }
 
 func (l *loader) loadFile(filename string, source interface{}) error {
