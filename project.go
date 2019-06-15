@@ -535,6 +535,16 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
 }
 
 func (p *Project) updateTarget(pc *preparer, target string) (err error) {
+        if obj := p.scope.Lookup(target); obj != nil {
+                if pn, ok := obj.(*ProjectName); ok {
+                        var entry = pn.project.DefaultEntry()
+                        if entry != nil {
+                                err = pc.traverse(entry)
+                        }
+                        return
+                }
+        }
+
         if file := p.matchFile(target); file != nil {
                 if enable_assertions {
                         assert(file.match != nil, "`%s` nil match", target)
