@@ -77,7 +77,7 @@ func (m *modifier) String() (s string) {
 
 type Program struct {
         mutex *sync.Mutex // execution mutex
-        pc *preparer // current prepare context
+        pc *traversal // current prepare context
         project *Project
         scope   *Scope
         params  []string
@@ -85,7 +85,7 @@ type Program struct {
         ordered []Value
         recipes []Value
         pipline []*modifier
-        callers []*preparecontext
+        callers []*traversecontext
         position Position
         changedWD string
 }
@@ -129,7 +129,7 @@ func (prog *Program) waitForPrerequisites() (err error) {
         return
 }
 
-func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err error) {
+func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (err error) {
         var mode = prog.pc.mode
         if prog.scope.comment != usecomment {
                 if len(prog.depends) == 0 {
@@ -168,7 +168,7 @@ func (prog *Program) interpret(pc *preparer, i interpreter, params []Value) (err
         return
 }
 
-func (prog *Program) modify(pc *preparer, m *modifier, post bool) (err error) {
+func (prog *Program) modify(pc *traversal, m *modifier, post bool) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
@@ -294,7 +294,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 defer prog.mutex.Unlock()
         }
 
-        var ctx = preparecontext{
+        var ctx = traversecontext{
                 group: new(sync.WaitGroup),
                 entry: entry,
                 args: args,
@@ -350,9 +350,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         } else {
                 defer func() { prog.pc = nil } ()
         }
-        prog.pc = &preparer{
+        prog.pc = &traversal{
                 program:prog,
-                preparecontext:ctx,
+                traversecontext:ctx,
                 print:true,
         }
 
@@ -497,7 +497,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         return prog.pc.exec(prog, nestedExecution)
 }
 
-func (pc *preparer) checkTargetMode() (err error) {
+func (pc *traversal) checkTargetMode() (err error) {
         // Check (file) target existence
         var s string
         if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
@@ -515,7 +515,7 @@ func (pc *preparer) checkTargetMode() (err error) {
         return
 }
 
-func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done bool, err error) {
+func (pc *traversal) checkMode4Breaker(tag string, name Value, br *breaker) (done bool, err error) {
         switch tag = fmt.Sprintf("(%s) %s:", tag, name); br.what {
         case breakBad:
                 if optionTracePrepare { pc.trace(tag, "(bad)", br.message) }
@@ -551,7 +551,7 @@ func (pc *preparer) checkMode4Breaker(tag string, name Value, br *breaker) (done
         return
 }
 
-func (pc *preparer) preModify(prog *Program) (done bool, casebreaks []*breaker, err error) {
+func (pc *traversal) preModify(prog *Program) (done bool, casebreaks []*breaker, err error) {
 ForModifiers:
         for _, m := range pc.preModifiers {
                 if m.name == modifierbar { continue }
@@ -575,7 +575,7 @@ ForModifiers:
         return
 }
 
-func (pc *preparer) postModify(prog *Program) (done bool, casebreaks []*breaker, err error) {
+func (pc *traversal) postModify(prog *Program) (done bool, casebreaks []*breaker, err error) {
 ForModifiers:
         for _, m := range pc.postModifiers {
                 if m.name == modifierbar { continue }
@@ -599,7 +599,7 @@ ForModifiers:
         return
 }
 
-func (pc *preparer) exec(prog *Program, nested bool) (result Value, err error) {
+func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) {
         pc.updatedDef.set(DefDefault, universalnone)
 
         // Defers to collect all updates.
@@ -634,7 +634,7 @@ func (pc *preparer) exec(prog *Program, nested bool) (result Value, err error) {
                 return
         }
 
-        if err = pc.prepareAllPrerequites(prog, nested); err != nil {
+        if err = pc.traversePrerequites(prog, nested); err != nil {
                 return
         }
 
@@ -690,7 +690,7 @@ func (pc *preparer) exec(prog *Program, nested bool) (result Value, err error) {
         return
 }
 
-func (pc *preparer) prepareAllPrerequites(prog *Program, nested bool) (err error) {
+func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error) {
         // Updating $^
         pc.targets = nil // clear the target list
         if err = pc.traverseAll(pc.dependsDef, nested); err == nil {

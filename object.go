@@ -181,12 +181,12 @@ func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
         return
 }
 
-func (p *ProjectName) prepare(pc *preparer) (err error) {
+func (p *ProjectName) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         var defent = p.project.DefaultEntry()
         if defent != nil && defent.class != UseRuleEntry {
-                err = defent.prepare(pc)
+                err = defent.traverse(pc)
         }
         return
 }
@@ -438,10 +438,10 @@ func (d *Def) dependcompare(c *comparer) error {
         return c.compareDepend(d.Value)
 }
 
-func (d *Def) prepare(pc *preparer) (err error) {
+func (d *Def) traverse(pc *traversal) (err error) {
         if d.Value != nil {
                 if p, ok := d.Value.(prerequisite); ok {
-                        err = p.prepare(pc)
+                        err = p.traverse(pc)
                 } else {
                         err = fmt.Errorf("%s: %s '%s' is not prerequisite", d.name, d.Value.Type(), d.Value)
                 }
@@ -747,7 +747,7 @@ func (entry *RuleEntry) dependcompare(c *comparer) (err error) {
         return c.compareDepend(entry.target)
 }
 
-func (entry *RuleEntry) prepare(pc *preparer) (err error) {
+func (entry *RuleEntry) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, entry.target)) }
         var failed bool
 ForPrograms:
@@ -847,7 +847,7 @@ func (p *StemmedEntry) String() (s string) {
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
 
-func (p *StemmedEntry) concrete(pc *preparer, stems []string) (entry *RuleEntry, err error) {
+func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry, err error) {
         entry = new(RuleEntry)
         *entry = *p.RuleEntry // copy RuleEntry bits
 
@@ -889,7 +889,7 @@ func (p *StemmedEntry) concrete(pc *preparer, stems []string) (entry *RuleEntry,
         return
 }
 
-func (p *StemmedEntry) prepare(pc *preparer) (err error) {
+func (p *StemmedEntry) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         var names = []string{ p.target }
@@ -932,7 +932,7 @@ ForStems:
                 if err != nil { return }
 
                 pc.stems = stems // set current stem string
-                if err = entry.prepare(pc); err == nil {
+                if err = entry.traverse(pc); err == nil {
                         break ForStems // Good!
                 } else if ute, ok := err.(targetNotFoundError); ok {
                         if optionTracePrepare { pc.trace("stemmed: unknown target:", ute.target) }

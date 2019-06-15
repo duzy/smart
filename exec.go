@@ -497,7 +497,7 @@ ForArgs:
 
         printEnteringDirectory()
 
-        var caller *preparecontext
+        var caller *traversecontext
         var run = func() {
                 if caller != nil {
                         defer func() {

@@ -84,10 +84,12 @@ type pathNotFoundError struct { project *Project; path *Path }
 type fileNotFoundError struct { project *Project; file *File }
 
 func (e targetNotFoundError) Error() string {
+        if false { debug.PrintStack() }
         return fmt.Sprintf("%s: `%v` target not found", e.project.name, e.target)
 }
 
 func (e pathNotFoundError) Error() string {
+        if false { debug.PrintStack() }
         return fmt.Sprintf("%s: `%v` path not found", e.project.name, e.path)
 }
 
@@ -98,6 +100,7 @@ func (e fileNotFoundError) Error() string {
 
 func report(err error) error {
         if err != nil {
+                if false { debug.PrintStack() }
                 scanner.PrintError(stderr, err)
         }
         return err

@@ -10,6 +10,7 @@ import (
         "extbit.io/smart/token"
         "crypto/sha256"
         "path/filepath"
+        "runtime/debug"
         "strings"
         "plugin"
         "bytes"
@@ -534,7 +535,7 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
         return
 }
 
-func (p *Project) updateTarget(pc *preparer, target string) (err error) {
+func (p *Project) updateTarget(pc *traversal, target string) (err error) {
         if obj := p.scope.Lookup(target); obj != nil {
                 if pn, ok := obj.(*ProjectName); ok {
                         var entry = pn.project.DefaultEntry()
@@ -586,7 +587,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
         if ses, err = p.resolvePatterns(target); err == nil {
                 for _, se := range ses {
                         se.target = target // Bounds StemmedEntry with the source.
-                        if err = se.prepare(pc); err == nil {
+                        if err = se.traverse(pc); err == nil {
                                 return // Updated successfully!
                         } else if _, ok := err.(patternPrepareError); ok {
                                 // Discard pattern unfit errors and caller stack.
@@ -597,11 +598,13 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 }
         }
 
-        if len(execstack) > 0 && execstack[0].project.name == "~" {
-                conf := execstack[0].project // configuration targets
-                err = conf.updateTarget(pc, target)
+        assert(len(execstack) > 0, "empty execstack");
+
+        var current = execstack[0].project
+        if current != p /*&& current.name == "~"*/ {
+                err = current.updateTarget(pc, target)
                 if err != nil {
-                        if e, ok := err.(*breaker); ok {
+                        if e, ok := err.(*breaker); ok && current.name == "~" {
                                 switch e.what {
                                 case breakGood, breakModified, breakUpdates:
                                         err = nil
@@ -610,6 +613,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
                 }
         } else {
                 err = targetNotFoundError{ p, target }
+                if false { debug.PrintStack() }
                 if optionTracePrepare {
                         pc.tracef("%s: `updateTarget(%s)` not found", p.name, target)
                 }
@@ -617,7 +621,7 @@ func (p *Project) updateTarget(pc *preparer, target string) (err error) {
         return
 }
 
-func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
+func (p *Project) updateFile(pc *traversal, file *File) (okay bool, err error) {
         var names = make(map[string]bool)
         for stub := file.filestub; true; stub = stub.other {
                 names[stub.name] = true // mark to avoid retrying later
@@ -681,22 +685,34 @@ func (p *Project) updateFile(pc *preparer, file *File) (okay bool, err error) {
                 }
         }
         */
+        assert(len(execstack) > 0, "empty execstack");
 
-        err = fileNotFoundError{p, file}
-        if optionTracePrepare {
-                //pc.tracef("execstack: %s", execstack)
-                pc.tracef("%s: `updateFile({%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
+        var current = execstack[0].project
+        if current != p {
+                okay, err = current.updateFile(pc, file)
+                if okay {
+                        //err = nil
+                } else if err != nil {
+                        // ...
+                }
+        } else {
+                err = fileNotFoundError{p, file}
+                if false { debug.PrintStack() }
+                fmt.Printf("execstack: %v\n", execstack)
+                if optionTracePrepare {
+                        pc.tracef("%s: `updateFile({%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
+                }
         }
         return
 }
 
-func (p *Project) updateFileStub(pc *preparer, stub *filestub) (okay bool, err error) {
+func (p *Project) updateFileStub(pc *traversal, stub *filestub) (okay bool, err error) {
         /// Searching entries from the most derived project.
         var entry *RuleEntry
         if entry, err = p.resolveEntry(stub.name); err != nil {
                 return
         } else if entry != nil {
-                err, okay = entry.prepare(pc), true
+                err, okay = entry.traverse(pc), true
                 return
         }
 
@@ -716,7 +732,7 @@ ForPatterns:
                         if !ok { continue ForPatterns }
                 }
                 se.stub = stub // Bounds StemmedEntry with the File.
-                if err = se.prepare(pc); err == nil {
+                if err = se.traverse(pc); err == nil {
                         okay = true
                         return // Updated successfully!
                 } else if e, ok := err.(patternPrepareError); ok {

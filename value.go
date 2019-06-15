@@ -352,7 +352,7 @@ func (m traversemode) name() (s string) {
         return
 }
 
-type preparecontext struct {
+type traversecontext struct {
         mode traversemode
         group *sync.WaitGroup
         calleeErrors []error
@@ -368,10 +368,10 @@ type preparecontext struct {
         level int // prepare/trace level
 }
 
-// preparer prepares prerequisites of targets.
-type preparer struct {
+// traversal prepares prerequisites of targets.
+type traversal struct {
         program *Program
-        preparecontext
+        traversecontext
         print bool // printing work directories (Entering/Leaving)
         targetDef  *Def // $@
         dependsDef *Def // $^
@@ -389,10 +389,10 @@ type preparer struct {
 
 //type preparable interface {
 type prerequisite interface {
-        prepare(pc *preparer) error
+        traverse(pc *traversal) error
 }
 
-func preptrace(pc *preparer, i Value) *preparer {
+func preptrace(pc *traversal, i Value) *traversal {
         // Note that pc.args and pc.arguments are different, they're
         // target execution args and argumented-prerequisite args.
         var a string
@@ -407,20 +407,20 @@ func preptrace(pc *preparer, i Value) *preparer {
         return pc
 }
 
-func prepun(pc *preparer) {
+func prepun(pc *traversal) {
         pc.level -= 1
         pc.trace(")")
 }
 
-func (pc *preparer) trace(a ...interface{}) {
+func (pc *traversal) trace(a ...interface{}) {
         printIndentDots(pc.level, a...)
 }
 
-func (pc *preparer) tracef(s string, a ...interface{}) {
+func (pc *traversal) tracef(s string, a ...interface{}) {
         printIndentDots(pc.level, fmt.Sprintf(s, a...))
 }
 
-func (pc *preparer) addNotExistedTarget1(target Value) {
+func (pc *traversal) addNotExistedTarget1(target Value) {
         if target != nil && target.Type() != NoneType {
                 switch t := target.(type) {
                 //case *File:
@@ -448,7 +448,7 @@ func (pc *preparer) addNotExistedTarget1(target Value) {
         }
 }
 
-func (pc *preparer) addNotExistedTargets(targets ...Value) {
+func (pc *traversal) addNotExistedTargets(targets ...Value) {
         var valid []Value
         for _, elem := range targets {
                 if elem != nil && elem.Type() != NoneType {
@@ -460,7 +460,7 @@ func (pc *preparer) addNotExistedTargets(targets ...Value) {
         }
 }
 
-func (pc *preparer) traverseAll(value interface{}, nested bool) (err error) {
+func (pc *traversal) traverseAll(value interface{}, nested bool) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
                         if err = pc.traverse(v.Index(i).Interface()); err == nil {
@@ -475,7 +475,7 @@ func (pc *preparer) traverseAll(value interface{}, nested bool) (err error) {
         return
 }
 
-func (pc *preparer) traverse(value interface{}) (err error) {
+func (pc *traversal) traverse(value interface{}) (err error) {
         var pos = token.Position(pc.entry.Position)
         if value == nil {
                 err = scanner.Errorf(pos, "updating nil prerequisite")
@@ -483,13 +483,13 @@ func (pc *preparer) traverse(value interface{}) (err error) {
                 err = scanner.Errorf(pos, "'%v' is not prerequisite", value)
         } else if p == nil { // this could happen
                 err = scanner.Errorf(pos, "updating nil prerequisite")
-        } else if err = p.prepare(pc); err != nil {
+        } else if err = p.traverse(pc); err != nil {
                 err = pc.checkUpdates(err)
         }
         return
 }
 
-func (pc *preparer) checkUpdates(src error) (err error) {
+func (pc *traversal) checkUpdates(src error) (err error) {
         if src != nil {
                 var br, ok = src.(*breaker)
                 if ok && br.what == breakUpdates {
@@ -510,7 +510,7 @@ func (pc *preparer) checkUpdates(src error) (err error) {
         return
 }
 
-func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, error, bool) {
+func (pc *traversal) updateErrs(errs scanner.Errors, err error) (scanner.Errors, error, bool) {
         var pos = token.Position(pc.program.position)
         if br, done := err.(*breaker); done {
                 if n := len(errs); n == 0 {
@@ -542,7 +542,7 @@ func (pc *preparer) updateErrs(errs scanner.Errors, err error) (scanner.Errors, 
         }
 }
 
-func (pc *preparer) updateFile(file *File) (err error) {
+func (pc *traversal) updateFile(file *File) (err error) {
         var ( errs scanner.Errors ; done bool )
         var project = mostDerived()
         if _, err = project.updateFile(pc, file); err == nil { return }
@@ -551,7 +551,7 @@ func (pc *preparer) updateFile(file *File) (err error) {
         return
 }
 
-func (pc *preparer) updateTargetErrs(target string) (errs scanner.Errors) {
+func (pc *traversal) updateTargetErrs(target string) (errs scanner.Errors) {
         if project := mostDerived(); project != nil {
                 var done bool
                 var err = project.updateTarget(pc, target)
@@ -561,14 +561,14 @@ func (pc *preparer) updateTargetErrs(target string) (errs scanner.Errors) {
         return
 }
 
-func (pc *preparer) updateTarget(target string) (err error) {
+func (pc *traversal) updateTarget(target string) (err error) {
         if errs := pc.updateTargetErrs(target); len(errs) > 0 {
                 err = errs
         }
         return
 }
 
-func (pc *preparer) updateTargetValue(value Value) (err error) {
+func (pc *traversal) updateTargetValue(value Value) (err error) {
         var s string
         if s, err = value.Strval(); err == nil {
                  err = pc.updateTarget(s)
@@ -576,10 +576,10 @@ func (pc *preparer) updateTargetValue(value Value) (err error) {
         return
 }
 
-func (pc *preparer) execute(entry *RuleEntry, prog *Program) (err error) {
+func (pc *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
         // Push the context to the program, so that patterns will work.
-        defer func(a []*preparecontext) { prog.callers = a } (prog.callers)
-        prog.callers = append([]*preparecontext{&pc.preparecontext}, prog.callers...)
+        defer func(a []*traversecontext) { prog.callers = a } (prog.callers)
+        prog.callers = append([]*traversecontext{&pc.traversecontext}, prog.callers...)
 
         // Execute the updating program.
         var res Value
@@ -712,7 +712,7 @@ func (p *Argumented) Strval() (s string, err error) {
         return
 }
 
-func (p *Argumented) prepare(pc *preparer) (err error) {
+func (p *Argumented) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if false {
                 pc.arguments, err = mergeresult(ExpandAll(p.Args...))
@@ -740,7 +740,7 @@ func (_ *None) Integer() (int64, error) { return 0, nil }
 func (_ *None) Float() (float64, error) { return 0, nil }
 func (p *None) String() (s string) { return }
 func (p *None) Strval() (s string, err error) { return }
-func (p *None) prepare(pc *preparer) (err error) { return }
+func (p *None) traverse(pc *traversal) (err error) { return }
 func (p *None) dependcompare(c *comparer) (err error) {
         if enable_assertions { assert(c.target != p, "self comparation") }
         return
@@ -851,10 +851,10 @@ func (p *Any) dependcompare(c *comparer) (err error) {
         }
         return
 }
-func (p *Any) prepare(pc *preparer) (err error) {
+func (p *Any) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if p, ok := p.value.(prerequisite); ok {
-                err = p.prepare(pc)
+                err = p.traverse(pc)
         }
         return 
 }
@@ -913,10 +913,10 @@ func (p *negative) dependcompare(c *comparer) (err error) {
         }
         return
 }
-func (p *negative) prepare(pc *preparer) (err error) {
+func (p *negative) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if p, ok := p.x.(prerequisite); ok {
-                err = p.prepare(pc)
+                err = p.traverse(pc)
         }
         return
 }
@@ -942,7 +942,7 @@ func (p *boolean) Integer() (v int64, err error) {
         if p.bool { v = 1 }
         return
 }
-func (p *boolean) prepare(pc *preparer) error { return nil }
+func (p *boolean) traverse(pc *traversal) error { return nil }
 func (p *boolean) cmp(v Value) (res cmpres) {
         if t := v.Type(); t == BooleanType {
                 a, ok := v.(*boolean)
@@ -987,7 +987,7 @@ func (p *answer) Integer() (v int64, err error) {
         if p.bool { v = 1 }
         return
 }
-func (p *answer) prepare(pc *preparer) error { return nil }
+func (p *answer) traverse(pc *traversal) error { return nil }
 func (p *answer) cmp(v Value) (res cmpres) {
         if t := v.Type(); t == AnswerType {
                 a, ok := v.(*answer)
@@ -1331,7 +1331,7 @@ func (p *Raw) String() string { return p.string }
 func (p *Raw) Strval() (string, error) { return p.string, nil }
 func (p *Raw) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Raw) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-func (p *Raw) prepare(pc *preparer) error { return fmt.Errorf("preparing raw string") }
+func (p *Raw) traverse(pc *traversal) error { return fmt.Errorf("preparing raw string") }
 func (p *Raw) cmp(v Value) (res cmpres) {
         if v.Type() == RawType {
                 a, ok := v.(*Raw)
@@ -1358,7 +1358,7 @@ func (p *String) Strval() (string, error) { return p.string, nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *String) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, p.string, nil) }
-func (p *String) prepare(pc *preparer) error {
+func (p *String) traverse(pc *traversal) error {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
          return pc.updateTarget(p.string)
 }
@@ -1395,7 +1395,7 @@ func (p *Bareword) Strval() (string, error) { return p.string, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *Bareword) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, p.string, nil) }
-func (p *Bareword) prepare(pc *preparer) error {
+func (p *Bareword) traverse(pc *traversal) error {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         return pc.updateTarget(p.string)
 }
@@ -1523,7 +1523,7 @@ func (p *Barecomp) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *Barecomp) prepare(pc *preparer) error {
+func (p *Barecomp) traverse(pc *traversal) error {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         return pc.updateTargetValue(p)
 }
@@ -1583,7 +1583,7 @@ func (p *Barefile) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *Barefile) prepare(pc *preparer) error {
+func (p *Barefile) traverse(pc *traversal) error {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if p.File != nil {
                 if s, e := p.Name.Strval(); e != nil {
@@ -1592,7 +1592,7 @@ func (p *Barefile) prepare(pc *preparer) error {
                         // Fixes the case that '$@.o' is parsed and become '.o'.
                         p.File.name = s
                 }
-                return p.File.prepare(pc)
+                return p.File.traverse(pc)
         } else {
                 return pc.updateTargetValue(p)
         }
@@ -1750,7 +1750,7 @@ func (p *Path) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *Path) prepare(pc *preparer) (err error) {
+func (p *Path) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         var s string // path/file target
@@ -1771,7 +1771,7 @@ func (p *Path) prepare(pc *preparer) (err error) {
         }
 
         if p.File != nil {
-                err = p.File.prepare(pc)
+                err = p.File.traverse(pc)
                 if err != nil { return }
         }
 
@@ -2010,7 +2010,7 @@ func (p *PathSeg) Strval() (s string, e error) {
 }
 func (p *PathSeg) Float() (v float64, err error) { return }
 func (p *PathSeg) Integer() (v int64, err error) { return }
-func (p *PathSeg) prepare(pc *preparer) error { return nil }
+func (p *PathSeg) traverse(pc *traversal) error { return nil }
 func (p *PathSeg) cmp(v Value) (res cmpres) {
         if p.Type() == PathSegType {
                 a, ok := v.(*PathSeg)
@@ -2264,7 +2264,7 @@ func (p *File) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *File) prepare(pc *preparer) (err error) {
+func (p *File) traverse(pc *traversal) (err error) {
         if optionTracePrepare {
                 defer prepun(preptrace(pc, p))
                 if p.exists() { pc.tracef("exists: %s{%s}", p.Type(), p) }
@@ -2291,7 +2291,7 @@ func (p *File) prepare(pc *preparer) (err error) {
 
 // check pattern depends to find out if all depends are updatable
 // or updated/exists.
-func checkPatternDepends(pc *preparer, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
+func checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
         if len(prog.depends) == 0 {
                 // Pattern is always good as no depends to check.
                 return true, nil
@@ -2317,7 +2317,7 @@ func checkPatternDepends(pc *preparer, project *Project, se *StemmedEntry, prog 
         return
 }
 
-func checkPatternFileDepend(pc *preparer, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
+func checkPatternFileDepend(pc *traversal, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
         var name string
         var rest []string // rest stems
         if name, rest, err = pat.stencil(se.Stems); err != nil { return }
@@ -2591,7 +2591,7 @@ func (p *List) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *List) prepare(pc *preparer) (err error) {
+func (p *List) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         var modified, updates, good *breaker
         for _, v := range p.Elems {
@@ -2600,7 +2600,7 @@ func (p *List) prepare(pc *preparer) (err error) {
                         err = fmt.Errorf("%s `%s` is not prerequisite", v.Type(), v)
                         break
                 }
-                if err = pre.prepare(pc); err == nil {
+                if err = pre.traverse(pc); err == nil {
                         continue // The element target is good!
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
@@ -2936,7 +2936,7 @@ func (p *delegate) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *delegate) prepare(pc *preparer) (err error) {
+func (p *delegate) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         var val Value
@@ -3154,7 +3154,7 @@ func (p *closure) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *closure) prepare(pc *preparer) (err error) {
+func (p *closure) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         if v, e := p.expand(expandClosure); e != nil {
@@ -3295,7 +3295,7 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
         return
 }
 
-func (p *selection) prepare(pc *preparer) (err error) {
+func (p *selection) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
         var v Value
@@ -3504,7 +3504,7 @@ func (p *PercPattern) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *PercPattern) prepare(pc *preparer) (err error) {
+func (p *PercPattern) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if pc.stems == nil {
                 err = fmt.Errorf("empty stem (%s)", p)
@@ -3647,7 +3647,7 @@ func (p *GlobPattern) dependcompare(c *comparer) (err error) {
         return
 }
 
-func (p *GlobPattern) prepare(pc *preparer) (err error) {
+func (p *GlobPattern) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if pc.stems == nil {
                 err = fmt.Errorf("empty stem (%s)", p)

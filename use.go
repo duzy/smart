@@ -41,7 +41,7 @@ func (p *using) expand(w expandwhat) (Value, error) {
         }
         return p, nil
 }
-func (p *using) prepare(pc *preparer) (err error) {
+func (p *using) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
@@ -49,7 +49,7 @@ func (p *using) prepare(pc *preparer) (err error) {
                 return
         }
         if entry := p.project.DefaultEntry(); entry != nil {
-                if err = entry.prepare(pc); err != nil {
+                if err = entry.traverse(pc); err != nil {
                         //fmt.Fprintf(os.Stderr, "%s: `%s` using error: %s (default entry '%s')\n", entry.Position, p.project.name, err, entry.target)
                         if br, ok := err.(*breaker); ok {
                                 switch br.what {
@@ -124,10 +124,10 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         }
         return p, nil
 }
-func (p *usinglist) prepare(pc *preparer) error {
+func (p *usinglist) traverse(pc *traversal) error {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         for _, elem := range p.list {
-                if err := elem.prepare(pc); err != nil {
+                if err := elem.traverse(pc); err != nil {
                         return err
                 }
         }
