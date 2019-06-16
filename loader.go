@@ -9,6 +9,7 @@ import (
         "extbit.io/smart/ast"
         "extbit.io/smart/token"
         "extbit.io/smart/scanner"
+        "runtime/debug"
 	"bytes"
 	"io/ioutil"
 	"io"
@@ -2168,15 +2169,24 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
 
 	l.tracing.enabled = l.mode&Trace != 0 // for convenience (l.trace is used frequently)
 	defer func(saved *parser) {
-		if e := recover(); e != nil {
+                var e = recover()
+		for e != nil {
 			// resume same panic if it's not a bailout
 			if _, ok := e.(bailout); !ok {
-                                fmt.Fprintf(stderr, "%s: encountered %T\n", filename, e)
                                 if l.parser != nil && l.parser.file != nil {
                                         position := l.parser.file.Position(l.pos)
-                                        fmt.Fprintf(stderr, "%s: parsing file fail\n", position)
+                                        fmt.Fprintf(stderr, "%s: parse file fail: %v\n", position, e)
+                                } else {
+                                        fmt.Fprintf(stderr, "%s: encountered %T\n", filename, e)
                                 }
-				panic(e)
+				if true {
+                                        debug.PrintStack()
+                                        if e = recover(); e != nil {
+                                                fmt.Fprintf(stderr, "----\n")
+                                        }
+                                } else {
+                                        panic(e)
+                                }
 			}
 		}
 

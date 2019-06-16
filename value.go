@@ -2014,8 +2014,10 @@ func (p *PathSeg) traverse(pc *traversal) error { return nil }
 func (p *PathSeg) cmp(v Value) (res cmpres) {
         if p.Type() == PathSegType {
                 a, ok := v.(*PathSeg)
-                assert(ok, "value is not PathSeg")
-                if p.rune == a.rune {
+                if false {
+                        assert(ok, "value is not PathSeg (%v) (%T: %v)", p, v, v)
+                }
+                if ok && p.rune == a.rune {
                         res = cmpEqual
                 }
         }
