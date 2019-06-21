@@ -13,6 +13,7 @@ import (
         "path/filepath"
         "hash/crc64"
         "io/ioutil"
+        "os/exec"
         "strings"
         "strconv"
 	"unicode"
@@ -56,6 +57,8 @@ var builtins = map[string]BuiltinFunc {
         `env`:          builtinEnv,
         `var`:          builtinValue,
         `value`:        builtinValue,
+
+        `shell`:        builtinShell,
         
         `print`:        builtinPrint,
         `printl`:       builtinPrintl,
@@ -575,6 +578,22 @@ func builtinValue(pos Position, args... Value) (res Value, err error) {
                 } else {
                         vals = append(vals, universalnone)
                 }
+        }
+        return MakeListOrScalar(vals), nil
+}
+
+func builtinShell(pos Position, args... Value) (res Value, err error) {
+        var vals []Value
+        for _, a := range args {
+                var ( stdout, stderr bytes.Buffer; s string )
+                if s, err = a.Strval(); err != nil { return }
+                sh := exec.Command("sh", "-c", s)
+                sh.Stdout, sh.Stderr = &stdout, &stderr
+                if err = sh.Run(); err != nil { return }
+                val := &String{strings.TrimSpace(stdout.String())}
+                vals = append(vals, val)
+                stdout.Reset()
+                stderr.Reset()
         }
         return MakeListOrScalar(vals), nil
 }
