@@ -1199,6 +1199,17 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                 default: err = def.set(DefExpand, value)
                 case *None: err = def.set(DefExecute, nil)
                 case *Plain: err = def.set(DefExecute, &String{v.Value})
+                case *ExecResult:
+                        var s string
+                        if v.Status == 0 && v.Stdout.Buf != nil {
+                                s = v.Stdout.Buf.String()
+                        } else if v.Stderr.Buf != nil {
+                                s = v.Stderr.Buf.String()
+                        }
+                        err = def.set(DefExecute, &String{s})
+                }
+                if err != nil {
+                        err = scanner.WrapErrors(token.Position(pos), err)
                 }
                 return
         }
