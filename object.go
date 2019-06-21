@@ -357,6 +357,8 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                         if err = sh.Run(); err != nil { value = universalnone } else {
                                 value = &String{strings.TrimSpace(stdout.String())}
                         }
+                        stdout.Reset()
+                        stderr.Reset()
                         d.Value = value
                 } else {
                         d.Value = universalnone

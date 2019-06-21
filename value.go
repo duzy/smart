@@ -1473,8 +1473,10 @@ func (p *elements) closured() bool {
 func (p *elements) cmpElems(elems []Value) (res cmpres) {
         if len(p.Elems) == len(elems) {
                 for i, elem := range p.Elems {
-                        other := elems[i]
-                        if r := elem.cmp(other); r != cmpEqual {
+                        if elem == nil { continue }
+                        if other := elems[i]; other == nil {
+                                continue
+                        } else if r := elem.cmp(other); r != cmpEqual {
                                 return cmpUnknown
                         }
                 }
@@ -1488,7 +1490,9 @@ func (p *Barecomp) Type() Type { return BarecompType }
 func (p *Barecomp) Strval() (s string, e error) {
         for _, elem := range p.Elems {
                 var v string
-                if v, e = elem.Strval(); e == nil {
+                if elem == nil {
+                        continue
+                } else if v, e = elem.Strval(); e == nil {
                         s += v
                 } else {
                         break
@@ -2489,7 +2493,7 @@ func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
 }
 
 func (p *Flag) cmp(v Value) (res cmpres) {
-        if v.Type() == FlagType {
+        if v != nil && v.Type() == FlagType {
                 a, ok := v.(*Flag)
                 assert(ok, "value is not Flag")
                 res = p.Name.cmp(a.Name)
@@ -3206,6 +3210,22 @@ func (p *selection) elemstr(o Object, k elemkind) (s string) {
         return
 }
 func (p *selection) String() string { return p.elemstr(nil, 0) }
+
+func (p *selection) objectName() (s string) {
+        switch t := p.o.(type) {
+        case Object: s = t.Name()
+        }
+        return
+}
+
+func (p *selection) propName() (s string) {
+        switch t := p.s.(type) {
+        case Object: s = t.Name()
+        case *Bareword: s = t.string
+        case *String: s = t.string
+        }
+        return
+}
 
 func (p *selection) object() (o Object, err error) {
         if s, ok := p.o.(*selection); ok {

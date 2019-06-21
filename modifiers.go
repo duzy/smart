@@ -671,6 +671,10 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
 
 var uniqueCompareGood = make(map[string]*breaker)
 
+// sysgrcmp := '^\s*#\s*include\s*<(.*)>'
+// grepcmps := '^\s*#\s*include\s*"(.*)"'
+// (compare -pg=(regexp=(top=(llvm,llvm-c,clang,clang-c) sys=$(sysgrcmp) $(grepcmps)) -re $<))
+// (compare -pg=(lang=c++) -re $<)
 func modifierCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
         var (
                 opts = []string{

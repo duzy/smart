@@ -698,7 +698,6 @@ func (p *Project) updateFile(pc *traversal, file *File) (okay bool, err error) {
         } else {
                 err = fileNotFoundError{p, file}
                 if false { debug.PrintStack() }
-                fmt.Printf("execstack: %v\n", execstack)
                 if optionTracePrepare {
                         pc.tracef("%s: `updateFile({%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
                 }

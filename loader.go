@@ -419,7 +419,7 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                         var ds = fmt.Sprintf("(%s)", d)
                         if d>=1*time.Second { ds = fmt.Sprintf("▶%s◀",ds) }
                         if loaded != nil { name = loaded.name }
-                        fmt.Fprintf(stderr, "%s├┴·\"%s\" ⇢ %s %s\n", l.vs, specName, name, ds)
+                        fmt.Fprintf(stderr, "%s├┴─\"%s\" ⇢ %s %s\n", l.vs, specName, name, ds)
                 } (time.Now())
         }
 
@@ -1123,7 +1123,7 @@ func (l *loader) executeUseRule(pos token.Pos, usee *Project, userule *useRuleEn
                                 case *undetermined:
                                         results = append(results, t)
                                 default:
-                                        fmt.Fprintf(stderr, "%s: unsupported use expression: %v", prog.position, list)
+                                        fmt.Fprintf(stderr, "%s: unsupported use expression: %v\n", prog.position, list)
                                 }
                         }
                 }
@@ -1150,7 +1150,7 @@ func (l *loader) executeUseRule(pos token.Pos, usee *Project, userule *useRuleEn
                 case *None: // does nothing
                 case *undetermined:
                         if sel, ok := t.identifier.(*selection); ok && sel != nil {
-                                l.determine(pos, t.tok, sel, t.value, true)
+                                l.determineUse(pos, t.tok, sel, t.value)
                         } else {
                                 err = scanner.Errorf(position, "unsupported using def `%v` (%T)", t.identifier, t.identifier)
                                 return
@@ -1310,8 +1310,8 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         return
 }
 
-func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value, defineSel bool) (def *Def) {
-        var ( alt Object ; derived *Def )
+func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value) (def *Def) {
+        var alt Object
         switch t := identifier.(type) {
         case *selection:
                 var v, err = t.value()
@@ -1323,18 +1323,6 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 } else {
                         l.parser.error(pos, "`%v` is not a def (%T)", t, v)
                         return
-                }
-
-                // user: The selection 'user->xxx' finds 'xxx'
-                // from the base if the current project has
-                // no 'xxx' defined. We define the variable
-                // for the current project in this case.
-                if defineSel && def.owner != l.project /*l.project.hasBase(def.owner)*/ {
-                        derived = def // Derive the base definition
-                        if def, alt = l.def(def.name); alt != nil && tok != token.QUE_ASSIGN {
-                                l.parser.error(pos, "`%s` already defined", alt.Name())
-                                return
-                        }
                 }
 
         case *Bareword, *Barecomp:
@@ -1351,10 +1339,6 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 var prev Object
                 prev, err = l.project.resolveObject(name)
                 if err != nil { l.parser.error(pos, "%v", err) }
-                if prev != nil && prev.OwnerProject() != l.project {
-                        derived, _ = prev.(*Def)
-                }
-
                 if def, alt = l.def(name); alt == nil {
                         // does nothing...
                 } else if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
@@ -1370,20 +1354,82 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 } else if alt != nil {
                         def = alt.(*Def)
                 }
-        }
 
-        if derived != nil && derived != def && tok == token.ADD_ASSIGN && !def.Value.refs(derived) {
-                // Unshift the delegation to derive value.
-                position := Position(l.parser.file.Position(pos))
-                err := def.append(MakeDelegate(position, token.LPAREN, derived))
-                if err != nil {
-                        l.parser.error(pos, "%v", err)
+                if prev == nil {
+                        // no derived value
+                } else if prev.OwnerProject() == l.project {
+                        // don't derive in the same project
+                } else if derived, okay := prev.(*Def); !okay {
+                        // not a def
+                } else if derived == nil {
+                        assert(false, "encounterred nil def `%s`", name)
+                } else if derived == def || def.Value.refs(derived) {
+                        // same def
+                } else if tok == token.ADD_ASSIGN {
+                        // Unshift the delegation to derive value.
+                        position := Position(l.parser.file.Position(pos))
+                        err := def.append(MakeDelegate(position, token.LPAREN, derived))
+                        if err != nil {
+                                l.parser.error(pos, "%v", err)
+                        }
                 }
         }
 
         if def == nil {
                 l.parser.error(pos, "`%v' is nil", identifier)
                 return
+        }
+
+        if err := l.assign(pos, tok, def, alt, value); err != nil {
+                l.parser.error(pos, "%v", err)
+        }
+        return
+}
+
+func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, value Value) (def *Def) {
+        const dbg = false
+
+        var ( alt Object ; okay bool )
+        if v, err := sel.value(); err != nil {
+                l.parser.error(pos, "determine `%v`: %v", sel, err)
+                return
+        } else if def, okay = v.(*Def); !okay || def == nil {
+                if name := sel.propName(); name == "" {
+                        l.parser.error(pos, "empty prop name %v (%T)", sel, sel.s)
+                        return
+                } else if def, alt = l.def(name); alt != nil && tok != token.QUE_ASSIGN {
+                        l.parser.error(pos, "`%s` already defined", alt.Name())
+                        return
+                }
+        } else if def.owner != l.project && l.project.hasBase(def.owner) {
+                // user: The selection 'user->xxx' finds 'xxx'
+                // from the base if the current project has
+                // no 'xxx' defined. We define the variable
+                // for the current project in this case.
+                if dbg {
+                        s, _ := def.Value.Strval()
+                        fmt.Printf("use: %v %v->%v %s\n", l.project, def.owner, def.name, s)
+                }
+
+                // Derive the base definition
+                var derived = def
+
+                // Defines a new one.
+                if def, alt = l.def(def.name); alt != nil && tok != token.QUE_ASSIGN {
+                        l.parser.error(pos, "`%s` already defined", alt.Name())
+                        return
+                }
+
+                // Unshift the derived value.
+                //position := Position(l.parser.file.Position(pos))
+                //err := def.append(MakeDelegate(position, token.LPAREN, derived))
+                var err = def.append(derived.Value) // mixin
+                if err != nil { l.parser.error(pos, "%v", err) }
+        }
+
+        if dbg {
+                s, _ := value.Strval()
+                fmt.Printf("use: %v->%v %s\n", def.owner, def.name, s)
         }
 
         if err := l.assign(pos, tok, def, alt, value); err != nil {
@@ -1456,7 +1502,6 @@ func (l *loader) useOptional(pos token.Pos, opt Value) {
         }
 }
 
-
 func (l *loader) useRecursively(pos token.Pos) {
         if optionNoDeprecatedFeatures {
                 l.parser.error(pos, "'use -recursively' is deprecated")
@@ -1502,7 +1547,7 @@ func (l *loader) configuration(spec *ast.ConfigurationSpec) (res Value) {
         var value = l.expr(spec.Value)
         defer func(scope *Scope) { l.scope = scope } (l.scope)
         l.scope = configuration.project.scope
-        res = l.determine(spec.Pos(), spec.Tok, name, value, false)
+        res = l.determine(spec.Pos(), spec.Tok, name, value)
         return
 }
 
@@ -1536,7 +1581,7 @@ func (l *loader) evalspec(spec *ast.EvalSpec) (res Value) {
 func (l *loader) define(clause *ast.DefineClause) {
         var identifier = l.expr(clause.Name)
         var value = l.expr(clause.Value)
-        l.determine(clause.Pos(), clause.Tok, identifier, value, false)
+        l.determine(clause.Pos(), clause.Tok, identifier, value)
 }
 
 func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast.Expr) (entries []*RuleEntry) {
