@@ -1185,27 +1185,26 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                 }
         }
 
+        var value Value
+        var configured bool
         var pipe = prog.scope.Lookup("-").(*Def)
         if len(args) == 0 { // zero configuration: (configure)
-                var value Value
-                value, err = pipe.Call(pos)
-                if err != nil { return }
-                if value != nil {
-                        switch value.Type() {
-                        case NoneType: err = def.set(DefExecute, nil)
-                        default: err = def.set(DefExpand, value)
-                        }
-                } else {
+                if value, err = pipe.Call(pos); err != nil { return }
+                if value == nil {
                         err = fmt.Errorf("`%v` not configured (%v)", target, value)
                         err = scanner.WrapErrors(token.Position(pos), err)
+                        return
+                }
+                switch v := value.(type) {
+                default: err = def.set(DefExpand, value)
+                case *None: err = def.set(DefExecute, nil)
+                case *Plain: err = def.set(DefExecute, &String{v.Value})
                 }
                 return
         }
 
         // Reset configuration value to nil
         if err = def.set(DefExecute, nil); err != nil { return }
-
-        var ( value Value; configured bool )
 ForConfig:
         for i, a := range args {
                 var ( name Value ; para []Value )
