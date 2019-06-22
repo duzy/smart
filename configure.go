@@ -1189,7 +1189,10 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
         var configured bool
         var pipe = prog.scope.Lookup("-").(*Def)
         if len(args) == 0 { // zero configuration: (configure)
-                if value, err = pipe.Call(pos); err != nil { return }
+                if value, err = pipe.Call(pos); err != nil {
+                        err = scanner.WrapErrors(token.Position(pos), err)
+                        return
+                }
                 if value == nil {
                         err = fmt.Errorf("`%v` not configured (%v)", target, value)
                         err = scanner.WrapErrors(token.Position(pos), err)
@@ -1207,6 +1210,8 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                                 s = v.Stderr.Buf.String()
                         }
                         err = def.set(DefExecute, &String{s})
+                // TODO: case *JSON
+                // TODO: case *XML
                 }
                 if err != nil {
                         err = scanner.WrapErrors(token.Position(pos), err)
@@ -1215,7 +1220,11 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
         }
 
         // Reset configuration value to nil
-        if err = def.set(DefExecute, nil); err != nil { return }
+        if err = def.set(DefExecute, nil); err != nil {
+                err = scanner.WrapErrors(token.Position(pos), err)
+                return
+        }
+
 ForConfig:
         for i, a := range args {
                 var ( name Value ; para []Value )
