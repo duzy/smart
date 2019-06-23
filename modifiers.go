@@ -433,18 +433,31 @@ func compareTargetDepend(pos Position, prog *Program, target, depend Value, tt t
 
 type langInfoT struct {
         rxs []string
+        sys []string
 }
 
 var langInfos = map[string]*langInfoT{
-        "c": &langInfoT{
+        "asm": &langInfoT{
+                []string{
+                        `^\s*#\s*include\s*"(.*)"`,
+                },
                 []string{
                         `^\s*#\s*include\s*<(.*)>`,
+                },
+        },
+        "c": &langInfoT{
+                []string{
                         `^\s*#\s*include\s*"(.*)"`,
+                },
+                []string{
+                        `^\s*#\s*include\s*<(.*)>`,
                 },
         },
         "i": &langInfoT{
                 []string{
                         `^\s*include\s*"(.*)"`,
+                },
+                []string{
                 },
         },
 }
@@ -452,6 +465,8 @@ func init () {
         if info, ok := langInfos["c"]; ok {
                 langInfos["c++"] = info
                 langInfos["clang"] = info
+                langInfos["objc"] = info
+                langInfos["objc++"] = info
         }
         if info, ok := langInfos["i"]; ok {
                 langInfos["include"] = info
@@ -535,6 +550,7 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                                 if s, err = a.Key.Strval(); err != nil { return }
                                 switch s {
                                 case "regexp", "exp":
+                                        // regexp=(top=(foo,bar,baz) sys='^\s*#\s*include\s*<(.*)>' '^\s*#\s*include\s*"(.*)"')
                                         switch v := a.Value.(type) {
                                         case *Group: for _, v := range v.Elems {
                                                 if p, ok := v.(*Pair); ok {
@@ -562,9 +578,19 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                                                 if s, err = v.Strval(); err != nil { return }
                                                 rxs = append(rxs, &greprex{s, false, nil})
                                         }
-                                case "lang":
+                                case "lang": // lang=c++ ...
                                         optLang, _ = a.Value.Strval()
-                                        if optLang == "" {/* ... */}
+                                        if optLang == "" {
+                                                /* ... */
+                                        }
+                                        if info, ok := langInfos[optLang]; ok {
+                                                for _, s := range info.sys {
+                                                        rxs = append(rxs, &greprex{s, true, nil})
+                                                }
+                                                for _, s := range info.rxs {
+                                                        rxs = append(rxs, &greprex{s, false, nil})
+                                                }
+                                        }
                                 case "s":
                                         store = a.Value
                                 }
