@@ -20,6 +20,7 @@ import (
         "fmt"
         "os"
         "io"
+        "io/ioutil"
 )
 
 const (
@@ -1529,6 +1530,77 @@ ForPairs:
         return
 }
 
+func copyRegular(src, dst string, optPath bool, optMode os.FileMode) (err error) {
+        var srcFile, dstFile *os.File
+        if srcFile, err = os.Open(src); err != nil { return }
+
+        // sys default file mode is 0666
+        if optPath { // Make path (mkdir -p)
+                if p := filepath.Dir(dst); p != "." && p != "/" {
+                        err = os.MkdirAll(p, os.FileMode(0755))
+                        if err != nil { return }
+                }
+        }
+
+        if optMode == 0 { optMode = os.FileMode(0640) }
+
+        dstFile, err = os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode)
+        if err != nil { srcFile.Close(); return }
+
+        srcBuf := bufio.NewReader(srcFile)
+        dstBuf := bufio.NewWriter(dstFile)
+        defer func() {
+                dstFile.Close()
+                srcFile.Close()
+                
+                var file = stat(dst, "", "")
+                context.globe.stamp(dst, file.info.ModTime())
+        } ()
+
+        if _, err = io.Copy(dstBuf, srcBuf); err == nil {
+                dstBuf.Flush() // flush content
+        }
+        return
+}
+
+func copySymlink(src, dst string, optPath bool, optMode os.FileMode) (err error) {
+        panic("unimplemented copySymlink")
+}
+
+func copyDir(src, dst string, optPath bool, optMode os.FileMode) (err error) {
+        if dst != "." && dst != "/" { // Make path (mkdir -p)
+                err = os.MkdirAll(dst, os.FileMode(0755))
+                if err != nil { return }
+        }
+
+        var fis []os.FileInfo
+        if fis, err = ioutil.ReadDir(src); err != nil {
+                return
+        }
+        for _, fi := range fis {
+                ss := filepath.Join(src, fi.Name())
+                sd := filepath.Join(dst, fi.Name())
+                err = copyFile(fi, ss, sd, false, optMode)
+                if err != nil { break }
+        }
+        return
+}
+
+func copyFile(srcFi os.FileInfo, src, dst string, optPath bool, optMode os.FileMode) (err error) {
+        if m := srcFi.Mode(); m&os.ModeSymlink != 0 {
+                if optMode == 0 { optMode = srcFi.Mode() }
+                err = copySymlink(src, dst, optPath, optMode)
+        } else if srcFi.IsDir() {
+                err = copyDir(src, dst, optPath, optMode)
+        } else if m.IsRegular() {
+                if optMode == 0 { optMode = srcFi.Mode() }
+                err = copyRegular(src, dst, optPath, optMode)
+        } else {
+                err = fmt.Errorf("copying non-regular files/dirs (%s)", src)
+        }
+        return
+}
+
 // (copy-file -vp)
 // (copy-file -p,filename)
 // (copy-file -p,filename,source)
@@ -1536,12 +1608,14 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         var (
                 opts = []string{
                         "p,path",
+                        "r,recursive",
                         "v,verbose",
                         "m,mode",
                 }
                 optPath bool
+                optRecursive bool
                 optVerbose bool
-                optMode = os.FileMode(0640) // sys default 0666
+                optMode os.FileMode
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
@@ -1562,6 +1636,7 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
                         for _, ru := range runes {
                                 switch ru {
                                 case 'p': optPath = trueVal(v, true)
+                                case 'r': optRecursive = trueVal(v, true)
                                 case 'v': optVerbose = trueVal(v, true)
                                 case 'm':
                                         if v != nil {
@@ -1648,41 +1723,38 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         }
 
         // Make path (mkdir -p)
-        if optPath {
+        /*if optPath {
                 if p := filepath.Dir(filename); p != "." && p != "/" {
                         if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
                                 return
                         }
                 }
-        }
+        }*/
 
         if optVerbose {
                 fmt.Fprintf(stderr, "smart: Copying %v …", target)
         }
 
-        var (
-                src, file *os.File
-        )
-        if src, err = os.Open(srcname); err == nil && src != nil {
-                defer src.Close()
-
-                file, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode)
-                if err == nil && file != nil {
-                        defer file.Close()
-                        srcbuf := bufio.NewReader(src)
-                        dstbuf := bufio.NewWriter(file)
-                        if _, err = io.Copy(dstbuf, srcbuf); err == nil {
-                                dstbuf.Flush() // flush content
-                                defer func() {
-                                        var file = stat(filename, "", "")
-                                        context.globe.stamp(filename, file.info.ModTime())
-                                } ()
-                        }
+        var fi os.FileInfo
+        if fi, err = os.Stat(srcname); err != nil {
+                err = scanner.WrapErrors(token.Position(pos), err)
+        } else if !fi.IsDir() {
+                if optMode == 0 { optMode = fi.Mode() }
+                if err = copyFile(fi, srcname, filename, optPath, optMode); err != nil {
+                        err = scanner.WrapErrors(token.Position(pos), err)
                 }
+        } else if optRecursive {
+                if err = copyDir(srcname, filename, optPath, optMode); err != nil {
+                        err = scanner.WrapErrors(token.Position(pos), err)
+                }
+        } else {
+                err = fmt.Errorf("`%v` is a directory (use -r to solve it)", source)
+                err = scanner.WrapErrors(token.Position(pos), err)
         }
+
         if optVerbose {
                 if err != nil {
-                        fmt.Fprintf(stderr, "… (%v)\n", err)
+                        fmt.Fprintf(stderr, "… error\n")
                 } else {
                         fmt.Fprintf(stderr, "… ok\n")
                 }
