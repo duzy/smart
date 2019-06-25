@@ -1720,18 +1720,7 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
                         fmt.Fprintf(stderr, "smart: Copying %v …… existed.\n", target)
                 }
                 return
-        }
-
-        // Make path (mkdir -p)
-        /*if optPath {
-                if p := filepath.Dir(filename); p != "." && p != "/" {
-                        if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
-                                return
-                        }
-                }
-        }*/
-
-        if optVerbose {
+        } else if optVerbose {
                 fmt.Fprintf(stderr, "smart: Copying %v …", target)
         }
 

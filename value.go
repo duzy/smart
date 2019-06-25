@@ -1759,11 +1759,8 @@ func (p *Path) traverse(pc *traversal) (err error) {
 
         var s string // path/file target
         var rest []string
-        if s, rest, err = p.stencil(pc.stems); err != nil {
-                return
-        } else if len(rest) > 0 {
-                panic("FIXME: unhandled stems")
-        }
+        if s, rest, err = p.stencil(pc.stems); err != nil { return }
+        if false && len(rest) > 0 { panic("FIXME: unhandled stems") }
 
         if p.File == nil {
                 if pc.program.project.isFileName(filepath.Base(s)) || pc.program.project.isFileName(s) {
@@ -2327,7 +2324,7 @@ func checkPatternFileDepend(pc *traversal, project *Project, se *StemmedEntry, p
         var name string
         var rest []string // rest stems
         if name, rest, err = pat.stencil(se.Stems); err != nil { return }
-        if len(rest) > 0 { panic("FIXME: unhandled stems") }
+        if false && len(rest) > 0 { panic("FIXME: unhandled stems") }
 
         // Check entires (and patterns) no matter if the file exists or
         // or not.
@@ -3516,9 +3513,7 @@ func (p *PercPattern) dependcompare(c *comparer) (err error) {
         var target string
         var rest []string
         if target, rest, err = p.stencil(stems); err != nil { return }
-        if len(rest) > 0 {
-                panic("FIXME: unhandled stems")
-        }
+        if false && len(rest) > 0 { panic("FIXME: unhandled stems") }
 
         if err = c.compareDepend(target); err != nil {
                 err = patternCompareError{err}
@@ -3536,7 +3531,7 @@ func (p *PercPattern) traverse(pc *traversal) (err error) {
         var target string
         var rest []string
         if target, rest, err = p.stencil(pc.stems); err != nil { return }
-        if len(rest) > 0 { panic("FIXME: unhandled stems") }
+        if false && len(rest) > 0 { panic("FIXME: unhandled stems") }
         if err = pc.updateTarget(target); err != nil {
                 err = patternPrepareError{err}
         }

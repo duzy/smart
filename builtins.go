@@ -2041,8 +2041,9 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                 "f,force",
                 "u,update",
                 "v,verbose",
+                "l,rel", // relative
         }
-        var optForce, optUpdate, optVerbose bool
+        var optForce, optUpdate, optVerbose, optRel bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else {
@@ -2070,6 +2071,7 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                         }
                         for _, ru := range runes {
                                 switch ru {
+                                case 'l': optRel = trueVal(v, true)
                                 case 'f': optForce = trueVal(v, true)
                                 case 'u': optUpdate = trueVal(v, true)
                                 case 'v': optVerbose = trueVal(v, true)
@@ -2127,6 +2129,14 @@ ForVals:
                 }
                 if optVerbose {
                         fmt.Fprintf(stderr, "smart: Symlink %s -> %s …", newname, oldname)
+                }
+                if optRel {
+                        var dir = filepath.Dir(newname)
+                        oldname, err = filepath.Rel(dir, oldname)
+                        if err != nil {
+                                err = scanner.WrapErrors(token.Position(pos), err)
+                                return
+                        }
                 }
                 if err = os.Symlink(oldname, newname); err != nil {
                         if optVerbose {
