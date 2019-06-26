@@ -585,7 +585,13 @@ func (p *Project) updateTarget(pc *traversal, target string) (err error) {
 
         var ses []*StemmedEntry
         if ses, err = p.resolvePatterns(target); err == nil {
+        ForPatterns:
                 for _, se := range ses {
+                        for _, prog := range se.programs {
+                                var ok bool
+                                ok, err = checkPatternDepends(pc, p, se, prog)
+                                if !ok { continue ForPatterns }
+                        }
                         se.target = target // Bounds StemmedEntry with the source.
                         if err = se.traverse(pc); err == nil {
                                 return // Updated successfully!
