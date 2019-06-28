@@ -13,7 +13,9 @@ import (
         "path/filepath"
         "hash/crc64"
         "io/ioutil"
+        "net/http"
         "os/exec"
+        goctx "context"
         "strings"
         "strconv"
 	"unicode"
@@ -59,6 +61,9 @@ var builtins = map[string]BuiltinFunc {
         `value`:        builtinValue,
 
         `shell`:        builtinShell,
+
+        `serve-http`:   builtinServeHttp,
+        `serve-https`:  builtinServeHttps,
         
         `print`:        builtinPrint,
         `printl`:       builtinPrintl,
@@ -596,6 +601,78 @@ func builtinShell(pos Position, args... Value) (res Value, err error) {
                 stderr.Reset()
         }
         return MakeListOrScalar(vals), nil
+}
+
+func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
+        var va []Value
+        var opts = []string{
+                "h,host",
+                "p,port",
+        }
+        var optHost string
+        var optPort int
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else {
+        ForArgs:
+                for _, v := range args {
+                        var ( runes []rune ; names []string )
+                        switch a := v.(type) {
+                        case *Flag:
+                                if runes, names, err = a.opts(opts...); err != nil { return }
+                                a = nil
+                        case *Pair:
+                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                        if runes, names, err = flag.opts(opts...); err != nil { return }
+                                        v = a.Value // use flag value
+                                } else {
+                                        va = append(va, a)
+                                        continue ForArgs
+                                }
+                        default:
+                                va = append(va, a)
+                                continue ForArgs
+                        }
+                        if enable_assertions {
+                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'p': optPort = intVal(v, 80)
+                                case 'h': optHost, _ = v.Strval()
+                                }
+                        }
+                }
+        }
+
+        var server = &http.Server{}
+        server.Addr = fmt.Sprintf("%s:%d", optHost, optPort)
+
+        http.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
+                io.WriteString(w, "Server will quit in 1sec ...\n")
+                go func() {
+                        time.Sleep(1 * time.Second)
+                        server.Shutdown(goctx.Background())
+                } ()
+        })
+
+        for _, a := range va {
+                var s string
+                if s, err = a.Strval(); err != nil { return }
+                http.Handle("/", http.FileServer(http.Dir(s)))
+        }
+
+        if err = server.ListenAndServe(); err == http.ErrServerClosed {
+                // Requested /quit
+        } else if err != nil {
+                err = scanner.WrapErrors(token.Position(pos), err)
+        }
+        return
+}
+
+func builtinServeHttps(pos Position, args... Value) (res Value, err error) {
+        err = scanner.Errorf(token.Position(pos), "'serve-https' is unimplemented yet")
+        return
 }
 
 func builtinPrint(pos Position, args... Value) (res Value, err error) {
