@@ -610,7 +610,7 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
                 "p,port",
         }
         var optHost string
-        var optPort int
+        var optPort = 80
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else {
@@ -638,7 +638,7 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
                         }
                         for _, ru := range runes {
                                 switch ru {
-                                case 'p': optPort = intVal(v, 80)
+                                case 'p': optPort = intVal(v, optPort)
                                 case 'h': optHost, _ = v.Strval()
                                 }
                         }
@@ -647,7 +647,8 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
 
         var server = &http.Server{}
         server.Addr = fmt.Sprintf("%s:%d", optHost, optPort)
-
+        fmt.Fprintf(stderr, "%s: serving http at %v\n", pos, server.Addr)
+        
         http.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
                 io.WriteString(w, "Server will quit in 1sec ...\n")
                 go func() {
@@ -659,6 +660,7 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
         for _, a := range va {
                 var s string
                 if s, err = a.Strval(); err != nil { return }
+                fmt.Fprintf(stderr, "%s: serving files %v ...\n", pos, s)
                 http.Handle("/", http.FileServer(http.Dir(s)))
         }
 
