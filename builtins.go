@@ -650,7 +650,7 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
         fmt.Fprintf(stderr, "%s: serving http at %v\n", pos, server.Addr)
         
         http.HandleFunc("/quit", func(w http.ResponseWriter, r *http.Request) {
-                io.WriteString(w, "Server will quit in 1sec ...\n")
+                io.WriteString(w, "<font color=red>Server will close in 1sec ...</font>")
                 go func() {
                         time.Sleep(1 * time.Second)
                         server.Shutdown(goctx.Background())
@@ -2404,6 +2404,9 @@ ForArgs:
         } else if proj = current(); proj == nil {
                 err = fmt.Errorf("unknown current context")
                 return
+        } else if false {
+                // Ensure that we're in the right closure context
+                defer setclosure(setclosure(cloctx.unshift(proj.scope)))
         }
 
         var list []Value

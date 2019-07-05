@@ -1380,6 +1380,10 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 return
         }
 
+        // Ensures that all immediate assignments are in the current
+        // project context.
+        defer setclosure(setclosure(cloctx.unshift(l.scope)))
+
         if err := l.assign(pos, tok, def, alt, value); err != nil {
                 l.parser.error(pos, "%v", err)
         }
@@ -1431,6 +1435,10 @@ func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, va
                 s, _ := value.Strval()
                 fmt.Printf("use: %v->%v %s\n", def.owner, def.name, s)
         }
+
+        // Ensures that all immediate assignments are in the current
+        // project context.
+        defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
         if err := l.assign(pos, tok, def, alt, value); err != nil {
                 l.parser.error(pos, "%v", err)
