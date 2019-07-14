@@ -720,12 +720,18 @@ func stamp(target Value, verb bool) (err error) {
                         fmt.Printf("smart: Updated %v (%v)\n", target, t.info.ModTime())
                 }
         case *Path:
-                if t.File == nil { break }
-                fullname := t.File.FullName()
-                t.File.info, err = os.Stat(fullname)
-                context.globe.stamp(fullname, t.File.info.ModTime())
+                //if t.File == nil { break }
+                //fullname := t.File.FullName()
+                //t.File.info, err = os.Stat(fullname)
+                //context.globe.stamp(fullname, t.File.info.ModTime())
+                var fullname string
+                if fullname, err = t.Strval(); err != nil { break }
+                var info os.FileInfo
+                if info, err = os.Stat(fullname); err != nil { break }
+                context.globe.stamp(fullname, info.ModTime())
                 if verb {
-                        fmt.Printf("smart: Updated %v (%v)\n", target, t.File.info.ModTime())
+                        //fmt.Printf("smart: Updated %v (%v)\n", target, t.File.info.ModTime())
+                        fmt.Printf("smart: Updated %v (%v)\n", target, info.ModTime())
                 }
         case *List:
                 for _, elem := range t.Elems {

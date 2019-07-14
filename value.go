@@ -385,6 +385,8 @@ type traversal struct {
 
         preModifiers, postModifiers []*modifier
         interpreted []interpreter
+
+        debug bool
 }
 
 //type preparable interface {
@@ -422,24 +424,24 @@ func (pc *traversal) tracef(s string, a ...interface{}) {
 
 func (pc *traversal) addNotExistedTarget1(target Value) {
         if target != nil && target.Type() != NoneType {
-                switch t := target.(type) {
-                //case *File:
-                case *Path:
-                        if t.File != nil {
-                                target = t.File
-                        }
-                default:
-                        /*
-                        var s string
-                        if s, err = target.Strval(); err != nil {
-                                return
-                        } else if s == "" {
-                                panic(fmt.Sprintf("Empty target! (%s `%v`)", target.Type(), target))
-                        } else if file := prog.project.searchFile(s); file != nil {
-                                target = file
-                        }
-                        */
-                }
+                // switch t := target.(type) {
+                // //case *File:
+                // case *Path:
+                //         /*if t.File != nil {
+                //                 target = t.File
+                //         }*/
+                // default:
+                //         /*
+                //         var s string
+                //         if s, err = target.Strval(); err != nil {
+                //                 return
+                //         } else if s == "" {
+                //                 panic(fmt.Sprintf("Empty target! (%s `%v`)", target.Type(), target))
+                //         } else if file := prog.project.searchFile(s); file != nil {
+                //                 target = file
+                //         }
+                //         */
+                // }
                 for _, t := range pc.targets {
                         if t == target { return }
                         if t.cmp(target) == cmpEqual { return }
@@ -1673,7 +1675,7 @@ func (p *GlobRange) cmp(v Value) (res cmpres) {
 
 type Path struct {
         elements
-        File *File // if this path is pointed to a file, ie. the last element matched a FileMap
+        //File *File // if this path is pointed to a file, ie. the last element matched a FileMap
 }
 func (p *Path) elemstr(o Object, k elemkind) (s string) {
         for i, elem := range p.Elems {
@@ -1712,11 +1714,11 @@ func (p *Path) Integer() (int64, error) { return 0, nil }
 func (p *Path) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *Path) Type() Type { return PathType }
 func (p *Path) True() (t bool) {
-        if t = p.File != nil; !t {
+        //if t = p.File != nil; !t {
                 for _, elem := range p.Elems {
                         t = elem.True(); break
                 }
-        }
+        //}
         return
 }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
@@ -1736,7 +1738,7 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
                 elems = vals
         }
         if num > 0 {
-                res = &Path{elements{elems}, p.File}
+                res = &Path{elements{elems}/*, p.File*/}
         } else {
                 res = p
         }
@@ -1748,7 +1750,7 @@ func (p *Path) dependcompare(c *comparer) (err error) {
         if enable_assertions { assert(c.target != p, "self comparation") }
         if ds, err := p.Strval(); err == nil {
                 var di os.FileInfo
-                if p.File != nil { di = p.File.info }
+                //if p.File != nil { di = p.File.info }
                 err =  c.compareStatDepend(p, ds, di)
         }
         return
@@ -1762,19 +1764,20 @@ func (p *Path) traverse(pc *traversal) (err error) {
         if s, rest, err = p.stencil(pc.stems); err != nil { return }
         if false && len(rest) > 0 { panic("FIXME: unhandled stems") }
 
-        if p.File == nil {
+        if /*p.File == nil*/true {
                 if pc.program.project.isFileName(filepath.Base(s)) || pc.program.project.isFileName(s) {
-                        if p.File = pc.program.project.searchFile(s); p.File != nil {
-                                pc.addNotExistedTarget1(p)
+                        //if p.File = pc.program.project.searchFile(s); p.File != nil {
+                        if file := pc.program.project.searchFile(s); file != nil {
+                                pc.addNotExistedTarget1(file)
                                 return
                         }
                 }
         }
 
-        if p.File != nil {
+        /*if p.File != nil {
                 err = p.File.traverse(pc)
                 if err != nil { return }
-        }
+        }*/
 
         var errs scanner.Errors
         var checked = make(map[string]bool)
@@ -1788,29 +1791,40 @@ func (p *Path) traverse(pc *traversal) (err error) {
                 } else {
                         checked[e.target] = true
                 }
-                if p.File = stat(e.target, "", ""); p.File == nil {
-                        pc.addNotExistedTarget1(p) // Append unknown path anyway.
+                //if p.File = stat(e.target, "", ""); p.File == nil {
+                if file := stat(e.target, "", ""); file == nil {
+                        pc.addNotExistedTarget1(&String{e.target}) // Append unknown path anyway.
                         err.Err = pathNotFoundError{e.project, p}
                         errs = append(errs, err)
-                } else if p.File.info != nil {
-                        if p.File.info.IsDir() {
-                                pc.addNotExistedTarget1(p)
+                } else if /*p.File*/file.info != nil {
+                        if /*p.File*/file.info.IsDir() {
+                                //pc.addNotExistedTarget1(p)
                         } else {
-                                pc.addNotExistedTarget1(p/*.File*/)
+                                //pc.addNotExistedTarget1(p/*.File*/)
                         }
+                        pc.addNotExistedTarget1(file)
                 } else {
                         // Search this path target as a file.
-                        p.File = e.project.searchFile(e.target)
-                        if p.File != nil {
-                                pc.addNotExistedTarget1(p.File)
+                        /*p.File*/file = e.project.searchFile(e.target)
+                        if /*p.File*/file != nil {
+                                pc.addNotExistedTarget1(/*p.File*/file)
                         } else {
                                 errs = append(errs, err)
                         }
                 }
         }
+
         checked = nil
 
         if len(errs) > 0 { err = errs } else { err = nil }
+        return
+}
+
+func (p *Path) isPattern() (result bool) {
+        for _, seg := range p.Elems {
+                _, result = seg.(Pattern)
+                if result { return }
+        }
         return
 }
 
@@ -3934,7 +3948,7 @@ func MakeList(elems... Value) *List { return &List{elements{elems}} }
 func MakeGroup(elems... Value) (v *Group) { return &Group{List{elements{elems}}} }
 func MakeGlobMeta(tok token.Token) *GlobMeta { return &GlobMeta{tok} }
 func MakeGlobRange(v Value) *GlobRange { return &GlobRange{v} }
-func MakePath(segments... Value) (v *Path) { return &Path{elements{segments}, nil} }
+func MakePath(segments... Value) (v *Path) { return &Path{elements{segments}/*, nil*/} }
 func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
 func MakePathStr(str string) (v *Path) {
         var segments []Value

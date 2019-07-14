@@ -36,12 +36,13 @@ func (filemap *FileMap) isRealPattern() (result bool) {
         switch t := filemap.Pattern.(type) {
         case Pattern: result = true
         case *Path:
-                if t.File == nil {
+                /*if t.File == nil {
                         for _, seg := range t.Elems {
                                 _, result = seg.(Pattern)
                                 if result { return }
                         }
-                }
+                }*/
+                if result = t.isPattern(); result { return }
         }
         return
 }

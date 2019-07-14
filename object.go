@@ -598,7 +598,7 @@ func (entry *RuleEntry) Depends() (depends []Value) {
 
 func (entry *RuleEntry) IsFile() bool {
         if entry.target.Type() == FileType { return true }
-        if p, ok := entry.target.(*Path); ok && p != nil && p.File != nil {
+        if p, ok := entry.target.(*Path); ok && p != nil /*&& p.File != nil*/ {
                 return true
         }
         return false
@@ -609,15 +609,15 @@ func (entry *RuleEntry) SetExplicitFile(file *File) {
                 file.dir = entry.OwnerProject().absPath
         }
         if path, ok := entry.target.(*Path); ok && path != nil {
-                path.File = file
+                //path.File = file
         }
         return
 }
 
 func (entry *RuleEntry) SetExplicitPath(path *Path) {
-        if path.File != nil && path.File.dir == "" {
+        /*if path.File != nil && path.File.dir == "" {
                 path.File.dir = entry.OwnerProject().absPath
-        }
+        }*/
         //if path, ok := entry.target.(*Path); ok && path != nil {
         //        path
         //}

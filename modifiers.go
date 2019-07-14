@@ -1607,7 +1607,7 @@ func copyFile(srcFi os.FileInfo, src, dst string, optPath bool, optMode os.FileM
 func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value, err error) {
         var (
                 opts = []string{
-                        "p,path",
+                        "p,path", // prepare paths for files
                         "r,recursive",
                         "v,verbose",
                         "m,mode",
@@ -1713,6 +1713,12 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
                                 srctime = file.info.ModTime()
                         }
                 }
+        }
+
+        if filepath.Base(srcname) != filepath.Base(filename) {
+                t, _ := prog.scope.Lookup("@").(*Def)
+                a, _ := prog.scope.Lookup("^").(*Def)
+                fmt.Printf("warning: %v, %v (%v) (%v)\n", target, source, t, a)
         }
 
         if !filetime.IsZero() && filetime.After(srctime) {

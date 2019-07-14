@@ -10,9 +10,10 @@ import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "strconv"
+        //"strings"
         "sync"
         "fmt"
-        "os"
+        //"os"
 )
 
 type dependPatternUnfit struct {
@@ -295,16 +296,16 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         var ctx = traversecontext{
+                derived: mostDerived(),
                 group: new(sync.WaitGroup),
                 entry: entry,
                 args: args,
-                derived: mostDerived(),
         }
         if len(prog.callers) > 0 {
                 var caller = prog.callers[0]
                 ctx.level = caller.level
-                //ctx.mode = caller.mode
                 ctx.stems = caller.stems
+                //ctx.mode = caller.mode
         }
 
         // Build related project list from derived.
@@ -318,8 +319,8 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         var nestedExecution bool
         if pc := prog.pc; pc != nil {
-                var vals []Value
-                var defs = []*Def{
+                setDefVal := func(def *Def, val Value) { def.Value = val }
+                for _, def := range []*Def{
                         pc.targetDef,
                         pc.dependsDef,
                         pc.depend0Def,
@@ -328,28 +329,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         pc.updatedDef,
                         pc.stemDef,
                         pc.modifyBuf,
-                }
-                for _, def := range defs {
-                        var val Value
-                        if def != nil {
-                                val = def.Value
-                        }
-                        vals = append(vals, val)
-                }
-                //var elems = prog.scope.copyElems()
-                defer func() {
-                        //prog.scope.elems = elems
-                        for i, def := range defs {
-                                if def != nil {
-                                        def.Value = vals[i]
-                                }
-                        }
-                        prog.pc = pc
-                } ()
+                } { defer setDefVal(def, def.Value) }
                 nestedExecution = true
-        } else {
-                defer func() { prog.pc = nil } ()
         }
+        defer func(pc *traversal) { prog.pc = pc } (prog.pc)
         prog.pc = &traversal{
                 program:prog,
                 traversecontext:ctx,
@@ -471,12 +454,15 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }
+
+        prog.pc.dependsDef.set(DefDefault, MakeList(depends...))
         if len(depends) > 0 {
-                prog.pc.dependsDef.append(depends...)
-                prog.pc.depend0Def.append(depends[0])
+                //prog.pc.depend0Def.append(depends[0])
+                prog.pc.depend0Def.set(DefDefault, depends[0])
         }
         if len(ordered) > 0 {
-                prog.pc.orderedDef.append(ordered...)
+                //prog.pc.orderedDef.append(ordered...)
+                prog.pc.orderedDef.set(DefDefault, MakeList(ordered...))
         }
 
         if prog.pc.stems != nil {
@@ -670,7 +656,7 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
         }
 
         // Update file info and timestamp.
-        if false && err == nil {
+        /*if false && err == nil {
                 var target Value
                 target, err = prog.pc.targetDef.Call(prog.position)
                 if err != nil { return }
@@ -686,7 +672,7 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
                         //var file = stat(filename, "", "")
                         //context.globe.stamp(filename, file.info.ModTime())
                 }
-        }
+        }*/
         return
 }
 

@@ -2318,11 +2318,12 @@ ForArgs:
                 switch t := a.(type) {
                 case *File: check(t)
                 case *Path:
-                        if t.File != nil {
+                        /*if t.File != nil {
                                 check(t.File)
                         } else {
                                 checkstat(a)
-                        }
+                        }*/
+                        checkstat(a)
                 default:
                         checkstat(a)
                 }
