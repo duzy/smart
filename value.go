@@ -1356,7 +1356,9 @@ func (p *String) elemstr(o Object, k elemkind) (s string) {
         return
 }
 func (p *String) String() string { return p.elemstr(nil, 0) }
-func (p *String) Strval() (string, error) { return p.string, nil }
+func (p *String) Strval() (string, error) {
+        return strings.Replace(p.string, "\\\"", "\"", -1), nil
+}
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *String) dependcompare(c *comparer) (err error) { return c.compareStatDepend(p, p.string, nil) }
