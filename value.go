@@ -1553,7 +1553,7 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
         var name Value
         if name, err = p.Name.expand(w); err == nil {
                 if name != p.Name {
-                        res = &Barefile{ name, p.File }
+                        res = &Barefile{name, p.File}
                 } else {
                         res = p
                 }

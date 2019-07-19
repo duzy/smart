@@ -1530,21 +1530,28 @@ ForPairs:
         return
 }
 
-func copyRegular(src, dst string, optPath bool, optMode os.FileMode) (err error) {
+type copyopts struct {
+        path bool
+        mode os.FileMode
+        head Value
+        foot Value
+}
+
+func copyRegular(src, dst string, opts *copyopts) (err error) {
         var srcFile, dstFile *os.File
         if srcFile, err = os.Open(src); err != nil { return }
 
         // sys default file mode is 0666
-        if optPath { // Make path (mkdir -p)
+        if opts.path { // Make path (mkdir -p)
                 if p := filepath.Dir(dst); p != "." && p != "/" {
                         err = os.MkdirAll(p, os.FileMode(0755))
                         if err != nil { return }
                 }
         }
 
-        if optMode == 0 { optMode = os.FileMode(0640) }
+        if opts.mode == 0 { opts.mode = os.FileMode(0640) }
 
-        dstFile, err = os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode)
+        dstFile, err = os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode)
         if err != nil { srcFile.Close(); return }
 
         srcBuf := bufio.NewReader(srcFile)
@@ -1557,17 +1564,31 @@ func copyRegular(src, dst string, optPath bool, optMode os.FileMode) (err error)
                 context.globe.stamp(dst, file.info.ModTime())
         } ()
 
+        if opts.head != nil {
+                var s string
+                if s, err = opts.head.Strval(); err != nil { return }
+                if s != "" {
+                        dstBuf.WriteString(s)
+                }
+        }
         if _, err = io.Copy(dstBuf, srcBuf); err == nil {
+                if opts.foot != nil {
+                        var s string
+                        s, err = opts.foot.Strval()
+                        if err == nil && s != "" {
+                                dstBuf.WriteString(s)
+                        }
+                }
                 dstBuf.Flush() // flush content
         }
         return
 }
 
-func copySymlink(src, dst string, optPath bool, optMode os.FileMode) (err error) {
+func copySymlink(src, dst string, opts *copyopts) (err error) {
         panic("unimplemented copySymlink")
 }
 
-func copyDir(src, dst string, optPath bool, optMode os.FileMode) (err error) {
+func copyDir(src, dst string, opts *copyopts) (err error) {
         if dst != "." && dst != "/" { // Make path (mkdir -p)
                 err = os.MkdirAll(dst, os.FileMode(0755))
                 if err != nil { return }
@@ -1580,21 +1601,21 @@ func copyDir(src, dst string, optPath bool, optMode os.FileMode) (err error) {
         for _, fi := range fis {
                 ss := filepath.Join(src, fi.Name())
                 sd := filepath.Join(dst, fi.Name())
-                err = copyFile(fi, ss, sd, false, optMode)
+                err = copyFile(fi, ss, sd, opts)
                 if err != nil { break }
         }
         return
 }
 
-func copyFile(srcFi os.FileInfo, src, dst string, optPath bool, optMode os.FileMode) (err error) {
+func copyFile(srcFi os.FileInfo, src, dst string, opts *copyopts) (err error) {
         if m := srcFi.Mode(); m&os.ModeSymlink != 0 {
-                if optMode == 0 { optMode = srcFi.Mode() }
-                err = copySymlink(src, dst, optPath, optMode)
+                if opts.mode == 0 { opts.mode = srcFi.Mode() }
+                err = copySymlink(src, dst, opts)
         } else if srcFi.IsDir() {
-                err = copyDir(src, dst, optPath, optMode)
+                err = copyDir(src, dst, opts)
         } else if m.IsRegular() {
-                if optMode == 0 { optMode = srcFi.Mode() }
-                err = copyRegular(src, dst, optPath, optMode)
+                if opts.mode == 0 { opts.mode = srcFi.Mode() }
+                err = copyRegular(src, dst, opts)
         } else {
                 err = fmt.Errorf("copying non-regular files/dirs (%s)", src)
         }
@@ -1611,11 +1632,15 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
                         "r,recursive",
                         "v,verbose",
                         "m,mode",
+                        "h,head", // insert header content
+                        "f,foot", // insert footer content
                 }
                 optPath bool
                 optRecursive bool
                 optVerbose bool
                 optMode os.FileMode
+                optHead Value
+                optFoot Value
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
@@ -1638,6 +1663,8 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
                                 case 'p': optPath = trueVal(v, true)
                                 case 'r': optRecursive = trueVal(v, true)
                                 case 'v': optVerbose = trueVal(v, true)
+                                case 'h': if v != nil { optHead = v }
+                                case 'f': if v != nil { optFoot = v }
                                 case 'm':
                                         if v != nil {
                                                 var num int64
@@ -1729,17 +1756,18 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         } else if optVerbose {
                 fmt.Fprintf(stderr, "smart: Copying %v …", target)
         }
-
+        
+        var copyOpts = &copyopts{ optPath, optMode, optHead, optFoot }
         var fi os.FileInfo
         if fi, err = os.Stat(srcname); err != nil {
                 err = scanner.WrapErrors(token.Position(pos), err)
         } else if !fi.IsDir() {
                 if optMode == 0 { optMode = fi.Mode() }
-                if err = copyFile(fi, srcname, filename, optPath, optMode); err != nil {
+                if err = copyFile(fi, srcname, filename, copyOpts); err != nil {
                         err = scanner.WrapErrors(token.Position(pos), err)
                 }
         } else if optRecursive {
-                if err = copyDir(srcname, filename, optPath, optMode); err != nil {
+                if err = copyDir(srcname, filename, copyOpts); err != nil {
                         err = scanner.WrapErrors(token.Position(pos), err)
                 }
         } else {
