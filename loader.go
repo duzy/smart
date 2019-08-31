@@ -1995,11 +1995,9 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
         if declared || l.includeFunc == nil || optionConfigure {
                 // Does nothing!
-        } else if ctd := l.project.scope.FindDef("CTD"); ctd == nil {
-                unreachable()
-        } else if s, err := ctd.Strval(); err != nil {
+        } else if s, err := configurationFileName(l.project); err != nil {
                 return err
-        } else if file := stat("configuration.sm", "", s); file != nil {
+        } else if file := stat(filepath.Base(s), "", filepath.Dir(s)); file != nil {
                 l.isIncludingConf = true
                 l.includeFunc(l, ident.Pos(), file)
                 l.isIncludingConf = false

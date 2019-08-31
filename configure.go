@@ -115,23 +115,19 @@ func do_configuration() (err error) {
         var ( file *os.File; writer *bufio.Writer )
         defer func() {
                 reportConfiguredNum()
-                if writer != nil { if err := writer.Flush(); err != nil {}}
-                if file != nil { if err := file.Close(); err != nil {}}
+                if writer != nil { if err := writer.Flush(); err != nil {} }
+                if file != nil { if err := file.Close(); err != nil {} }
         } ()
 
         var defs = make(map[string]Value)
         for _, entry := range configuration.entries {
                 var pos = token.Position(entry.Position)
-                if p := entry.OwnerProject(); project != p {
-                        if ctd := p.scope.FindDef("CTD"); ctd == nil {
-                                unreachable()
-                        } else if s, e := ctd.Strval(); e != nil {
+                if p := entry.OwnerProject(); p != project && p != nil {
+                        var f, e = openConfigurationFile(p)
+                        if e != nil {
                                 err = scanner.WrapErrors(pos, e, err)
                                 return
-                        } else if e = os.MkdirAll(s, os.FileMode(0755)); e != nil {
-                                err = scanner.WrapErrors(pos, e, err)
-                                return
-                        } else if f, e := os.OpenFile(filepath.Join(s, "configuration.sm"), os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); e == nil {
+                        } else if f != nil {
                                 if writer != nil {
                                         if e = writer.Flush(); e != nil {
                                                 err = scanner.WrapErrors(pos, e, err)
@@ -144,17 +140,15 @@ func do_configuration() (err error) {
                                                 return
                                         }
                                 }
-                                file, writer = f, bufio.NewWriter(f)
-                                fmt.Fprintf(writer, "# %s (%s) configuration\n", p.name, p.relPath)
-                        } else {
-                                err = scanner.WrapErrors(pos, e, err)
-                                return
                         }
+
+                        file, writer = f, bufio.NewWriter(f)
+                        fmt.Fprintf(writer, "# %s (%s) configuration\n", p.name, p.relPath)
+
                         reportConfiguredNum()
                         fmt.Fprintf(stderr, "configure: Project %s …… (%s)\n", p.name, p.relPath)
                         project, num = p, 0
                 }
-
                 if _, e := entry.Execute(entry.Position); e != nil {
                         err = scanner.WrapErrors(pos, e, err)
                 } else if s, e := entry.target.Strval(); e != nil {
@@ -175,7 +169,6 @@ func do_configuration() (err error) {
                         defs[s] = def.Value
                         num += 1
                 } else {
-                        //e := scanner.Errorf(token.Position(pos), "`%s` unconfigured", s)
                         e := fmt.Errorf("`%s` unconfigured", s)
                         err = scanner.WrapErrors(pos, e, err)
                 }
@@ -197,6 +190,37 @@ func do_configuration() (err error) {
         executed = nil
 
         printLeavingDirectory()
+        return
+}
+
+func openConfigurationFile(p *Project) (file *os.File, err error) {
+        defer setclosure(setclosure(cloctx.unshift(p.scope)))
+        if s, e := configurationFileName(p); e != nil {
+                err = e
+        } else if e = os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); e != nil {
+                err = e
+        } else if f, e := os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600)); e == nil {
+                file = f
+        } else {
+                err = e
+        }
+        return
+}
+
+func configurationFileName(p *Project) (s string, err error) {
+        const name = "configuration.sm"
+        if f := p.matchFile(name); f != nil {
+                s, err = f.Strval()
+        } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
+                unreachable()
+        } else if s, err = ctd.Strval(); err != nil {
+                // error...
+        } else {
+                s = filepath.Join(s, name)
+        }
+        if false {
+                fmt.Fprintf(stderr, "configuration.sm: %s: %v\n", p.name, s)
+        }
         return
 }
 
