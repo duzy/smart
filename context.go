@@ -109,6 +109,7 @@ func (ctx *Context) run() (result []Value, err error) {
         var goals []Value
         for _, goal := range merge(ctx.goals.Value) {
                 switch t := goal.(type) {
+                case *None: // just ignore
                 case *Bareword:
                         if entry, err := main.resolveEntry(t.string); err != nil {
                                 fmt.Fprintf(stderr, "%s\n", err)

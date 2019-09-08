@@ -727,6 +727,16 @@ func (p *Argumented) traverse(pc *traversal) (err error) {
         if err == nil { err = pc.traverse(p.Val) }
         return
 }
+func (p *Argumented) checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog *Program) (ok, res1 bool, err error) {
+        switch v := p.Val.(type) {
+        case Pattern:
+                ok = true
+                res1, err = checkPatternDepend(pc, project, se, prog, v)
+        case *Argumented:
+                ok, res1, err = v.checkPatternDepends(pc, project, se, prog)
+        }
+        return
+}
 
 type None struct {}
 func (_ *None) refs(_ Value) bool { return false }
@@ -2315,12 +2325,20 @@ func checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog
                 // Pattern is always good as no depends to check.
                 return true, nil
         }
+        var checkedPatterns = 0
         for _, dep := range prog.depends {
                 switch d := dep.(type) {
                 case Pattern:
-                        res, err = checkPatternFileDepend(pc, project, se, prog, d)
+                        res, err = checkPatternDepend(pc, project, se, prog, d)
+                        checkedPatterns += 1
                         if err != nil { return }
                         if !res { break }
+                case *Argumented:
+                        var ok, res1 bool
+                        ok, res1, err = d.checkPatternDepends(pc, project, se, prog)
+                        if err != nil { return }
+                        if ok && !res1 { break }
+                        res = res1
                 default:
                         /*
                         var name, str string
@@ -2333,10 +2351,15 @@ func checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog
                         */
                 }
         }
+        if !res && checkedPatterns == 0 {
+                // If there's no pattern depends, we're good to use the
+                // pattern to update target.
+                res = true
+        }
         return
 }
 
-func checkPatternFileDepend(pc *traversal, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
+func checkPatternDepend(pc *traversal, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
         var name string
         var rest []string // rest stems
         if name, rest, err = pat.stencil(se.Stems); err != nil { return }
