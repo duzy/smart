@@ -94,6 +94,7 @@ type ExecBuffer struct {
         Subm [][][][]byte
         line []byte
         filters []string
+        wrote uint64
 }
 
 func (p *ExecBuffer) filter(s string) {
@@ -140,6 +141,7 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
                 // The real bytes written is discarded.
                 n = len(b)
         }
+        p.wrote += uint64(n)
         return
 }
 
@@ -559,10 +561,14 @@ ForArgs:
                 var targetStr string
                 defer func() {
                         if log != nil {
-                                log.Flush()
-                        }
-                        if logfile != nil {
-                                logfile.Close()
+                                if exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
+                                        // Discard log buffer.
+                                        logfile.Close()
+                                        os.Remove(logFileName)
+                                } else {
+                                        log.Flush()
+                                        logfile.Close()
+                                }
                         }
                         if caller != nil {
                                 caller.group.Done()
