@@ -446,6 +446,30 @@ ForArgs:
                 }
         }
 
+        var cwd string
+        if v, e := prog.scope.Lookup("CWD").(*Def).Call(prog.position); e != nil {
+                err = e; return
+        } else if v != nil {
+                if cwd, err = v.Strval(); err != nil { return }
+        } else if v, e := prog.scope.Lookup("/").(*Def).Call(prog.position); e != nil {
+                err = e; return
+        } else if v != nil {
+                if cwd, err = v.Strval(); err != nil { return }
+        }
+
+        // Fixes work directory conflicts. It happens
+        // sometimes even the 'sh.Dir' is set to cwd.
+        // Because the current work directory is not
+        // thread safe.
+        var dir = cwd
+        if prog.changedWD != "" {
+                if filepath.IsAbs(prog.changedWD) {
+                        dir = prog.changedWD
+                } else {
+                        dir = filepath.Join(prog.project.absPath, prog.changedWD)
+                }
+        }
+
         var log *bufio.Writer
         var logfile *os.File
         var exeres = new(ExecResult)
@@ -459,6 +483,8 @@ ForArgs:
                 return
         } else {
                 log = bufio.NewWriter(logfile)
+                fmt.Fprintf(log, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
+                fmt.Fprintf(log, "Compilation started at %v\n\n", time.Now())
                 exeres.Stdout.Log = log
                 exeres.Stderr.Log = log
         }
@@ -532,16 +558,14 @@ ForArgs:
                         if logfile != nil {
                                 logfile.Close()
                         }
-                } ()
-                if caller != nil {
-                        defer func() {
+                        if caller != nil {
                                 caller.group.Done()
                                 //caller.calleeReses = append(caller.calleeReses, exeres)
                                 if err != nil {
                                         caller.calleeErrors = append(caller.calleeErrors, err)
                                 }
-                        } ()
-                }
+                        }
+                } ()
                 if prompt {
                         var targetStr string
                         if a := strings.Split(targetName, PathSep); len(a) > 3 {
@@ -581,31 +605,6 @@ ForArgs:
                                                 fmt.Fprintf(stderr, "%s%s ……error: %v\n", promStr, targetStr, err)
                                         }
                                 } ()
-                        }
-                }
-
-                var cwd string
-                /*if v, e := prog.scope.Lookup("/").(*Def).Call(prog.position); e != nil {
-                        err = e; return
-                } else if v != nil {
-                        if slash, err = v.Strval(); err != nil { return }
-                }*/
-                if v, e := prog.scope.Lookup("CWD").(*Def).Call(prog.position); e != nil {
-                        err = e; return
-                } else if v != nil {
-                        if cwd, err = v.Strval(); err != nil { return }
-                }
-
-                // Fixes work directory conflicts. It happens
-                // sometimes even the 'sh.Dir' is set to cwd.
-                // Because the current work directory is not
-                // thread safe.
-                var dir = cwd
-                if prog.changedWD != "" {
-                        if filepath.IsAbs(prog.changedWD) {
-                                dir = prog.changedWD
-                        } else {
-                                dir = filepath.Join(prog.project.absPath, prog.changedWD)
                         }
                 }
 
