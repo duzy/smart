@@ -88,6 +88,7 @@ func (w *stdWriter) Write(p []byte) (n int, err error) {
 
 type ExecBuffer struct {
         Tie io.Writer
+        Log io.Writer
         Buf *bytes.Buffer
         Line *regexp.Regexp
         Subm [][][][]byte
@@ -100,6 +101,11 @@ func (p *ExecBuffer) filter(s string) {
 }
 
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
+        if p.Log != nil {
+                if _, err = p.Log.Write(b); err != nil {
+                        return
+                }
+        }
         if p.Line != nil {
                 i := bytes.Index(b, []byte("\n"))
                 if i == -1 {
@@ -288,7 +294,7 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
 func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
-        var cmd, promStr = p.cmd, ""
+        var cmd, promStr, logFileName = p.cmd, "", ""
         var aa []string
         var opts = []string{
                 "o,stdout",
@@ -299,6 +305,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                 "i,stdin",
                 "s,silent",
                 "d,dump", // verbout, verberr
+                "l,log",
                 "nocd",
         }
 ForArgs:
@@ -344,6 +351,14 @@ ForArgs:
                                         prompt = true
                                 } else if s, err = v.Strval(); err == nil {
                                         prompt, promStr = true, s
+                                } else {
+                                        return
+                                }
+                        case 'l': // logFileName
+                                if v == nil {
+                                        logFileName = ""
+                                } else if s, err = v.Strval(); err == nil {
+                                        logFileName = s
                                 } else {
                                         return
                                 }
@@ -431,11 +446,22 @@ ForArgs:
                 }
         }
 
+        var log *bufio.Writer
+        var logfile *os.File
         var exeres = new(ExecResult)
         if buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
         if bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
         if verbout { exeres.Stdout.Tie = stdout }
         if verberr { exeres.Stderr.Tie = stderr }
+        if logFileName == "" {
+                // no log required
+        } else if logfile, err = os.Create(logFileName); err != nil {
+                return
+        } else {
+                log = bufio.NewWriter(logfile)
+                exeres.Stdout.Log = log
+                exeres.Stderr.Log = log
+        }
         exeres.Stderr.Line = rxKnownErrors // the line filter
 
         var targetName string
@@ -499,6 +525,14 @@ ForArgs:
 
         var caller *traversecontext
         var run = func() {
+                defer func() {
+                        if log != nil {
+                                log.Flush()
+                        }
+                        if logfile != nil {
+                                logfile.Close()
+                        }
+                } ()
                 if caller != nil {
                         defer func() {
                                 caller.group.Done()
