@@ -2325,6 +2325,16 @@ func checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog
                 // Pattern is always good as no depends to check.
                 return true, nil
         }
+
+        // Set arguments in case that depends may refer to a parameter.
+        if prog.params == nil || pc.arguments == nil {
+                // no need to set arguments
+        } else if e, clearParams := prog.setParams(pc.arguments); e != nil {
+                err = e; return
+        } else {
+                defer clearParams()
+        }
+
         var checkedPatterns = 0
         for _, dep := range prog.depends {
                 switch d := dep.(type) {

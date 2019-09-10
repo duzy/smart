@@ -287,6 +287,58 @@ func (prog *Program) modifiers() (preModifiers, postModifiers []*modifier) {
         return
 }
 
+func (prog *Program) setParams(args []Value) (err error, restore func()) {
+        var params []*Def
+        for i, param := range prog.params {
+                var def *Def
+                if def, err = prog.auto(param, universalnone); err != nil {
+                        err = scanner.WrapErrors(token.Position(prog.position), err)
+                        return
+                }
+                prog.scope.replace(strconv.Itoa(i+1), def)
+                params = append(params, def)
+        }
+        var argnum int // setup named/number parameters ($1, $2, etc.)
+        for _, a := range args {
+                //<!IMPORTANT: Don't translate Flag, Flag values are valid
+                //             regular arguments. Don't Pair values are
+                //             special.
+                switch t := a.(type) {
+                case *Pair:
+                        var s string
+                        if s, err = t.Key.Strval(); err == nil {
+                                if o := prog.scope.Lookup(s); o != nil {
+                                        o.(*Def).set(DefDefault, t.Value)
+                                } else {
+                                        err = scanner.Errorf(token.Position(prog.position), "`%s` no such named parameter", s)
+                                }
+                        }
+                default:
+                        var def *Def
+                        if argnum < len(params) {
+                                def = params[argnum]
+                                def.set(DefDefault, a)
+                        } else {
+                                name := strconv.Itoa(argnum+1)
+                                if def, err = prog.auto(name, a); err == nil {
+                                        params = append(params, def)
+                                }
+                        }
+                        argnum += 1
+                }
+                if err != nil {
+                        err = scanner.WrapErrors(token.Position(prog.position), err)
+                        return
+                }
+        }
+        restore = func() {
+                for _, param := range params {
+                        param.set(DefDefault, universalnone)
+                }
+        }
+        return
+}
+
 // Execute could be nested called, a program.mutex.lock could cause
 // dead-lock.
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
@@ -395,53 +447,13 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.pc.targetDef.set(DefDefault, target)
         }
 
-        defer func() {
-                for _, param := range prog.pc.params {
-                        param.set(DefDefault, universalnone)
-                }
-                prog.pc.params = nil
-        } ()
-        for i, param := range prog.params {
-                var def *Def
-                if def, err = prog.auto(param, universalnone); err != nil {
-                        err = scanner.WrapErrors(token.Position(prog.position), err)
-                        return
-                }
-                prog.scope.replace(strconv.Itoa(i+1), def)
-                prog.pc.params = append(prog.pc.params, def)
-        }
-        var argnum int // setup named/number parameters ($1, $2, etc.)
-        for _, a := range prog.pc.args {
-                //<!IMPORTANT: Don't translate Flag, Flag values are valid
-                //             regular arguments. Don't Pair values are
-                //             special.
-                switch t := a.(type) {
-                case *Pair:
-                        var s string
-                        if s, err = t.Key.Strval(); err == nil {
-                                if o := prog.scope.Lookup(s); o != nil {
-                                        o.(*Def).set(DefDefault, t.Value)
-                                } else {
-                                        err = scanner.Errorf(token.Position(prog.position), "`%s` no such named parameter", s)
-                                }
-                        }
-                default:
-                        var def *Def
-                        if argnum < len(prog.pc.params) {
-                                def = prog.pc.params[argnum]
-                                def.set(DefDefault, a)
-                        } else {
-                                name := strconv.Itoa(argnum+1)
-                                if def, err = prog.auto(name, a); err == nil {
-                                        prog.pc.params = append(prog.pc.params, def)
-                                }
-                        }
-                        argnum += 1
-                }
-                if err != nil {
-                        err = scanner.WrapErrors(token.Position(prog.position), err)
-                        return
-                }
+        if e, clearParams := prog.setParams(args); e != nil {
+                err = e; return
+        } else {
+                defer func() {
+                        clearParams()
+                        prog.pc.params = nil
+                } ()
         }
 
         // Expanding all dependencies after pre-modifiers.
