@@ -88,7 +88,7 @@ func (w *stdWriter) Write(p []byte) (n int, err error) {
 
 type ExecBuffer struct {
         Tie io.Writer
-        Log io.Writer
+        Log *bufio.Writer
         Buf *bytes.Buffer
         Line *regexp.Regexp
         Subm [][][][]byte
@@ -101,11 +101,6 @@ func (p *ExecBuffer) filter(s string) {
 }
 
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
-        if p.Log != nil {
-                if _, err = p.Log.Write(b); err != nil {
-                        return
-                }
-        }
         if p.Line != nil {
                 i := bytes.Index(b, []byte("\n"))
                 if i == -1 {
@@ -125,13 +120,18 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
                         return len(b), nil
                 }
         }
-        if p.Tie != nil {
-                if n, err = p.Tie.Write(b); err != nil {
+        if p.Buf != nil {
+                if n, err = p.Buf.Write(b); err != nil {
                         return
                 }
         }
-        if p.Buf != nil {
-                if n, err = p.Buf.Write(b); err != nil {
+        if p.Log != nil {
+                if _, err = p.Log.Write(b); err != nil {
+                        return
+                }
+        }
+        if p.Tie != nil {
+                if n, err = p.Tie.Write(b); err != nil {
                         return
                 }
         }
@@ -288,6 +288,13 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
                         time.Sleep(time.Second)
                 }
         }
+        return
+}
+
+func createLogWriter(file *os.File, dir string) (log *bufio.Writer) {
+        log = bufio.NewWriter(file)
+        fmt.Fprintf(log, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
+        fmt.Fprintf(log, "Compilation started at %v\n\n", time.Now())
         return
 }
 
@@ -482,9 +489,7 @@ ForArgs:
         } else if logfile, err = os.Create(logFileName); err != nil {
                 return
         } else {
-                log = bufio.NewWriter(logfile)
-                fmt.Fprintf(log, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
-                fmt.Fprintf(log, "Compilation started at %v\n\n", time.Now())
+                log = createLogWriter(logfile, dir)
                 exeres.Stdout.Log = log
                 exeres.Stderr.Log = log
         }
