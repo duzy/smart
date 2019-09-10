@@ -551,6 +551,7 @@ ForArgs:
 
         var caller *traversecontext
         var run = func() {
+                var targetStr string
                 defer func() {
                         if log != nil {
                                 log.Flush()
@@ -565,9 +566,31 @@ ForArgs:
                                         caller.calleeErrors = append(caller.calleeErrors, err)
                                 }
                         }
+                        if prompt {
+                                if caller == nil {
+                                        if err == nil {
+                                                fmt.Fprintf(stderr, "… ok\n")
+                                        } else if _, ok := err.(*scanner.Error); ok {
+                                                fmt.Fprintf(stderr, "\n%v\n", err)
+                                        } else if _, ok := err.(*scanner.Errors); ok {
+                                                fmt.Fprintf(stderr, "\n%v\n", err)
+                                        } else {
+                                                fmt.Fprintf(stderr, "error: %v\n", err)
+                                        }
+                                } else {
+                                        if err == nil {
+                                                //fmt.Fprintf(stderr, "%s%s …… ok\n", promStr, targetStr)
+                                        } else if _, ok := err.(*scanner.Error); ok {
+                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
+                                        } else if _, ok := err.(*scanner.Errors); ok {
+                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
+                                        } else {
+                                                fmt.Fprintf(stderr, "%s%s ……error: %v\n", promStr, targetStr, err)
+                                        }
+                                }
+                        }
                 } ()
                 if prompt {
-                        var targetStr string
                         if a := strings.Split(targetName, PathSep); len(a) > 3 {
                                 targetStr = filepath.Join(a[len(a)-3:]...)
                                 targetStr = filepath.Join("…", targetStr)
@@ -581,30 +604,8 @@ ForArgs:
                         }
                         if caller == nil {
                                 fmt.Fprintf(stderr, "%s%s …\n", promStr, targetStr)
-                                defer func() {
-                                        if err == nil {
-                                                fmt.Fprintf(stderr, "… ok\n")
-                                        } else if _, ok := err.(*scanner.Error); ok {
-                                                fmt.Fprintf(stderr, "\n%v\n", err)
-                                        } else if _, ok := err.(*scanner.Errors); ok {
-                                                fmt.Fprintf(stderr, "\n%v\n", err)
-                                        } else {
-                                                fmt.Fprintf(stderr, "error: %v\n", err)
-                                        }
-                                } ()
                         } else {
                                 fmt.Fprintf(stderr, "%s%s ……\n", promStr, targetStr)
-                                defer func() {
-                                        if err == nil {
-                                                //fmt.Fprintf(stderr, "%s%s …… ok\n", promStr, targetStr)
-                                        } else if _, ok := err.(*scanner.Error); ok {
-                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
-                                        } else if _, ok := err.(*scanner.Errors); ok {
-                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
-                                        } else {
-                                                fmt.Fprintf(stderr, "%s%s ……error: %v\n", promStr, targetStr, err)
-                                        }
-                                } ()
                         }
                 }
 
