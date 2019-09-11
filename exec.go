@@ -563,7 +563,7 @@ ForArgs:
                 var targetStr string
                 defer func() {
                         if log != nil {
-                                if exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
+                                if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
                                         // Discard log buffer.
                                         logfile.Close()
                                         os.Remove(logFileName)
