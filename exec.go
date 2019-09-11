@@ -293,10 +293,11 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
         return
 }
 
-func createLogWriter(file *os.File, dir string) (log *bufio.Writer) {
+func createLogWriter(file *os.File, dir, cmd string) (log *bufio.Writer) {
         log = bufio.NewWriter(file)
         fmt.Fprintf(log, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
         fmt.Fprintf(log, "Compilation started at %v\n\n", time.Now())
+        fmt.Fprintf(log, "%s\n", cmd)
         return
 }
 
@@ -479,24 +480,6 @@ ForArgs:
                 }
         }
 
-        var log *bufio.Writer
-        var logfile *os.File
-        var exeres = new(ExecResult)
-        if buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
-        if bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
-        if verbout { exeres.Stdout.Tie = stdout }
-        if verberr { exeres.Stderr.Tie = stderr }
-        if logFileName == "" {
-                // no log required
-        } else if logfile, err = os.Create(logFileName); err != nil {
-                return
-        } else {
-                log = createLogWriter(logfile, dir)
-                exeres.Stdout.Log = log
-                exeres.Stderr.Log = log
-        }
-        exeres.Stderr.Line = rxKnownErrors // the line filter
-
         var targetName string
         var target = prog.pc.targetDef.Value
         if targetName, err = target.Strval(); err != nil {
@@ -554,7 +537,24 @@ ForArgs:
                 envs = append(envs, fmt.Sprintf("%s=%s", k, v))
         }
 
-        printEnteringDirectory()
+        var log *bufio.Writer
+        var logfile *os.File
+        var exeres = new(ExecResult)
+        if buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
+        if bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
+        if verbout { exeres.Stdout.Tie = stdout }
+        if verberr { exeres.Stderr.Tie = stderr }
+        if logFileName == "" {
+                // no log required
+        } else if logfile, err = os.Create(logFileName); err != nil {
+                return
+        } else {
+                cmdline := strings.Join(sources, "\n")
+                log = createLogWriter(logfile, dir, cmdline)
+                exeres.Stdout.Log = log
+                exeres.Stderr.Log = log
+        }
+        exeres.Stderr.Line = rxKnownErrors // the line filter
 
         var caller *traversecontext
         var run = func() {
@@ -624,8 +624,8 @@ ForArgs:
                         if strings.HasPrefix(src, "@") {
                                 src = src[1:]
                         } else if !prompt {
-                                var s = src
-                                s = strings.Replace(s, "\n", "\\n", -1)
+                                var s string
+                                s = strings.Replace(src, "\n", "\\n", -1)
                                 s = strings.Replace(s, "\\\\n", "\\\n", -1)
                                 fmt.Fprintf(stderr, "%s\n", s)
                         }
@@ -737,6 +737,8 @@ ForArgs:
                         return
                 }
         }
+
+        printEnteringDirectory()
 
         if len(prog.callers) > 0 {
                 caller = prog.callers[0]
