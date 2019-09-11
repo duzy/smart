@@ -86,9 +86,27 @@ func (w *stdWriter) Write(p []byte) (n int, err error) {
         return
 }
 
+type ExecLog struct {
+        writer *bufio.Writer
+        lines int
+}
+
+func (p *ExecLog) Write(b []byte) (n int, err error) {
+        p.lines += bytes.Count(b, []byte("\n"))
+        n, err = p.writer.Write(b)
+        return
+}
+
+func (p *ExecLog) createWriter(file *os.File, dir, cmd string) {
+        p.writer = bufio.NewWriter(file)
+        fmt.Fprintf(p, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
+        fmt.Fprintf(p, "Compilation started at %v\n\n", time.Now())
+        fmt.Fprintf(p, "%s\n", cmd)
+}
+
 type ExecBuffer struct {
         Tie io.Writer
-        Log *bufio.Writer
+        Log *ExecLog
         Buf *bytes.Buffer
         Line *regexp.Regexp
         Subm [][][][]byte
@@ -290,14 +308,6 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
                         time.Sleep(time.Second)
                 }
         }
-        return
-}
-
-func createLogWriter(file *os.File, dir, cmd string) (log *bufio.Writer) {
-        log = bufio.NewWriter(file)
-        fmt.Fprintf(log, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
-        fmt.Fprintf(log, "Compilation started at %v\n\n", time.Now())
-        fmt.Fprintf(log, "%s\n", cmd)
         return
 }
 
@@ -537,7 +547,7 @@ ForArgs:
                 envs = append(envs, fmt.Sprintf("%s=%s", k, v))
         }
 
-        var log *bufio.Writer
+        var log ExecLog
         var logfile *os.File
         var exeres = new(ExecResult)
         if buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
@@ -552,9 +562,9 @@ ForArgs:
                 return
         } else {
                 cmdline := strings.Join(sources, "\n")
-                log = createLogWriter(logfile, dir, cmdline)
-                exeres.Stdout.Log = log
-                exeres.Stderr.Log = log
+                log.createWriter(logfile, dir, cmdline)
+                exeres.Stdout.Log = &log
+                exeres.Stderr.Log = &log
         }
         exeres.Stderr.Line = rxKnownErrors // the line filter
 
@@ -562,13 +572,13 @@ ForArgs:
         var run = func() {
                 var targetStr string
                 defer func() {
-                        if log != nil {
+                        if log.writer != nil {
                                 if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
                                         // Discard log buffer.
                                         logfile.Close()
                                         os.Remove(logFileName)
                                 } else {
-                                        log.Flush()
+                                        log.writer.Flush()
                                         logfile.Close()
                                 }
                         }
@@ -710,6 +720,10 @@ ForArgs:
                                 } else if err != nil {
                                         if silent { err = nil }
                                 } else if tag == "" {
+                                        if log.writer != nil {
+                                                fmt.Fprintf(&log, "\n"+errCommandFailedFmt+"\n", exeres.Status)
+                                                fmt.Fprintf(stderr, "%s:%d: command failed\n", logFileName, log.lines)
+                                        }
                                         if tag = promStr; tag == "" { tag = targetName }
                                         err = fmt.Errorf(errCommandFailedFmt, exeres.Status) //, tag
                                 } else if v, ok := skips[tag]; !v && !ok && docks != nil {
