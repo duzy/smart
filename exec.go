@@ -546,6 +546,8 @@ ForArgs:
         if verberr { exeres.Stderr.Tie = stderr }
         if logFileName == "" {
                 // no log required
+        } else if err = os.MkdirAll(filepath.Dir(logFileName), os.FileMode(0755)); err != nil {
+                return
         } else if logfile, err = os.Create(logFileName); err != nil {
                 return
         } else {
