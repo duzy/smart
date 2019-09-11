@@ -25,7 +25,7 @@ import (
 )
 
 // Note that it's is also used with Sscanf.
-const errCommandFailedFmt = "failed: exit status %d (%s)"
+const errCommandFailedFmt = "exit status %d"
 var (
         defaultShell = "bash"
 
@@ -586,7 +586,7 @@ ForArgs:
                                         } else if _, ok := err.(*scanner.Errors); ok {
                                                 fmt.Fprintf(stderr, "\n%v\n", err)
                                         } else {
-                                                fmt.Fprintf(stderr, "error: %v\n", err)
+                                                fmt.Fprintf(stderr, "%v\n", err)
                                         }
                                 } else {
                                         if err == nil {
@@ -596,7 +596,7 @@ ForArgs:
                                         } else if _, ok := err.(*scanner.Errors); ok {
                                                 fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
                                         } else {
-                                                fmt.Fprintf(stderr, "%s%s ……error: %v\n", promStr, targetStr, err)
+                                                fmt.Fprintf(stderr, "%s%s …… %v\n", promStr, targetStr, err)
                                         }
                                 }
                         }
@@ -709,7 +709,7 @@ ForArgs:
                                         if silent { err = nil }
                                 } else if tag == "" {
                                         if tag = promStr; tag == "" { tag = targetName }
-                                        err = fmt.Errorf(errCommandFailedFmt, exeres.Status, tag)
+                                        err = fmt.Errorf(errCommandFailedFmt, exeres.Status) //, tag
                                 } else if v, ok := skips[tag]; !v && !ok && docks != nil {
                                         skips[tag] = true // save it to skip next time
                                         if err = p.runContainer(prog, docks); err == nil {
