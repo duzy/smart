@@ -62,13 +62,39 @@ var (
 
 const maxWorkers = 10
 
+func init() {
+        working.Store(0)
+}
+
+func checkForWork() (good bool) {
+        workingMutex.Lock()
+        defer workingMutex.Unlock()
+
+        var num = working.Load().(int)
+        if num < maxWorkers {
+                working.Store(num + 1)
+                good = true
+        }
+        return
+}
+
+func waitForWork() {
+        for {
+                if checkForWork() { break }
+                time.Sleep(5*time.Millisecond)
+        }
+}
+
+func releaseWork() {
+        workingMutex.Lock()
+        defer workingMutex.Unlock()
+        var num = working.Load().(int)
+        working.Store(num - 1)
+}
+
 type stdWriter struct {
         std io.Writer
         suffixDots bool
-}
-
-func init() {
-        working.Store(0)
 }
 
 func (w *stdWriter) Write(p []byte) (n int, err error) {
@@ -110,7 +136,7 @@ type ExecBuffer struct {
         Buf *bytes.Buffer
         Line *regexp.Regexp
         Subm [][][][]byte
-        line []byte
+        line bytes.Buffer
         filters []string
         wrote uint64
 }
@@ -120,22 +146,8 @@ func (p *ExecBuffer) filter(s string) {
 }
 
 func (p *ExecBuffer) Write(b []byte) (n int, err error) {
-        if p.Line != nil {
-                i := bytes.Index(b, []byte("\n"))
-                if i == -1 {
-                        p.line = append(p.line, b...)
-                } else {
-                        p.line = append(p.line, b[:i]...)
-                }
-                if m := p.Line.FindAllSubmatch(p.line, -1); m != nil {
-                        p.Subm = append(p.Subm, m)
-                }
-                if i != -1 {
-                        p.line = b[i+1:]
-                }
-        }
         for _, s := range p.filters {
-                if string(b) == s {
+                if bytes.Equal(b, []byte(s)) { // string(b) == s
                         return len(b), nil
                 }
         }
@@ -159,7 +171,29 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
                 // The real bytes written is discarded.
                 n = len(b)
         }
+
         p.wrote += uint64(n)
+
+        if p.Line != nil {
+                var slice = b[:]
+                for len(slice) > 0 {
+                        var i = bytes.Index(slice, []byte("\n"))
+                        if i == -1 {
+                                p.line.Write(slice)
+                                slice = nil
+                        } else {
+                                p.line.Write(slice[:i+1])
+                                slice = slice[i+1:]
+
+                                var line = p.line.Bytes()
+                                if m := p.Line.FindAllSubmatch(line, -1); m != nil {
+                                        p.Subm = append(p.Subm, m)
+                                }
+
+                                p.line.Reset()
+                        }
+                }
+        }
         return
 }
 
@@ -557,15 +591,18 @@ ForArgs:
         if logFileName == "" {
                 // no log required
         } else if err = os.MkdirAll(filepath.Dir(logFileName), os.FileMode(0755)); err != nil {
-                return
+                fmt.Printf("MkdirAll: %v\n", err)
+                return // FIXME: err for outer func
         } else if logfile, err = os.Create(logFileName); err != nil {
-                return
+                fmt.Printf("Create: %v\n", err)
+                return // FIXME: err for outer func
         } else {
                 cmdline := strings.Join(sources, "\n")
                 log.createWriter(logfile, dir, cmdline)
                 exeres.Stdout.Log = &log
                 exeres.Stderr.Log = &log
         }
+
         exeres.Stderr.Line = rxKnownErrors // the line filter
 
         var caller *traversecontext
@@ -657,25 +694,7 @@ ForArgs:
                         }
 
                         // Restricts the number of workers.
-                        for {
-                                var num int
-                                workingMutex.Lock()
-                                num = working.Load().(int)
-                                if num < maxWorkers {
-                                        working.Store(num + 1)
-                                        workingMutex.Unlock()
-                                        break
-                                }
-                                workingMutex.Unlock()
-                                time.Sleep(5*time.Millisecond)
-                        }
-                        defer func() {
-                                var num int
-                                workingMutex.Lock()
-                                num = working.Load().(int)
-                                working.Store(num - 1)
-                                workingMutex.Unlock()
-                        } ()
+                        waitForWork(); defer releaseWork()
 
                         lockCD(dir, 5*time.Millisecond)
                         if s, _ := os.Getwd(); s != dir {
@@ -710,7 +729,7 @@ ForArgs:
                         if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
                                 if log.writer != nil {
                                         fmt.Fprintf(&log, "\n"+errCommandFailedFmt+"\n", exeres.Status)
-                                        fmt.Fprintf(stderr, "%s:%d: %v\n", logFileName, log.lines, e)
+                                        fmt.Fprintf(stderr, "%s:%d: %v\n", logFileName, log.lines, err)
                                 }
 
                                 var ( tag string ; retry bool )
@@ -763,7 +782,7 @@ ForArgs:
                 go run()
         } else {
                 run()
-                result = exeres
+                //result = exeres
         }
         return
 }
