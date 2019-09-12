@@ -708,6 +708,11 @@ ForArgs:
 
                         // Parse errors of execution
                         if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
+                                if log.writer != nil {
+                                        fmt.Fprintf(&log, "\n"+errCommandFailedFmt+"\n", exeres.Status)
+                                        fmt.Fprintf(stderr, "%s:%d: %v\n", logFileName, log.lines, e)
+                                }
+
                                 var ( tag string ; retry bool )
                                 err, tag, retry = exeres.Stderr.parseKnownErrors(prog.position, targetName, !verberr && !silent)
                                 if err == nil && retry {
@@ -720,10 +725,6 @@ ForArgs:
                                 } else if err != nil {
                                         if silent { err = nil }
                                 } else if tag == "" {
-                                        if log.writer != nil {
-                                                fmt.Fprintf(&log, "\n"+errCommandFailedFmt+"\n", exeres.Status)
-                                                fmt.Fprintf(stderr, "%s:%d: command failed\n", logFileName, log.lines)
-                                        }
                                         if tag = promStr; tag == "" { tag = targetName }
                                         err = fmt.Errorf(errCommandFailedFmt, exeres.Status) //, tag
                                 } else if v, ok := skips[tag]; !v && !ok && docks != nil {
