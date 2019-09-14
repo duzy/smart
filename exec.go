@@ -304,7 +304,7 @@ func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, docks []*Project, s
         if err = sh.Run(); err == nil {
                 // It's good!
         } else if n, e := fmt.Sscanf(err.Error(), "exit status %v", &status); n == 1 && e == nil {
-                if p.log.writer != nil {
+                if p.log != nil && p.log.writer != nil {
                         fmt.Fprintf(p.log, "\n"+errCommandFailedFmt+"\n", status)
                         fmt.Fprintf(stderr, "%s:%d: %v\n", p.log.filename, p.log.lines, err)
                 }
