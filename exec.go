@@ -26,6 +26,15 @@ import (
 
 // Note that it's is also used with Sscanf.
 const errCommandFailedFmt = "exit status %d"
+const (
+        rxNotTTYDevice_i int = iota
+        rxNoContainer_i
+        rxNoNetwork_i
+        rxCompilation_i
+        rxIncludedFrom_i
+        rxFileNotFound_i
+        rxArNoSuchFile_i
+)
 var (
         defaultShell = "bash"
 
@@ -37,19 +46,24 @@ var (
         errIncludedFrom = `In file included from (.+?):(\d+):(\d+):`
         errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
         errArNoSuchFile = `ar: (.+?): No such file or directory`
-        
+
+        rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
+        rxNoNetwork = regexp.MustCompile(errNoNetwork)
         rxCompilation = regexp.MustCompile(errCompilation)
+        rxIncludedFrom = regexp.MustCompile(errIncludedFrom)
         rxFileNotFound = regexp.MustCompile(errFileNotFound)
         rxArNoSuchFile = regexp.MustCompile(errArNoSuchFile)
-        rxKnownErrors = regexp.MustCompile(strings.Join([]string{
-                errNotTTYDevice,
-                errNoContainer,
-                errNoNetwork,
-                errCompilation,
-                errFileNotFound,
-                errArNoSuchFile,
-        }, "|"))
+
+        knownerrors = []*regexp.Regexp{
+                rxNotTTYDevice_i: rxNotTTYDevice,
+                rxNoContainer_i: rxNoContainer,
+                rxNoNetwork_i: rxNoNetwork,
+                rxCompilation_i: rxCompilation,
+                rxIncludedFrom_i: rxIncludedFrom,
+                rxFileNotFound_i: rxFileNotFound,
+                rxArNoSuchFile_i: rxArNoSuchFile,
+        }
 
         workingMutex = new(sync.Mutex)
         working atomic.Value // number of working executions
@@ -60,7 +74,10 @@ var (
         dots = []byte("…")
 )
 
-const maxWorkers = 10
+const (
+        maxRetries = 2
+        maxWorkers = 10
+)
 
 func init() {
         working.Store(0)
@@ -113,6 +130,7 @@ func (w *stdWriter) Write(p []byte) (n int, err error) {
 }
 
 type ExecLog struct {
+        filename string
         writer *bufio.Writer
         lines int
 }
@@ -130,15 +148,21 @@ func (p *ExecLog) createWriter(file *os.File, dir, cmd string) {
         fmt.Fprintf(p, "%s\n", cmd)
 }
 
+type knownMatch struct {
+        i int
+        v [][]string // groups of captures
+}
+
 type ExecBuffer struct {
         Tie io.Writer
-        Log *ExecLog
         Buf *bytes.Buffer
-        Line *regexp.Regexp
-        Subm [][][][]byte
+        log *ExecLog
+        scanerr bool
+        matches []knownMatch
         line bytes.Buffer
         filters []string
         wrote uint64
+        retried map[string]bool
 }
 
 func (p *ExecBuffer) filter(s string) {
@@ -151,13 +175,13 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
                         return len(b), nil
                 }
         }
-        if p.Buf != nil {
-                if n, err = p.Buf.Write(b); err != nil {
+        if p.log != nil {
+                if _, err = p.log.Write(b); err != nil {
                         return
                 }
         }
-        if p.Log != nil {
-                if _, err = p.Log.Write(b); err != nil {
+        if p.Buf != nil {
+                if n, err = p.Buf.Write(b); err != nil {
                         return
                 }
         }
@@ -174,49 +198,146 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
 
         p.wrote += uint64(n)
 
-        if p.Line != nil {
-                var slice = b[:]
-                for len(slice) > 0 {
-                        var i = bytes.Index(slice, []byte("\n"))
-                        if i == -1 {
-                                p.line.Write(slice)
-                                slice = nil
-                        } else {
-                                p.line.Write(slice[:i+1])
-                                slice = slice[i+1:]
+        if !p.scanerr { return }
+        for slice := b[:]; len(slice) > 0; {
+                var i = bytes.Index(slice, []byte("\n"))
+                if i == -1 {
+                        p.line.Write(slice)
+                        slice = nil
+                } else {
+                        p.line.Write(slice[:i+1])
+                        slice = slice[i+1:]
 
-                                var line = p.line.Bytes()
-                                if m := p.Line.FindAllSubmatch(line, -1); m != nil {
-                                        p.Subm = append(p.Subm, m)
+                        var line = p.line.Bytes()
+                        for i, rx := range knownerrors {
+                                if rx == nil { continue }
+                                if all := rx.FindAllSubmatch(line, -1); all != nil {
+                                        var a [][]string
+                                        for _, m := range all { // [][][]byte
+                                                var v []string // captures
+                                                for _, cap := range m {
+                                                        v = append(v, string(cap))
+                                                }
+                                                a = append(a, v)
+                                        }
+                                        p.matches = append(p.matches, knownMatch{ i, a })
                                 }
-
-                                p.line.Reset()
                         }
+
+                        p.line.Reset()
                 }
         }
         return
 }
 
+func (p *ExecBuffer) skips(tag string) (result bool) {
+        if p.retried == nil {
+                p.retried = make(map[string]bool)
+        } else {
+                a, b := p.retried[tag]
+                result = a && b
+        }
+        return
+}
+
+func (p *ExecBuffer) processKnownErrors(prog *Program, docks []*Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
+        var pos = prog.position
+        var retry bool
+        var tag string
+        
+        for _, m := range p.matches {
+                for _, v := range m.v { // captures
+                        switch m.i {
+                        case rxNotTTYDevice_i:
+                                retry = true
+                        case rxNoContainer_i:
+                                tag = string(v[1])
+                        case rxNoNetwork_i:
+                                // TODO: ...
+                        case rxCompilation_i:
+                                // TODO: ...
+                        case rxIncludedFrom_i:
+                                fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3])
+                        case rxFileNotFound_i:
+                                fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4])
+                                if err == nil {
+                                        err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
+                                }
+                        case rxArNoSuchFile_i:
+                                fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1])
+                                if err == nil {
+                                        err = scanner.Errorf(token.Position(pos), "`%v` file not found", filepath.Base(string(v[1])))
+                                }
+                        }
+                }
+        }
+        if err != nil { return }
+        if !p.scanerr || p.matches == nil {
+                //err = fmt.Errorf(...)
+        }
+
+        if err == nil && retry && num < maxRetries {
+                fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num)
+                c := exec.Command(sh.Path, sh.Args...)
+                c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
+                p.runAndProcessKnownErrors(prog, docks, c, x, num+1) // retry
+        } else if err != nil {
+                // ends with error
+        } else if tag == "" {
+                err = fmt.Errorf(errCommandFailedFmt, status) //, targetName
+        } else if skip := p.skips(tag); !skip && docks != nil && num < maxRetries {
+                p.retried[tag] = true // save it to skip next time
+                if err = x.runContainer(prog, docks); err == nil {
+                        fmt.Fprintf(stderr, "smart: started %s\n", tag)
+                        c := exec.Command(sh.Path, sh.Args...)
+                        c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
+                        p.runAndProcessKnownErrors(prog, docks, c, x, num+1) // retry
+                } else {
+                        //err = scanner.Errorf(token.Position(prog.position), "`%s` no such container", tag)
+                }
+        }
+        return
+}
+
+func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, docks []*Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
+        p.matches = nil
+        if err = sh.Run(); err == nil {
+                // It's good!
+        } else if n, e := fmt.Sscanf(err.Error(), "exit status %v", &status); n == 1 && e == nil {
+                if p.log.writer != nil {
+                        fmt.Fprintf(p.log, "\n"+errCommandFailedFmt+"\n", status)
+                        fmt.Fprintf(stderr, "%s:%d: %v\n", p.log.filename, p.log.lines, err)
+                }
+                err = p.processKnownErrors(prog, docks, sh, x, status, num)
+        } else {
+                if status == 0 { status = -1 }
+                if e != nil { err = e }
+        }
+        return
+}
+
 func (p *ExecBuffer) parseKnownErrors(pos Position, target string, report bool) (err error, tag string, retry bool) {
-        if p.Subm == nil {
+        if true/*p.Subm == nil*/ {
                 return
-        } else if str := string(p.Subm[0][0][0]); str == errNotTTYDevice {
+        } else if str := string(""/*p.Subm[0][0][0]*/); str == errNotTTYDevice {
                 retry = true
         } else if m := rxNoContainer.FindAllStringSubmatch(str, -1); m != nil {
                 tag = m[0][1] // tag the container name
         } else if m := rxCompilation.FindAllStringSubmatch(str, -1); m != nil {
                 err = scanner.Errorf(token.Position(pos), "%s", m[0][4])
         } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
+                fmt.Printf("=%v\n", str)
+                fmt.Printf("=%v\n", m)
                 err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", m[0][4], filepath.Base(m[0][1]))
                 if report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
         } else if m := rxArNoSuchFile.FindAllStringSubmatch(str, -1); m != nil {
                 err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", filepath.Base(m[0][1]), filepath.Base(target))
-                if report { fmt.Fprintf(stderr, "ar: '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
+                if report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
         } else if matched, _ := regexp.MatchString(errNoNetwork, str); matched {
                 // TODO: dealing with network not found error
         } else if false {
                 // retry the command
-                tag, retry = string(p.Subm[0][0][1]), true
+                tag, retry = ""/*string(p.Subm[0][0][1])*/, true
         } else {
                 err = fmt.Errorf(str)
         }
@@ -599,11 +720,13 @@ ForArgs:
         } else {
                 cmdline := strings.Join(sources, "\n")
                 log.createWriter(logfile, dir, cmdline)
-                exeres.Stdout.Log = &log
-                exeres.Stderr.Log = &log
+                exeres.Stdout.log = &log
+                exeres.Stderr.log = &log
         }
 
-        exeres.Stderr.Line = rxKnownErrors // the line filter
+        //exeres.Stderr.Line = rxKnownErrors // the line filter
+        exeres.Stderr.scanerr = true
+        log.filename = logFileName
 
         var caller *traversecontext
         var run = func() {
@@ -704,8 +827,6 @@ ForArgs:
                                 }
                         }
 
-                        var num = 0
-                        var skips = make(map[string]bool)
                         var sh = exec.Command(cmd, aa...)
                         sh.Dir = dir // always set command work directory
                         sh.Env = envs
@@ -717,50 +838,10 @@ ForArgs:
                         }
                         sh.Args = append(sh.Args, p.opt, src)
 
-                RunCommand:
-                        exeres.Stderr.Subm = nil
-                        err, num = sh.Run(), num+1
+                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(prog, docks, sh, p, 1)
                         if err == nil {
-                                exeres.Status, source = 0, ""
-                                continue
-                        }
-
-                        // Parse errors of execution
-                        if n, e := fmt.Sscanf(err.Error(), "exit status %v", &exeres.Status); n == 1 && e == nil {
-                                if log.writer != nil {
-                                        fmt.Fprintf(&log, "\n"+errCommandFailedFmt+"\n", exeres.Status)
-                                        fmt.Fprintf(stderr, "%s:%d: %v\n", logFileName, log.lines, err)
-                                }
-
-                                var ( tag string ; retry bool )
-                                err, tag, retry = exeres.Stderr.parseKnownErrors(prog.position, targetName, !verberr && !silent)
-                                if err == nil && retry {
-                                        if num > 2 { continue } // only retry once
-                                        fmt.Fprintf(stderr, "smart: good to retry (%s)\n", source)
-                                        c := exec.Command(sh.Path, sh.Args...)
-                                        c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                                        sh = c
-                                        goto RunCommand // retry the command
-                                } else if err != nil {
-                                        if silent { err = nil }
-                                } else if tag == "" {
-                                        if tag = promStr; tag == "" { tag = targetName }
-                                        err = fmt.Errorf(errCommandFailedFmt, exeres.Status) //, tag
-                                } else if v, ok := skips[tag]; !v && !ok && docks != nil {
-                                        skips[tag] = true // save it to skip next time
-                                        if err = p.runContainer(prog, docks); err == nil {
-                                                fmt.Fprintf(stderr, "smart: started %s\n", tag)
-                                                c := exec.Command(sh.Path, sh.Args...)
-                                                c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                                                sh = c; goto RunCommand
-                                        }
-                                } else {
-                                        err = scanner.Errorf(token.Position(prog.position), "`%s` no such container", tag)
-                                }
+                                // good
                         } else {
-                                exeres.Status = -1 //values.String(s)
-                        }
-                        if err != nil {
                                 // Return immediately once error occured. The
                                 // rest commands won't be executed.
                                 if silent { err = nil }
@@ -782,8 +863,11 @@ ForArgs:
                 go run()
         } else {
                 run()
-                //result = exeres
         }
+
+        // The execution is performed asynchronously, the result can't
+        // be obtained at this point.
+        result = nil
         return
 }
 
