@@ -590,15 +590,20 @@ func builtinValue(pos Position, args... Value) (res Value, err error) {
 func builtinShell(pos Position, args... Value) (res Value, err error) {
         var vals []Value
         for _, a := range args {
-                var ( stdout, stderr bytes.Buffer; s string )
+                var ( bufout, buferr bytes.Buffer; s string )
                 if s, err = a.Strval(); err != nil { return }
                 sh := exec.Command("sh", "-c", s)
-                sh.Stdout, sh.Stderr = &stdout, &stderr
-                if err = sh.Run(); err != nil { return }
-                val := &String{strings.TrimSpace(stdout.String())}
+                sh.Stdout, sh.Stderr = &bufout, &buferr
+                if err = sh.Run(); err != nil {
+                        s = strings.TrimSpace(buferr.String())
+                        err = scanner.WrapErrors(token.Position(pos),
+                                fmt.Errorf("%s", s), err)
+                        return
+                }
+                val := &String{strings.TrimSpace(bufout.String())}
                 vals = append(vals, val)
-                stdout.Reset()
-                stderr.Reset()
+                bufout.Reset()
+                buferr.Reset()
         }
         return MakeListOrScalar(vals), nil
 }
