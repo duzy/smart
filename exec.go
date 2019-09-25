@@ -731,7 +731,10 @@ ForArgs:
         var caller *traversecontext
         var run = func() {
                 var targetStr string
-                defer func() {
+                defer func(start time.Time) {
+                        if err == nil {
+                                err = stamp(target, start, /*!prompt*/true)
+                        }
                         if log.writer != nil {
                                 if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
                                         // Discard log buffer.
@@ -772,7 +775,7 @@ ForArgs:
                                         }
                                 }
                         }
-                } ()
+                } (time.Now())
                 if prompt {
                         if a := strings.Split(targetName, PathSep); len(a) > 3 {
                                 targetStr = filepath.Join(a[len(a)-3:]...)
@@ -791,7 +794,6 @@ ForArgs:
                                 fmt.Fprintf(stderr, "%s%s ……\n", promStr, targetStr)
                         }
                 }
-
                 for _, src := range sources {
                         if strings.HasPrefix(src, "@") {
                                 src = src[1:]
@@ -848,11 +850,6 @@ ForArgs:
                                 return
                         }
                 }
-                if err == nil {
-                        err = stamp(target, /*!prompt*/true)
-                } else {
-                        return
-                }
         }
 
         printEnteringDirectory()
@@ -871,7 +868,7 @@ ForArgs:
         return
 }
 
-func stamp(target Value, verb bool) (err error) {
+func stamp(target Value, start time.Time, verb bool) (err error) {
         var t Value
         if t, err = target.expand(expandAll); err != nil {
                 return
@@ -884,7 +881,8 @@ func stamp(target Value, verb bool) (err error) {
                 t.info, err = os.Stat(fullname)
                 context.globe.stamp(fullname, t.info.ModTime())
                 if verb {
-                        fmt.Printf("smart: Updated %v (%v)\n", target, t.info.ModTime())
+                        d := t.info.ModTime().Sub(start);
+                        fmt.Printf("smart: Updated %v (%v)\n", target, d)
                 }
         case *Path:
                 //if t.File == nil { break }
@@ -897,12 +895,12 @@ func stamp(target Value, verb bool) (err error) {
                 if info, err = os.Stat(fullname); err != nil { break }
                 context.globe.stamp(fullname, info.ModTime())
                 if verb {
-                        //fmt.Printf("smart: Updated %v (%v)\n", target, t.File.info.ModTime())
-                        fmt.Printf("smart: Updated %v (%v)\n", target, info.ModTime())
+                        d := info.ModTime().Sub(start);
+                        fmt.Printf("smart: Updated %v (%v)\n", target, d)
                 }
         case *List:
                 for _, elem := range t.Elems {
-                        if err = stamp(elem, verb); err != nil {
+                        if err = stamp(elem, start, verb); err != nil {
                                 return
                         }
                 }
