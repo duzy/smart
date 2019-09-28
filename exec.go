@@ -864,7 +864,7 @@ ForArgs:
 
         // The execution is performed asynchronously, the result can't
         // be obtained at this point.
-        result = nil
+        result = exeres
         return
 }
 
