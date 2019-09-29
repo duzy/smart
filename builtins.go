@@ -2625,6 +2625,7 @@ func (scope *Scope) configExpand(pos Position, s string) string {
         var index = 0
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
                 fmt.Fprint(res, s[index:m[0]])
+                index = m[1] // reset index immediately to keep forward
 
                 var name string
                 switch {
@@ -2652,8 +2653,6 @@ func (scope *Scope) configExpand(pos Position, s string) string {
                                 }
                         }
                 }
-
-                index = m[1]
         }
         if index < len(s) {
                 fmt.Fprint(res, s[index:])
@@ -2666,6 +2665,7 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
         str = scope.configExpand(pos, str)
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
                 if _, err = out.WriteString(str[index:m[0]]); err != nil { return }
+                index = m[1] // reset index immediately to keep forward
 
                 var s string
                 var verb = str[m[2]:m[3]]
@@ -2699,9 +2699,7 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                         }
                 }
 
-                if _, err = out.WriteString(s); err != nil { return } else {
-                        index = m[1]
-                }
+                if _, err = out.WriteString(s); err != nil { return }
         }
         if index < len(str) {
                 _, err = out.WriteString(str[index:])
