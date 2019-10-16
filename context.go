@@ -504,12 +504,15 @@ func CommandLine() {
         } else if optionConfigure {
                 report(do_configuration())
         } else if result, err := context.run(); err != nil {
-                if _, ok := err.(*breaker); ok && false {
-                        panic(err)
-                } else {
-                        report(err)
-                        printLeavingDirectory()
+                defer printLeavingDirectory()
+                if b, ok := err.(*breaker); ok {
+                        switch b.what {
+                        case breakUpdates:
+                                fmt.Fprintf(stderr, "updated %s", b.updated)
+                                return
+                        }
                 }
+                report(err)
         } else if result != nil {
                 for _, v := range result {
                         var s string

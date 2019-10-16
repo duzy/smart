@@ -2555,14 +2555,28 @@ func builtinReadFile(pos Position, args... Value) (res Value, err error) {
 func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
         // $(write-file filename,content)
         // $(write-file -p filename,content)
-        for i, nargs := 0, len(args); i < nargs; i += 1 {
+        var optPath = false
+        var opts = []string{
+                "p,path",
+        }
+ForArgs:
+        for i := 0; i < len(args); i += 1 {
                 var (
                         a = args[i]
                         name, data string
                         perm = os.FileMode(0600)
                         num int64
+                        runes []rune
                 )
                 switch t := a.(type) {
+                case *Flag:
+                        if runes, _, err = t.opts(opts...); err != nil { return }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'p': optPath = trueVal(a, false)
+                                }
+                        }
+                        continue ForArgs
                 case *Pair: // write-file name => text name => text
                         if name, err = t.Key.Strval(); err != nil { return }
                         if data, err = t.Value.Strval(); err != nil { return }
@@ -2596,15 +2610,20 @@ func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
                         }
                 default: // write-file name text 0660  name text 0660 ...
                         if name, err = args[i].Strval(); err != nil { return }
-                        if i+1 < nargs {
+                        if i+1 < len(args) {
                                 if data, err = args[i+1].Strval(); err != nil { return }
                                 i += 1
                         }
-                        if i+1 < nargs {
+                        if i+1 < len(args) {
                                 if num, err = args[i+1].Integer(); err != nil { return }
                                 perm = os.FileMode(num & 0777)
                                 i += 1
                         }
+                }
+                if name == "" {
+                        continue ForArgs
+                } else if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
                 if err = ioutil.WriteFile(name, []byte(data), perm); err != nil {
                         break
