@@ -535,9 +535,10 @@ const pluginDifferentVersionError = `plugin was built with a different version o
 
 func buildPlugin(s, src string) (err error) {
         fmt.Fprintf(stderr, "smart: Build %v …", src)
+        dir, _ := filepath.Split(src)
         o := &bytes.Buffer{}
-        c := exec.Command("go", "build", "-buildmode=plugin", "-o", s, src)
-        c.Stdout, c.Stderr = o, o
+        c := exec.Command("go", "build", "-buildmode=plugin", "-o", s)
+        c.Stdout, c.Stderr, c.Dir = o, o, dir
         if err = c.Run(); err == nil {
                 fmt.Fprintf(stderr, "… ok\n")
         } else {
