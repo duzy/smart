@@ -1036,11 +1036,11 @@ func modifierExtractConfiguration(pos Position, prog *Program, args... Value) (r
                 }
         }
         if len(pats) == 0 {
-                err = fmt.Errorf("missing file names (patterns)")
+                err = fmt.Errorf("extract-configuration: missing file names (patterns)")
                 return
         }
         if len(rxs) == 0 {
-                err = fmt.Errorf("missing -rx=... flags")
+                err = fmt.Errorf("extract-configuration: missing -rx=... flags")
                 return
         }
         if optTarget == "" {

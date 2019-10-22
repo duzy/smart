@@ -67,8 +67,7 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
 func (filemap *FileMap) stat(base, name string) (file *File) {
         for _, path := range filemap.Paths {
                 if path == nil {
-                        msg := fmt.Sprintf("`%v` nil", filemap.Paths)
-                        panic(msg)
+                        panic(fmt.Sprintf("`%v` nil", filemap.Paths))
                 }
 
                 var ( dir, sub string ; err error )

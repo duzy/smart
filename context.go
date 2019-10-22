@@ -10,9 +10,11 @@ import (
         "extbit.io/smart/token"
 	"path/filepath"
         "strings"
+        "bufio"
         "time"
         "fmt"
         "os"
+        "io"
 )
 
 var (
@@ -487,6 +489,32 @@ func CommandLine() {
 
         // make sure that .smart dirs have higher priority.
         globalPaths = append(modulesPaths, globalPaths...)
+        for _, s := range modulesPaths {
+                searchFile := filepath.Join(s, ".search")
+                if fi, _ := os.Stat(searchFile); fi == nil {
+                        continue
+                }
+                file, err := os.Open(searchFile)
+                if err != nil { report(err); return }
+                defer file.Close()
+                r := bufio.NewReader(file)
+                for err == nil {
+                        var line string
+                        if line, err = r.ReadString('\n'); err != nil {
+                                if err != io.EOF { report(err) }
+                                break
+                        } else {
+                                line = strings.TrimSpace(line)
+                        }
+                        if strings.HasPrefix(line, "#") {
+                                continue
+                        }
+                        line = filepath.Clean(filepath.Join(s, line))
+                        if fi, err := os.Stat(line); err == nil && fi.IsDir() {
+                                globalPaths = append(globalPaths, line)
+                        }
+                }
+        }
 
         //loadGrepCache()
         defer func(globe *Globe) {
