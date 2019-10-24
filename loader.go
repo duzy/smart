@@ -2004,10 +2004,13 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 l.isIncludingConf = false
         }
 
-        if optNoDock || l.project.name == "dock" { return }
+        if optNoDock || l.project.name == "dock" || l.project.name == ".dock" {
+                return
+        }
 
         var hasConfDir bool
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
+                // xxx/.smart/dock
                 if file := stat("dock", "", filepath.Join(s, ".smart")); file == nil || !file.exists() {
                         // no docking enabled
                 } else if hasConfDir, err = l.loadDir("dock", file.FullName(), nil); err != nil {

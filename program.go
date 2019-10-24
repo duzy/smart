@@ -247,7 +247,9 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                                 return
                         }
                         if len(rest) > 0 { panic("FIXME: unhandled stems") }
-                        if file := prog.pc.derived.matchFile(s); file != nil {
+                        if prog.pc.derived == nil {
+                                // FIXME: prog.project.matchFile(s) ???
+                        } else if file := prog.pc.derived.matchFile(s); file != nil {
                                 result = append(result, file)
                                 break
                         }
@@ -633,6 +635,8 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
         }
 
         if err = pc.traversePrerequites(prog, nested); err != nil {
+                //err = scanner.WrapErrors(token.Position(prog.position), err)
+                fmt.Fprintf(stderr, "%s: can't update target '%s'\n%v\n", prog.position, prog.pc.targetDef.Value, err)
                 return
         }
 

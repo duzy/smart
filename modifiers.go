@@ -341,7 +341,7 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
                         prog.changedWD = dir
                 }
         } else {
-                err = scanner.Errorf(token.Position(pos), "wrong number of args (%v)", args)
+                err = scanner.Errorf(token.Position(pos), "cd: wrong number of args (%v)", args)
         }
         return
 }
