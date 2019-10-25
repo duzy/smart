@@ -338,6 +338,7 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
                 if err = enter(prog, dir); err == nil {
+                        prog.project.changedWD = dir
                         prog.changedWD = dir
                 }
         } else {

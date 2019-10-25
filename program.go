@@ -349,6 +349,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 defer prog.mutex.Unlock()
         }
 
+        defer func(s string) {
+                prog.project.changedWD = s
+        } (prog.project.changedWD)
+
         var ctx = traversecontext{
                 derived: mostDerived(),
                 group: new(sync.WaitGroup),
@@ -635,7 +639,7 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
         }
 
         if err = pc.traversePrerequites(prog, nested); err != nil {
-                //err = scanner.WrapErrors(token.Position(prog.position), err)
+                err = scanner.WrapErrors(token.Position(prog.position), err)
                 fmt.Fprintf(stderr, "%s: can't update target '%s'\n%v\n", prog.position, prog.pc.targetDef.Value, err)
                 return
         }

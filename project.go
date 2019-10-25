@@ -65,6 +65,11 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
 }
 
 func (filemap *FileMap) stat(base, name string) (file *File) {
+        if filemap.Paths == nil {
+                // Check file in the filesystem (no paths).
+                file = stat(name, "", base)
+                return
+        }
         for _, path := range filemap.Paths {
                 if path == nil {
                         panic(fmt.Sprintf("`%v` nil", filemap.Paths))
@@ -140,7 +145,8 @@ type useRuleEntry struct {
 
 type Project struct {
         keyword  token.Token // project, package, module
-        
+
+        changedWD string
 	absPath string
 	relPath string
         tmpPath string
@@ -371,9 +377,15 @@ func (p *Project) matchFile(name string) (file *File) {
 ForFilemaps:
         for _, filemap := range p.filemaps(true) {
                 // Match the represented file name.
-                matched, pre := filemap.Match(name)
+                var matched, pre = filemap.Match(name)
                 if !matched { continue }
-                if file = filemap.stat(p.absPath, name); file != nil {
+                if p.changedWD != "" {
+                        file = filemap.stat(p.changedWD, name)
+                }
+                if file == nil {
+                        file = filemap.stat(p.absPath, name)
+                }
+                if file != nil {
                         if file.match == nil { file.match = filemap }
                         if pre != "" { /* FIXME: file.change(...pre) */ }
                         if enable_assertions {
