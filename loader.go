@@ -1852,6 +1852,25 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
         return
 }
 
+func (l *loader) loadDotDock(ident *ast.Bareword, file *File) (err error) {
+        var hasConfDir bool
+        if hasConfDir, err = l.loadDir(".dock", file.FullName(), nil); err != nil {
+                if !hasConfDir { l.parser.error(ident.Pos(), "dock: %v", err) }
+        } else if loaded, yes := l.loaded[file.FullName()]; yes && loaded != nil {
+                name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
+                if name == nil {
+                        l.parser.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
+                } else {
+                        fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.FullName())
+
+                        var opts useoptions
+                        // TODO: parse the useoptions
+                        l.useProject(ident.Pos(), loaded, nil, opts)
+                }
+        }
+        return
+}
+
 func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, params []Value) (err error) {
         var optFinal, optNoDock bool
         var bases []Value
@@ -2004,26 +2023,24 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 l.isIncludingConf = false
         }
 
-        if optNoDock || l.project.name == "dock" || l.project.name == ".dock" {
+        if optNoDock || l.project.name == ".dock" {
                 return
         }
 
-        var hasConfDir bool
+        // Looking for project specific ".dock" module
+        file := stat(".dock", "", l.project.absPath)
+        if file != nil  && file.exists() {
+                err = l.loadDotDock(ident, file)
+                return
+        }
+
+        // Looking for .smart/.dock
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
-                // xxx/.smart/dock
-                if file := stat("dock", "", filepath.Join(s, ".smart")); file == nil || !file.exists() {
+                file := stat(".dock", "", filepath.Join(s, ".smart"))
+                if file == nil || !file.exists() {
                         // no docking enabled
-                } else if hasConfDir, err = l.loadDir("dock", file.FullName(), nil); err != nil {
-                        if !hasConfDir { l.parser.error(ident.Pos(), "dock: %v", err) }
-                } else if loaded, yes := l.loaded[file.FullName()]; yes && loaded != nil {
-                        name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
-                        if name == nil {
-                                l.parser.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
-                        } else {
-                                var opts useoptions
-                                // TODO: parse the useoptions
-                                l.useProject(ident.Pos(), loaded, nil, opts)
-                        }
+                } else if err = l.loadDotDock(ident, file); err != nil {
+                        // FIXME: error...
                 }
                 return false
         })

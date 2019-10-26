@@ -561,24 +561,26 @@ ForArgs:
 
         var docks []*Project
         if !p.bare {
-                if prog.project.name == "dock" {
+                if prog.project.name == ".dock" {
                         docks = append(docks, prog.project)
                 } else {
                         for _, scope := range cloctx {
-                                if _, sym := scope.Find("dock"); sym != nil {
+                                if _, sym := scope.Find(".dock"); sym != nil {
                                         if p, ok := sym.(*ProjectName); ok && p != nil {
                                                 docks = append(docks, p.NamedProject())
                                         }
                                 }
                         }
                         if docks == nil {
-                                if _, dockSym := prog.project.scope.Find("dock"); dockSym != nil {
+                                if _, dockSym := prog.project.scope.Find(".dock"); dockSym != nil {
                                         if pn, _ := dockSym.(*ProjectName); pn != nil {
                                                 docks = append(docks, pn.NamedProject())
                                         }
                                 }
                         }
                 }
+
+                fmt.Printf("docks: %v\n", docks)
 
                 if docks == nil {
                         err = fmt.Errorf("docking unavailable (in %s)", prog.Project().Name())
