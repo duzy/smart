@@ -301,15 +301,22 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
         }
 
         if tt.IsZero() {
-                err = break_bad(c.program.position, "%s '%v' is missing", c.target.Type(), c.target)
-                if optionTraceCompare {
-                        c.trace("compare: bad:", err)
+                if optionTraceCompare { c.trace("compare: misstar:", c.target) }
+                if false {
+                        br := break_bad(c.program.position, "%s '%v' is missing", c.target.Type(), c.target)
+                        br.misstar = newUpdatedTarget(c.target, nil)
+                        err = br
+                } else {
+                        // Treat all dependency as updated when the target is not existed.
+                        c.updated = append(c.updated, newUpdatedTarget(d, nil))
+                        if optionTraceCompare { c.trace("compare: missing", c.target) }
+                        if !dt.IsZero() {
+                                context.globe.stamp(ds, dt)
+                        }
                 }
         } else if dt.IsZero() || dt.After(tt) {
                 c.updated = append(c.updated, newUpdatedTarget(d, nil))
-                if optionTraceCompare {
-                        c.trace("compare: updated", d)
-                }
+                if optionTraceCompare { c.trace("compare: updated", d) }
 
                 // Update timestamps to depended file, so that
                 // further updates can happen.

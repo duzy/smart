@@ -68,6 +68,7 @@ type breaker struct {
         pos Position
         what breakind
         message string
+        misstar *updatedtarget
         updated []*updatedtarget
         modified []*modification
 }
@@ -102,26 +103,26 @@ func (p *breaker) prerequisites() (res []*updatedtarget) {
 }
 
 func break_bad(pos Position, s string, a... interface{}) *breaker {
-        return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil, nil }
+        return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil, nil, nil }
 }
 
 func break_good(pos Position, s string, a... interface{}) *breaker {
-        return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil, nil }
+        return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil, nil, nil }
 }
 
 // break with prerequisite updates
 func break_updates(pos Position, v ...*updatedtarget) *breaker {
-        return &breaker{ pos, breakUpdates, "", v, nil }
+        return &breaker{ pos, breakUpdates, "", nil, v, nil }
 }
 
 // break with modified target
 func break_modified(pos Position, old, new Value) *breaker {
         var m = []*modification{&modification{ old, new }}
-        return &breaker{ pos, breakModified, "", nil, m }
+        return &breaker{ pos, breakModified, "", nil, nil, m }
 }
 
 func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
-        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil }
+        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil, nil }
 }
 
 type ModifierFunc func(pos Position, prog *Program, args... Value) (Value, error)
