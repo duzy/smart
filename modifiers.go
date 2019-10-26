@@ -862,7 +862,7 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
                         fmt.Fprintf(stderr, "… (done)")
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
-                        case breakBad: fmt.Fprintf(stderr, "… Bad (%s)", br)
+                        case breakBad: fmt.Fprintf(stderr, "… Bad (%s)", br.message)
                         case breakGood: fmt.Fprintf(stderr, "… Good")
                         case breakUpdates:
                                 if a := br.prerequisites(); len(a) == 0 {

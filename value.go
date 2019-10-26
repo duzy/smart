@@ -197,9 +197,9 @@ func (c *comparer) Compare(pos Position, value interface{}) (err error) {
                         if err != nil {
                                 if br, ok := err.(*breaker); ok {
                                         switch br.what {
-                                        case breakBad: c.trace("bad:", err)
-                                        case breakGood: //c.trace("good:", err)
-                                        case breakUpdates: //c.trace("updated:", br.updated)
+                                        case breakBad: c.trace("CompareBreakBad:", err)
+                                        case breakGood: c.trace("CompareBreakGood:", err)
+                                        case breakUpdates: c.trace("CompareBreakUpdates:", br.updated)
                                         }
                                 } else {
                                         c.trace("error:", err)
@@ -215,10 +215,11 @@ func (c *comparer) Compare(pos Position, value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; i < v.Len(); i++ {
                         var dep = v.Index(i).Interface()
-                        if err = c.compareDepend(dep); err == nil {
-                                continue
-                        } else if optionTraceCompare {
-                                c.trace("error:", err)
+                        err = c.compareDepend(dep)
+                        if err != nil {
+                                if optionTraceCompare {
+                                        c.trace("Compare: depend", i, err)
+                                }
                                 break
                         }
                 }
@@ -295,14 +296,20 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 } else if false {
                         c.trace("compare:", tt, dt, ";", c.target, d, ";", ts, ds)
                 } else {
-                        c.trace("compare:", c.target, d, '\t', '\t', tt, ":", dt)
+                        c.trace("compare:", c.target, d, '\t', '\t', tt, ":", dt, "; ", dt.After(tt))
                 }
         }
 
         if tt.IsZero() {
                 err = break_bad(c.program.position, "%s '%v' is missing", c.target.Type(), c.target)
+                if optionTraceCompare {
+                        c.trace("compare: bad:", err)
+                }
         } else if dt.IsZero() || dt.After(tt) {
                 c.updated = append(c.updated, newUpdatedTarget(d, nil))
+                if optionTraceCompare {
+                        c.trace("compare: updated", d)
+                }
 
                 // Update timestamps to depended file, so that
                 // further updates can happen.
@@ -1535,7 +1542,8 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
 }
 
 func (p *Barecomp) dependcompare(c *comparer) (err error) {
-        if ds, err := p.Strval(); err == nil {
+        var ds string
+        if ds, err = p.Strval(); err == nil {
                 err =  c.compareStatDepend(p, ds, nil)
         }
         return
@@ -1760,7 +1768,8 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
 func (p *Path) dependcompare(c *comparer) (err error) {
         if optionTraceCompare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
-        if ds, err := p.Strval(); err == nil {
+        var ds string
+        if ds, err = p.Strval(); err == nil {
                 var di os.FileInfo
                 //if p.File != nil { di = p.File.info }
                 err =  c.compareStatDepend(p, ds, di)
@@ -2290,7 +2299,8 @@ func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
 func (p *File) dependcompare(c *comparer) (err error) {
         if optionTraceCompare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
-        if ds, err := p.Strval(); err == nil {
+        var ds  string
+        if ds, err = p.Strval(); err == nil {
                 err =  c.compareStatDepend(p, ds, p.info)
         }
         return
