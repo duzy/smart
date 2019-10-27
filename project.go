@@ -528,13 +528,13 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
 }
 
 func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error) {
-        for _, p := range p.patterns {
+        for _, pat := range p.patterns {
                 var ( s string ; stems []string )
-                if s, stems, err = p.Pattern.match(i); err != nil {
+                if s, stems, err = pat.Pattern.match(i); err != nil {
                         return
                 } else if s != "" && stems != nil {
                         res = append(res, &StemmedEntry{
-                                p, stems, s, nil,
+                                pat, stems, s, nil,
                         })
                 }
         }
@@ -611,7 +611,9 @@ func (p *Project) updateTarget(pc *traversal, target string) (err error) {
                                 // Discard pattern unfit errors and caller stack.
                                 err = nil
                         } else {
-                                break // Update failed!
+                                fmt.Fprintf(stderr, "smart: update pattern %v failed%v\n", se)
+                                fmt.Fprintf(stderr, "%v", err)
+                                return // Update failed!
                         }
                 }
         }

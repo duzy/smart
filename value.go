@@ -1925,6 +1925,7 @@ ForPathSegs:
                         if pp, ok := seg.(*PercPattern); ok {
                                 if ps, ok := pp.Suffix.(*PercPattern); ok {
                                         if ps.Prefix.Type() == NoneType && ps.Suffix.Type() == NoneType {
+                                                // for all /%%/ segs
                                                 if n+1 < len(segs) && idx+1 < len(srcs) {
                                                         // Find segs[n+1] in srcs[idx:]
                                                         var next = segs[n+1]
@@ -1939,7 +1940,7 @@ ForPathSegs:
                                                                                 stem := strings.Join(srcs[idx:end], PathSep)
                                                                                 stems = append(stems, stem)
                                                                                 idx = end
-                                                                                continue ForPathSegs
+                                                                                break //continue ForPathSegs
                                                                         }
                                                                 }
                                                         default:
@@ -1953,11 +1954,11 @@ ForPathSegs:
                                                                                 stem := strings.Join(srcs[idx:end], PathSep)
                                                                                 stems = append(stems, stem)
                                                                                 idx = end
-                                                                                continue ForPathSegs
+                                                                                break //continue ForPathSegs
                                                                         }
                                                                 }
                                                         }
-                                                        continue ForPathSegs
+                                                        //continue ForPathSegs
                                                 } else {
                                                         stem := strings.Join(srcs[idx:], PathSep)
                                                         stems = append(stems, stem)
@@ -1967,7 +1968,7 @@ ForPathSegs:
                                         }
                                 }
                         }
-
+                        
                         if s, ss, err = t.match(srcs[idx]); err != nil {
                                 break ForPathSegs
                         } else if s == "" || ss == nil {

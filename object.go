@@ -857,7 +857,11 @@ func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry
         var rest []string
         name, rest, err = p.Pattern.stencil(stems)
         if err != nil { return }
-        if len(rest) > 0 { panic("FIXME: unhandled stems") }
+        if len(rest) > 0 {
+                // TODO: panic(fmt.Sprintf("unhandled stems %v (name=%v)", rest, name))
+                //
+                // This happens for examples like "%%/Dockerfile" (rest=[Dockerfile])
+        }
 
         if p.stub != nil {
                 file := stat(name, p.stub.sub, p.stub.dir, nil)

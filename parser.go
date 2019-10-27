@@ -668,6 +668,18 @@ func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
                 case token.LBRACE, token.RCOLON:
                 case token.PCON, token.SEMICOLON:
                 case token.COMMA, token.LINEND:
+                case token.PERC: // %%
+                        p.next() // the second %
+                        perc2 := &ast.PercExpr{ OpPos:p.pos }
+                        if pos+2 == p.pos {
+                                if p.tok == token.PCON { // %%/xxx
+                                        x = &ast.PercExpr{ X:x, OpPos:pos, Y:perc2 }
+                                        return  p.parsePathExpr(lhs, x) 
+                                } else {
+                                        perc2.Y = p.checkExpr(p.parseExpr(false))
+                                }
+                        }
+                        y = perc2
                 default:
                         y = p.checkExpr(p.parseExpr(false))
                 }

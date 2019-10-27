@@ -136,6 +136,7 @@ var (
                 `set`:          modifierSetVar,
 
                 `unclose`:      modifierUnclose,
+                `un`:           modifierUnclose, // shortcut
 
                 `cd`:           modifierCD,
                 `sudo`:         modifierSudo,
