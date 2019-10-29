@@ -389,6 +389,10 @@ type executor struct {
 }
 
 func (p *executor) runContainer(prog *Program, dock *Project) (err error) {
+        if false {
+                defer setclosure(cloctx)
+                cloctx = append(closurecontext{prog.project.Scope()}, cloctx...)
+        }
         if run, _ := dock.resolveEntry("run"); run != nil {
                 _, err = run.Execute(prog.position/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
                 if err != nil {
@@ -572,7 +576,7 @@ ForArgs:
                         }
                 }
 
-                fmt.Fprintf(stderr, "%v: %v\n", dock, dock.absPath)
+                // fmt.Fprintf(stderr, "%v: %v\n", dock, dock.absPath)
 
                 if dock == nil {
                         err = fmt.Errorf("docking unavailable (in %s)", prog.Project().Name())
