@@ -240,7 +240,7 @@ func (p *ExecBuffer) skips(tag string) (result bool) {
         return
 }
 
-func (p *ExecBuffer) processKnownErrors(prog *Program, docks []*Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
+func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
         var pos = prog.position
         var retry bool
         var tag string
@@ -280,18 +280,18 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, docks []*Project, sh *exe
                 fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num)
                 c := exec.Command(sh.Path, sh.Args...)
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                p.runAndProcessKnownErrors(prog, docks, c, x, num+1) // retry
+                p.runAndProcessKnownErrors(prog, dock, c, x, num+1) // retry
         } else if err != nil {
                 // ends with error
         } else if tag == "" {
                 err = fmt.Errorf(errCommandFailedFmt, status) //, targetName
-        } else if skip := p.skips(tag); !skip && docks != nil && num < maxRetries {
+        } else if skip := p.skips(tag); !skip && dock != nil && num < maxRetries {
                 p.retried[tag] = true // save it to skip next time
-                if err = x.runContainer(prog, docks); err == nil {
+                if err = x.runContainer(prog, dock); err == nil {
                         fmt.Fprintf(stderr, "smart: started %s\n", tag)
                         c := exec.Command(sh.Path, sh.Args...)
                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                        p.runAndProcessKnownErrors(prog, docks, c, x, num+1) // retry
+                        p.runAndProcessKnownErrors(prog, dock, c, x, num+1) // retry
                 } else {
                         //err = scanner.Errorf(token.Position(prog.position), "`%s` no such container", tag)
                 }
@@ -299,7 +299,7 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, docks []*Project, sh *exe
         return
 }
 
-func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, docks []*Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
+func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
         p.matches = nil
         if err = sh.Run(); err == nil {
                 // It's good!
@@ -308,7 +308,7 @@ func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, docks []*Project, s
                         fmt.Fprintf(p.log, "\n"+errCommandFailedFmt+"\n", status)
                         fmt.Fprintf(stderr, "%s:%d: %v\n", p.log.filename, p.log.lines, err)
                 }
-                err = p.processKnownErrors(prog, docks, sh, x, status, num)
+                err = p.processKnownErrors(prog, dock, sh, x, status, num)
         } else {
                 if status == 0 { status = -1 }
                 if e != nil { err = e }
@@ -388,34 +388,19 @@ type executor struct {
         bare bool
 }
 
-func docksFindObj(docks []*Project, name string) (obj Object) {
-        for _, dock := range docks {
-                if obj, _ = dock.resolveObject(name); obj != nil {
-                        break
-                }
-        }
-        return
-}
-
-func docksFindEnt(docks []*Project, name string) (entry *RuleEntry) {
-        for _, dock := range docks {
-                if entry, _ = dock.resolveEntry(name); entry != nil {
-                        break
-                }
-        }
-        return
-}
-
-func (p *executor) runContainer(prog *Program, docks []*Project) (err error) {
-        if run := docksFindEnt(docks, "run"); run != nil {
+func (p *executor) runContainer(prog *Program, dock *Project) (err error) {
+        if run, _ := dock.resolveEntry("run"); run != nil {
                 _, err = run.Execute(prog.position/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
+                if err != nil {
+                        fmt.Fprintf(stderr, "%v: %v\n", prog.position, err)
+                }
         } else {
                 err = fmt.Errorf("dock⇒run undefined")
         }
         return
 }
 
-func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, container string) (err error) {
+func (p *executor) ensureContainerRunning(prog *Program, dock *Project, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -459,7 +444,7 @@ func (p *executor) ensureContainerRunning(prog *Program, docks []*Project, conta
         } (stderrR)
 
         if err = cmd.Run(); err == nil && foundID == "" {
-                if err = p.runContainer(prog, docks); err == nil {
+                if err = p.runContainer(prog, dock); err == nil {
                         time.Sleep(time.Second)
                 }
         }
@@ -559,43 +544,54 @@ ForArgs:
                 }
         }
 
-        var docks []*Project
+        var dock *Project
         if !p.bare {
                 if prog.project.name == ".dock" {
-                        docks = append(docks, prog.project)
-                } else {
+                        dock = prog.project
+                } else if false {
                         for _, scope := range cloctx {
                                 if _, sym := scope.Find(".dock"); sym != nil {
                                         if p, ok := sym.(*ProjectName); ok && p != nil {
-                                                docks = append(docks, p.NamedProject())
+                                                dock = p.NamedProject()
+                                                break
                                         }
                                 }
                         }
-                        if docks == nil {
+                        if dock == nil {
                                 if _, dockSym := prog.project.scope.Find(".dock"); dockSym != nil {
                                         if pn, _ := dockSym.(*ProjectName); pn != nil {
-                                                docks = append(docks, pn.NamedProject())
+                                                dock = pn.NamedProject()
                                         }
+                                }
+                        }
+                } else {
+                        if _, dockSym := prog.project.scope.Find(".dock"); dockSym != nil {
+                                if pn, _ := dockSym.(*ProjectName); pn != nil {
+                                        dock = pn.NamedProject()
                                 }
                         }
                 }
 
-                fmt.Printf("docks: %v\n", docks)
+                fmt.Fprintf(stderr, "%v: %v\n", dock, dock.absPath)
 
-                if docks == nil {
+                if dock == nil {
                         err = fmt.Errorf("docking unavailable (in %s)", prog.Project().Name())
                         return
                 }
 
-                defer setclosure(scoping(docks...))
-
                 var strval = func(name string) (str string, err error) {
-                        if obj := docksFindObj(docks, name); obj != nil {
+                        if false {
+                                defer setclosure(scoping(dock)) //(scoping(docks...))
+                        } else {
+                                defer setclosure(cloctx)
+                                cloctx = append(closurecontext{dock.Scope()}, cloctx...)
+                        }
+                        if obj, _ := dock.resolveObject(name); obj != nil {
                                 if def, _ := obj.(*Def); def != nil {
                                         var v Value
                                         if v, err = def.DiscloseValue(); err == nil && v != nil {
                                                 if str, err = v.Strval(); str == "-" {
-                                                        /*if v, err = def.DiscloseValue(docks); err == nil && v != nil {
+                                                        /*if v, err = def.DiscloseValue(dock); err == nil && v != nil {
                                                         if str, err = v.Strval(); str == "" { str = "-" }
                                                         fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
                                                         }*/
@@ -607,17 +603,18 @@ ForArgs:
                 }
 
                 var container, image string
-                if container, err = strval("dock-container"); err != nil { return }
-                if container == "" { err = fmt.Errorf("dock-container undefined"); return }
-                if image, err = strval("dock-image"); err != nil { return }
-                if image == "" { err = fmt.Errorf("dock-image undefined"); return }
-                if container != "-" && image != "-" {
-                        aa = append(aa, "exec", container, cmd)
-                        cmd = "docker"
-                }
+                if container, err = strval("container"); err != nil { return }
+                if container == "" { err = fmt.Errorf("container undefined"); return }
+                if image, err = strval("image"); err != nil { return }
+                if image == "" { err = fmt.Errorf("image undefined"); return }
+
+                fmt.Fprintf(stderr, "%v: %v (%v)\n", dock, container, image)
+
+                aa = append(aa, "exec", container, cmd)
+                cmd = "docker"
 
                 if false {
-                        if err = p.ensureContainerRunning(prog, docks, container); err != nil {
+                        if err = p.ensureContainerRunning(prog, dock, container); err != nil {
                                 return
                         }
                 }
@@ -842,7 +839,7 @@ ForArgs:
                         }
                         sh.Args = append(sh.Args, p.opt, src)
 
-                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(prog, docks, sh, p, 1)
+                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(prog, dock, sh, p, 1)
                         if err == nil {
                                 // good
                         } else {
