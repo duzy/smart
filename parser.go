@@ -662,20 +662,27 @@ func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
         )
         if p.next(); pos+1 == p.pos { // joint, e.g. '%.o', but skip '% .o'
                 switch p.tok {
-                case token.COLON, token.COLON2:
-                case token.LPAREN, token.RPAREN:
-                case token.LBRACK, token.RBRACK:
-                case token.LBRACE, token.RCOLON:
-                case token.PCON, token.SEMICOLON:
-                case token.COMMA, token.LINEND:
+                case token.COLON, token.COLON2,
+                     token.LPAREN, token.RPAREN,
+                     token.LBRACK, token.RBRACK,
+                     token.LBRACE, token.RCOLON,
+                     token.PCON, token.SEMICOLON,
+                     token.COMMA, token.LINEND:
                 case token.PERC: // %%
                         p.next() // the second %
                         perc2 := &ast.PercExpr{ OpPos:p.pos }
                         if pos+2 == p.pos {
-                                if p.tok == token.PCON { // %%/xxx
+                                switch p.tok {
+                                /*case token.PCON: // %%/xxx
                                         x = &ast.PercExpr{ X:x, OpPos:pos, Y:perc2 }
-                                        return  p.parsePathExpr(lhs, x) 
-                                } else {
+                                        return  p.parsePathExpr(lhs, x)*/
+                                case token.COLON, token.COLON2,
+                                     token.LPAREN, token.RPAREN,
+                                     token.LBRACK, token.RBRACK,
+                                     token.LBRACE, token.RCOLON,
+                                     token.PCON, token.SEMICOLON,
+                                     token.COMMA, token.LINEND:
+                                default:
                                         perc2.Y = p.checkExpr(p.parseExpr(false))
                                 }
                         }

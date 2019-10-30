@@ -388,7 +388,7 @@ ForFilemaps:
                 if file != nil {
                         if file.match == nil { file.match = filemap }
                         if pre != "" { /* FIXME: file.change(...pre) */ }
-                        if enable_assertions {
+                        if enable_assertions && false {
                                 assert(file.exists(), "`%s` file not existed", file)
                         }
                 } else if len(filemap.Paths) > 0 {
@@ -580,6 +580,7 @@ func (p *Project) updateTarget(pc *traversal, target string) (err error) {
                 }
 
                 err = fileNotFoundError{p, file}
+                if false { debug.PrintStack() }
                 if optionTracePrepare {
                         pc.tracef("%s: `updateTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
                 }
