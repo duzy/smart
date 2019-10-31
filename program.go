@@ -341,10 +341,10 @@ func (prog *Program) setParams(args []Value) (err error, restore func()) {
         return
 }
 
-// Execute could be nested called, a program.mutex.lock could cause
-// dead-lock.
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
         if false {
+                // Execute can be nested, a program.mutex.lock may
+                // cause dead-lock in such case.
                 prog.mutex.Lock()
                 defer prog.mutex.Unlock()
         }
@@ -377,7 +377,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         var nestedExecution bool
         if pc := prog.pc; pc != nil {
-                setDefVal := func(def *Def, val Value) { def.Value = val }
+                setVal := func(def *Def, val Value) { def.Value = val }
                 for _, def := range []*Def{
                         pc.targetDef,
                         pc.dependsDef,
@@ -387,7 +387,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         pc.updatedDef,
                         pc.stemDef,
                         pc.modifyBuf,
-                } { defer setDefVal(def, def.Value) }
+                } { defer setVal(def, def.Value) }
                 nestedExecution = true
         }
         defer func(pc *traversal) { prog.pc = pc } (prog.pc)
@@ -475,11 +475,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         prog.pc.dependsDef.set(DefDefault, MakeList(depends...))
         if len(depends) > 0 {
-                //prog.pc.depend0Def.append(depends[0])
                 prog.pc.depend0Def.set(DefDefault, depends[0])
         }
         if len(ordered) > 0 {
-                //prog.pc.orderedDef.append(ordered...)
                 prog.pc.orderedDef.set(DefDefault, MakeList(ordered...))
         }
 
@@ -488,13 +486,11 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         defer func() {
-                var e error
-                result, e = prog.pc.modifyBuf.Call(prog.position)
-                if e != nil {
+                if err != nil { return }
+                result, err = prog.pc.modifyBuf.Call(prog.position)
+                if err != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
-                        if err == nil { err = e } else {
-                                err = scanner.WrapErrors(token.Position(prog.position), err)
-                        }
+                        err = scanner.WrapErrors(token.Position(prog.position), err)
                 }
         } ()
         prog.pc.preModifiers, prog.pc.postModifiers = prog.modifiers()
@@ -646,6 +642,7 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
 
         // Post modifying
         done, casebreaks, err = pc.postModify(prog)
+
         if casebreaks != nil {
                 // RuleEntry.Execute needs to handle breakers.
                 defer func(brs []*breaker) {

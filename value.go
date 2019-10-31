@@ -10,6 +10,7 @@ import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "path/filepath"
+        "runtime/debug"
         "net/url"
         "reflect"
         "strconv"
@@ -245,6 +246,7 @@ func (c *comparer) compareDepend(value interface{}) (err error) {
                 // ignore
         default:
                 err = fmt.Errorf("'%v' is not dependcomparer (%T)", value, value)
+                if true { debug.PrintStack() }
         }
         return
 }
@@ -440,25 +442,15 @@ func (pc *traversal) tracef(s string, a ...interface{}) {
 }
 
 func (pc *traversal) addNotExistedTarget1(target Value) {
+        if pc.debug && false {
+                fmt.Fprintf(stderr, "add: %T %v\n", target, target)
+                if c, ok := target.(*Compound); ok && len(c.Elems) > 0 {
+                        h := c.Elems[0]
+                        fmt.Fprintf(stderr, "---: %T %v\n", h, h)
+                        debug.PrintStack()
+                }
+        }
         if target != nil && target.Type() != NoneType {
-                // switch t := target.(type) {
-                // //case *File:
-                // case *Path:
-                //         /*if t.File != nil {
-                //                 target = t.File
-                //         }*/
-                // default:
-                //         /*
-                //         var s string
-                //         if s, err = target.Strval(); err != nil {
-                //                 return
-                //         } else if s == "" {
-                //                 panic(fmt.Sprintf("Empty target! (%s `%v`)", target.Type(), target))
-                //         } else if file := prog.project.searchFile(s); file != nil {
-                //                 target = file
-                //         }
-                //         */
-                // }
                 for _, t := range pc.targets {
                         if t == target { return }
                         if t.cmp(target) == cmpEqual { return }

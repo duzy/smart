@@ -247,24 +247,40 @@ func modifierSetEnv(pos Position, prog *Program, args... Value) (result Value, e
         return
 }
 
+// examples:
+//     [(set name=value)]    set $(name) to 'value'
+//     [(set name)]          clear $(name)
+//     [(set -)]             clear $-
 func modifierSetVar(pos Position, prog *Program, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+ForArgs:
         for _, arg := range args {
-                p, ok := arg.(*Pair)
-                if !ok {
-                        err = scanner.Errorf(token.Position(pos), "%s `%s` is unsupported (try: foo=value)", arg.Type(), arg)
-                        break
-                }
                 var name string
-                if name, err = p.Key.Strval(); err != nil { return }
+                var value Value = universalnone
+                switch a := arg.(type) {
+                case *Pair:
+                        if name, err = a.Key.Strval(); err == nil {
+                                value = a.Value
+                        } else { break ForArgs }
+                case *Flag:
+                        if name, err = a.Name.Strval(); err == nil {
+                                value = universalnone
+                                if name == "" { name = "-" }
+                        } else { break ForArgs }
+                case *Bareword:
+                        name = a.string
+                default:
+                        err = scanner.Errorf(token.Position(pos), "%s `%s` is unsupported (try: foo=value)", arg.Type(), arg)
+                        break ForArgs
+                }
                 if def := prog.scope.FindDef(name); def == nil {
                         err = scanner.Errorf(token.Position(pos), "`%s` no such def", name)
-                        break
+                        break ForArgs
                 } else {
-                        def.set(DefDefault, p.Value)
+                        def.set(DefDefault, value)
                 }
         }
-        //result = <all defs changed>
+        // TODO: result = <all changed defs>
         return
 }
 
@@ -823,6 +839,7 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
         depends = append(depends, prog.pc.orderedDef.Value) // $|
         depends = append(depends, prog.pc.greppedDef.Value) // $~
         if grepped != nil { depends = append(depends, grepped) }
+
         if true { // 'false' is okay here
                 depends, err = mergeresult(ExpandAll(depends...))
                 if err != nil { return }
@@ -856,6 +873,9 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
                         case breakGood:
                                 uniqueCompareGood[targetStr] = br
                         }
+                } else {
+                        fmt.Fprintf(stderr, "%v: compare: %v\n", pos, err)
+                        fmt.Fprintf(stderr, "%v: %v\n", targetStr, depends)
                 }
         }
 
@@ -879,10 +899,11 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
 
         if len(c.updated) > 0 && enable_assertions {
                 assert(err != nil, "expects update breaker")
-                e, ok := err.(*breaker)
+                fmt.Printf("----: %v\n", err)
+                /*e, ok := err.(*breaker)
                 assert(ok, "expects update breaker")
                 assert(e.what == breakUpdates, "expects update breaker")
-                assert(e.updated != nil, "nil updated target")
+                assert(e.updated != nil, "nil updated target") */
                 //assert(e.updated.target == c.target, "updated target differs")
                 //assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
                 //for i, preq := range e.updated.prerequisites {
