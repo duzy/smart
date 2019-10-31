@@ -145,13 +145,13 @@ type comparer struct {
         level int // compare/trace level
 }
 
-type dependcomparable interface {
+type dependcomparer interface {
         // Compare target with the prerequisite.
         dependcompare(c *comparer) error
 }
 
 //type comparable interface {
-//        compare(c *comparer, d dependcomparable) error
+//        compare(c *comparer, d dependcomparer) error
 //}
 
 func comptrace(c *comparer, v Value) *comparer {
@@ -238,10 +238,13 @@ func (c *comparer) Compare(pos Position, value interface{}) (err error) {
 }
 
 func (c *comparer) compareDepend(value interface{}) (err error) {
-        if dep, ok := value.(dependcomparable); ok {
+        switch dep := value.(type) {
+        case dependcomparer:
                 err = dep.dependcompare(c)
-        } else {
-                err = fmt.Errorf("'%v' is not dependcomparable", value)
+        case *Flag:
+                // ignore
+        default:
+                err = fmt.Errorf("'%v' is not dependcomparer (%T)", value, value)
         }
         return
 }
@@ -872,7 +875,7 @@ func (p *Any) Strval() (s string, err error) {
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
 func (p *Any) dependcompare(c *comparer) (err error) {
         if enable_assertions { assert(c.target != p, "self comparation") }
-        if v, ok := p.value.(dependcomparable); ok {
+        if v, ok := p.value.(dependcomparer); ok {
                 err = v.dependcompare(c)
         }
         return
@@ -934,7 +937,7 @@ func (p *negative) Integer() (res int64, err error) {
 func (p *negative) dependcompare(c *comparer) (err error) {
         if optionTraceCompare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
-        if p, ok := p.x.(dependcomparable); ok {
+        if p, ok := p.x.(dependcomparer); ok {
                 err = p.dependcompare(c)
         }
         return
