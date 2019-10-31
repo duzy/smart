@@ -639,8 +639,8 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
         }
 
         if err = pc.traversePrerequites(prog, nested); err != nil {
+                fmt.Fprintf(stderr, "%s: update target '%s' error\n%v\n", prog.position, prog.pc.targetDef.Value, err)
                 err = scanner.WrapErrors(token.Position(prog.position), err)
-                fmt.Fprintf(stderr, "%s: can't update target '%s'\n%v\n", prog.position, prog.pc.targetDef.Value, err)
                 return
         }
 
