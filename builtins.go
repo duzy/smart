@@ -2792,7 +2792,11 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                 }
                 var dir = filepath.Dir(filename)
                 var name = filepath.Base(filename)
-                file = stat(name, "", dir)
+                file = stat(name, "", dir, nil)
+                if file == nil {
+                        err = fmt.Errorf("configure-file: nil `%v`", filename)
+                        return
+                }
         } else if filename, err = file.Strval(); err != nil {
                 unreachable()
         } else if filename == "" {
