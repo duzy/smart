@@ -899,7 +899,7 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
 
         if len(c.updated) > 0 && enable_assertions {
                 assert(err != nil, "expects update breaker")
-                fmt.Printf("----: %v\n", err)
+                if false { fmt.Fprintf(stderr, "compare: %v\n", err) }
                 /*e, ok := err.(*breaker)
                 assert(ok, "expects update breaker")
                 assert(e.what == breakUpdates, "expects update breaker")
