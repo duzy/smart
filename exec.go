@@ -163,6 +163,7 @@ type ExecBuffer struct {
         filters []string
         wrote uint64
         retried map[string]bool
+        report bool
 }
 
 func (p *ExecBuffer) filter(s string) {
@@ -244,7 +245,7 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.C
         var pos = prog.position
         var retry bool
         var tag string
-        
+
         for _, m := range p.matches {
                 for _, v := range m.v { // captures
                         switch m.i {
@@ -257,14 +258,14 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.C
                         case rxCompilation_i:
                                 // TODO: ...
                         case rxIncludedFrom_i:
-                                fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3])
+                                if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
                         case rxFileNotFound_i:
-                                fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4])
+                                if p.report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4]) }
                                 if err == nil {
                                         err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
                                 }
                         case rxArNoSuchFile_i:
-                                fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1])
+                                if p.report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1]) }
                                 if err == nil {
                                         err = scanner.Errorf(token.Position(pos), "`%v` file not found", filepath.Base(string(v[1])))
                                 }
@@ -277,7 +278,7 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.C
         }
 
         if err == nil && retry && num < maxRetries {
-                fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num)
+                if p.report { fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num) }
                 c := exec.Command(sh.Path, sh.Args...)
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                 p.runAndProcessKnownErrors(prog, dock, c, x, num+1) // retry
@@ -288,7 +289,7 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.C
         } else if skip := p.skips(tag); !skip && dock != nil && num < maxRetries {
                 p.retried[tag] = true // save it to skip next time
                 if err = x.runContainer(prog, dock); err == nil {
-                        fmt.Fprintf(stderr, "smart: started %s\n", tag)
+                        if p.report { fmt.Fprintf(stderr, "smart: started %s\n", tag) }
                         c := exec.Command(sh.Path, sh.Args...)
                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                         p.runAndProcessKnownErrors(prog, dock, c, x, num+1) // retry
@@ -306,40 +307,12 @@ func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, dock *Project, sh *
         } else if n, e := fmt.Sscanf(err.Error(), "exit status %v", &status); n == 1 && e == nil {
                 if p.log != nil && p.log.writer != nil {
                         fmt.Fprintf(p.log, "\n"+errCommandFailedFmt+"\n", status)
-                        fmt.Fprintf(stderr, "%s:%d: %v\n", p.log.filename, p.log.lines, err)
+                        if p.report { fmt.Fprintf(stderr, "%s:%d: %v\n", p.log.filename, p.log.lines, err) }
                 }
                 err = p.processKnownErrors(prog, dock, sh, x, status, num)
         } else {
                 if status == 0 { status = -1 }
                 if e != nil { err = e }
-        }
-        return
-}
-
-func (p *ExecBuffer) parseKnownErrors(pos Position, target string, report bool) (err error, tag string, retry bool) {
-        if true/*p.Subm == nil*/ {
-                return
-        } else if str := string(""/*p.Subm[0][0][0]*/); str == errNotTTYDevice {
-                retry = true
-        } else if m := rxNoContainer.FindAllStringSubmatch(str, -1); m != nil {
-                tag = m[0][1] // tag the container name
-        } else if m := rxCompilation.FindAllStringSubmatch(str, -1); m != nil {
-                err = scanner.Errorf(token.Position(pos), "%s", m[0][4])
-        } else if m := rxFileNotFound.FindAllStringSubmatch(str, -1); m != nil {
-                fmt.Printf("=%v\n", str)
-                fmt.Printf("=%v\n", m)
-                err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", m[0][4], filepath.Base(m[0][1]))
-                if report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", m[0][1], m[0][2], m[0][3], m[0][4]) }
-        } else if m := rxArNoSuchFile.FindAllStringSubmatch(str, -1); m != nil {
-                err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", filepath.Base(m[0][1]), filepath.Base(target))
-                if report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(m[0][1]), m[0][1]) }
-        } else if matched, _ := regexp.MatchString(errNoNetwork, str); matched {
-                // TODO: dealing with network not found error
-        } else if false {
-                // retry the command
-                tag, retry = ""/*string(p.Subm[0][0][1])*/, true
-        } else {
-                err = fmt.Errorf(str)
         }
         return
 }
@@ -843,6 +816,7 @@ ForArgs:
                         }
                         sh.Args = append(sh.Args, p.opt, src)
 
+                        exeres.Stderr.report = !silent
                         exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(prog, dock, sh, p, 1)
                         if err == nil {
                                 // good
