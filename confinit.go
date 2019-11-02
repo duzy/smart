@@ -1,10 +1,11 @@
 package smart; const configurationInitFile = `project ~ (-nodock -final)
 files (
     (*.c.include *.c++.include *.symbol *.variable *.function \
-     *.structmember *.sizeof *.type *.c *.c++) => &(CTD)/.configure
+     *.structmember *.sizeof *.type *.c *.c++ *.log) => &(CTD)/.configure
 )
 
 SHELL := shell -s
+OUTDIR := &(CTD)/.configure
 CC := gcc
 CFLAGS :=
 LDFLAGS :=
@@ -17,21 +18,23 @@ _VALUE_ :=
 _LIBS_ :=
 _LOADLIBES_ :=
 
--include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).$(LANG).include
+# -l=$(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).log
+# -o $(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).out
+-include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).$(LANG).include
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).$(LANG).out
--symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).symbol($(SYMBOL))
+-symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).symbol($(SYMBOL))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).function($(FUNCTION))
+-function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).function($(FUNCTION))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--type:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).type($(TYPE))
+-type:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).type($(TYPE))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).function($(FUNCTION))
+-library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).function($(FUNCTION))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o &(CTD)/.configure/$(TARGET).out
--struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).structmember($(STRUCT),$(MEMBER))
+-struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).structmember($(STRUCT),$(MEMBER))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).sizeof($(TYPE))
+-sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).sizeof($(TYPE))
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
--compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL)) (check -a status=0)]: $(TARGET).$(LANG)
+-compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).$(LANG)
 	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
 
 %.c.include:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
