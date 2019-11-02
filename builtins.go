@@ -526,13 +526,25 @@ func builtinForEach(pos Position, args... Value) (res Value, err error) {
 
                 var resList []Value
                 for _, val := range merge(values) {
-                        def.Value = val // set value
+                        if val == universalnil || val == universalnone {
+                                continue // ignore
+                        } else if s, ok := val.(*String); ok && s.string == "" {
+                                continue // ignore
+                        }
+
+                        def.Value = val // set "$_" value
 
                         var list []Value
                         for _, a := range args[1:] {
                                 var v Value
                                 if v, err = a.expand(expandAll); err != nil { return }
-                                list = append(list, v)
+                                if v == universalnil || v == universalnone {
+                                        // ignore
+                                } else if s, ok := v.(*String); ok && s.string == "" {
+                                        // ignore
+                                } else {
+                                        list = append(list, v)
+                                }
                         }
                         if n = len(list); n == 0 {
                                 resList = append(resList, universalnone)
