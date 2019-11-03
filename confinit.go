@@ -1,11 +1,12 @@
 package smart; const configurationInitFile = `project ~ (-nodock -final)
+OUTDIR := &(CTD)/.configure
+
 files (
     (*.c.include *.c++.include *.symbol *.variable *.function \
-     *.structmember *.sizeof *.type *.c *.c++ *.log) => &(CTD)/.configure
+     *.structmember *.sizeof *.type *.c *.c++ *.log) => $(OUTDIR)
 )
 
 SHELL := shell -s
-OUTDIR := &(CTD)/.configure
 CC := gcc
 CFLAGS :=
 LDFLAGS :=
@@ -21,21 +22,21 @@ _LOADLIBES_ :=
 # -l=$(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).log
 # -o $(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).out
 -include:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).$(LANG).include
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).$(LANG).out
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).$(LANG).out
 -symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).symbol($(SYMBOL))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -function:[((TARGET FUNCTION)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).function($(FUNCTION))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -type:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).type($(TYPE))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).function($(FUNCTION))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o &(CTD)/.configure/$(TARGET).out
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o $(OUTDIR)/$(TARGET).out
 -struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).structmember($(STRUCT),$(MEMBER))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -sizeof:[((TARGET TYPE)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).sizeof($(TYPE))
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -compiles:[((TARGET)) (unclose) (cd -s &/) | ($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]: $(TARGET).$(LANG)
-	@$(CC) -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o &(CTD)/.configure/$(TARGET).out
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 
 %.c.include:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	$(_INCLUDES_)
@@ -124,7 +125,7 @@ _LOADLIBES_ :=
 	#endif
 	{ (void)argv; return SIZE; }
 	
-#&(CTD)/.configure/pthreads.c
+#$(OUTDIR)/pthreads.c
 pthreads.c:[(unclose) (cd -s &/) | (plain c) (update-file -sp)]
 	#include <pthread.h>
 	void* routine(void* args) { return args; }
