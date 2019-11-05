@@ -797,7 +797,7 @@ ForArgs:
                         // Restricts the number of workers.
                         waitForWork(); defer releaseWork()
 
-                        lockCD(dir, 5*time.Millisecond)
+                        lockCD(dir, 25*time.Millisecond)
                         if s, _ := os.Getwd(); s != dir {
                                 assert(s == dir, "wrong work directory (%s != %s)", s, dir)
                                 if false {
