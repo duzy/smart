@@ -303,6 +303,8 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 } else {
                         c.trace("compare:", c.target, d, '\t', '\t', tt, ":", dt, "; ", dt.After(tt))
                 }
+        } else if optionTraceCompareOutdated && dt.After(tt) {
+                c.trace("outdate:", c.target, d, '\t', '\t', tt, ":", dt)
         }
 
         if tt.IsZero() {
@@ -314,7 +316,9 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 } else {
                         // Treat all dependency as updated when the target is not existed.
                         c.updated = append(c.updated, newUpdatedTarget(d, nil))
-                        if optionTraceCompare { c.trace("compare: missing", c.target) }
+                        if optionTraceCompare || optionTraceCompareOutdated {
+                                c.trace("compare: missing", c.target)
+                        }
                         if !dt.IsZero() {
                                 context.globe.stamp(ds, dt)
                         }

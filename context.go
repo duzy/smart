@@ -37,6 +37,7 @@ const (
         optionTraceParsing = false
         optionTracePrepare = false
         optionTraceCompare = false
+        optionTraceCompareOutdated = false
         optionTraceEntering = optionTracePrepare && false
 
         optionExecuteUseRulesRecursively = false
