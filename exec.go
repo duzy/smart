@@ -856,6 +856,7 @@ func stamp(target Value, start time.Time, verb bool) (err error) {
         case *File:
                 fullname := t.FullName()
                 t.info, err = os.Stat(fullname)
+                t.updated = true
                 context.globe.stamp(fullname, t.info.ModTime())
                 if verb {
                         d := t.info.ModTime().Sub(start);

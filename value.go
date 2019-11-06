@@ -2075,6 +2075,7 @@ type filestub struct {
 type filebase struct {
         stub filestub    // cycled-list of file stubs of different projects
         info os.FileInfo // file info if exists
+        updated bool // true if this file has been updated by a program
 }
 
 var filecache = make(map[string]*filebase) // File.FullName() -> File
@@ -2226,7 +2227,7 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                         }
                 }
 
-                base = &filebase{ filestub{ dir, sub, name, nil, nil }, info }
+                base = &filebase{ filestub{ dir, sub, name, nil, nil }, info, false }
                 base.stub.other = &base.stub
                 stub = &base.stub
                 filecache[fullname] = base

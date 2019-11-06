@@ -343,7 +343,7 @@ func (prog *Program) setParams(args []Value) (err error, restore func()) {
 
 func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
         if false {
-                // Execute can be nested, a program.mutex.lock may
+                // Execution can be nested, a program.mutex.lock may
                 // cause dead-lock in such case.
                 prog.mutex.Lock()
                 defer prog.mutex.Unlock()
@@ -365,15 +365,6 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 ctx.stems = caller.stems
                 //ctx.mode = caller.mode
         }
-
-        // Build related project list from derived.
-        /*if owner := entry.OwnerProject(); ctx.derived == nil {
-                ctx.related = append(ctx.related, owner)
-        } else if ctx.derived.isa(owner) {
-                ctx.related = append(ctx.related, ctx.derived)
-        } else {
-                ctx.related = append(ctx.related, owner, ctx.derived)
-        }*/
 
         var nestedExecution bool
         if pc := prog.pc; pc != nil {
@@ -436,10 +427,14 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         if prog.pc.stemDef,    err = prog.auto("*", universalnone); err != nil { return }
         if prog.pc.modifyBuf,  err = prog.auto("-", universalnone); err != nil { return }
 
+        var fileTarget *File
+
         // Select the right target value before setting parameters,
         // because the target could be overrided by parameters.
         switch t := prog.pc.entry.target.(type) {
-        case *File: prog.pc.targetDef.set(DefDefault, t)
+        case *File:
+                prog.pc.targetDef.set(DefDefault, t)
+                fileTarget = t
         default:
                 var name string
                 var target = prog.pc.entry.target
@@ -448,6 +443,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         return
                 }
                 if file := prog.project.searchFile(name); file != nil {
+                        fileTarget = file
                         target = file
                 }
                 prog.pc.targetDef.set(DefDefault, target)
@@ -485,8 +481,21 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.pc.stemDef.set(DefDefault, &String{prog.pc.stems[0]})
         }
 
+        if fileTarget != nil && fileTarget.info != nil && fileTarget.updated {
+                if optionVerbose {
+                        fmt.Fprintf(stderr, "smart: Already updated %v\n", fileTarget)
+                }
+                return
+        }
+
         defer func() {
                 if err != nil { return }
+
+                // Set fileTarget.updated in stamp() (from exec.go).
+                if fileTarget != nil && fileTarget.info != nil && !fileTarget.updated {
+                        fileTarget.updated = true
+                }
+
                 result, err = prog.pc.modifyBuf.Call(prog.position)
                 if err != nil {
                         // NOTE: err could be breakCase, breakDone, etc.

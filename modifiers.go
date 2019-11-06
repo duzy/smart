@@ -795,6 +795,9 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
         } else if target.Type() == NoneType {
                 err = break_bad(pos, "comparing 'none' target")
                 return
+        } else if file, ok := target.(*File); ok && file.info != nil && file.updated {
+                // already updated
+                return
         }
 
         // Target string value (name).
