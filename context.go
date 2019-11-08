@@ -414,23 +414,23 @@ AtLookupLoop:
         var commandText string
         for _, a := range os.Args[1:] {
                 switch a {
-                case "-b", "-build-plugins":
+                case "-b", "-build-plugins": // TODO: -build=plugins
                         optionAlwaysBuildPlugins = true
-                case "-bi", "-bench-import":
+                case "-bi", "-bench-import": // TODO: -bench=import
                         optionBenchImport = true
-                case "-bb", "-bench-builtins":
+                case "-bb", "-bench-builtins": // TODO: -bench=builtins
                         optionBenchBuiltin = true
                 case "-v", "-verbose":
                         optionVerbose = true
-                case "-vp", "-verbose-parsing":
+                case "-vp", "-verbose-parsing": // TODO: -verbose=parsing
                         optionVerboseParsing = true
-                case "-vl", "-verbose-loading":
+                case "-vl", "-verbose-loading": // TODO: -verbose=loading
                         optionVerboseLoading = true
-                case "-vu", "-verbose-using":
+                case "-vu", "-verbose-using": // TODO: -verbose=using
                         optionVerboseUsing = true
-                case "-vi", "-verbose-import":
+                case "-vi", "-verbose-import": // TODO: -verbose=import
                         optionVerboseImport = true
-                case "-vc", "-verbose-checks":
+                case "-vc", "-verbose-checks":  // TODO: -verbose=checks
                         optionVerboseChecks = true
                 default:
                         args = append(args, a)

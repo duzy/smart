@@ -1801,6 +1801,7 @@ func (l *loader) setArgs(args []Value) (oldArgs []Value) {
         return
 }
 
+// project example (base(var=value))
 func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
         var isDir bool
         var absPath, specName string
@@ -2149,7 +2150,11 @@ func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, va
         case token.EXC_ASSIGN: // !=
                 err = def.set(DefExecute, value)
         case token.ADD_ASSIGN: // +=
-                if !def.Value.refs(value) { err = def.append(value) }
+                if value ==  nil {
+                        // NOOP
+                } else if def.Value == nil || !def.Value.refs(value) {
+                        err = def.append(value)
+                }
         case token.SHI_ASSIGN: // =+
                 if !def.Value.refs(value) {
                         var tail = def.Value
@@ -2251,14 +2256,11 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                                 } else {
                                         fmt.Fprintf(stderr, "%s: encountered %T\n", filename, e)
                                 }
-				if true {
-                                        debug.PrintStack()
-                                        if e = recover(); e != nil {
-                                                fmt.Fprintf(stderr, "----\n")
-                                        }
-                                } else {
-                                        panic(e)
+                                fmt.Fprintf(stderr, "%v\n", e)
+                                if e = recover(); e != nil {
+                                        fmt.Fprintf(stderr, "----\n")
                                 }
+                                debug.PrintStack()
 			}
 		}
 

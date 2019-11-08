@@ -9,6 +9,7 @@ package smart
 import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
+        "runtime/debug"
         "os/exec"
         "strings"
         "strconv"
@@ -334,7 +335,11 @@ func (d *Def) Strval() (s string, e error) {
 
 func (d *Def) set(origin DefOrigin, value Value) (err error) {
         if origin != DefSimple && value != nil && value.refs(d) {
-                err = fmt.Errorf("self recursive variable `%s`", d.name)
+                err = fmt.Errorf("recursive variable `%s` (from %v)", d.name, d.OwnerProject())
+                if true || optionVerbose {
+                        fmt.Fprintf(stderr, "error: %v\n", err)
+                        debug.PrintStack()
+                }
                 return
         } else if origin != DefExecute && value == nil {
                 value = universalnone
@@ -370,6 +375,17 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
 }
 
 func (d *Def) append(va... Value) (err error) {
+        for _, value := range va {
+                if value != nil && value.refs(d) {
+                        err = fmt.Errorf("append recursive variable `%s` (from %v)", d.name, d.OwnerProject())
+                        if true || optionVerbose {
+                                fmt.Fprintf(stderr, "error: %v\n", err)
+                                debug.PrintStack()
+                        }
+                        return
+                }
+        }
+
         var list *List
         if num := len(va); num == 0 {
                 // Does nothing...

@@ -3484,7 +3484,7 @@ func (p *PercPattern) match(i interface{}) (result string, stems []string, err e
                 s, err = t.Strval()
                 if err != nil { return }
         default:
-                unreachable("perc.match: %T %v", i, i)
+                unreachable(fmt.Sprintf("perc.match: %T %v", i, i))
         }
 
         var prefix string
@@ -3919,7 +3919,14 @@ func intVal(v Value, res int) int {
         return res
 }
 
+var expanddepth int64 = 0
 func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) {
+        defer func(i int64) { expanddepth = i } (expanddepth)
+        if expanddepth += 1; expanddepth > 128 {
+                err = fmt.Errorf("exceeds maximum expand depth")
+                return
+        }
+
         var v Value
         for _, elem := range values {
                 if elem == nil {
