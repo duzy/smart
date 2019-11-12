@@ -397,6 +397,7 @@ func builtinNot(pos Position, args... Value) (res Value, err error) {
         return
 }
 
+// $(match rx1 rx2 rx3, a b c d...)
 func builtinMatch(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n != 2 {
                 err = scanner.Errorf(token.Position(pos), "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)

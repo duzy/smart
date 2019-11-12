@@ -738,7 +738,8 @@ func (p *Project) updateFileStub(pc *traversal, stub *filestub) (okay bool, err 
 
         /// Searching patterns from the most derived project.
         var ses []*StemmedEntry
-        if ses, err = p.resolvePatterns(stub); err != nil {
+        ses, err = p.resolvePatterns(stub)
+        if err != nil {
                 return
         } else if len(ses) == 0 {
                 return

@@ -1866,7 +1866,26 @@ func (p *Path) cmp(v Value) (res cmpres) {
 
 func (p *Path) match(i interface{}) (result string, stems []string, err error) {
         var retained []string
-        result, retained, stems, err = p.match1(i)
+        switch t := i.(type) {
+        case *File:
+                result, retained, stems, err = p.match1(t.name)
+                if err != nil {
+                        return
+                } else if /*result == "" &&*/ stems == nil {
+                        s := filepath.Join(t.dir, t.sub, t.name)
+                        result, retained, stems, err = p.match1(s)
+                }
+        case *filestub:
+                result, retained, stems, err = p.match1(t.name)
+                if err != nil {
+                        return
+                } else if /*result == "" &&*/ stems == nil {
+                        s := filepath.Join(t.dir, t.sub, t.name)
+                        result, retained, stems, err = p.match1(s)
+                }
+        default:
+                result, retained, stems, err = p.match1(i)
+        }
         if len(retained) > 0 {
                 // clear results if not fully matched
                 result, stems = "", nil
@@ -1883,10 +1902,10 @@ func (p *Path) match1(i interface{}) (result string, retained, stems []string, e
         switch t := i.(type) {
         case []string: srcs = t
         case string: srcs = strings.Split(t, PathSep)
-        case *File: srcs = strings.Split(t.FullName(), PathSep)
+        /*case *File: srcs = strings.Split(t.FullName(), PathSep)
         case *filestub:
                 s := filepath.Join(t.dir, t.sub, t.name)
-                srcs = strings.Split(s, PathSep)
+                srcs = strings.Split(s, PathSep)*/
         case Value:
                 var s string
                 if s, err = t.Strval(); err != nil { return }
