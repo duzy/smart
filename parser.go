@@ -339,7 +339,7 @@ func (p *parser) expectLinend() {
 func syncClause1(p *parser) {
 	for {
 		switch p.tok {
-		case token.IMPORT, token.INCLUDE, token.FILES, token.INSTANCE, token.USE, token.EXPORT, token.EVAL:
+		case token.USE/*token.IMPORT*/, token.INCLUDE, token.FILES, token.INSTANCE, token.EXPORT, token.EVAL:
 			if p.pos == p.syncPos && p.syncCnt < 10 {
 				p.syncCnt++
 				return
@@ -2045,7 +2045,7 @@ func (p *parser) parseSpecialRuleClause() ast.Clause {
 
 func (p *parser) parseClause(sync func(*parser)) ast.Clause {
  	switch p.tok {
-        case token.IMPORT:
+        case token.USE/*token.IMPORT*/:
                 pos := p.pos
                 p.error(pos, "`%v` unexpected here", p.tok)
                 syncClause1(p)
@@ -2060,7 +2060,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                 return p.parseGenericClause(token.FILES, p.expect(token.FILES), p.parseFilesSpec)
         case token.EVAL:
                 return p.parseGenericClause(token.EVAL, p.expect(token.EVAL), p.parseEvalSpec)
-	case token.USE:
+	/*case token.USE:
                 var options []ast.Expr
                 var pos = p.expect(token.USE)
                 for p.tok == token.MINUS {
@@ -2072,7 +2072,7 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
                                 &ast.Bareword{ pos, token.USE.String() },
                         })
                 }
-                return p.parseGenericClause(token.USE, pos, p.parseUseSpec)
+                return p.parseGenericClause(token.USE, pos, p.parseUseSpec)*/
         case token.COLON:
                 return p.parseSpecialRuleClause()
         }
@@ -2244,9 +2244,12 @@ func (p *parser) parseFile() *ast.File {
                 ForInit:
                         for p.tok != token.EOF {
                                 switch p.tok {
+                                case token.IMPORT:
+                                        p.error(p.pos, "keyword `import` is replaced by `use`")
+                                        syncClause1(p)
                                 case token.LINEND:
                                         p.next() // skip empty lines
-                                case token.IMPORT:
+                                case token.USE/*token.IMPORT*/:
                                         clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
                                 case token.EVAL:
                                         clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(token.EVAL), p.parseEvalSpec))
