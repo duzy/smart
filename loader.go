@@ -1447,6 +1447,7 @@ func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, va
         return
 }
 
+/*
 func (l *loader) use(spec *ast.UseSpec) {
         if l.project.keyword == token.PACKAGE {
                 l.parser.error(spec.Pos(), "forbiden package `use`")
@@ -1496,6 +1497,7 @@ func (l *loader) use(spec *ast.UseSpec) {
                 }
         }
 }
+*/
 
 func (l *loader) useOptional(pos token.Pos, opt Value) {
         s, err := opt.Strval()

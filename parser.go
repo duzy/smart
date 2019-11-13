@@ -1382,6 +1382,7 @@ func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, generic *genericoptions
         return spec
 }
 
+/*
 func (p *parser) parseUseSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
         spec := &ast.UseSpec{ p.parseDirectiveSpec() }
         if !generic.dontOperate {
@@ -1390,6 +1391,7 @@ func (p *parser) parseUseSpec(doc *ast.CommentGroup, generic *genericoptions, _ 
         return spec
 
 }
+*/
 
 func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
         return &ast.InstanceSpec{ p.parseDirectiveSpec() }

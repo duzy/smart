@@ -573,9 +573,9 @@ type (
 
 	// An UseSpec node represents a single project import.
         // 
-	UseSpec struct {
+	/*UseSpec struct {
                 DirectiveSpec
-	}
+	}*/
         
         // A InstanceSpec node represents a project instanciation.
         // 
@@ -624,12 +624,12 @@ type (
 	//
 	// Relationship between Tok value and Specs element type:
 	//
-	//	token.IMPORT     *ImportSpec
+	//	#token.IMPORT     *ImportSpec
+	//	token.USE        *UseSpec
 	//	token.INCLUDE    *IncludeSpec
 	//	token.INSTANCE   *InstanceSpec
 	//	token.FILES      *FilesSpec
 	//	token.EVAL       *EvalSpec
-	//	token.USE        *UseSpec
 	//
 	GenericClause struct {
 		Doc    *CommentGroup // associated documentation; or nil
