@@ -986,6 +986,10 @@ func (p *parser) parseClosureDelegate() ast.Expr {
 		defer un(trace(p, "ClosureDelegate"))
 	}
         
+        // FIXME: push p.bits before entering a $(...) or &(...)
+        defer func(a parsingBits) { p.bits = a }(p.bits)
+        p.bits = 0 // start with zero bits
+
         var (
                 lpos = token.NoPos
                 rpos = token.NoPos
@@ -1230,6 +1234,7 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
                         x = p.parsePercExpr(lhs, x)
                 }
         case token.PERIOD: // foo.bar.baz.o
+                // FIXME: push bits when parsing $(...)
                 if p.bits&composingDOT == 0 && x.End() == p.pos {
                         x = p.parseDotExpr(lhs, x)
                 }
