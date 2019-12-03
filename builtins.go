@@ -2139,8 +2139,9 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                 "u,update",
                 "v,verbose",
                 "l,rel", // relative
+                "p,path",
         }
-        var optForce, optUpdate, optVerbose, optRel bool
+        var optForce, optUpdate, optVerbose, optRel, optPath bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else {
@@ -2169,6 +2170,7 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                         for _, ru := range runes {
                                 switch ru {
                                 case 'l': optRel = trueVal(v, true)
+                                case 'p': optPath = trueVal(v, false)
                                 case 'f': optForce = trueVal(v, true)
                                 case 'u': optUpdate = trueVal(v, true)
                                 case 'v': optVerbose = trueVal(v, true)
@@ -2234,6 +2236,9 @@ ForVals:
                                 err = scanner.WrapErrors(token.Position(pos), err)
                                 return
                         }
+                }
+                if dir := filepath.Dir(newname); optPath && dir != "." && dir != PathSep {
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
                 if err = os.Symlink(oldname, newname); err != nil {
                         if optVerbose {

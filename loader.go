@@ -663,6 +663,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
         switch tok {
         case token.LCOLON:
                 switch s {
+                //case "arch": obj = context.globe.arch
                 case "os": obj = context.globe.os.self
                 case "goals": obj = context.goals
                 case "self": obj = l.project.self
@@ -2021,6 +2022,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         } else if s, err := configurationFileName(l.project); err != nil {
                 return err
         } else if file := stat(filepath.Base(s), "", filepath.Dir(s)); file != nil {
+                fmt.Fprintf(stderr, "smart: Load configuration for %s (%s)\n", l.project, l.project.relPath)
                 l.isIncludingConf = true
                 l.includeFunc(l, ident.Pos(), file)
                 l.isIncludingConf = false
