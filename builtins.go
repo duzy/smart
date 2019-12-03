@@ -2750,28 +2750,50 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
 //      	configure-file -p -m=0600 $@ $(read-file $<)
 //     
 func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
-        var optVerbose = true
-        var optPath = false
-        var optMode = os.FileMode(0600)
+        var (
+                optPath = false
+                optVerbose = false
+                optMode = os.FileMode(0600)
+        )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else if len(args) > 0 {
                 var altargs []Value
+                var opts = []string{
+                        "m,mode",
+                        "p,path",
+                        "v,verbose",
+                }
+        ForArgs:
                 for _, arg := range args {
-                        var opt bool
+                        var ( v Value; runes []rune )
                         switch a := arg.(type) {
-                        default: altargs = append(altargs, a)
                         case *None: // ignores
                         case *Flag:
-                                if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
-                                if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optVerbose = false }
+                                if runes, _, err = a.opts(opts...); err != nil { return }
+                                a = nil
                         case *Pair:
-                                if opt, err = a.isFlag('m', "mode"); err != nil { return } else if opt {
+                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                        if runes, _, err = flag.opts(opts...); err != nil { return }
+                                        v = a.Value // use flag value
+                                } else {
+                                        //altargs = append(altargs, a)
+                                        continue ForArgs
+                                }
+                        default:
+                                altargs = append(altargs, a)
+                                continue ForArgs
+                        }
+                        for _, ru := range runes {
+                                switch ru {
+                                case 'p': optPath = true
+                                case 'v': optVerbose = true
+                                case 'm': if v != nil {
                                         var num int64
-                                        if num, err = a.Value.Integer(); err != nil { return } else {
+                                        if num, err = v.Integer(); err != nil { return } else {
                                                 optMode = os.FileMode(num & 0777)
                                         }
-                                }
+                                }}
                         }
                 }
                 args = altargs
