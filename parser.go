@@ -1745,7 +1745,20 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                 params []string
                 dialect string
         )
+ForModifierExpr:
         for p.tok != token.RBRACK && p.tok != token.EOF {
+                switch p.tok {
+                case token.COMMA:
+                        p.next() // TODO: grouping modifiers
+                        continue ForModifierExpr
+                case token.BAR:
+                        pos := p.pos
+                        p.next()
+                        bar := &ast.BasicLit{ pos, token.BAR, "|", p.pos }
+                        elems = append(elems, bar)
+                        continue ForModifierExpr
+                }
+                
                 var (
                         x = p.checkExpr(p.parseExpr(false))
                         name string
@@ -1850,14 +1863,14 @@ func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
                 elems = append(elems, x)
 
         next:
-                switch p.tok {
+                /*switch p.tok {
                 case token.COMMA:
                         p.next() // TODO: grouping modifiers
                 case token.BAR:
                         p.next()
                         bar := &ast.BasicLit{ pos, token.BAR, "|", p.pos }
                         elems = append(elems, bar)
-                }
+                }*/
         }
         rpos := p.expect(token.RBRACK)
         return dialect, params, &ast.ModifierExpr{

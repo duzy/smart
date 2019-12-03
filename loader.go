@@ -2017,12 +2017,21 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 if err != nil { return }
         }
 
+        // FIXES: set cloctx immediately to ensure the right configuration
+        //        is matched!
+        defer setclosure(setclosure(cloctx.unshift(l.scope)))
+
         if declared || l.includeFunc == nil || optionConfigure {
                 // Does nothing!
         } else if s, err := configurationFileName(l.project); err != nil {
                 return err
         } else if file := stat(filepath.Base(s), "", filepath.Dir(s)); file != nil {
-                fmt.Fprintf(stderr, "smart: Load configuration for %s (%s)\n", l.project, l.project.relPath)
+                if optionVerboseImport || true {
+                        full, _ := file.Strval()
+                        fmt.Fprintf(stderr, "smart: Load configuration for %s (%s): %s\n", l.project, l.project.relPath, full)
+                } else {
+                        fmt.Fprintf(stderr, "smart: Load configuration for %s (%s)\n", l.project, l.project.relPath)
+                }
                 l.isIncludingConf = true
                 l.includeFunc(l, ident.Pos(), file)
                 l.isIncludingConf = false
