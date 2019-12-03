@@ -2848,9 +2848,9 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                         file.info = f.info
                 }
         }
+        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
         if file.info != nil {
                 var f *os.File
-                if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
                 if f, err = os.Open(filename); err == nil && f != nil {
                         defer f.Close()
                         if st, _ := f.Stat(); st.Mode().Perm() != optMode {
@@ -2875,10 +2875,10 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                                 return
                         }
                 }
-                if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
         } else if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
                 if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
         }
+        if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
 
         var status string
         if optVerbose {
