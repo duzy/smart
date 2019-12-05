@@ -1866,6 +1866,15 @@ func (p *Path) cmp(v Value) (res cmpres) {
 
 func (p *Path) match(i interface{}) (result string, stems []string, err error) {
         var retained []string
+        result, retained, stems, err = p.partialMatch(i)
+        if len(retained) > 0 {
+                // clear results if not fully matched
+                result, stems = "", nil
+        }
+        return
+}
+
+func (p *Path) partialMatch(i interface{}) (result string, retained, stems []string, err error) {
         switch t := i.(type) {
         case *File:
                 result, retained, stems, err = p.match1(t.name)
@@ -1885,10 +1894,6 @@ func (p *Path) match(i interface{}) (result string, stems []string, err error) {
                 }
         default:
                 result, retained, stems, err = p.match1(i)
-        }
-        if len(retained) > 0 {
-                // clear results if not fully matched
-                result, stems = "", nil
         }
         return
 }
@@ -1938,15 +1943,14 @@ ForPathSegs:
                 case Pattern:// Note that Path is also a Pattern!
                         var ss []string
 
-                        // Special case of "%%" to match multiple
-                        // segs at once.
+                        // Special case of "%%" to match many segs at once.
                         if pp, ok := seg.(*PercPattern); ok {
                                 if ps, ok := pp.Suffix.(*PercPattern); ok {
                                         if ps.Prefix.Type() == NoneType && ps.Suffix.Type() == NoneType {
                                                 // for all /%%/ segs
                                                 if n+1 < len(segs) && idx+1 < len(srcs) {
-                                                        // Find segs[n+1] in srcs[idx:]
-                                                        var next = segs[n+1]
+                                                        // Find 'next' matched seg, aka. %%/next/xxx
+                                                        var next = segs[n+1] // e.g. '.smart' like in '%%/.smart/modules'
                                                         switch t := next.(type) {
                                                         case Pattern:
                                                                 for x, src := range srcs[idx+1:] {
@@ -1958,7 +1962,7 @@ ForPathSegs:
                                                                                 stem := strings.Join(srcs[idx:end], PathSep)
                                                                                 stems = append(stems, stem)
                                                                                 idx = end
-                                                                                break //continue ForPathSegs
+                                                                                continue ForPathSegs //break //
                                                                         }
                                                                 }
                                                         default:
@@ -1972,7 +1976,7 @@ ForPathSegs:
                                                                                 stem := strings.Join(srcs[idx:end], PathSep)
                                                                                 stems = append(stems, stem)
                                                                                 idx = end
-                                                                                break //continue ForPathSegs
+                                                                                continue ForPathSegs //break //
                                                                         }
                                                                 }
                                                         }
@@ -3426,6 +3430,15 @@ func (p *selection) cmp(v Value) (res cmpres) {
                 }
         }
         return
+}
+
+type partialMatcher interface {
+        partialMatch(i interface{}) (result string, rest, stems []string, err error)
+}
+
+// TODO: endingMatcher is not implemented (e.g. $(trim-suffix .%, a.xxx b.xxx))
+type endingMatcher interface {
+        endingMatch(i interface{}) (result string, rest, stems []string, err error)
 }
 
 // Pattern

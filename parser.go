@@ -669,19 +669,21 @@ func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
                      token.PCON, token.SEMICOLON,
                      token.COMMA, token.LINEND:
                 case token.PERC: // %%
-                        p.next() // the second %
+                        p.next() // consume the second %
                         perc2 := &ast.PercExpr{ OpPos:p.pos }
                         if pos+2 == p.pos {
                                 switch p.tok {
-                                /*case token.PCON: // %%/xxx
-                                        x = &ast.PercExpr{ X:x, OpPos:pos, Y:perc2 }
-                                        return  p.parsePathExpr(lhs, x)*/
-                                case token.COLON, token.COLON2,
-                                     token.LPAREN, token.RPAREN,
-                                     token.LBRACK, token.RBRACK,
-                                     token.LBRACE, token.RCOLON,
-                                     token.PCON, token.SEMICOLON,
-                                     token.COMMA, token.LINEND:
+                                case token.PERC: // %%%
+                                        p.error(p.pos, "too many %")
+                                case token.PCON: // FIXES: %%/xxx -> Path(%% xxx)
+                                        x = &ast.PercExpr{ X:x, OpPos:p.pos, Y:perc2 }
+                                        return  p.parsePathExpr(lhs, x)
+                                case token.COLON,     token.COLON2,
+                                     token.LPAREN,    token.RPAREN,
+                                     token.LBRACK,    token.RBRACK,
+                                     token.LBRACE,    token.RCOLON,
+                                     token.SEMICOLON, token.COMMA,
+                                     token.LINEND:
                                 default:
                                         perc2.Y = p.checkExpr(p.parseExpr(false))
                                 }
@@ -1230,6 +1232,7 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
                         x = p.parseGlobExpr(x)
                 }
         case token.PERC: // foo%bar
+                // FIXME: %/foo/bar -> Path(% foo bar)
                 if p.bits&composingNoPerc == 0 && x.End() == p.pos {
                         x = p.parsePercExpr(lhs, x)
                 }

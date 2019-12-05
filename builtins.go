@@ -1344,23 +1344,52 @@ func builtinTrimRight(pos Position, args... Value) (res Value, err error) {
         return
 }
 
+// $(trim-prefix foo%, fooxxx foo123)
+// $(trim-prefix %/foo, xxx/foo/a/b/c)
+// $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
+// FIXME: %%/foo is not working
 func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        if len(args) == 0 { return }
 
         var (
+                prefix = args[0]
                 list []Value
                 cutset, s string
         )
-        for i, a := range args {
-                if s, err = a.Strval(); err != nil {
-                        return
-                } else if s != "" {
-                        if i == 0 {
-                                cutset = s
-                        } else if cutset == "" {
-                                list = append(list, &String{strings.TrimLeftFunc(s, unicode.IsSpace)})
-                        } else {
-                                list = append(list, &String{strings.TrimPrefix(s, cutset)})
+        //fmt.Fprintf(stderr, "trim-prefix: %T %v : %v\n", prefix, prefix, args)
+        //err = fmt.Errorf("debug"); return
+        if pat, ok := prefix.(partialMatcher); ok {
+                for _, a := range args[1:] {
+                        var ( result string; rest, stems []string )
+                        result, rest, stems, err = pat.partialMatch(a)
+                        if result != "" && stems != nil && rest != nil {
+                                s = filepath.Join(rest...)
+                        } else if s, err = a.Strval(); err != nil {
+                                return
+                        } else if s == "" {
+                                continue // ignore empty string
+                        }
+
+                        if s != "" {
+                                list = append(list, &String{ s })
+                        }
+                }
+        } else if cutset, err = prefix.Strval(); err != nil {
+                return
+        } else {
+                for _, a := range args[1:] {
+                        if s, err = a.Strval(); err != nil {
+                                return
+                        } else if s != "" {
+                                if cutset == "" {
+                                        s = strings.TrimLeftFunc(s, unicode.IsSpace)
+                                } else {
+                                        s = strings.TrimPrefix(s, cutset)
+                                }
+                        }
+                        if s != "" {
+                                list = append(list, &String{ s })
                         }
                 }
         }
