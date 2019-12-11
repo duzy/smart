@@ -1002,37 +1002,42 @@ func modifierExtractConfiguration(pos Position, prog *Program, args... Value) (r
         var rxs []*regexp.Regexp
         var optTarget string
         var optPerm = os.FileMode(0640) // sys default 0666
+        if args, err = parseOpts(args, []string{
+                "p,path",
+                "r,rx",
+                "r,regex",
+                "g,grep",
+                "m,mode",
+                "t,target",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = true
+                case 'r':
+                        var (s string; x *regexp.Regexp)
+                        if s, err = v.Strval(); err != nil {
+                                return
+                        } else if x, err = regexp.Compile(s); err != nil {
+                                return
+                        } else {
+                                rxs = append(rxs, x)
+                        }
+                case 't':
+                        if optTarget, err = v.Strval(); err != nil {
+                                return
+                        }
+                case 'm': if v != nil {
+                        var num int64
+                        if num, err = v.Integer(); err != nil { return } else {
+                                optPerm = os.FileMode(num & 0777)
+                        }
+                }}
+        }); err != nil { return }
         for _, arg := range args {
-                var opt bool
-                var name string
                 switch a := arg.(type) {
                 default:
                         pats = append(pats, a)
                 case *Group:
                         pats = append(pats, a.Elems...)
-                case *Flag:
-                        if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
-                case *Pair:
-                        if name, err = a.Key.Strval(); err != nil { return }
-                        switch name {
-                        case "rx", "-rx", "grep", "-grep", "-g":
-                                var (s string; x *regexp.Regexp)
-                                if s, err = a.Value.Strval(); err != nil {
-                                        return
-                                } else if x, err = regexp.Compile(s); err != nil {
-                                        return
-                                } else {
-                                        rxs = append(rxs, x)
-                                }
-                        case "-m", "-mode", "mode":
-                                var num int64
-                                if num, err = a.Integer(); err != nil { return }
-                                optPerm = os.FileMode(num & 0777)
-                        case "-t", "-target", "target":
-                                if optTarget, err = a.Value.Strval(); err != nil {
-                                        return
-                                }
-                        }
                 }
         }
         if len(pats) == 0 {
@@ -1157,36 +1162,16 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
         // don't configure in compare mode
         if m := prog.pc.mode; m == compareMode { return }
 
-        var (
-                opts = []string{
-                        "a,accumulate",
-                }
-                optAccumulate bool
-        )
+        var optAccumulate bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else {
-                var va []Value
-        ForArgs:
-                for _, arg := range args {
-                        var ( v Value ; runes []rune ; names []string )
-                        v, runes, names, err = parseOpts(arg, opts)
-                        if err != nil {
-                                err = scanner.WrapErrors(token.Position(pos), err)
-                                return
-                        }
-                        if v == nil && runes == nil && names == nil {
-                                va = append(va, arg)
-                                continue ForArgs
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'a': optAccumulate = true
-                                }
-                        }                        
+        } else if args, err = parseOpts(args, []string{
+                "a,accumulate",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'a': optAccumulate = true
                 }
-                args = va // reset args
-        }
+        }); err != nil { return }
 
         var ( target Value; name string )
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }

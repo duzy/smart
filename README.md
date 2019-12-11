@@ -58,7 +58,7 @@ project example
 ## "posix/thread" is a predefiend module, allowing users to use pthread
 ## in the project, it's supposed to append values of symbols like CFLAGS, LDFLAGS,
 ## LIBS, etc. But at the current version, it affects only the `libs` symbol.
-import "posix/thread"
+use "posix/thread"
 
 LINK = g++
 COMPILE = g++ -c

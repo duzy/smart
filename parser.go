@@ -677,7 +677,7 @@ func (p *parser) parsePercExpr(lhs bool, x ast.Expr) ast.Expr {
                                         p.error(p.pos, "too many %")
                                 case token.PCON: // FIXES: %%/xxx -> Path(%% xxx)
                                         x = &ast.PercExpr{ X:x, OpPos:p.pos, Y:perc2 }
-                                        return  p.parsePathExpr(lhs, x)
+                                        return p.parsePathExpr(lhs, x)
                                 case token.COLON,     token.COLON2,
                                      token.LPAREN,    token.RPAREN,
                                      token.LBRACK,    token.RBRACK,
@@ -1334,27 +1334,13 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, generic *genericoptions,
         }
 
         var ( opts importoptions ; err error )
-        for _, v := range generic.options {
-                var opt bool
-                switch t := v.(type) {
-                case *Flag:
-                        if opt, err = t.is(0, "reusing"); err != nil {
-                                p.error(spec.Pos(), err)
-                                return
-                        }
-                        if opt { opts.allowReuse = true }
-                case *Pair:
-                        if opt, err = t.isFlag(0, "reusing"); err != nil {
-                                p.error(spec.Pos(), err)
-                                return
-                        }
-                        if opt { opts.allowReuse = t.Value.True() }
-                default:
-                        p.error(spec.Pos(), "`%v` invalid import option (%T)", v, v)
-                        return
+        if _, err = parseOpts(generic.options, []string{
+                "r,reusing",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'r': opts.allowReuse = trueVal(v, false)
                 }
-        }
-        if err == nil {
+        }); err == nil {
                 p.loadImportSpec(opts, spec)
         }
         return

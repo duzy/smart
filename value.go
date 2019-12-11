@@ -2538,7 +2538,7 @@ func (p *Flag) Strval() (s string, e error) {
 }
 func (p *Flag) Integer() (int64, error) { return 0, nil }
 func (p *Flag) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *Flag) is(r rune, s string) (result bool, err error) {
+/*func (p *Flag) is(r rune, s string) (result bool, err error) {
         switch t := p.Name.(type) {
         case *Flag: result, err = t.is(r, s)
         case *String: result = t.string == s
@@ -2546,11 +2546,11 @@ func (p *Flag) is(r rune, s string) (result bool, err error) {
                 result = strings.ContainsRune(t.string, r)
         }}
         return
-}
-func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
+}*/
+func (p *Flag) _opts(opts ...string) (runes []rune, names []string, err error) {
         switch t := p.Name.(type) {
         case *Flag:
-                runes, names, err = t.opts(opts...)
+                runes, names, err = t._opts(opts...)
         case *String:
                 for _, opt := range opts {
                         if t.string == opt {
@@ -2837,10 +2837,10 @@ func (p *Pair) SetKey(k Value) {
                 panic(fmt.Errorf("%s '%v' is not key name type", k.Type(), k))
         }
 }
-func (p *Pair) isFlag(r rune, s string) (result bool, err error) {
+/*func (p *Pair) isFlag(r rune, s string) (result bool, err error) {
         if k, ok := p.Key.(*Flag); ok { result, err = k.is(r, s) }
         return
-}
+}*/
 func (p *Pair) cmp(v Value) (res cmpres) {
         if v.Type() == PairType {
                 a, ok := v.(*Pair)

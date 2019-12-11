@@ -785,21 +785,13 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
         var closured = target.closured()
         if special == specialRuleUse && !closured {
                 var optPostExecute bool
-                for _, v := range options {
-                        var opt bool
-                        switch t := v.(type) {
-                        case *Flag:
-                                if opt, err = t.is(0, "post"); err != nil { return }
-                                if opt { optPostExecute = true }
-                        case *Pair:
-                                if opt, err = t.isFlag(0, "post"); err != nil { return }
-                                if opt { optPostExecute = t.Value.True() }
-                        default:
-                                err = fmt.Errorf("`%v` invalid package option (%T)", v, v)
-                                return
+                if _, err = parseOpts(options, []string{
+                        "p,post",
+                }, func(ru rune, v Value) {
+                        switch ru {
+                        case 'p': optPostExecute = trueVal(v, false)
                         }
-                }
-
+                }); err != nil { return }
                 var userule = &useRuleEntry{
                         RuleEntry{ class:UseRuleEntry, target:target },
                         optPostExecute, // post-execute use rule?

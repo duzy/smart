@@ -433,7 +433,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
         var cmd, promStr, logFileName = p.cmd, "", ""
         var aa []string
-        var opts = []string{
+        if args, err = parseOpts(args, []string{
                 "o,stdout",
                 "e,stderr",
                 "v,verbout",
@@ -443,81 +443,59 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                 "s,silent",
                 "d,dump", // verbout, verberr
                 "l,log",
-                "nocd",
-        }
-ForArgs:
-        for i, v := range args {
-                if !p.bare && i == 0 {
-                        var s string
-                        if s, err = v.Strval(); err != nil { return }
-                        if s == "shell" { cmd = defaultShell }
-                        continue ForArgs
-                }
-
-                var ( runes []rune ; names []string ; s string )
-                switch t := v.(type) {
-                case *Pair:
-                        if flag, _ := t.Key.(*Flag); flag != nil {
-                                if runes, names, err = flag.opts(opts...); err != nil { return } else {
-                                        v = t.Value
-                                }
+                "n,nocd",
+        }, func(ru rune, v Value) {
+                var s string
+                switch ru {
+                case 'i': stdin   = true
+                case 'o': buffout = true
+                case 'e': bufferr = true
+                case 'v': verbout = true
+                case 'w': verberr = true
+                case 's': silent  = true
+                case 'p':
+                        if v == nil {
+                                prompt = true
+                        } else if s, err = v.Strval(); err == nil {
+                                prompt, promStr = true, s
                         } else {
-                                err = fmt.Errorf("`%v` unsupported", t)
                                 return
                         }
-                case *Flag:
-                        if runes, names, err = t.opts(opts...); err != nil { return }
-                        v = nil // no flag value
-                default:
-                        if s, err = v.Strval(); err != nil { return } else {
-                                aa = append(aa, s)
+                case 'l': // logFileName
+                        if v == nil {
+                                logFileName = ""
+                        } else if s, err = v.Strval(); err == nil {
+                                logFileName = s
+                        } else {
+                                return
                         }
-                        continue ForArgs
+                case 'd': // -dump=xxx or -d=xxx
+                        if v == nil {
+                                verbout, verberr = true, true
+                        } else if s, err = v.Strval(); err == nil {
+                                switch s {
+                                case "stdout": verbout = true
+                                case "stderr": verberr = true
+                                case "all":
+                                        verbout = true
+                                        verberr = true
+                                }
+                        } else {
+                                return
+                        }
+                case 'n':
+                        nocd = true
                 }
-
-                for i, ru := range runes {
-                        switch ru {
-                        case 'i': stdin   = true
-                        case 'o': buffout = true
-                        case 'e': bufferr = true
-                        case 'v': verbout = true
-                        case 'w': verberr = true
-                        case 's': silent  = true
-                        case 'p':
-                                if v == nil {
-                                        prompt = true
-                                } else if s, err = v.Strval(); err == nil {
-                                        prompt, promStr = true, s
-                                } else {
-                                        return
-                                }
-                        case 'l': // logFileName
-                                if v == nil {
-                                        logFileName = ""
-                                } else if s, err = v.Strval(); err == nil {
-                                        logFileName = s
-                                } else {
-                                        return
-                                }
-                        case 'd': // -dump=xxx or -d=xxx
-                                if v == nil {
-                                        verbout, verberr = true, true
-                                } else if s, err = v.Strval(); err == nil {
-                                        switch s {
-                                        case "stdout": verbout = true
-                                        case "stderr": verberr = true
-                                        case "all":
-                                                verbout = true
-                                                verberr = true
-                                        }
-                                } else {
-                                        return
-                                }
-                        case 0:
-                                switch names[i] {
-                                case "nocd": nocd = true
-                                }
-                        }
+        }); err != nil { return }
+        for i, v := range args {
+                var s string
+                if !p.bare && i == 0 {
+                        if s, err = v.Strval(); err != nil { return }
+                        if s == "shell" { cmd = defaultShell }
+                        continue
+                }
+                if s, err = v.Strval(); err != nil { return } else {
+                        aa = append(aa, s)
                 }
         }
 

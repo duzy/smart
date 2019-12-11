@@ -313,29 +313,26 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
         var optPrintLeave bool
         //var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
         //if _, ok := target.(*Flag); ok { optPrint = false }
-        if len(args) > 0 {
-                var v []Value
-                for _, arg := range args {
-                        switch a := arg.(type) {
-                        default: v = append(v, arg)
-                        case *Flag:
-                                var opt bool
-                                if opt, err = a.is(0, "print-enter"); err != nil { return } else if opt { optPrintEnter = opt }
-                                if opt, err = a.is(0, "print-leave"); err != nil { return } else if opt { optPrintLeave = opt }
-                                if opt, err = a.is('p', "path"); err != nil { return } else if opt { optPath = opt }
-                                //if opt, err = a.is('s', "silent"); err != nil { return } else if opt { optPrint = false }
-                                if opt, err = a.is(0, ""); err != nil { return } else if opt {
-                                        var dir = findBacktrackDir()
-                                        // Back to main project if no backtracks.
-                                        if dir == "" && context.globe.main != nil {
-                                                dir = context.globe.main.AbsPath()
-                                        }
-                                        v = append(v, &String{dir})
-                                }
+        if args, err = parseOpts(args, []string{
+                "p,path",
+                "e,print-enter",
+                "l,print-leave",
+                //"-,",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = trueVal(v, false)
+                case 'e': optPrintEnter = trueVal(v, false)
+                case 'l': optPrintLeave = trueVal(v, false)
+                /*case '-':
+                        var dir = findBacktrackDir()
+                        // Back to main project if no backtracks.
+                        if dir == "" && context.globe.main != nil {
+                                dir = context.globe.main.AbsPath()
                         }
+                        v = append(v, &String{dir})*/
                 }
-                args = v // Reset args
-        }
+        }); err != nil { return }
+
         if optPrintEnter || optPrintLeave {
                 if optPrintEnter { printEnteringDirectory() }
                 if optPrintLeave { printLeavingDirectory() }
@@ -493,30 +490,6 @@ func init () {
         }
 }
 
-func parseOpts(val Value, opts []string) (res Value, runes []rune, names []string, err error) {
-        switch a := val.(type) {
-        case *Flag:
-                runes, names, err = a.opts(opts...)
-                if err != nil { return } else {
-                        res = nil // no flag value
-                }
-        case *Pair:
-                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                        runes, names, err = flag.opts(opts...)
-                        if err != nil { return } else {
-                                res = a.Value // use flag value
-                        }
-                /*} else {
-                        err = fmt.Errorf("`%v` unknown argument", a)
-                        return*/
-                }
-        }
-        if enable_assertions {
-                assert(len(runes) == len(names), "Flag.opts(...) error")
-        }
-        return
-}
-
 type grepCacheFiles struct {
         file *File
         list []*File
@@ -530,13 +503,6 @@ var grepCacheFilebase = make(map[*filebase]*grepCacheFiles)
 //   (regexp='...' s='~' $^)
 func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value, err error) {
         var (
-                opts = []string{
-                        "e,report",
-                        "i,ignore",
-                        "r,recursive",
-                        "l,lang", // TODO: -lang=c|c++|go|java|...
-                        "c,clang", // TODO: same as -lang=c
-                }
                 optReportMissing bool = true
                 optDiscardMissing bool
                 optRecursive bool
@@ -552,100 +518,181 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                 return
         } else {
                 group = g
-        ForGroupElems:
-                for _, elem := range group.Elems {
-                        var ( runes []rune ; names []string ; v Value )
-                        switch a := elem.(type) {
-                        case *Flag:
-                                if runes, names, err = a.opts(opts...); err != nil { return }
-                                v = nil // no flag value
-                        case *Pair:
-                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                        if runes, names, err = flag.opts(opts...); err != nil { return }
-                                        v = a.Value // got flag value
-                                        break
-                                }
+        }
 
-                                var s string
-                                if s, err = a.Key.Strval(); err != nil { return }
-                                switch s {
-                                case "regexp", "exp":
-                                        // regexp=(top=(foo,bar,baz) sys='^\s*#\s*include\s*<(.*)>' '^\s*#\s*include\s*"(.*)"')
-                                        switch v := a.Value.(type) {
-                                        case *Group: for _, v := range v.Elems {
-                                                if p, ok := v.(*Pair); ok {
-                                                        if s, err = p.Key.Strval(); err != nil { return }
-                                                        switch s {
-                                                        case "sys":
-                                                                if s, err = p.Value.Strval(); err != nil { return }
-                                                                rxs = append(rxs, &greprex{s, true, nil})
-                                                        case "top":
-                                                                if g, ok := p.Value.(*Group); ok {
-                                                                        top = merge(g.Elems...)
-                                                                } else {
-                                                                        top = merge(a.Value)
-                                                                }
-                                                        default:
-                                                                err = scanner.Errorf(token.Position(pos), "`%s` unknown regexp (%v)", s, p.Value)
-                                                                return
+        if vals, err = parseOpts(group.Elems, []string{
+                "e,report",
+                "i,ignore",
+                "r,recursive",
+                "l,lang", // TODO: -lang=c|c++|go|java|...
+                "c,clang", // TODO: same as -lang=c
+                "x,regexp",
+                "x,exp",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'e':
+                        if v == nil {
+                                optReportMissing = true
+                        } else {
+                                optReportMissing = v.True()
+                        }
+                case 'i':
+                        if v == nil {
+                                optDiscardMissing = true
+                        } else {
+                                optDiscardMissing = v.True()
+                        }
+                case 'r':
+                        if v == nil {
+                                optRecursive = true
+                        } else {
+                                optRecursive = v.True()
+                        }
+                case 'x':
+                        // regexp=(top=(foo,bar,baz) sys='^\s*#\s*include\s*<(.*)>' '^\s*#\s*include\s*"(.*)"')
+                        var s string
+                        switch v := v.(type) {
+                        case *Group:
+                                for _, v := range v.Elems {
+                                        if p, ok := v.(*Pair); ok {
+                                                if s, err = p.Key.Strval(); err != nil { return }
+                                                switch s {
+                                                case "sys":
+                                                        if s, err = p.Value.Strval(); err != nil { return }
+                                                        rxs = append(rxs, &greprex{s, true, nil})
+                                                case "top":
+                                                        if g, ok := p.Value.(*Group); ok {
+                                                                top = merge(g.Elems...)
+                                                        } else {
+                                                                top = merge(v)
                                                         }
-                                                } else {
-                                                        if s, err = v.Strval(); err != nil { return }
-                                                        rxs = append(rxs, &greprex{s, false, nil})
+                                                default:
+                                                        err = scanner.Errorf(token.Position(pos), "`%s` unknown regexp (%v)", s, p.Value)
+                                                        return
                                                 }
-                                        }
-                                        default:
+                                        } else {
                                                 if s, err = v.Strval(); err != nil { return }
                                                 rxs = append(rxs, &greprex{s, false, nil})
                                         }
-                                case "lang": // lang=c++ ...
-                                        optLang, _ = a.Value.Strval()
-                                        if optLang == "" {
-                                                /* ... */
-                                        }
-                                        if info, ok := langInfos[optLang]; ok {
-                                                for _, s := range info.sys {
-                                                        rxs = append(rxs, &greprex{s, true, nil})
-                                                }
-                                                for _, s := range info.rxs {
-                                                        rxs = append(rxs, &greprex{s, false, nil})
-                                                }
-                                        }
-                                case "s":
-                                        store = a.Value
                                 }
-                                continue ForGroupElems
                         default:
-                                vals = append(vals, merge(a)...)
-                                continue ForGroupElems
+                                if s, err = v.Strval(); err != nil { return }
+                                rxs = append(rxs, &greprex{s, false, nil})
                         }
-                        if enable_assertions {
-                                assert(len(runes) == len(names), "Flag.opts(...) error")
+                case 'l':
+                        if v != nil {
+                                optLang, _ = v.Strval()
+                        } else {
+                                optLang = ""
                         }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'e':
-                                        if v == nil {
-                                                optReportMissing = true
+                        if info, ok := langInfos[optLang]; ok {
+                                for _, s := range info.sys {
+                                        rxs = append(rxs, &greprex{s, true, nil})
+                                }
+                                for _, s := range info.rxs {
+                                        rxs = append(rxs, &greprex{s, false, nil})
+                                }
+                        }
+                case 's':
+                        store = v
+                }
+        }); err != nil { return }
+
+        /*
+ForGroupElems:
+        for _, elem := range group.Elems {
+                var ( runes []rune ; names []string ; v Value )
+                switch a := elem.(type) {
+                case *Flag:
+                        if runes, names, err = a.opts(opts...); err != nil { return }
+                        v = nil // no flag value
+                case *Pair:
+                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                if runes, names, err = flag.opts(opts...); err != nil { return }
+                                v = a.Value // got flag value
+                                break
+                        }
+
+                        var s string
+                        if s, err = a.Key.Strval(); err != nil { return }
+                        switch s {
+                        case "regexp", "exp":
+                                // regexp=(top=(foo,bar,baz) sys='^\s*#\s*include\s*<(.*)>' '^\s*#\s*include\s*"(.*)"')
+                                switch v := a.Value.(type) {
+                                case *Group: for _, v := range v.Elems {
+                                        if p, ok := v.(*Pair); ok {
+                                                if s, err = p.Key.Strval(); err != nil { return }
+                                                switch s {
+                                                case "sys":
+                                                        if s, err = p.Value.Strval(); err != nil { return }
+                                                        rxs = append(rxs, &greprex{s, true, nil})
+                                                case "top":
+                                                        if g, ok := p.Value.(*Group); ok {
+                                                                top = merge(g.Elems...)
+                                                        } else {
+                                                                top = merge(a.Value)
+                                                        }
+                                                default:
+                                                        err = scanner.Errorf(token.Position(pos), "`%s` unknown regexp (%v)", s, p.Value)
+                                                        return
+                                                }
                                         } else {
-                                                optReportMissing = v.True()
+                                                if s, err = v.Strval(); err != nil { return }
+                                                rxs = append(rxs, &greprex{s, false, nil})
                                         }
-                                case 'i':
-                                        if v == nil {
-                                                optDiscardMissing = true
-                                        } else {
-                                                optDiscardMissing = v.True()
+                                }
+                                default:
+                                        if s, err = v.Strval(); err != nil { return }
+                                        rxs = append(rxs, &greprex{s, false, nil})
+                                }
+                        case "lang": // lang=c++ ...
+                                optLang, _ = a.Value.Strval()
+                                if optLang == "" {
+                                        // ...
+                                }
+                                if info, ok := langInfos[optLang]; ok {
+                                        for _, s := range info.sys {
+                                                rxs = append(rxs, &greprex{s, true, nil})
                                         }
-                                case 'r':
-                                        if v == nil {
-                                                optRecursive = true
-                                        } else {
-                                                optRecursive = v.True()
+                                        for _, s := range info.rxs {
+                                                rxs = append(rxs, &greprex{s, false, nil})
                                         }
+                                }
+                        case "s":
+                                store = a.Value
+                        }
+                        continue ForGroupElems
+                default:
+                        vals = append(vals, merge(a)...)
+                        continue ForGroupElems
+                }
+                if enable_assertions {
+                        assert(len(runes) == len(names), "Flag.opts(...) error")
+                }
+                for _, ru := range runes {
+                        switch ru {
+                        case 'e':
+                                if v == nil {
+                                        optReportMissing = true
+                                } else {
+                                        optReportMissing = v.True()
+                                }
+                        case 'i':
+                                if v == nil {
+                                        optDiscardMissing = true
+                                } else {
+                                        optDiscardMissing = v.True()
+                                }
+                        case 'r':
+                                if v == nil {
+                                        optRecursive = true
+                                } else {
+                                        optRecursive = v.True()
                                 }
                         }
                 }
         }
+        */
 
         var tops []string
         for _, v := range top {
@@ -723,49 +770,31 @@ var uniqueCompareGood = make(map[string]*breaker)
 // (compare -pg=(lang=c++) -re $<)
 func modifierCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
         var (
-                opts = []string{
-                        "p,path",
-                        "e,report",
-                        "i,ignore",
-                        "n,no-time",
-                        "m,multi", // multiple compare/execution
-                        "g,grep", // -grep=(regexp=(sys='...' '...') $^)
-                        "r,recursive",
-                        "v,verbose",
-                }
                 optDiscardMissing, optVerbose bool
                 optPath, optNoUpdate, optMulti bool
                 optGrep Value
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else {
-                var va []Value
-        ForArgs:
-                for _, arg := range args {
-                        var ( v Value ; runes []rune ; names []string )
-                        v, runes, names, err = parseOpts(arg, opts)
-                        if err != nil {
-                                err = scanner.WrapErrors(token.Position(pos), err)
-                                return
-                        }
-                        if v == nil && runes == nil && names == nil {
-                                va = append(va, arg)
-                                continue ForArgs
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'p': optPath = trueVal(v, true)
-                                case 'm': optMulti = trueVal(v, true)
-                                case 'v': optVerbose = trueVal(v, true)
-                                case 'n': optNoUpdate = trueVal(v, true)
-                                case 'i': optDiscardMissing = trueVal(v, true)
-                                case 'g': optGrep = v
-                                }
-                        }
+        } else if args, err = parseOpts(args, []string{
+                "p,path",
+                "e,report",
+                "i,ignore",
+                "n,no-time",
+                "m,multi", // multiple compare/execution
+                "g,grep", // -grep=(regexp=(sys='...' '...') $^)
+                "r,recursive",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = trueVal(v, true)
+                case 'm': optMulti = trueVal(v, true)
+                case 'v': optVerbose = trueVal(v, true)
+                case 'n': optNoUpdate = trueVal(v, true)
+                case 'i': optDiscardMissing = trueVal(v, true)
+                case 'g': optGrep = v
                 }
-                args = va // reset args
-        }
+        }); err != nil { return }
 
         // No need to do further comparation if any prerequisites
         // already modified. We have to update the target if so.
@@ -922,42 +951,24 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
 //      
 func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
         var (
-                opts = []string{
-                        "p,path",
-                        "i,ignore",
-                        "n,no-update",
-                        "t,target",
-                }
                 optPath, optNoUpdate, optDisMiss bool
                 optTarget Value
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if len(args) > 0 {
-                var va []Value
-        ForArgs:
-                for _, arg := range args {
-                        var ( v Value ; runes []rune ; names []string )
-                        v, runes, names, err = parseOpts(arg, opts)
-                        if err != nil {
-                                err = scanner.WrapErrors(token.Position(pos), err)
-                                return
-                        }
-                        if v == nil && runes == nil && names == nil {
-                                va = append(va, arg)
-                                continue ForArgs
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'p': optPath = trueVal(v, true)
-                                case 'i': optDisMiss = trueVal(v, true)
-                                case 'n': optNoUpdate = trueVal(v, true)
-                                case 't': optTarget = v
-                                }
-                        }
+        } else if args, err = parseOpts(args, []string{
+                "p,path",
+                "i,ignore",
+                "n,no-update",
+                "t,target",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = trueVal(v, true)
+                case 'i': optDisMiss = trueVal(v, true)
+                case 'n': optNoUpdate = trueVal(v, true)
+                case 't': optTarget = v
                 }
-                args = va // reset args
-        }
+        }); err != nil { return }
 
         var target = prog.scope.Lookup("@").(*Def)
         if optTarget != nil {
@@ -1348,33 +1359,36 @@ func modifierGrepFiles(pos Position, prog *Program, args... Value) (result Value
         var rxs []*greprex
         var optReportMissing = true // TODO: option "e,report" 
         var optDiscardMissing = false // TODO: option "i,ignore"
-        for _, arg := range args {
+        if args, err = parseOpts(args, []string{
+                "d,discard-missing",
+                "s,system",
+                "s,sys",
+                "t,top",
+        }, func(ru rune, v Value) {
                 var s string
-                switch a := arg.(type) {
-                case *Flag:
-                        var opt bool
-                        if opt, err = a.is('d', "discard-missing"); err != nil { return } else if opt { optDiscardMissing = opt }
-                case *Pair:
-                        if s, err = a.Key.Strval(); err != nil { return }
-                        switch s {
-                        case "sys", "system":
-                                // FIXME: if a.Value.(*Group) ...
-                                if s, err = a.Value.Strval(); err != nil { return }
-                                rxs = append(rxs, &greprex{s, true, nil})
-                        case "top":
-                                if g, ok := a.Value.(*Group); ok {
-                                        top = merge(g.Elems...)
-                                } else {
-                                        top = merge(a.Value)
-                                }
-                        default:
-                                err = scanner.Errorf(token.Position(pos), "`%v` unsupported argument (%s)", a, s)
-                                return
+                switch ru {
+                case 's':
+                        // FIXME: if v.(*Group) ...
+                        if v == nil { return }
+                        if s, err = v.Strval(); err != nil { return }
+                        rxs = append(rxs, &greprex{s, true, nil})
+                case 't':
+                        if v == nil { return }
+                        if g, ok := v.(*Group); ok {
+                                top = merge(g.Elems...)
+                        } else {
+                                top = merge(v)
                         }
                 default:
-                        if s, err = a.Strval(); err != nil { return }
-                        rxs = append(rxs, &greprex{s, false, nil})
+                        err = scanner.Errorf(token.Position(pos), "`%v` unsupported argument (%s)", v, s)
+                        return
                 }
+        }); err != nil { return }
+        
+        for _, arg := range args {
+                var s string
+                if s, err = arg.Strval(); err != nil { return }
+                rxs = append(rxs, &greprex{s, false, nil})
         }
         if len(rxs) == 0 {
                 err = scanner.Errorf(token.Position(pos), "no grep expressions")
@@ -1426,18 +1440,28 @@ func modifierCheck(pos Position, prog *Program, args... Value) (result Value, er
         var makeResult func(bool) Value // returns results only if non-nil
         var values []Value
         var pairs []*Pair
-        for _, arg := range args { switch t := arg.(type) {
-        case *Pair: pairs = append(pairs, t)
-        case *Flag:
-                var opt bool
-                if opt, err = t.is('a', "answer"); err != nil { return } else if opt { makeResult = MakeAnswer }
-                if opt, err = t.is('r', "result"); err != nil { return } else if opt { makeResult = MakeBoolean }
-                if opt, err = t.is('s', "silent"); err != nil { return } else if opt { optSilent = opt }
-                if opt, err = t.is('g', "good"); err != nil { return } else if opt { optBreak = breakGood }
-        default:
-                err = scanner.Errorf(token.Position(pos), "unknown check '%v' (%T)", arg, arg)
+        if args, err = parseOpts(args, []string{
+                "a,answer",
+                "r,result",
+                "s,silent",
+                "g,good",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'a': makeResult = MakeAnswer
+                case 'r': makeResult = MakeBoolean
+                case 'g': optBreak = breakGood
+                case 's': optSilent = trueVal(v, false)
+                }
+        }); err != nil { return }
+
+        for _, arg := range args {
+                switch t := arg.(type) {
+                case *Pair: pairs = append(pairs, t)
+                default:
+                        err = scanner.Errorf(token.Position(pos), "unknown check '%v' (%T)", arg, arg)
                 return
-        }}
+                }
+        }
 
         if optSilent && makeResult == nil {
                 makeResult = MakeBoolean
@@ -1654,14 +1678,6 @@ func copyFile(srcFi os.FileInfo, src, dst string, opts *copyopts) (err error) {
 // (copy-file -p,filename,source)
 func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value, err error) {
         var (
-                opts = []string{
-                        "p,path", // prepare paths for files
-                        "r,recursive",
-                        "v,verbose",
-                        "m,mode",
-                        "h,head", // insert header content
-                        "f,foot", // insert footer content
-                }
                 optPath bool
                 optRecursive bool
                 optVerbose bool
@@ -1671,41 +1687,31 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else {
-                var va []Value
-        ForArgs:
-                for _, arg := range args {
-                        var ( v Value ; runes []rune ; names []string )
-                        v, runes, names, err = parseOpts(arg, opts)
-                        if err != nil {
-                                err = scanner.WrapErrors(token.Position(pos), err)
-                                return
-                        }
-                        if v == nil && runes == nil && names == nil {
-                                va = append(va, arg)
-                                continue ForArgs
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'p': optPath = trueVal(v, true)
-                                case 'r': optRecursive = trueVal(v, true)
-                                case 'v': optVerbose = trueVal(v, true)
-                                case 'h': if v != nil { optHead = v }
-                                case 'f': if v != nil { optFoot = v }
-                                case 'm':
-                                        if v != nil {
-                                                var num int64
-                                                if num, err = v.Integer(); err != nil {
-                                                        return
-                                                } else {
-                                                        optMode = os.FileMode(num & 0777)
-                                                }
-                                        }
+        } else if args, err = parseOpts(args, []string{
+                "p,path", // prepare paths for files
+                "r,recursive",
+                "v,verbose",
+                "m,mode",
+                "h,head", // insert header content
+                "f,foot", // insert footer content
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = trueVal(v, true)
+                case 'r': optRecursive = trueVal(v, true)
+                case 'v': optVerbose = trueVal(v, true)
+                case 'h': if v != nil { optHead = v }
+                case 'f': if v != nil { optFoot = v }
+                case 'm':
+                        if v != nil {
+                                var num int64
+                                if num, err = v.Integer(); err != nil {
+                                        return
+                                } else {
+                                        optMode = os.FileMode(num & 0777)
                                 }
                         }
                 }
-                args = va // reset args
-        }
+        }); err != nil { return }
         
         var target Value
         var source Value
@@ -1853,11 +1859,6 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         //}
 
         var (
-                opts = []string{
-                        "p,path",
-                        "v,verbose",
-                        "m,mode",
-                }
                 optPath bool
                 optVerbose bool
                 optMode = os.FileMode(0640) // sys default 0666
@@ -1867,38 +1868,25 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         // Process flags
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if len(args) > 0 {
-                var va []Value
-        ForArgs:
-                for _, arg := range args {
-                        var ( v Value ; runes []rune ; names []string )
-                        v, runes, names, err = parseOpts(arg, opts)
-                        if err != nil {
-                                err = scanner.WrapErrors(token.Position(pos), err)
-                                return
-                        }
-                        if v == nil && runes == nil && names == nil {
-                                va = append(va, arg)
-                                continue ForArgs
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'p': optPath = trueVal(v, true)
-                                case 'v': optVerbose = trueVal(v, true)
-                                case 'm':
-                                        if v != nil {
-                                                var num int64
-                                                if num, err = v.Integer(); err != nil {
-                                                        return
-                                                } else {
-                                                        optMode = os.FileMode(num & 0777)
-                                                }
-                                        }
+        } else if args, err = parseOpts(args, []string{
+                "p,path",
+                "v,verbose",
+                "m,mode",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = trueVal(v, true)
+                case 'v': optVerbose = trueVal(v, true)
+                case 'm':
+                        if v != nil {
+                                var num int64
+                                if num, err = v.Integer(); err != nil {
+                                        return
+                                } else {
+                                        optMode = os.FileMode(num & 0777)
                                 }
                         }
                 }
-                args = va // reset args
-        }
+        }); err != nil { return }
 
         var target Value
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {

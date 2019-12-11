@@ -32,6 +32,7 @@ var (
         optionBenchImport = false
         optionBenchSlow = false
         optionBenchBuiltin = false
+        optionPrintStack = false
 )
 const (
         optionTraceParsing = false
@@ -236,36 +237,29 @@ func joinTmpPath(base, rel string) string {
 }
 
 func processCommandOption(flag *Flag, args... Value) (err error) {
-        var opt bool
-        if opt, err = flag.is('h', "help"); err != nil { return } else if opt {
-                optionHelp = true; return
-        }
-        if opt, err = flag.is('b', "build-plugins"); err != nil { return } else if opt {
-                optionAlwaysBuildPlugins = true; return
-        }
-        if opt, err = flag.is(0, "bench-import"); err != nil { return } else if opt {
-                optionBenchImport = true; return
-        }
-        if opt, err = flag.is('v', "verbose"); err != nil { return } else if opt {
-                optionVerbose = true; return
-        }
-        if opt, err = flag.is(0, "verbose-import"); err != nil { return } else if opt {
-                optionVerboseImport = true; return
-        }
-        if opt, err = flag.is(0, "verbose-checks"); err != nil { return } else if opt {
-                optionVerboseChecks = true; return
-        }
-        if opt, err = flag.is(0, "rc"); err != nil { return } else if opt {
-                optionConfigure, optionReconfig = true, true; return
-        } else {
-                if opt, err = flag.is('c', "configure"); err != nil { return } else if opt {
-                        optionConfigure = true; return
+        if args, err = parseOpts(args, []string{
+                "h,help",
+                "b,build-plugins",
+                "n,bench-import",
+                "v,verbose",
+                "i,verbose-import",
+                "k,verbose-checks",
+                "r,reconfigure",
+                "c,configure",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'h': optionHelp = trueVal(v, optionHelp)
+                case 'b': optionAlwaysBuildPlugins = trueVal(v, optionAlwaysBuildPlugins)
+                case 'n': optionBenchImport = trueVal(v, optionBenchImport)
+                case 'v': optionVerbose = trueVal(v, optionVerbose)
+                case 'i': optionVerboseImport = trueVal(v, optionVerboseImport)
+                case 'k': optionVerboseChecks = trueVal(v, optionVerboseChecks)
+                case 'r': optionConfigure = trueVal(v, optionConfigure)
+                case 'c': optionReconfig = trueVal(v, optionReconfig)
                 }
-                if opt, err = flag.is('r', "reconfigure"); err != nil { return } else if opt {
-                        optionConfigure, optionReconfig = true, true; return
-                }
+        }); err == nil && len(args) > 0 {
+                err = fmt.Errorf("unknown arguments: %v", args)
         }
-        err = fmt.Errorf("`%v` unknown command option", flag.Name)
         return
 }
 

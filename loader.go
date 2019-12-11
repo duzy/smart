@@ -1960,24 +1960,15 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 }
         }
 
-        for _, v := range options {
-                var opt bool
-                switch t := v.(type) {
-                case *Flag:
-                        if opt, err = t.is(0, "multi"); err != nil { return }
-                        if opt { dec.project.allowMultiImported = true }
-                        if opt, err = t.is(0, "break"); err != nil { return }
-                        if opt { dec.project.breakRecursiveUsing = true }
-                case *Pair:
-                        if opt, err = t.isFlag(0, "multi"); err != nil { return }
-                        if opt { dec.project.allowMultiImported = t.Value.True() }
-                        if opt, err = t.isFlag(0, "break"); err != nil { return }
-                        if opt { dec.project.breakRecursiveUsing = t.Value.True() }
-                default:
-                        err = fmt.Errorf("`%v` invalid package option (%T)", v, v)
-                        return
+        if _, err = parseOpts(options, []string{
+                "b,break",
+                "m,multi",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'b': dec.project.breakRecursiveUsing = trueVal(v, false)
+                case 'm': dec.project.allowMultiImported = trueVal(v, false)
                 }
-        }
+        }); err != nil { return }
 
         dec.backproj = l.project
         dec.backscope = l.scope
@@ -2273,7 +2264,9 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                                 if e = recover(); e != nil {
                                         fmt.Fprintf(stderr, "----\n")
                                 }
-                                debug.PrintStack()
+                                if optionPrintStack {
+                                        debug.PrintStack()
+                                }
 			}
 		}
 

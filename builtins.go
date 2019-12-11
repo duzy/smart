@@ -230,6 +230,36 @@ func trimRightSpaces(s string) string {
         return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
+func parseOpts(args []Value, opts []string, opt func(ru rune, v Value)) (va []Value, err error) {
+ForArgs:
+        for _, v := range args {
+                var ( runes []rune ; names []string )
+                switch a := v.(type) {
+                case *Flag:
+                        if runes, names, err = a._opts(opts...); err != nil { return }
+                        a = nil
+                case *Pair:
+                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
+                                if runes, names, err = flag._opts(opts...); err != nil { return }
+                                v = a.Value // use flag value
+                        } else {
+                                va = append(va, a)
+                                continue ForArgs
+                        }
+                default:
+                        va = append(va, a)
+                        continue ForArgs
+                }
+                if enable_assertions {
+                        assert(len(runes) == len(names), "Flag.opts(...) error")
+                }
+                for _, ru := range runes {
+                        opt(ru, v)
+                }
+        }
+        return
+}
+
 func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
@@ -275,47 +305,22 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
+        } else if _, err = parseOpts(args, opts, func(ru rune, val Value) {
+                switch ru {
+                case 'f': vals = append(vals, &String{pos.Filename})
+                case 'q': vals = append(vals, &String{"\""+pos.Filename+"\""})
+                case 'l': vals = append(vals, &Int{integer{int64(pos.Line)}})
+                case 'c': vals = append(vals, &Int{integer{int64(pos.Column)}})
+                case 'a':
+                        if len(vals) == 0 { break }
+                        var last, okay = vals[len(vals)-1].(*Int)
+                        if okay { last.int64 += int64(intVal(val, 0)) }
+                }
+        }); err != nil { return }
+        if len(vals) > 0 {
+                res = MakeListOrScalar(vals)
         } else {
-        ForArgs:
-                for _, v := range args {
-                        var ( runes []rune ; names []string )
-                        switch a := v.(type) {
-                        case *Flag:
-                                if runes, names, err = a.opts(opts...); err != nil { return }
-                                a = nil
-                        case *Pair:
-                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                        if runes, names, err = flag.opts(opts...); err != nil { return }
-                                        v = a.Value // use flag value
-                                } else {
-                                        //va = append(va, a)
-                                        continue ForArgs
-                                }
-                        default:
-                                //va = append(va, a)
-                                continue ForArgs
-                        }
-                        if enable_assertions {
-                                assert(len(runes) == len(names), "Flag.opts(...) error")
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'f': vals = append(vals, &String{pos.Filename})
-                                case 'q': vals = append(vals, &String{"\""+pos.Filename+"\""})
-                                case 'l': vals = append(vals, &Int{integer{int64(pos.Line)}})
-                                case 'c': vals = append(vals, &Int{integer{int64(pos.Column)}})
-                                case 'a':
-                                        if len(vals) == 0 { break }
-                                        var last, okay = vals[len(vals)-1].(*Int)
-                                        if okay { last.int64 += int64(intVal(v, 0)) }
-                                }
-                        }
-                }
-                if len(vals) > 0 {
-                        res = MakeListOrScalar(vals)
-                } else {
-                        res = &String{pos.String()}
-                }
+                res = &String{pos.String()}
         }
         return
 }
@@ -631,37 +636,12 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
         var optPort = 80
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else {
-        ForArgs:
-                for _, v := range args {
-                        var ( runes []rune ; names []string )
-                        switch a := v.(type) {
-                        case *Flag:
-                                if runes, names, err = a.opts(opts...); err != nil { return }
-                                a = nil
-                        case *Pair:
-                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                        if runes, names, err = flag.opts(opts...); err != nil { return }
-                                        v = a.Value // use flag value
-                                } else {
-                                        va = append(va, a)
-                                        continue ForArgs
-                                }
-                        default:
-                                va = append(va, a)
-                                continue ForArgs
-                        }
-                        if enable_assertions {
-                                assert(len(runes) == len(names), "Flag.opts(...) error")
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'p': optPort = intVal(v, optPort)
-                                case 'h': optHost, _ = v.Strval()
-                                }
-                        }
+        } else if va, err = parseOpts(args, opts, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPort = intVal(v, optPort)
+                case 'h': optHost, _ = v.Strval()
                 }
-        }
+        }); err != nil { return }
 
         var server = &http.Server{}
         server.Addr = fmt.Sprintf("%s:%d", optHost, optPort)
@@ -767,21 +747,21 @@ func builtinUnique(pos Position, args... Value) (res Value, err error) {
         }
         var optReverse bool
         if len(args) > 0 {
-                var head []Value
-                for _, a := range merge(args[0]) {
-                        var opt bool
-                        switch t := a.(type) {
-                        case *Flag:
-                                if opt, err = t.is(0, "reverse"); err != nil { return }
-                                if opt { optReverse = true }
-                        case *Pair:
-                                if opt, err = t.isFlag(0, "reverse"); err != nil { return }
-                                if opt { optReverse = t.Value.True() }
-                        default:
-                                head = append(head, a)
-                        }
+                var va []Value
+                var opts = []string{
+                        "r,reverse",
                 }
-                args = append(head, args[1:]...)
+                if va, err = parseOpts(merge(args[0]), opts, func(ru rune, val Value) {
+                        switch ru {
+                        case 'r':
+                                if val != nil { 
+                                        optReverse = val.True()
+                                } else {
+                                        optReverse = true
+                                }
+                        }
+                }); err != nil { return }
+                args = append(va, args[1:]...)
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
@@ -2173,40 +2153,16 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
         var optForce, optUpdate, optVerbose, optRel, optPath bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else {
-        ForArgs:
-                for _, v := range args {
-                        var ( runes []rune ; names []string )
-                        switch a := v.(type) {
-                        case *Flag:
-                                if runes, names, err = a.opts(opts...); err != nil { return }
-                                a = nil
-                        case *Pair:
-                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                        if runes, names, err = flag.opts(opts...); err != nil { return }
-                                        v = a.Value // use flag value
-                                } else {
-                                        va = append(va, a)
-                                        continue ForArgs
-                                }
-                        default:
-                                va = append(va, a)
-                                continue ForArgs
-                        }
-                        if enable_assertions {
-                                assert(len(runes) == len(names), "Flag.opts(...) error")
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'l': optRel = trueVal(v, true)
-                                case 'p': optPath = trueVal(v, false)
-                                case 'f': optForce = trueVal(v, true)
-                                case 'u': optUpdate = trueVal(v, true)
-                                case 'v': optVerbose = trueVal(v, true)
-                                }
-                        }
-                }
         }
+        if va, err = parseOpts(args, opts, func(ru rune, v Value) {
+                switch ru {
+                case 'l': optRel = trueVal(v, true)
+                case 'p': optPath = trueVal(v, false)
+                case 'f': optForce = trueVal(v, true)
+                case 'u': optUpdate = trueVal(v, true)
+                case 'v': optVerbose = trueVal(v, true)
+                }
+        }); err != nil { return }
 ForVals:
         for i, na := 0, len(va); i < na; i += 1 {
                 var oldname, newname string
@@ -2292,35 +2248,12 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
-ForArgs:
-        for _, arg := range args {
-                var ( runes []rune ; names []string ; v Value )
-                switch a := arg.(type) {
-                case *Flag:
-                        if runes, names, err = a.opts(opts...); err != nil { return }
-                        v = nil // no flag value
-                case *Pair:
-                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                if runes, names, err = flag.opts(opts...); err != nil { return }
-                                v = a.Value // got flag value
-                        } else {
-                                err = fmt.Errorf("`%v` unknown argument", a)
-                                return
-                        }
-                default:
-                        va = append(va, a)
-                        continue ForArgs
+        if va, err = parseOpts(args, opts, func(ru rune, v Value) {
+                switch ru {
+                case 'f', 'd', 's':
+                        if v.True() { optKind = ru }
                 }
-                if enable_assertions {
-                        assert(len(runes) == len(names), "Flag.opts(...) error")
-                }
-                for _, ru := range runes {
-                        switch ru {
-                        case 'f', 'd', 's':
-                                if v.True() { optKind = ru }
-                        }
-                }
-        }
+        }); err != nil { return }
 
         var proj = current()
         if proj == nil {
@@ -2421,35 +2354,12 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
-ForArgs:
-        for _, arg := range args {
-                var ( runes []rune ; names []string ; v Value )
-                switch a := arg.(type) {
-                case *Flag:
-                        if runes, names, err = a.opts(opts...); err != nil { return }
-                        v = nil // no flag value
-                case *Pair:
-                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                if runes, names, err = flag.opts(opts...); err != nil { return }
-                                v = a.Value // got flag value
-                        } else {
-                                err = fmt.Errorf("`%v` unknown argument", a)
-                                return
-                        }
-                default:
-                        va = append(va, a)
-                        continue ForArgs
+        if va, err = parseOpts(args, opts, func(ru rune, v Value) {
+                switch ru {
+                case 'c': optCallerContext = trueVal(v, true)
+                case 'e': optReportMissing = trueVal(v, true)
                 }
-                if enable_assertions {
-                        assert(len(runes) == len(names), "Flag.opts(...) error")
-                }
-                for _, ru := range runes {
-                        switch ru {
-                        case 'c': optCallerContext = trueVal(v, true)
-                        case 'e': optReportMissing = trueVal(v, true)
-                        }
-                }
-        }
+        }); err != nil { return }
 
         var proj *Project
         if optCallerContext {
@@ -2495,44 +2405,17 @@ type wildcardOpts struct {
 }
 
 func builtinWildcard(pos Position, args... Value) (res Value, err error) {
-        var va []Value
         var wo wildcardOpts
-        var opts = []string{
-                "m,include-missing",
-        }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else {
-        ForArgs:
-                for _, v := range args {
-                        var ( runes []rune ; names []string )
-                        switch a := v.(type) {
-                        case *Flag:
-                                if runes, names, err = a.opts(opts...); err != nil { return }
-                                a = nil
-                        case *Pair:
-                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                        if runes, names, err = flag.opts(opts...); err != nil { return }
-                                        v = a.Value // use flag value
-                                } else {
-                                        va = append(va, a)
-                                        continue ForArgs
-                                }
-                        default:
-                                va = append(va, a)
-                                continue ForArgs
-                        }
-                        if enable_assertions {
-                                assert(len(runes) == len(names), "Flag.opts(...) error")
-                        }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'm': wo.optIncludeMissing = trueVal(v, true)
-                                case 'v': wo.optVerbose = trueVal(v, true)
-                                }
-                        }
+        } else if args, err = parseOpts(args, []string{
+                "m,include-missing",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'm': wo.optIncludeMissing = trueVal(v, true)
+                case 'v': wo.optVerbose = trueVal(v, true)
                 }
-        }
+        }); err != nil { return }
 
         var proj = mostDerived()
         if proj == nil {
@@ -2606,6 +2489,11 @@ func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
         var opts = []string{
                 "p,path",
         }
+        if args, err = parseOpts(args, opts, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = trueVal(v, false)
+                }
+        }); err != nil { return }
 ForArgs:
         for i := 0; i < len(args); i += 1 {
                 var (
@@ -2613,17 +2501,8 @@ ForArgs:
                         name, data string
                         perm = os.FileMode(0600)
                         num int64
-                        runes []rune
                 )
                 switch t := a.(type) {
-                case *Flag:
-                        if runes, _, err = t.opts(opts...); err != nil { return }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'p': optPath = trueVal(a, false)
-                                }
-                        }
-                        continue ForArgs
                 case *Pair: // write-file name => text name => text
                         if name, err = t.Key.Strval(); err != nil { return }
                         if data, err = t.Value.Strval(); err != nil { return }
@@ -2786,48 +2665,21 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if len(args) > 0 {
-                var altargs []Value
-                var opts = []string{
-                        "m,mode",
-                        "p,path",
-                        "v,verbose",
-                }
-        ForArgs:
-                for _, arg := range args {
-                        var ( v Value; runes []rune )
-                        switch a := arg.(type) {
-                        case *None: // ignores
-                        case *Flag:
-                                if runes, _, err = a.opts(opts...); err != nil { return }
-                                a = nil
-                        case *Pair:
-                                if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                        if runes, _, err = flag.opts(opts...); err != nil { return }
-                                        v = a.Value // use flag value
-                                } else {
-                                        //altargs = append(altargs, a)
-                                        continue ForArgs
-                                }
-                        default:
-                                altargs = append(altargs, a)
-                                continue ForArgs
+        } else if args, err = parseOpts(args, []string{
+                "m,mode",
+                "p,path",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = true
+                case 'v': optVerbose = true
+                case 'm': if v != nil {
+                        var num int64
+                        if num, err = v.Integer(); err != nil { return } else {
+                                optMode = os.FileMode(num & 0777)
                         }
-                        for _, ru := range runes {
-                                switch ru {
-                                case 'p': optPath = true
-                                case 'v': optVerbose = true
-                                case 'm': if v != nil {
-                                        var num int64
-                                        if num, err = v.Integer(); err != nil { return } else {
-                                                optMode = os.FileMode(num & 0777)
-                                        }
-                                }}
-                        }
-                }
-                args = altargs
-        }
-        if len(args) < 1 { return }
+                }}
+        }); err != nil { return } else if len(args) < 1 { return }
 
         var scope *Scope
         switch {

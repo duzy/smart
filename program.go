@@ -246,7 +246,9 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                                 err = scanner.WrapErrors(token.Position(prog.position), err)
                                 return
                         }
-                        if len(rest) > 0 { panic("FIXME: unhandled stems") }
+                        if len(rest) > 0 {
+                                panic(fmt.Sprintf("FIXME: unhandled stems: %v (%v, %v) (%v)", arg, s, rest, prog.pc.stems))
+                        }
                         if prog.pc.derived == nil {
                                 // FIXME: prog.project.matchFile(s) ???
                         } else if file := prog.pc.derived.matchFile(s); file != nil {
