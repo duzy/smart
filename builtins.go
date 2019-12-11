@@ -2142,7 +2142,6 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinSymlink(pos Position, args... Value) (res Value, err error) {
-        var va []Value
         var opts = []string{
                 "f,force",
                 "u,update",
@@ -2153,8 +2152,7 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
         var optForce, optUpdate, optVerbose, optRel, optPath bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        }
-        if va, err = parseOpts(args, opts, func(ru rune, v Value) {
+        } else if args, err = parseOpts(args, opts, func(ru rune, v Value) {
                 switch ru {
                 case 'l': optRel = trueVal(v, true)
                 case 'p': optPath = trueVal(v, false)
@@ -2163,10 +2161,10 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                 case 'v': optVerbose = trueVal(v, true)
                 }
         }); err != nil { return }
-ForVals:
-        for i, na := 0, len(va); i < na; i += 1 {
+ForArgs:
+        for i, na := 0, len(args); i < na; i += 1 {
                 var oldname, newname string
-                switch t := va[i].(type) {
+                switch t := args[i].(type) {
                 case *Pair: // symlink oldname => newname old => new
                         if oldname, err = t.Key.Strval(); err != nil { return }
                         if newname, err = t.Value.Strval(); err != nil { return }
@@ -2188,11 +2186,11 @@ ForVals:
                         }
                 default: // symlink newname oldname  newname oldname ...
                         if i+1 < na {
-                                if oldname, err = va[i+0].Strval(); err != nil { return }
-                                if newname, err = va[i+1].Strval(); err != nil { return }
+                                if oldname, err = args[i+0].Strval(); err != nil { return }
+                                if newname, err = args[i+1].Strval(); err != nil { return }
                                 i += 1
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", va))
+                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
                                 break
                         }
                 }
@@ -2204,9 +2202,9 @@ ForVals:
                 } else if optUpdate {
                         var s string
                         if s, err = os.Readlink(newname); err != nil {
-                                err = nil //continue ForVals
+                                err = nil //continue ForArgs
                         } else if s == newname {
-                                continue ForVals
+                                continue ForArgs
                         } else if err = os.Remove(newname); err != nil {
                                 err = nil //return
                         }
@@ -2218,6 +2216,9 @@ ForVals:
                         var dir = filepath.Dir(newname)
                         oldname, err = filepath.Rel(dir, oldname)
                         if err != nil {
+                                if optVerbose {
+                                        fmt.Fprintf(stderr, "symlink: %s\n", err)
+                                }
                                 err = scanner.WrapErrors(token.Position(pos), err)
                                 return
                         }
