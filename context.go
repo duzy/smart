@@ -236,7 +236,12 @@ func joinTmpPath(base, rel string) string {
         return filepath.Join(baseTmpPath, ".smart", "tmp", rel)
 }
 
-func processCommandOption(flag *Flag, args... Value) (err error) {
+func processCommandOption(args... Value) (err error) {
+        return
+}
+
+func (ctx *Context) loadCommandArguments(text string) (err error) {
+        var args = ctx.loader.loadText("@", text)
         if args, err = parseOpts(args, []string{
                 "h,help",
                 "b,build-plugins",
@@ -248,37 +253,22 @@ func processCommandOption(flag *Flag, args... Value) (err error) {
                 "c,configure",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'h': optionHelp = trueVal(v, optionHelp)
-                case 'b': optionAlwaysBuildPlugins = trueVal(v, optionAlwaysBuildPlugins)
-                case 'n': optionBenchImport = trueVal(v, optionBenchImport)
-                case 'v': optionVerbose = trueVal(v, optionVerbose)
-                case 'i': optionVerboseImport = trueVal(v, optionVerboseImport)
-                case 'k': optionVerboseChecks = trueVal(v, optionVerboseChecks)
-                case 'r': optionConfigure = trueVal(v, optionConfigure)
-                case 'c': optionReconfig = trueVal(v, optionReconfig)
+                case 'h': optionHelp = trueVal(v, true)
+                case 'b': optionAlwaysBuildPlugins = trueVal(v, true)
+                case 'n': optionBenchImport = trueVal(v, true)
+                case 'v': optionVerbose = trueVal(v, true)
+                case 'i': optionVerboseImport = trueVal(v, true)
+                case 'k': optionVerboseChecks = trueVal(v, true)
+                case 'c': optionConfigure = trueVal(v, true)
+                case 'r':
+                        optionReconfig = trueVal(v, true)
+                        optionConfigure = optionReconfig
                 }
-        }); err == nil && len(args) > 0 {
-                err = fmt.Errorf("unknown arguments: %v", args)
-        }
-        return
-}
-
-func (ctx *Context) loadCommandArguments(text string) (err error) {
-        for _, target := range ctx.loader.loadText("@", text) {
+        }); err != nil { return }
+        for _, target := range args {
                 switch t := target.(type) {
-                case *None: // ignore
-                case *Flag:
-                        if t.Name == nil || t.Name.Type() == NoneType {
-                                // TODO: bare '-'
-                        } else if err = processCommandOption(t); err != nil {
-                                fmt.Fprintf(stderr, "%s\n", err)
-                        }
                 case *Pair:
                         switch k := t.Key.(type) {
-                        case *Flag:
-                                if err = processCommandOption(k, t.Value); err != nil {
-                                        fmt.Fprintf(stderr, "%s\n", err)
-                                }
                         case *Bareword:
                                 if proj := ctx.loader.project; proj != nil {
                                         def, alt := ctx.loader.def(k.string)

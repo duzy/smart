@@ -237,11 +237,13 @@ ForArgs:
                 switch a := v.(type) {
                 case *Flag:
                         if runes, names, err = a._opts(opts...); err != nil { return }
-                        a = nil
                 case *Pair:
                         if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                if runes, names, err = flag._opts(opts...); err != nil { return }
-                                v = a.Value // use flag value
+                                if runes, names, err = flag._opts(opts...); err != nil {
+                                        return
+                                } else {
+                                        v = a.Value // use flag value
+                                }
                         } else {
                                 va = append(va, a)
                                 continue ForArgs
