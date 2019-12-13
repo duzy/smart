@@ -313,7 +313,7 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
         var optPrintLeave bool
         //var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
         //if _, ok := target.(*Flag); ok { optPrint = false }
-        if args, err = parseOpts(args, []string{
+        if args, err = parseFlags(args, []string{
                 "p,path",
                 "e,print-enter",
                 "l,print-leave",
@@ -520,7 +520,7 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                 group = g
         }
 
-        if vals, err = parseOpts(group.Elems, []string{
+        if vals, err = parseFlags(group.Elems, []string{
                 "e,report",
                 "i,ignore",
                 "r,recursive",
@@ -680,7 +680,7 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseOpts(args, []string{
+        } else if args, err = parseFlags(args, []string{
                 "p,path",
                 "e,report",
                 "i,ignore",
@@ -860,7 +860,7 @@ func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Val
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseOpts(args, []string{
+        } else if args, err = parseFlags(args, []string{
                 "p,path",
                 "i,ignore",
                 "n,no-update",
@@ -1263,7 +1263,7 @@ func modifierGrepFiles(pos Position, prog *Program, args... Value) (result Value
         var rxs []*greprex
         var optReportMissing = true // TODO: option "e,report" 
         var optDiscardMissing = false // TODO: option "i,ignore"
-        if args, err = parseOpts(args, []string{
+        if args, err = parseFlags(args, []string{
                 "d,discard-missing",
                 "s,system",
                 "s,sys",
@@ -1344,7 +1344,7 @@ func modifierCheck(pos Position, prog *Program, args... Value) (result Value, er
         var makeResult func(bool) Value // returns results only if non-nil
         var values []Value
         var pairs []*Pair
-        if args, err = parseOpts(args, []string{
+        if args, err = parseFlags(args, []string{
                 "a,answer",
                 "r,result",
                 "s,silent",
@@ -1591,7 +1591,7 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseOpts(args, []string{
+        } else if args, err = parseFlags(args, []string{
                 "p,path", // prepare paths for files
                 "r,recursive",
                 "v,verbose",
@@ -1772,7 +1772,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         // Process flags
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseOpts(args, []string{
+        } else if args, err = parseFlags(args, []string{
                 "p,path",
                 "v,verbose",
                 "m,mode",

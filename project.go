@@ -785,7 +785,7 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
         var closured = target.closured()
         if special == specialRuleUse && !closured {
                 var optPostExecute bool
-                if _, err = parseOpts(options, []string{
+                if _, err = parseFlags(options, []string{
                         "p,post",
                 }, func(ru rune, v Value) {
                         switch ru {

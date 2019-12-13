@@ -1002,7 +1002,7 @@ func modifierExtractConfiguration(pos Position, prog *Program, args... Value) (r
         var rxs []*regexp.Regexp
         var optTarget string
         var optPerm = os.FileMode(0640) // sys default 0666
-        if args, err = parseOpts(args, []string{
+        if args, err = parseFlags(args, []string{
                 "p,path",
                 "r,rx",
                 "r,regex",
@@ -1165,7 +1165,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
         var optAccumulate bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseOpts(args, []string{
+        } else if args, err = parseFlags(args, []string{
                 "a,accumulate",
         }, func(ru rune, v Value) {
                 switch ru {

@@ -242,7 +242,7 @@ func processCommandOption(args... Value) (err error) {
 
 func (ctx *Context) loadCommandArguments(text string) (err error) {
         var args = ctx.loader.loadText("@", text)
-        if args, err = parseOpts(args, []string{
+        if args, err = parseFlags(args, []string{
                 "h,help",
                 "b,build-plugins",
                 "n,bench-import",

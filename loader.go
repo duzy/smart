@@ -1960,7 +1960,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 }
         }
 
-        if _, err = parseOpts(options, []string{
+        if _, err = parseFlags(options, []string{
                 "b,break",
                 "m,multi",
         }, func(ru rune, v Value) {

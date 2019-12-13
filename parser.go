@@ -1334,7 +1334,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, generic *genericoptions,
         }
 
         var ( opts importoptions ; err error )
-        if _, err = parseOpts(generic.options, []string{
+        if _, err = parseFlags(generic.options, []string{
                 "r,reusing",
         }, func(ru rune, v Value) {
                 switch ru {

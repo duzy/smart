@@ -230,7 +230,7 @@ func trimRightSpaces(s string) string {
         return strings.TrimRightFunc(s, unicode.IsSpace)
 }
 
-func parseOpts(args []Value, opts []string, opt func(ru rune, v Value)) (va []Value, err error) {
+func parseFlags(args []Value, opts []string, opt func(ru rune, v Value)) (va []Value, err error) {
 ForArgs:
         for _, v := range args {
                 var ( runes []rune ; names []string )
@@ -307,7 +307,7 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if _, err = parseOpts(args, opts, func(ru rune, val Value) {
+        } else if _, err = parseFlags(args, opts, func(ru rune, val Value) {
                 switch ru {
                 case 'f': vals = append(vals, &String{pos.Filename})
                 case 'q': vals = append(vals, &String{"\""+pos.Filename+"\""})
@@ -638,7 +638,7 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
         var optPort = 80
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if va, err = parseOpts(args, opts, func(ru rune, v Value) {
+        } else if va, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
                 case 'p': optPort = intVal(v, optPort)
                 case 'h': optHost, _ = v.Strval()
@@ -753,7 +753,7 @@ func builtinUnique(pos Position, args... Value) (res Value, err error) {
                 var opts = []string{
                         "r,reverse",
                 }
-                if va, err = parseOpts(merge(args[0]), opts, func(ru rune, val Value) {
+                if va, err = parseFlags(merge(args[0]), opts, func(ru rune, val Value) {
                         switch ru {
                         case 'r':
                                 if val != nil { 
@@ -2154,7 +2154,7 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
         var optForce, optUpdate, optVerbose, optRel, optPath bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseOpts(args, opts, func(ru rune, v Value) {
+        } else if args, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
                 case 'l': optRel = trueVal(v, true)
                 case 'p': optPath = trueVal(v, false)
@@ -2251,7 +2251,7 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
-        if va, err = parseOpts(args, opts, func(ru rune, v Value) {
+        if va, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
                 case 'f', 'd', 's':
                         if v.True() { optKind = ru }
@@ -2357,7 +2357,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         }
-        if va, err = parseOpts(args, opts, func(ru rune, v Value) {
+        if va, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
                 case 'c': optCallerContext = trueVal(v, true)
                 case 'e': optReportMissing = trueVal(v, true)
@@ -2411,7 +2411,7 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
         var wo wildcardOpts
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseOpts(args, []string{
+        } else if args, err = parseFlags(args, []string{
                 "m,include-missing",
         }, func(ru rune, v Value) {
                 switch ru {
@@ -2492,7 +2492,7 @@ func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
         var opts = []string{
                 "p,path",
         }
-        if args, err = parseOpts(args, opts, func(ru rune, v Value) {
+        if args, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
                 case 'p': optPath = trueVal(v, false)
                 }
@@ -2668,7 +2668,7 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseOpts(args, []string{
+        } else if args, err = parseFlags(args, []string{
                 "m,mode",
                 "p,path",
                 "v,verbose",

@@ -433,7 +433,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
         var cmd, promStr, logFileName = p.cmd, "", ""
         var aa []string
-        if args, err = parseOpts(args, []string{
+        if args, err = parseFlags(args, []string{
                 "o,stdout",
                 "e,stderr",
                 "v,verbout",
