@@ -2029,6 +2029,11 @@ func (p *parser) parseSpecialRuleClause() ast.Clause {
         var name = p.lit 
         switch name {
         case "user":
+                if true {
+                        p.error(p.pos, ":user: rules are deprecated, use export.* instead!")
+                        return nil
+                }
+
                 var options []ast.Expr
                 var pos = p.expect(token.BAREWORD) // USE
                 var bits = p.setbit(parsingSpecialRule)

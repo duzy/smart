@@ -177,11 +177,21 @@ func (p *usinglist) append(proj *Project, params []Value, opts useoptions) {
         p.list = append(p.list, &using{ proj, params, opts })
 }
 
-func (p *usinglist) Get(name string) (Value, error) {
-        //switch name {
-        //case "name":
-        //}
-        return nil, fmt.Errorf("no such property `%s`", name)
+func (p *usinglist) Get(name string) (result Value, err error) {
+        var list []Value
+        for _, usee := range p.list {
+                // Lookup only the project specific exported names. Don't use
+                // scope.Find(...) invocation!
+                obj := usee.project.scope.Lookup("export."+name)
+                if obj != nil { list = append(list, obj) }
+        }
+        if list == nil && err == nil {
+                err = fmt.Errorf("no such property `%s`", name)
+        }
+        if err == nil {
+                result = MakeListOrScalar(list)
+        }
+        return
 }
 
 func (p *usinglist) Call(pos Position, a... Value) (res Value, err error) {

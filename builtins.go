@@ -83,6 +83,8 @@ var builtins = map[string]BuiltinFunc {
         `field`:        builtinField,
         `fields`:       builtinFields,
 
+        //`usee`:       builtinUsee,
+        
         `string`:       builtinString,
         `strip`:        builtinStrip,
         `title`:        builtinTitle,
@@ -968,6 +970,30 @@ func builtinField(pos Position, args... Value) (res Value, err error) {
 func builtinFields(pos Position, args... Value) (Value, error) {
         // TODO: ...
         return nil, nil
+}
+
+func builtinUsee(pos Position, args... Value) (result Value, err error) {
+        var proj = current()
+        if proj == nil {
+                err = fmt.Errorf("unknown current context")
+                return
+        }
+
+        var list []Value
+        for _, arg := range args {
+                var ( s string; v Value )
+                if s, err = arg.Strval(); err != nil {
+                        return
+                } else if v, err = proj.using.Get(s); err != nil {
+                        return
+                } else {
+                        list = append(list, v)
+                }
+        }
+        if err == nil {
+                result = MakeListOrScalar(list)
+        }
+        return
 }
 
 func builtinString(pos Position, args... Value) (result Value, err error) {

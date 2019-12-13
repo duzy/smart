@@ -782,10 +782,11 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
         if obj == nil {
                 l.parser.error(x.Lhs.Pos(), "`%s` invalid object expression (%T)", x, x.Lhs)
                 return
-        }
-        if obj.Type() != SelectionType {
-                var o, err = l.resolve(obj)
-                if err != nil {
+        } else if obj.Type() != SelectionType {
+                var ( o Object; err error )
+                if w, ok := obj.(*Bareword); ok && w.string == "usee" {
+                        obj = l.project.using
+                } else if o, err = l.resolve(obj); err != nil {
                         l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
                         return
                 } else if o == nil {
@@ -1108,6 +1109,8 @@ func (l *loader) executeUseRule(pos token.Pos, usee *Project, userule *useRuleEn
                 defer prog.setUser(prog.setUser(l.project))
         }
 
+        //fmt.Fprintf(stderr, "%v: use: %v\n", l.project, usee)
+
         var t time.Time
         var results []Value
         if optionVerboseImport && optionBenchImport { t = time.Now() }
@@ -1122,10 +1125,8 @@ func (l *loader) executeUseRule(pos token.Pos, usee *Project, userule *useRuleEn
                                 default: unreachable("unknown type: %T", recipe)
                                 }
                                 switch t := list.Elems[0].(type) {
-                                case *undetermined:
-                                        results = append(results, t)
-                                default:
-                                        fmt.Fprintf(stderr, "%s: unsupported use expression: %v\n", prog.position, list)
+                                case *undetermined: results = append(results, t)
+                                default: fmt.Fprintf(stderr, "%s: unsupported use expression: %v\n", prog.position, list)
                                 }
                         }
                 }
@@ -1286,6 +1287,8 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         // Add to the project using list, so that the use path is correct.
         l.project.using.append(usee, params, opts)
 
+        return // :user: rules are deprecated!
+
         // Execute the :use: rule if presented to apply the conditions
         // of using the project.
         if false {
@@ -1438,10 +1441,13 @@ func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, va
                 }
 
                 if err != nil { l.parser.error(pos, "%v", err) }
-        } else {
+        } else if l.project.hasBase(def.owner) {
                 // The selected definition is belonging to a decended project
                 // of l.project!
-                //fmt.Fprintf(stderr, "%v: use:3: %v %v: %v→%v\n", l.project, sel, def.owner.relPath, def.owner, def)
+                //fmt.Fprintf(stderr, "%v: a: %v %v: %v→%v\n", l.project, sel, def.owner.relPath, def.owner, def.name)
+                return // Just ignore to avoid changing to the wrong project
+        } else {
+                //fmt.Fprintf(stderr, "%v: b: %v %v: %v→%v\n", l.project, sel, def.owner.relPath, def.owner, def.name)
                 return // Just ignore to avoid changing to the wrong project
         }
 
