@@ -1400,6 +1400,7 @@ func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, va
                 l.parser.error(pos, "determine `%v`: %v", sel, err)
                 return
         } else if def, okay = v.(*Def); !okay || def == nil {
+                // Create a new definition.
                 if name := sel.propName(); name == "" {
                         l.parser.error(pos, "empty prop name %v (%T)", sel, sel.s)
                         return
@@ -1407,11 +1408,13 @@ func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, va
                         l.parser.error(pos, "`%s` already defined", alt.Name())
                         return
                 }
+        } else if def.owner == l.project {
+                // Just use the selected definition!
+                //fmt.Fprintf(stderr, "%v: use:1: %v %v→%v\n", l.project, sel, def.owner, def)
         } else if def.owner != l.project && l.project.hasBase(def.owner) {
-                // user: The selection 'user->xxx' finds 'xxx'
-                // from the base if the current project has
-                // no 'xxx' defined. We define the variable
-                // for the current project in this case.
+                // Create a new definition if found one from the base
+                // project.
+                //fmt.Fprintf(stderr, "%v: use:2: %v %v→%v\n", l.project, sel, def.owner, def)
                 if dbg {
                         s, _ := def.Value.Strval()
                         fmt.Printf("use: %v %v->%v %s\n", l.project, def.owner, def.name, s)
@@ -1426,11 +1429,20 @@ func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, va
                         return
                 }
 
-                // Unshift the derived value.
-                //position := Position(l.parser.file.Position(pos))
-                //err := def.append(MakeDelegate(position, token.LPAREN, derived))
-                var err = def.append(derived.Value) // mixin
+                // Mixin the derived value.
+                if false {
+                        position := Position(l.parser.file.Position(pos))
+                        err = def.append(MakeDelegate(position, token.LPAREN, derived))
+                } else {
+                        err = def.append(derived.Value) // mixin
+                }
+
                 if err != nil { l.parser.error(pos, "%v", err) }
+        } else {
+                // The selected definition is belonging to a decended project
+                // of l.project!
+                //fmt.Fprintf(stderr, "%v: use:3: %v %v: %v→%v\n", l.project, sel, def.owner.relPath, def.owner, def)
+                return // Just ignore to avoid changing to the wrong project
         }
 
         if dbg {
@@ -1447,58 +1459,6 @@ func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, va
         }
         return
 }
-
-/*
-func (l *loader) use(spec *ast.UseSpec) {
-        if l.project.keyword == token.PACKAGE {
-                l.parser.error(spec.Pos(), "forbiden package `use`")
-        } else if len(spec.Props) == 0 {
-                l.parser.error(spec.Pos(), "empty `use` spec")
-        } else if name := l.expr(spec.Props[0]); name == nil {
-                l.parser.error(spec.Pos(), "undefined `use` target")
-        } else if name == universalnone {
-                l.parser.error(spec.Pos(), "none `use` target")
-        } else {
-                var usee Object
-                switch t := name.(type) {
-                case *Bareword, *Barecomp, *String, *Compound:
-                        if str, err := name.Strval(); err != nil {
-                                l.parser.error(spec.Props[0].Pos(), "%s", err)
-                                return
-                        } else {
-                                _, usee = l.project.scope.Find(str)
-                        }
-                case *Flag:
-                        l.useOptional(spec.Props[0].Pos(), t.Name)
-                        return
-                default:
-                        l.parser.error(spec.Pos(), "`%v` invalid usee (%T)", name, name)
-                        return
-                }
-                if usee == nil {
-                        l.parser.error(spec.Pos(), "nil usee `%v`", name)
-                        return
-                }
-
-                switch t := usee.(type) {
-                case *ProjectName:
-                        var opts useoptions
-                        // TODO: parse the useoptions
-                        l.useProject(spec.Props[0].Pos(), t.project, l.exprs(spec.Props[1:]), opts)
-                case *Def:
-                        if alt := l.project.scope.Insert(t); alt != nil {
-                                l.parser.error(spec.Pos(), "`%s` already defined in %s", t.Name(), l.project.scope.comment)
-                        }
-                case *RuleEntry:
-                        if alt := l.project.scope.Insert(t); alt != nil {
-                                l.parser.error(spec.Pos(), "`%s` already defined in %s", t.Name(), l.project.scope.comment)
-                        }
-                default:
-                        l.parser.error(spec.Pos(), "unknown usee `%v` (%T)", t, t)
-                }
-        }
-}
-*/
 
 func (l *loader) useOptional(pos token.Pos, opt Value) {
         s, err := opt.Strval()
