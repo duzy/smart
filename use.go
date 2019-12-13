@@ -182,7 +182,7 @@ func (p *usinglist) Get(name string) (result Value, err error) {
         for _, usee := range p.list {
                 // Lookup only the project specific exported names. Don't use
                 // scope.Find(...) invocation!
-                obj := usee.project.scope.Lookup("export."+name)
+                obj := usee.project.scope.Lookup("using."+name)
                 if obj != nil { list = append(list, obj) }
         }
         if list == nil && err == nil {

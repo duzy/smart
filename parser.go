@@ -2030,7 +2030,7 @@ func (p *parser) parseSpecialRuleClause() ast.Clause {
         switch name {
         case "user":
                 if true {
-                        p.error(p.pos, ":user: rules are deprecated, use export.* instead!")
+                        p.error(p.pos, ":user: rules are deprecated, use using.* instead!")
                         return nil
                 }
 
