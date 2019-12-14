@@ -2591,27 +2591,32 @@ func builtinTouchFile(pos Position, args... Value) (res Value, err error) {
         // $(touch-file filename)
         // $(touch-file -p filename)
         var optPath = false
-        var optPerm = os.FileMode(0600)
-        if args, err = parseFlags(args, []string{
+        var optMode = os.FileMode(0600)
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
                 "p,path",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'p': optPath = trueVal(v, false)
+                case 'p': optPath = trueVal(v, true)
                 }
         }); err != nil { return }
 ForArgs:
         for i := 0; i < len(args); i += 1 {
                 var (
                         a = args[i]
-                        name, data string
+                        name string
+                        f *os.File
                 )
                 if name, err = a.Strval(); err != nil { return }
                 if name == "" { continue ForArgs }
                 if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
-                if err = ioutil.WriteFile(name, []byte(data), optPerm); err != nil {
+                if f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode); err != nil {
                         break
+                } else {
+                        f.Close()
                 }
         }
         return
