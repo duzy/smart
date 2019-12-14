@@ -138,7 +138,6 @@ type loader struct {
         project  *Project // the current project
         scope    *Scope   // the current scope
         ruleParseFunc func(p *parser, tok token.Token, special specialRule, options, targets []ast.Expr) *ast.RuleClause
-        usefunc  func(l *loader, pos token.Pos, usee *Project, params []Value, opts useoptions) error
         includeFunc func(l *loader, pos token.Pos, val Value)
         isIncludingConf bool // including configuration
         vs string // verbose prefix
@@ -522,12 +521,9 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
                         fmt.Fprintf(stderr, "%s├┤ %s:import(%s) (%s)\n", l.vs, l.project, specName, d)
                 } (time.Now())
         }
-        if optionUseImportedProjects {
-                var pos = spec.Props[0].Pos()
-                err = l.useProject(pos, loaded, params, useopts)
-        } else if false && !l.project.isUsingDirectly(loaded) {
-                l.project.using.append(loaded, params, useopts)
-        }
+
+        var pos = spec.Props[0].Pos()
+        err = l.useProject(pos, loaded, params, useopts)
         return
 }
 
@@ -1090,9 +1086,7 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value, opts u
                         fmt.Fprintf(stderr, "using(%8s) %s ⇒ %v\n", d, l.project, l.project.using)
                 } (time.Now())
         }
-        if l.usefunc == nil {
-                l.parser.error(pos, "`%v` use clause forbiden", usee.name)
-        } else if err = l.usefunc(l, pos, usee, params, opts); err != nil {
+        if err = l.useProject2(pos, usee, params, opts); err != nil {
                 if p, ok := err.(*scanner.Error); ok {
                         l.parser.error(pos, "%v", p.Err)
                 } else {
@@ -1110,7 +1104,7 @@ func (l *loader) usePathStr() (s string) {
         return
 }
 
-func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
+func (l *loader) useProject2(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
         if usee == l.project {
                 position := l.parser.file.Position(pos)
                 err = scanner.Errorf(position, "'%v' use loop (%s)", usee.name, l.usePathStr())
@@ -1223,129 +1217,6 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 l.parser.error(pos, "%v", err)
         }
         return
-}
-
-func (l *loader) determineUse(pos token.Pos, tok token.Token, sel *selection, value Value) (def *Def) {
-        const dbg = false
-
-        var ( alt Object ; okay bool )
-        if v, err := sel.value(); err != nil {
-                l.parser.error(pos, "determine `%v`: %v", sel, err)
-                return
-        } else if def, okay = v.(*Def); !okay || def == nil {
-                // Create a new definition.
-                if name := sel.propName(); name == "" {
-                        l.parser.error(pos, "empty prop name %v (%T)", sel, sel.s)
-                        return
-                } else if def, alt = l.def(name); alt != nil && tok != token.QUE_ASSIGN {
-                        l.parser.error(pos, "`%s` already defined", alt.Name())
-                        return
-                }
-        } else if def.owner == l.project {
-                // Just use the selected definition!
-                //fmt.Fprintf(stderr, "%v: use:1: %v %v→%v\n", l.project, sel, def.owner, def)
-        } else if def.owner != l.project && l.project.hasBase(def.owner) {
-                // Create a new definition if found one from the base
-                // project.
-                //fmt.Fprintf(stderr, "%v: use:2: %v %v→%v\n", l.project, sel, def.owner, def)
-                if dbg {
-                        s, _ := def.Value.Strval()
-                        fmt.Printf("use: %v %v->%v %s\n", l.project, def.owner, def.name, s)
-                }
-
-                // Derive the base definition
-                var derived = def
-
-                // Defines a new one.
-                if def, alt = l.def(def.name); alt != nil && tok != token.QUE_ASSIGN {
-                        l.parser.error(pos, "`%s` already defined", alt.Name())
-                        return
-                }
-
-                // Mixin the derived value.
-                if false {
-                        position := Position(l.parser.file.Position(pos))
-                        err = def.append(MakeDelegate(position, token.LPAREN, derived))
-                } else {
-                        err = def.append(derived.Value) // mixin
-                }
-
-                if err != nil { l.parser.error(pos, "%v", err) }
-        } else if l.project.hasBase(def.owner) {
-                // The selected definition is belonging to a decended project
-                // of l.project!
-                //fmt.Fprintf(stderr, "%v: a: %v %v: %v→%v\n", l.project, sel, def.owner.relPath, def.owner, def.name)
-                return // Just ignore to avoid changing to the wrong project
-        } else {
-                //fmt.Fprintf(stderr, "%v: b: %v %v: %v→%v\n", l.project, sel, def.owner.relPath, def.owner, def.name)
-                return // Just ignore to avoid changing to the wrong project
-        }
-
-        if dbg {
-                s, _ := value.Strval()
-                fmt.Printf("use: %v->%v %s\n", def.owner, def.name, s)
-        }
-
-        // Ensures that all immediate assignments are in the current
-        // project context.
-        defer setclosure(setclosure(cloctx.unshift(l.scope)))
-
-        if err := l.assign(pos, tok, def, alt, value); err != nil {
-                l.parser.error(pos, "%v", err)
-        }
-        return
-}
-
-func (l *loader) useOptional(pos token.Pos, opt Value) {
-        s, err := opt.Strval()
-        if err != nil {
-                l.parser.error(pos, "`%v` invalid value (%s)", opt, err)
-                return
-        }
-        switch s {
-        case "recursively": l.useRecursively(pos)
-        default:
-                l.parser.error(pos, "`%s` unknown use option (%v)", s, opt)
-                return
-        }
-}
-
-func (l *loader) useRecursively(pos token.Pos) {
-        if optionNoDeprecatedFeatures {
-                l.parser.error(pos, "'use -recursively' is deprecated")
-                return
-        }
-
-        if l.usefunc == nil {
-                l.parser.error(pos, "`%v` use is forbiden", l.project.name)
-                return
-        }
-
-        var post bool
-        // TODO: decide pre-order or post-order
-        
-        var usees = l.project.usees(post)
-        defer func(t time.Time) {
-                var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport && d > 0*time.Millisecond {
-                                fmt.Fprintf(stderr, "%s││▶%s:use(-recursively) … (%s)◀\n", l.vs, l.project.name, d)
-                        }
-                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(-recursively)◀ … (%s)\n", l.project.name, d)
-                }
-        } (time.Now())
-
-        // Recursive using projects may take very long time.
-        unique := make(map[*Project]int)
-        for _, usee := range usees {
-                if _, ok := unique[usee]; ok { continue }
-                unique[usee] += 1 // ensure it's used only once
-                if err := l.usefunc(l, pos, usee, nil, useoptions{}); err != nil {
-                        break
-                }
-        }
-        unique = nil
 }
 
 func (l *loader) configuration(spec *ast.ConfigurationSpec) (res Value) {

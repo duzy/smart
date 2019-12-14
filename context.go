@@ -49,7 +49,6 @@ const (
         optionSearchImportedFiles = false // time consuming
 
         optionNoDeprecatedFeatures = true
-        optionUseImportedProjects = true
 
         // Return error if wildcard files not found.
         optionWildcardMissingError = false
@@ -300,7 +299,6 @@ func (ctx *Context) loadwork() (err error) {
                 loaded:   make(map[string]*Project),
                 ruleParseFunc: parseRuleClause,
                 includeFunc: includespec,
-                usefunc:  useProject,
                 scope:    ctx.globe.scope,
         }
         ctx.goals = &Def{
