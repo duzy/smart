@@ -687,7 +687,9 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
                 "n,no-time",
                 "m,multi", // multiple compare/execution
                 "g,grep", // -grep=(regexp=(sys='...' '...') $^)
-                "r,recursive",
+                //"t,touch", // touch target file when updated
+                //"t,stamp", // touch target file when updated
+                //"r,recursive",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
@@ -696,6 +698,7 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
                 case 'v': optVerbose = trueVal(v, true)
                 case 'n': optNoUpdate = trueVal(v, true)
                 case 'i': optDiscardMissing = trueVal(v, true)
+                //case 't': optTouch = trueVal(v, true)
                 case 'g': optGrep = v
                 }
         }); err != nil { return }

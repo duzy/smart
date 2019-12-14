@@ -185,11 +185,15 @@ func (p *usinglist) Get(name string) (result Value, err error) {
                 obj := usee.project.scope.Lookup("using."+name)
                 if obj != nil { list = append(list, obj) }
         }
-        if list == nil && err == nil {
-                err = fmt.Errorf("no such property `%s`", name)
-        }
+        /*if list == nil && err == nil {
+                err = fmt.Errorf("no such property `%s` (%v)", name, p)
+        }*/
         if err == nil {
-                result = MakeListOrScalar(list)
+                if list != nil {
+                        result = MakeListOrScalar(list)
+                } else {
+                        result = universalnone
+                }
         }
         return
 }

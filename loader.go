@@ -766,10 +766,10 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
                         } else {
                                 unreachable("`%v` nil delegation", name)
                         }
-                } else if obj, ok = v.(Object); ok {
+                } else if obj, ok := v.(Object); ok {
                         v = MakeDelegate(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
                 } else {
-                        unreachable("`%v` not an object (%T)", name, v)
+                        // just use the selected value
                 }
         } else {
                 l.parser.error(x.Name.Pos(), "`%v` nil delegation object (from %v)", name, l.scope.comment)
@@ -786,6 +786,12 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
                 var ( o Object; err error )
                 if w, ok := obj.(*Bareword); ok && w.string == "usee" {
                         obj = l.project.using
+                } else if ok && w.string == "self" {
+                        obj = l.project.self
+                } else if ok && w.string == "os" {
+                        obj = context.globe.os.self
+                /*} else if ok && w.string == "goals" { // "goals"
+                        obj = context.goals*/
                 } else if o, err = l.resolve(obj); err != nil {
                         l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
                         return
@@ -1276,7 +1282,8 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         defer func(a []*Project) { l.usePath = a } (l.usePath)
         l.usePath = append(l.usePath, usee) // build the use path
 
-        if optionExecuteUseBases {
+        // Never do this since :user: are deprecated!!
+        if false && optionExecuteUseBases {
                 // Also use the bases and usee's using list, so that all
                 // dependencies are included.
                 for _, base := range usee.bases {

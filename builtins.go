@@ -171,6 +171,7 @@ var builtins = map[string]BuiltinFunc {
         `read-dir`:   builtinReadDir,   // io/ioutil/ioutil.go
         `read-file`:  builtinReadFile,  // io/ioutil/ioutil.go
         `write-file`: builtinWriteFile, // io/ioutil/ioutil.go
+        `touch-file`: builtinTouchFile,
 
         `configure-file`: builtinConfigureFile,
 
@@ -2515,10 +2516,9 @@ func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
         // $(write-file filename,content)
         // $(write-file -p filename,content)
         var optPath = false
-        var opts = []string{
+        if args, err = parseFlags(args, []string{
                 "p,path",
-        }
-        if args, err = parseFlags(args, opts, func(ru rune, v Value) {
+        }, func(ru rune, v Value) {
                 switch ru {
                 case 'p': optPath = trueVal(v, false)
                 }
@@ -2581,6 +2581,36 @@ ForArgs:
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
                 if err = ioutil.WriteFile(name, []byte(data), perm); err != nil {
+                        break
+                }
+        }
+        return
+}
+
+func builtinTouchFile(pos Position, args... Value) (res Value, err error) {
+        // $(touch-file filename)
+        // $(touch-file -p filename)
+        var optPath = false
+        var optPerm = os.FileMode(0600)
+        if args, err = parseFlags(args, []string{
+                "p,path",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'p': optPath = trueVal(v, false)
+                }
+        }); err != nil { return }
+ForArgs:
+        for i := 0; i < len(args); i += 1 {
+                var (
+                        a = args[i]
+                        name, data string
+                )
+                if name, err = a.Strval(); err != nil { return }
+                if name == "" { continue ForArgs }
+                if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
+                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
+                }
+                if err = ioutil.WriteFile(name, []byte(data), optPerm); err != nil {
                         break
                 }
         }
