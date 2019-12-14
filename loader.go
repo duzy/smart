@@ -1102,149 +1102,6 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value, opts u
         return
 }
 
-func (l *loader) isExecutedUsee(usee *Project) (res bool) {
-        for _, p := range l.useesExecuted {
-                if res = usee == p; res { break }
-        }
-        return
-}
-
-func (l *loader) executeUseRule(pos token.Pos, usee *Project, userule *useRuleEntry, params []Value) (err error) {
-        position := l.parser.file.Position(pos)
-        for _, prog := range userule.programs {
-                defer prog.setUser(prog.setUser(l.project))
-        }
-
-        //fmt.Fprintf(stderr, "%v: use: %v\n", l.project, usee)
-
-        var t time.Time
-        var results []Value
-        if optionVerboseImport && optionBenchImport { t = time.Now() }
-        if optionExecuteUseLightly {
-                for _, prog := range userule.programs {
-                ForRecipes:
-                        for _, recipe := range prog.recipes {
-                                var list *List
-                                switch t := recipe.(type) {
-                                case *None: continue ForRecipes
-                                case *List: list = t
-                                default: unreachable("unknown type: %T", recipe)
-                                }
-                                switch t := list.Elems[0].(type) {
-                                case *undetermined: results = append(results, t)
-                                default: fmt.Fprintf(stderr, "%s: unsupported use expression: %v\n", prog.position, list)
-                                }
-                        }
-                }
-        } else {
-                // Performs the full execution of use rules, this is
-                // taking more time to finish.
-                results, err = mergeresult(userule.Execute(Position(position), params...))
-        }
-        if optionVerboseImport && optionBenchImport {
-                var d = time.Now().Sub(t)
-                fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s)\n", l.vs, l.project.name, usee.name, d)
-                for _, prog := range userule.programs {
-                        for _, recipe := range prog.recipes {
-                                fmt.Fprintf(stderr, "%s││   %v\n", l.vs, recipe)
-                        }
-                }
-        }
-
-        if err != nil { return }
-
-        if optionVerboseImport && optionBenchImport { t = time.Now() }
-        for _, result := range results {
-                switch t := result.(type) {
-                case *None: // does nothing
-                case *undetermined:
-                        if sel, ok := t.identifier.(*selection); ok && sel != nil {
-                                l.determineUse(pos, t.tok, sel, t.value)
-                        } else {
-                                err = scanner.Errorf(position, "unsupported using def `%v` (%T)", t.identifier, t.identifier)
-                                return
-                        }
-                default:
-                        err = scanner.Errorf(position, "todo: using def `%T`", result)
-                        return
-                }
-        }
-        if optionVerboseImport && optionBenchImport {
-                var d = time.Now().Sub(t)
-                fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s)\n", l.vs, l.project.name, usee.name, d)
-                for _, result := range results {
-                        fmt.Fprintf(stderr, "%s││ ⇒ %v\n", l.vs, result)
-                }
-        }
-        return
-}
-
-func (l *loader) executeUseRulesRecursively(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
-        // Return immediately if this usee is executed. If the use rule
-        // accumulates values (e.g. += or =+), it may take very long time.
-        if !(opts.allowReuse || optionExecuteUseRuleMultiTimes) && l.isExecutedUsee(usee) {
-                return // execute use rule only once
-        }
-
-        // Monitor the execution time of the :use: rule.
-        defer func(t time.Time) {
-                var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport && d > 1*time.Millisecond {
-                                var s = l.usePathStr()
-                                fmt.Fprintf(stderr, "%s││▶%s:use(%s) … (%s) (%s)◀\n", l.vs, l.project.name, usee.name, d, s)
-                        }
-                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
-                }
-        } (time.Now())
-
-        for _, userule := range usee.userules {
-                if userule.post { continue }
-                err = l.executeUseRule(pos, usee, userule, params)
-                if err != nil { return }
-        }
-        if !usee.breakRecursiveUsing {
-                for _, u := range usee.using.list {
-                        err = l.executeUseRulesRecursively(pos, u.project, params, opts)
-                        if err != nil { break }
-                }
-        }
-        for _, userule := range usee.userules {
-                if !userule.post { continue }
-                err = l.executeUseRule(pos, usee, userule, params)
-                if err != nil { return }
-        }
-        return
-}
-
-func (l *loader) executeUseRuleDirectly(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
-        // Monitor the execution time of the :use: rule.
-        defer func(t time.Time) {
-                var d = time.Now().Sub(t)
-                if optionVerboseImport {
-                        if optionBenchImport /*&& d > 1*time.Millisecond*/ {
-                                var s = l.usePathStr()
-                                fmt.Fprintf(stderr, "%s││ %s:usex(%s) … (%s) (%s)\n", l.vs, l.project.name, usee.name, d, s)
-                        }
-                } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
-                        fmt.Fprintf(stderr, "smart: %s: slow ▶use(%s)◀ … (%s)\n", l.project.name, usee.name, d)
-                }
-        } (time.Now())
-
-        // Return immediately if this usee is executed. If the use rule
-        // accumulates values (e.g. += or =+), it may take very long time.
-        if !(opts.allowReuse || optionExecuteUseRuleMultiTimes) && l.isExecutedUsee(usee) {
-                return // execute use rule only once
-        }
-
-        for _, rule := range usee.userules {
-                err = l.executeUseRule(pos, usee, rule, params)
-                l.useesExecuted = append(l.useesExecuted, usee)
-        }
-        return
-}
-
 func (l *loader) usePathStr() (s string) {
         for i, u := range l.usePath {
                 if i > 0 { s += "," }
@@ -1282,44 +1139,10 @@ func useProject(l *loader, pos token.Pos, usee *Project, params []Value, opts us
         defer func(a []*Project) { l.usePath = a } (l.usePath)
         l.usePath = append(l.usePath, usee) // build the use path
 
-        // Never do this since :user: are deprecated!!
-        if false && optionExecuteUseBases {
-                // Also use the bases and usee's using list, so that all
-                // dependencies are included.
-                for _, base := range usee.bases {
-                        if err = useProject(l, pos, base, params, opts); err != nil { return }
-                }
-        }
-
         // Add to the project using list, so that the use path is correct.
         l.project.using.append(usee, params, opts)
 
         return // :user: rules are deprecated!
-
-        // Execute the :use: rule if presented to apply the conditions
-        // of using the project.
-        if false {
-                // does nothing
-        } else if optionExecuteUseRulesRecursively {
-                if false {
-                        err = l.executeUseRulesRecursively(pos, usee, params, opts)
-                } else {
-                        var post bool
-                        var usees []*Project
-                        if !post { usees = append(usees, usee) }
-                        usees = append(usees, usee.usees(post)...)
-                        if post { usees = append(usees, usee) }
-
-                        // Get usees 'recursively' and use each directly.
-                        for _, u := range usees {
-                                err = l.executeUseRuleDirectly(pos, u, params, opts)
-                                if err != nil { break }
-                        }
-                }
-        } else {
-                err = l.executeUseRuleDirectly(pos, usee, params, opts)
-        }
-        return
 }
 
 func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Value) (def *Def) {
@@ -1517,7 +1340,6 @@ func (l *loader) useRecursively(pos token.Pos) {
         unique := make(map[*Project]int)
         for _, usee := range usees {
                 if _, ok := unique[usee]; ok { continue }
-                //if l.project.isUsingDirectly(usee) { continue }
                 unique[usee] += 1 // ensure it's used only once
                 if err := l.usefunc(l, pos, usee, nil, useoptions{}); err != nil {
                         break
