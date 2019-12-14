@@ -2170,6 +2170,10 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
         return
 }
 
+/* Example:
+foo:[(compare -v)]: foobar
+	symlink -pluv $< $@
+*/
 func builtinSymlink(pos Position, args... Value) (res Value, err error) {
         var opts = []string{
                 "f,force",
