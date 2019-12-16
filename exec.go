@@ -132,10 +132,14 @@ func (w *stdWriter) Write(p []byte) (n int, err error) {
 type ExecLog struct {
         filename string
         writer *bufio.Writer
+        wrimux sync.Mutex
         lines int
 }
 
 func (p *ExecLog) Write(b []byte) (n int, err error) {
+        p.wrimux.Lock()
+        defer p.wrimux.Unlock()
+
         p.lines += bytes.Count(b, []byte("\n"))
         n, err = p.writer.Write(b)
         return
