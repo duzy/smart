@@ -85,6 +85,7 @@ var builtins = map[string]BuiltinFunc {
 
         //`usee`:       builtinUsee,
         
+        `path`:         builtinPath,
         `string`:       builtinString,
         `strip`:        builtinStrip,
         `title`:        builtinTitle,
@@ -994,6 +995,17 @@ func builtinUsee(pos Position, args... Value) (result Value, err error) {
         if err == nil {
                 result = MakeListOrScalar(list)
         }
+        return
+}
+
+func builtinPath(pos Position, args... Value) (result Value, err error) {
+        var list []Value
+        for _, a := range args {
+                var s string
+                if s, err = a.Strval(); err != nil { return }
+                list = append(list, MakePathStr(s))
+        }
+        result = MakeListOrScalar(list)
         return
 }
 
