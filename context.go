@@ -52,6 +52,8 @@ const (
 
         // Return error if wildcard files not found.
         optionWildcardMissingError = false
+
+        optionSaveGrepSourceName = false
 )
 
 type Context struct {

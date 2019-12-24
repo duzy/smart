@@ -476,6 +476,20 @@ ForFilemaps:
         return
 }
 
+func (p *Project) matchTempFile(name string) (file *File) {
+        if file = p.matchFile(name); file != nil {
+                // good
+        } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
+                unreachable()
+        } else if s, err := ctd.Strval(); err == nil {
+                // stat temp file (maybe not existed)
+                file = stat(filepath.Join(s, name), "", "", nil)
+        } else {
+                fmt.Fprintf(stderr, "%v: %v\n", p, err)
+        }
+        return
+}
+
 func (p *Project) isFileName(s string) (res bool) {
         if len(s) > 0 {
                 for _, filemap := range p.filemaps(true) {

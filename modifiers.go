@@ -9,6 +9,7 @@ package smart
 import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
+        "crypto/sha256"
         "path/filepath"
         "hash/crc64"
         "strings"
@@ -1100,70 +1101,19 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
         var targetOSFile *os.File
         var savedGrepOSFile *os.File
         var savedGrepFileName string
-        if targetFileName != "" {
-                var grep = joinTmpPath(".", ".grep")
-                var v1 = strings.Split(targetFileName, PathSep)
-                var v2 = strings.Split(grep, PathSep)
-                for i := 0; i < len(v1) && i < len(v2); i += 1 {
-                        if v1[i] != v2[i] {
-                                // Chop off the common prefix.
-                                v1 = v1[i:]
-                                v2 = v2[i:]
-                                break
-                        }
-                }
-                savedGrepFileName = filepath.Join(grep,
-                        filepath.Join(v1...))
-        } else if file := p.matchFile(targetName); file != nil {
-                var name string
-                if name, err = file.Strval(); err == nil {
-                        var grep = joinTmpPath(".", ".grep")
-                        var v1 = strings.Split(name, PathSep)
-                        var v2 = strings.Split(grep, PathSep)
-                        for i := 0; i < len(v1) && i < len(v2); i += 1 {
-                                if v1[i] != v2[i] {
-                                        // Chop off the common prefix.
-                                        v1 = v1[i:]
-                                        v2 = v2[i:]
-                                        break
-                                }
-                        }
-                        savedGrepFileName = filepath.Join(grep,
-                                filepath.Join(v1...))
-                } else {
-                        return
-                }
-        } else if true {
-                fmt.Fprintf(stderr, "%s: grep missing target file: %v (%v)\n", p, target, targetFileName)
-                return
-        } else if s := targetName+".d"; filepath.IsAbs(s) {
-                dir := filepath.Dir(s)
-                s = filepath.Join("_", filepath.Base(s))
-                savedGrepFileName = joinTmpPath(dir, s)
-        } else if t := p.absPath; t != "" && t != "." && len(tops) > 0 {
-                istop := func(s string) (res bool) {
-                        for _, t := range tops {
-                                if res = s == t; res { break }
-                        }
-                        return
-                }
 
-                // Change "/foo/bar/.smart/.../a/b/c/x":"a/b/c/x" into
-                // "/foo/bar/.smart/...":"a/b/c/x"
-                v1 := strings.Split(t, PathSep)
-                v2 := strings.Split(s, PathSep)
-                t2 := istop(v2[0])
-                for i := len(v1)-1; i >= 0; i -= 1 {
-                        if t2 && istop(v1[i]) {
-                                t = filepath.Join(v1[:i]...)
-                                break
-                        }
-                }
-                savedGrepFileName = joinTmpPath(t, s)
-        } else {
-                //s = strings.Replace(s, "..", "_", -1)
-                savedGrepFileName = joinTmpPath(t, s)
-        }
+        var nameHash = sha256.New() //[sha256.Size]byte
+        fmt.Fprintf(nameHash, "%s", targetFileName)
+
+        // Make names like .grep/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
+        var nameSum = nameHash.Sum(nil)
+        var savedGrepFile = p.matchTempFile(filepath.Join(".grep",
+                fmt.Sprintf("%x", nameSum[ :1]),
+                fmt.Sprintf("%x", nameSum[1:2]),
+                fmt.Sprintf("%x", nameSum[2: ]),
+        ))
+        savedGrepFileName, _ = savedGrepFile.Strval()
+
         if file1 := stat(savedGrepFileName, "", ""); file1 != nil {
                 if file2 := stat(targetFileName, "", ""); file2 != nil {
                         if file2.info.ModTime().After(file1.info.ModTime()) {
@@ -1207,6 +1157,15 @@ GrepTargetFile:
                 return
         } else {
                 defer savedGrepOSFile.Close()
+        }
+
+        if optionSaveGrepSourceName {
+                var perm = os.FileMode(0600)
+                var data = []byte(targetFileName)
+                var name = savedGrepFileName + ".src"
+                if err = ioutil.WriteFile(name, data, perm); err != nil {
+                        return
+                }
         }
 
         var save = bufio.NewWriter(savedGrepOSFile)

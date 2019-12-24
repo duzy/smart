@@ -209,17 +209,10 @@ func openConfigurationFile(p *Project) (file *os.File, err error) {
 
 func configurationFileName(p *Project) (s string, err error) {
         const name = "configuration.sm"
-        if f := p.matchFile(name); f != nil {
+        if f := p.matchTempFile(name); f != nil {
                 s, err = f.Strval()
-        } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
-                unreachable()
-        } else if s, err = ctd.Strval(); err != nil {
-                // error...
         } else {
-                s = filepath.Join(s, name)
-        }
-        if false {
-                fmt.Fprintf(stderr, "configuration.sm: %s: %v\n", p.name, s)
+                fmt.Fprintf(stderr, "%v: no file for configuration.sm\n", p)
         }
         return
 }
