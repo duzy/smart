@@ -11,6 +11,7 @@ import (
         "crypto/sha256"
         "path/filepath"
         "runtime/debug"
+        "runtime"
         "strings"
         "plugin"
         "bytes"
@@ -51,7 +52,7 @@ func (filemap *FileMap) isRealPattern() (result bool) {
 func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
         matched, pre = globMatch(filemap.Pattern, filename)
         if matched { return }
-        if false {
+        if false { // TODO: support percent (%, %%) and regex matching
                 var ( s, t string ; e error )
                 if t, e = filemap.Pattern.Strval(); e != nil { return }
                 for _, p := range filemap.Paths {
@@ -93,6 +94,15 @@ func (filemap *FileMap) stat(base, name string) (file *File) {
         return
 }
 
+// copy of filepath.hasMeta
+func hasGlobMeta(path string) bool {
+	magicChars := `*?[`
+	if runtime.GOOS != "windows" {
+		magicChars = `*?[\`
+	}
+	return strings.ContainsAny(path, magicChars)
+}
+
 // globMatch - Glob matching each component of the filename against the
 // glob value. It checks in two different ways. If the filename and the
 // glob pattern has the some number of components (splitted by PathSep),
@@ -105,19 +115,29 @@ func globMatch(patval Value, filename string) (matched bool, pre string) {
 
         list0 := strings.Split(filepath.Clean(pattern), PathSep)
         list1 := strings.Split(filepath.Clean(filename), PathSep)
-        if n := len(list0); n == 0 {
+        if len(list0) == 0 {
                 // FIXME: match any?
-        } else if m := len(list1); n == m { // foo/*.o  <->  src/foo.o
+        } else if len(list0) == len(list1) { // foo/*.o  <->  src/foo.o
                 // Matching all components
                 for i, pat := range list0 {
-                        matched, _ = filepath.Match(pat, list1[i])
-                        if !matched { return }
+                        if true /*hasGlobMeta(pat)*/ {
+                                matched, _ = filepath.Match(pat, list1[i])
+                                if !matched { return }
+                        } else {
+                                matched = (pat == list1[i])
+                        }
                 }
-        } else if n == 1 && m > 1 { // *.o|foo.o  <->  src/foo.o
+        } else if len(list0) == 1 && len(list1) > 1 { // *.o|foo.o  <->  src/foo.o
                 // Matching the last component of filename and returns
                 // the prefix if matched.
-                if matched, _ = filepath.Match(list0[0], list1[m-1]); matched {
-                        pre = filepath.Join(list1[:m-1]...)
+                list1_tail := list1[len(list1)-1]
+                if true /*hasGlobMeta(list0[0])*/ {
+                        matched, _ = filepath.Match(list0[0], list1_tail)
+                } else {
+                        matched = (list0[0] == list1_tail)
+                }
+                if matched {
+                        pre = filepath.Join(list1[:len(list1)-1]...)
                 }
         }
         return
@@ -378,6 +398,9 @@ ForFilemaps:
         for _, filemap := range p.filemaps(true) {
                 // Match the represented file name.
                 var matched, pre = filemap.Match(name)
+                if name == "llvm/Config/config.h" {
+                        fmt.Fprintf(stderr, "%v: %v ⇒ %v (matched=%v)\n", p.relPath, name, filemap, matched)
+                }
                 if !matched { continue }
                 if p.changedWD != "" {
                         file = filemap.stat(p.changedWD, name)
@@ -392,66 +415,77 @@ ForFilemaps:
                                 assert(file.exists(), "`%s` file not existed", file)
                         }
                 } else if len(filemap.Paths) > 0 {
-                        var sub, err = filemap.Paths[0].Strval()
-                        sub = filepath.Clean(sub) // clean path
-                        if filepath.IsAbs(sub) {
-                                if pre == "" {
-                                        // For example of:
-                                        //   xxx.c  <->  (*.c => /path/to/source)
-                                        // Became:
-                                        //   /path/to/source  ""  xxx.c
-                                        file = stat(name, "", sub, nil)
-                                } else if strings.HasSuffix(sub, PathSep+pre) {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
-                                        // Became:
-                                        //   /path/to/source  foo/bar  xxx.c
-                                        s := strings.TrimSuffix(sub, PathSep+pre)
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, pre, s, nil)
-                                } else {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
-                                        // Became:
-                                        //   /path/to/source  foo/bar  xxx.c
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, pre, sub, nil)
+                        // Matching filemap paths (aka. the search location).
+                        for _, path := range filemap.Paths {
+                                var sub, err = path.Strval()
+                                if err != nil {
+                                        fmt.Fprintf(stderr, "%v: %v: %v\n", p.relPath, path, err)
+                                        return
                                 }
-                        } else {
-                                if pre == "" {
-                                        // For example of:
-                                        //   xxx.c  <->  (*.c => source)
-                                        // Became:
-                                        //   <p.absPath>  source  xxx.c
-                                        file = stat(name, sub, p.absPath, nil)
-                                } else if sub == pre {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => foo/bar)
-                                        // Became:
-                                        //   <p.absPath>  foo/bar  xxx.c
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, sub, p.absPath, nil)
-                                } else if strings.HasSuffix(sub, PathSep+pre) {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
-                                        // Became:
-                                        //   <p.absPath>  source/foo/bar  xxx.c
-                                        s := strings.TrimSuffix(sub, PathSep+pre)
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, pre, s, nil)
+
+                                // Clean the search path
+                                sub = filepath.Clean(sub)
+
+                                if filepath.IsAbs(sub) {
+                                        if pre == "" {
+                                                // For example of:
+                                                //   xxx.c  <->  (*.c => /path/to/source)
+                                                // Become:
+                                                //   /path/to/source  ""  xxx.c
+                                                file = stat(name, "", sub, nil)
+                                        } else if strings.HasSuffix(sub, PathSep+pre) {
+                                                // For example of:
+                                                //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
+                                                // Become:
+                                                //   /path/to/source  foo/bar  xxx.c
+                                                s := strings.TrimSuffix(sub, PathSep+pre)
+                                                n := strings.TrimPrefix(name, pre+PathSep)
+                                                file = stat(n, pre, s, nil)
+                                        } else if false { // This is wrong!!
+                                                // For example of:
+                                                //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
+                                                // Become:
+                                                //   /path/to/source  foo/bar  xxx.c
+                                                n := strings.TrimPrefix(name, pre+PathSep)
+                                                file = stat(n, pre, sub, nil)
+                                        }
                                 } else {
-                                        // For example of:
-                                        //   foo/bar/xxx.c  <->  (*.c => source)
-                                        // Became:
-                                        //   <p.absPath>  source/foo/bar  xxx.c
-                                        s := filepath.Join(sub, pre)
-                                        n := strings.TrimPrefix(name, pre+PathSep)
-                                        file = stat(n, s, p.absPath, nil)
+                                        if pre == "" {
+                                                // For example of:
+                                                //   xxx.c  <->  (*.c => source)
+                                                // Become:
+                                                //   <p.absPath>  source  xxx.c
+                                                file = stat(name, sub, p.absPath, nil)
+                                        } else if sub == pre {
+                                                // For example of:
+                                                //   foo/bar/xxx.c  <->  (*.c => foo/bar)
+                                                // Become:
+                                                //   <p.absPath>  foo/bar  xxx.c
+                                                n := strings.TrimPrefix(name, pre+PathSep)
+                                                file = stat(n, sub, p.absPath, nil)
+                                        } else if strings.HasSuffix(sub, PathSep+pre) {
+                                                // For example of:
+                                                //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
+                                                // Become:
+                                                //   <p.absPath>  source/foo/bar  xxx.c
+                                                s := strings.TrimSuffix(sub, PathSep+pre)
+                                                n := strings.TrimPrefix(name, pre+PathSep)
+                                                file = stat(n, pre, s, nil)
+                                        } else if false { // This is wrong!!
+                                                // For example of:
+                                                //   foo/bar/xxx.c  <->  (*.c => source)
+                                                // Become:
+                                                //   <p.absPath>  source/foo/bar  xxx.c
+                                                s := filepath.Join(sub, pre)
+                                                n := strings.TrimPrefix(name, pre+PathSep)
+                                                file = stat(n, s, p.absPath, nil)
+                                        }
                                 }
-                        }
-                        if file.match == nil { file.match = filemap }
-                        if enable_assertions {
-                                assert(err == nil, "%v: %v", p, err)
+                                if file == nil { continue }
+                                if file.match == nil { file.match = filemap }
+                                if enable_assertions {
+                                        assert(err == nil, "%v: %v", p, err)
+                                }
                         }
                 }
                 if file != nil {
