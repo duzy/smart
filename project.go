@@ -421,6 +421,10 @@ ForFilemaps:
                                 // Clean the search path
                                 sub = filepath.Clean(sub)
 
+                                if name == "llvm/Config/config.h" {
+                                        fmt.Fprintf(stderr, "%v: %v , %v , %v\n", p.relPath, name, sub, pre)
+                                }
+
                                 if filepath.IsAbs(sub) {
                                         if pre == "" { // Fullmatch!
                                                 // For example of:
