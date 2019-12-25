@@ -227,38 +227,34 @@ func (p *Project) mapfile(pat Value, paths []Value) {
         p.filemap = append(p.filemap, &FileMap{ pat, paths })
 }
 
-func (p *Project) filemaps(imports bool) (filemaps []*FileMap) {
-        var unique = make(map[*FileMap]int)
-        var app = func(a []*FileMap) {
-                for _, m := range a {
-                        if _, ok := unique[m]; ok { continue }
-                        filemaps = append(filemaps, m)
-                        unique[m] += 1
+func (p *Project) filemaps() (filemaps []*FileMap) {
+        var appendUnique = func(a *FileMap) {
+                for _, m := range filemaps {
+                        if a == m { return }
                 }
+                filemaps = append(filemaps, a)
         }
-        app(p.filemap)
+        for _, m := range p.filemap {
+                appendUnique(m)
+        }
         for _, base := range p.bases {
-                app(base.filemaps(imports))
-        }
-        if false && optionSearchImportedFiles {
-                if imports {
-                        for _, u := range p.using.list {
-                                app(u.project.filemaps(imports))
-                        }
-                }
-        } else if optionSearchImportedFiles {
-                if imports {
-                        for _, proj := range p.imports {
-                                app(proj.filemaps(imports))
-                        }
+                for _, m := range base.filemaps() {
+                        appendUnique(m)
                 }
         }
-        unique = nil
+        /*
+        for _, u := range p.using.list {
+                app(u.project.filemaps(imports))
+        }
+        for _, proj := range p.imports {
+                app(proj.filemaps(imports))
+        }
+        */
         return
 }
 
 func (p *Project) wildcard(pos Position, wo wildcardOpts, patterns ...Value) (files []*File, err error) {
-        var filemaps = p.filemaps(false)
+        var filemaps = p.filemaps()
 ForPats:
         for _, pat := range patterns {
                 var ( patStr string; matched, breakAbsRel bool )
@@ -356,7 +352,7 @@ ForPats:
 }
 
 func (p *Project) searchFile(name string) (file *File) {
-        for _, filemap := range p.filemaps(true) {
+        for _, filemap := range p.filemaps() {
                 // Match the represented file name.
                 matched, pre := filemap.Match(name)
                 if !matched { continue }
@@ -393,15 +389,14 @@ func (p *Project) searchFile(name string) (file *File) {
 }
 
 func (p *Project) matchFile(name string) (file *File) {
+        //[optional]: defer setclosure(setclosure(cloctx.unshift(p.scope)))
+
         var first *File
 ForFilemaps:
-        for _, filemap := range p.filemaps(true) {
+        for _, filemap := range p.filemaps() {
                 // Match the represented file name.
                 var matched, pre = filemap.Match(name)
-                if name == "llvm/Config/config.h" {
-                        fmt.Fprintf(stderr, "%v: %v ⇒ %v (matched=%v)\n", p.relPath, name, filemap, matched)
-                }
-                if !matched { continue }
+                if !matched { continue ForFilemaps }
                 if p.changedWD != "" {
                         file = filemap.stat(p.changedWD, name)
                 }
@@ -426,8 +421,12 @@ ForFilemaps:
                                 // Clean the search path
                                 sub = filepath.Clean(sub)
 
+                                if name == "llvm/Config/config.h" {
+                                        fmt.Fprintf(stderr, "%v: %v , %v , %v\n", p.relPath, name, sub, pre)
+                                }
+
                                 if filepath.IsAbs(sub) {
-                                        if pre == "" {
+                                        if pre == "" { // Fullmatch!
                                                 // For example of:
                                                 //   xxx.c  <->  (*.c => /path/to/source)
                                                 // Become:
@@ -441,16 +440,19 @@ ForFilemaps:
                                                 s := strings.TrimSuffix(sub, PathSep+pre)
                                                 n := strings.TrimPrefix(name, pre+PathSep)
                                                 file = stat(n, pre, s, nil)
-                                        } else if false { // This is wrong!!
+                                        } else if false { // This is wrong, only base name matched!!
                                                 // For example of:
                                                 //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
                                                 // Become:
                                                 //   /path/to/source  foo/bar  xxx.c
                                                 n := strings.TrimPrefix(name, pre+PathSep)
                                                 file = stat(n, pre, sub, nil)
+                                        } else {
+                                                // Not fit, only base name matched!
+                                                continue ForFilemaps
                                         }
                                 } else {
-                                        if pre == "" {
+                                        if pre == "" { // Fullmatch!
                                                 // For example of:
                                                 //   xxx.c  <->  (*.c => source)
                                                 // Become:
@@ -471,7 +473,7 @@ ForFilemaps:
                                                 s := strings.TrimSuffix(sub, PathSep+pre)
                                                 n := strings.TrimPrefix(name, pre+PathSep)
                                                 file = stat(n, pre, s, nil)
-                                        } else if false { // This is wrong!!
+                                        } else if false { // This is wrong, only base name matched!!
                                                 // For example of:
                                                 //   foo/bar/xxx.c  <->  (*.c => source)
                                                 // Become:
@@ -479,9 +481,12 @@ ForFilemaps:
                                                 s := filepath.Join(sub, pre)
                                                 n := strings.TrimPrefix(name, pre+PathSep)
                                                 file = stat(n, s, p.absPath, nil)
+                                        } else {
+                                                // Not fit, only base name matched!
+                                                continue ForFilemaps
                                         }
                                 }
-                                if file == nil { continue }
+                                if file == nil { continue ForFilemaps }
                                 if file.match == nil { file.match = filemap }
                                 if enable_assertions {
                                         assert(err == nil, "%v: %v", p, err)
@@ -489,14 +494,14 @@ ForFilemaps:
                         }
                 }
                 if file != nil {
-                        if file.exists() { break }
+                        if file.exists() { break ForFilemaps }
                         if first == nil { first = file }
                 }
                 // If the filemap entry is defined by the project itself,
                 // we have to break the matching loop. So that the current
                 // project have a chance to define it's own file. This is
-                // usefull when the bases or imported projects have also
-                // matched filemaps. The current project have the highest
+                // usefull when the bases (or imported projects) have also
+                // matched files. The current project have the highest
                 // priority to match.
                 for _, fm := range p.filemap {
                         if filemap == fm {
@@ -526,7 +531,7 @@ func (p *Project) matchTempFile(name string) (file *File) {
 
 func (p *Project) isFileName(s string) (res bool) {
         if len(s) > 0 {
-                for _, filemap := range p.filemaps(true) {
+                for _, filemap := range p.filemaps() {
                         if res, _ = filemap.Match(s); res { break }
                 }
         }
