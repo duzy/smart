@@ -528,6 +528,7 @@ func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
 }
 
 const pluginDifferentVersionError = `plugin was built with a different version of package`
+var numUpdatedPlugins = 0
 
 func buildPlugin(s, src string) (err error) {
         fmt.Fprintf(stderr, "smart: Build %v …", src)
@@ -536,7 +537,10 @@ func buildPlugin(s, src string) (err error) {
         c := exec.Command("go", "build", "-buildmode=plugin", "-o", s)
         c.Stdout, c.Stderr, c.Dir = o, o, dir
         if err = c.Run(); err == nil {
+                numUpdatedPlugins += 1
                 fmt.Fprintf(stderr, "… ok\n")
+                fmt.Fprintf(stderr, "smart: Plugin updated, please relaunch.\n")
+                os.Exit(0)
         } else {
                 fmt.Fprintf(stderr, "… error\n")
                 fmt.Fprintf(stderr, "%s", o)
@@ -555,7 +559,6 @@ func (l *loader) loadPlugin() (err error) {
         s = filepath.Join(filepath.Dir(joinTmpPath("", "")), "plugins", s)
 
         var build = true
-        var retried bool
 
         so := stat(/*l.project.name*/"plugin", "", s, nil)
         if s, err = so.Strval(); err != nil { return }
@@ -564,15 +567,9 @@ func (l *loader) loadPlugin() (err error) {
                         build = false // Plugin already updated.
                 }
         }
-        if build {
-                if err = buildPlugin(s, src); err != nil {
-                        return
-                }
-        }
-
+        if build { err = buildPlugin(s, src) }
         if err != nil { return }
 
-OpenPlugin:
         // Once plugin is opened, there's no need/way to close it.
         if l.project.plugin, err = plugin.Open(s); err == nil {
                 var p plugin.Symbol
@@ -583,13 +580,8 @@ OpenPlugin:
                 } else if f, ok := p.(func(*Project) (*Scope, error)); ok {
                         l.project.pluginScope, err = f(l.project)
                 }
-        } else if retried {
-                // Returns the error!
         } else if es := err.Error(); strings.Contains(es, pluginDifferentVersionError) {
-                if err = buildPlugin(s, src); err == nil {
-                        retried = true
-                        goto OpenPlugin
-                }
+                err = buildPlugin(s, src)
         }
         return
 }
