@@ -644,7 +644,8 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) {
 func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err error) {
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
-                return nil, fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
+                err = fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
+                return
         }
 
         // The position where (assert) failed.

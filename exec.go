@@ -366,15 +366,17 @@ type executor struct {
 }
 
 func (p *executor) runContainer(prog *Program, dock *Project) (err error) {
-        if false {
-                defer setclosure(cloctx)
-                cloctx = append(closurecontext{prog.project.Scope()}, cloctx...)
-        }
         if run, _ := dock.resolveEntry("run"); run != nil {
-                _, err = run.Execute(prog.position/*, &String{`sh -c "while sleep 3600; do :; done"`}*/)
+                if run.OwnerProject() != dock {
+                        err = fmt.Errorf("'%v' must have 'run' rule", dock)
+                        fmt.Fprintf(stderr, "%v: %v\n", dock.absPath, err)
+                } else {
+                        _, err = run.Execute(prog.position)
+                }
                 if err != nil {
                         fmt.Fprintf(stderr, "%v: %v\n", prog.position, err)
                 }
+
         } else {
                 err = fmt.Errorf("dock⇒run undefined")
         }

@@ -664,9 +664,17 @@ func (p *Project) updateTarget(pc *traversal, target string) (err error) {
                         } else if _, ok := err.(patternPrepareError); ok {
                                 // Discard pattern unfit errors and caller stack.
                                 err = nil
+                        } else if e, ok := err.(*breaker); ok {
+                                switch e.what {
+                                case breakGood, breakModified, breakUpdates:
+                                        //err = nil
+                                default:
+                                        fmt.Fprintf(stderr, "smart: error: %v\n", err)
+                                        return
+                                }
                         } else {
-                                fmt.Fprintf(stderr, "smart: update pattern %v failed%v\n", se)
-                                fmt.Fprintf(stderr, "%v", err)
+                                fmt.Fprintf(stderr, "smart: update pattern %v failed\n", se)
+                                fmt.Fprintf(stderr, "smart: error: %v\n", err)
                                 return // Update failed!
                         }
                 }
