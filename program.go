@@ -97,7 +97,7 @@ func (prog *Program) Scope() *Scope { return prog.scope }
 
 func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
         var alt Object
-        if auto, alt = prog.scope.Def(prog.project, name, value); alt != nil {
+        if auto, alt = prog.scope.define(prog.project, name, value); alt != nil {
                 var found = false
                 if auto, found = alt.(*Def); found {
                         auto.set(DefDefault, value)
@@ -646,7 +646,7 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
         }
 
         if err = pc.traversePrerequites(prog, nested); err != nil {
-                fmt.Fprintf(stderr, "%s: update target '%s' error\n%v\n", prog.position, prog.pc.targetDef.Value, err)
+                //fmt.Fprintf(stderr, "%s: update target '%s' error\n%v\n", prog.position, prog.pc.targetDef.Value, err)
                 err = scanner.WrapErrors(token.Position(prog.position), err)
                 return
         }

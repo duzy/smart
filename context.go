@@ -350,10 +350,10 @@ func (ctx *Context) loadwork() (err error) {
 
         var (
                 ab = base
-                defCTD, _ = as.Def(at, "CTD", &String{tmp})
-                defCWD, _ = as.Def(at, "CWD", &String{at.absPath})
-                defS, _ = as.Def(at, "/", &String{at.absPath})
-                defD, _ = as.Def(at, ".", universalnone)
+                defCTD, _ = as.define(at, "CTD", &String{tmp})
+                defCWD, _ = as.define(at, "CWD", &String{at.absPath})
+                defS, _ = as.define(at, "/", &String{at.absPath})
+                defD, _ = as.define(at, ".", universalnone)
         )
         if defCTD == nil { /* ... */ }
         if defCWD == nil { /* ... */ }

@@ -68,7 +68,7 @@ type parser struct {
         scanner scanner.Scanner
 
 	// Comments
-	comments    []*ast.CommentGroup
+	comments  []*ast.CommentGroup
 	leadComment *ast.CommentGroup // last lead comment
 	lineComment *ast.CommentGroup // last line comment
         

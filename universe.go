@@ -163,7 +163,7 @@ var (
 
 func defUniverseBuiltins() {
         for name, f := range builtins {
-                if _, alt := universe.Builtin(name, f); alt != nil {
+                if _, alt := universe.builtin(name, f); alt != nil {
                         panic(fmt.Sprintf("builtin '%s' already defined", name))
                 }
         }
@@ -176,9 +176,9 @@ func init() {
         for _, a := range os.Args[1:] {
                 args.Elems = append(args.Elems, &String{ a })
         }
-        _, _ = universe.Def(nil, "SMART.BIN", bin)
-        _, _ = universe.Def(nil, "SMART.ARGS", args)
-        _, _ = universe.Def(nil, "SMART", bin)
+        _, _ = universe.define(nil, "SMART.BIN", bin)
+        _, _ = universe.define(nil, "SMART.ARGS", args)
+        _, _ = universe.define(nil, "SMART", bin)
         
         defUniverseBuiltins()
 }
@@ -257,11 +257,11 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
 
                 g.main = m
 
-                def, _ := g.scope.Def(m, "_", universalnone)
+                def, _ := g.scope.define(m, "_", universalnone)
                 if enable_assertions { assert(def != nil, "'$_' is nil") }
 
                 for i := 1; i <= maxNumVarVal; i += 1 {
-                        def, _ := g.scope.Def(m, strconv.Itoa(i), universalnone)
+                        def, _ := g.scope.define(m, strconv.Itoa(i), universalnone)
                         if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
                 }
         }
@@ -279,6 +279,6 @@ func NewGlobe(name string) (g *Globe) {
         var absPath, relPath, tmpPath, spec string
         // TODO: determines absPath, relPath, tmpPath, spec
         g.os = g.project(nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
-        //g.os.scope.Def(g.os, "name", universalnone)
+        //g.os.scope.define(g.os, "name", universalnone)
         return g
 }

@@ -93,7 +93,7 @@ func init_configuration(paths searchlist) (err error) {
                 var name string
                 if name, err = entry.target.Strval(); err != nil { return }
                 var project = entry.OwnerProject()
-                def, alt := project.scope.Def(project, name, nil) // unconfigured
+                def, alt := project.scope.define(project, name, nil) // unconfigured
                 if alt != nil {
                         err = fmt.Errorf("configure: `%v` already existed", name)
                         return
@@ -1170,7 +1170,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
         if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
         if name, err = target.Strval(); err != nil { return }
 
-        var def, alt = prog.project.scope.Def(prog.project, name, nil)
+        var def, alt = prog.project.scope.define(prog.project, name, nil)
         if alt != nil { def, _ = alt.(*Def) }
         if def == nil {
                 err = scanner.Errorf(token.Position(pos), "cannot define configuration `%s`", name)
@@ -1235,7 +1235,7 @@ ForConfig:
                 case *Pair: // Set def
                         /*switch k := arg.Key.(type) {
                         case *Bareword:
-                                def, alt := prog.project.scope.Def(prog.project, k.string, universalnone)
+                                def, alt := prog.project.scope.define(prog.project, k.string, universalnone)
                                 if alt != nil {
                                         if p, _ := alt.(*Def); p != nil && p != def { def = p }
                                 }

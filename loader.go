@@ -1802,7 +1802,7 @@ func (l *loader) def(name string) (def *Def, alt Object) {
                 // to ensure that the symbol is valid in the project
                 scope = l.project.scope
         }
-        return scope.Def(l.project, name, universalnone)
+        return scope.define(l.project, name, universalnone)
 }
 
 func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, value Value) (err error) {
