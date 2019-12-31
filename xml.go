@@ -16,6 +16,7 @@ type XML struct { Value Value }
 func (p *XML) refs(_ Value) bool { return false }
 func (p *XML) closured() bool { return p.Value.closured() }
 func (p *XML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
+func (p *XML) Position() Position { return p.Value.Position() }
 func (p *XML) True() bool { return p.Value.True() }
 func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
 func (p *XML) Strval() (string, error) { return p.Value.Strval() }
@@ -61,6 +62,7 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
         var (
                 stack []*Group
                 nodes []*Group
+                pos Position // FIXME: calculate the position
         )
         xd := xml.NewDecoder(strings.NewReader(source))
         var tok xml.Token
@@ -69,13 +71,13 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                 case xml.ProcInst:
                         // TODO: ...
                 case xml.StartElement:
-                        nn := MakeGroup(&Bareword{elem.Name.Local})
+                        nn := MakeGroup(&Bareword{pos,elem.Name.Local})
                         for _, a := range elem.Attr {
                                 var k, v Value
-                                k = &Bareword{a.Name.Local}
-                                v = &String{a.Value}
+                                k = &Bareword{pos,a.Name.Local}
+                                v = &String{pos,a.Value}
                                 if s := a.Name.Space; s != "" {
-                                        k = MakeGroup(&String{s}, k)
+                                        k = MakeGroup(&String{pos,s}, k)
                                 }
                                 nn.Append(MakePair(k, v))
                         }
@@ -95,10 +97,10 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
-                                        node.Append(&String{s})
+                                        node.Append(&String{pos,s})
                                 } else {
                                         if s = strings.TrimSpace(s); s != "" {
-                                                node.Append(&String{s})
+                                                node.Append(&String{pos,s})
                                         }
                                 }
                         }

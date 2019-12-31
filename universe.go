@@ -22,13 +22,14 @@ const maxNumVarVal = 9
 var (
 	universe *Scope
 
-        modifierbar = &ModifierBar{}
         universalnone = &None{}
         universalnil = &Nil{}
+        modifierbar = &ModifierBar{}
+        /*
         universalyes = &answer{ true }
         universalno = &answer{ false }
         universaltrue = &boolean{ true }
-        universalfalse = &boolean{ false }
+        universalfalse = &boolean{ false } */
 )
 
 func defUniverseBuiltins() {
@@ -42,9 +43,10 @@ func defUniverseBuiltins() {
 func init() {
         universe = NewScope(nil, nil, "universe")
 
-        bin, args := &String{ os.Args[0] }, new(List)
+        var pos Position
+        bin, args := &String{pos,os.Args[0]}, new(List)
         for _, a := range os.Args[1:] {
-                args.Elems = append(args.Elems, &String{ a })
+                args.Elems = append(args.Elems, &String{pos,a})
         }
         _, _ = universe.define(nil, "SMART.BIN", bin)
         _, _ = universe.define(nil, "SMART.ARGS", args)

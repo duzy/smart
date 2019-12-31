@@ -37,12 +37,14 @@ type Object interface {
 }
 
 type unknownobject struct { // generally unnamed objects
+        position Position
         scope *Scope
         owner *Project
 }
 func (p *unknownobject) refs(_ Value) bool { return false }
 func (p *unknownobject) closured() bool { return false }
 func (p *unknownobject) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *unknownobject) Position() Position { return p.position }
 func (p *unknownobject) True() bool { return false }
 func (p *unknownobject) Name() string { panic("inquiring name of an unknown object") }
 func (p *unknownobject) DeclScope() *Scope { return p.scope }
@@ -170,7 +172,7 @@ func (p *ProjectName) Get(name string) (value Value, err error) {
 // Call a ProjectName returns the project name.
 func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
         if p.project != nil {
-                value = &String{ p.project.name }
+                value = &String{pos,p.project.name}
         }
         return
 }
@@ -348,7 +350,7 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                         sh := exec.Command("sh", "-c", s)
                         sh.Stdout, sh.Stderr = &stdout, &stderr
                         if err = sh.Run(); err != nil { value = universalnone } else {
-                                value = &String{strings.TrimSpace(stdout.String())}
+                                value = &String{d.Value.Position(),strings.TrimSpace(stdout.String())}
                         }
                         stdout.Reset()
                         stderr.Reset()
@@ -433,7 +435,7 @@ func (d *Def) DiscloseValue() (res Value, err error) {
 
 func (d *Def) Get(name string) (Value, error) {
         switch name {
-        case "name": return &String{d.name}, nil
+        case "name": return &String{d.Position(),d.name}, nil
         case "value": return d.Value, nil
         }
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
@@ -483,6 +485,7 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         return
 }
 
+func (p *undetermined) Position() Position { return p.identifier.Position() }
 func (p *undetermined) True() bool { return p.value.True() }
 
 func (p *undetermined) String() (s string) {
@@ -565,9 +568,10 @@ type RuleEntry struct {
         class RuleEntryClass
         target Value
         programs []*Program
-        Position Position
+        position Position
 }
 
+func (entry *RuleEntry) Position() Position { return entry.position/*entry.target.Position()*/ }
 func (entry *RuleEntry) True() bool { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
 func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }
@@ -577,7 +581,7 @@ func (entry *RuleEntry) Name() string {
         if entry == nil {
                 panic("entry is nil")
         } else if entry.target == nil {
-                fmt.Fprintf(stderr, "%v: nil target\n", entry.Position)
+                fmt.Fprintf(stderr, "%v: nil target\n", entry.position)
                 panic("entry target is nil")
         }
         s, err := entry.target.Strval()
@@ -667,8 +671,8 @@ ForPrograms:
 
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
-        case "class": return &String{entry.class.String()}, nil
-        case "name": return &String{entry.Name()}, nil
+        case "class": return &String{entry.position,entry.class.String()}, nil
+        case "name": return &String{entry.position,entry.Name()}, nil
         // case "prerequisites": ...
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
@@ -736,7 +740,10 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         if target != entry.target {
                 // TODO: test if programs are needed to be disclosed??
                 res = &RuleEntry{
-                        entry.class, target, entry.programs, entry.Position,
+                        entry.class,
+                        target,
+                        entry.programs,
+                        entry.position,
                 }
         } else {
                 res = entry
@@ -771,7 +778,7 @@ ForPrograms:
                 }
         }
         if err == nil && failed {
-                err = scanner.Errorf(token.Position(entry.Position), "assertion failed")
+                err = scanner.Errorf(token.Position(entry.position), "assertion failed")
         }
         return
 }
@@ -885,7 +892,7 @@ func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry
                         if enable_assertions {
                                 assert(!proj.isFileName(name), "`%s` is file", name)
                         }
-                        entry.target = &String{ name }
+                        entry.target = &String{entry.position,name}
                 }
         }
         return

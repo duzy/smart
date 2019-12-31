@@ -805,9 +805,9 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
 
         c.nomiss, c.nocomp = optDiscardMissing, optNoUpdate
         if err = c.Compare(pos, depends); err == nil {
-                result = universaltrue
+                result = &boolean{pos,true}
         } else {
-                result = universalfalse
+                result = &boolean{pos,false}
                 if br, ok := err.(*breaker); ok {
                         switch br.what {
                         case breakGood:
@@ -900,9 +900,9 @@ func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Val
                         c.nomiss = optDisMiss
                         c.nocomp = optNoUpdate
                         if err = c.Compare(pos, v); err == nil {
-                                result = universaltrue //MakeListOrScalar(c.result)
+                                result = &boolean{pos,true} //MakeListOrScalar(c.result)
                         } else {
-                                result = universalfalse
+                                result = &boolean{pos,false}
                         }
                 }
         }
@@ -1305,7 +1305,7 @@ func modifierCheck(pos Position, prog *Program, args... Value) (result Value, er
 
         var optBreak breakind // breaking with good results
         var optSilent bool // don't break on failures
-        var makeResult func(bool) Value // returns results only if non-nil
+        var makeResult func(Position,bool) Value // returns results only if non-nil
         var values []Value
         var pairs []*Pair
         if args, err = parseFlags(args, []string{
@@ -1350,7 +1350,7 @@ ForPairs:
                         var num int64
                         if num, err = t.Value.Integer(); err != nil { return }
                         if res := exeres.Status == int(num); makeResult != nil {
-                                values = append(values, makeResult(res))
+                                values = append(values, makeResult(pos, res))
                         } else if !res {
                                 err = break_with(pos, optBreak, "bad status (%v) (expects %v)", exeres.Status, t.Value)
                                 break ForPairs
@@ -1376,7 +1376,7 @@ ForPairs:
                         if str, err = t.Value.Strval(); err != nil { 
                                 return
                         } else if res := v.String() == str; makeResult != nil {
-                                values = append(values, makeResult(res))
+                                values = append(values, makeResult(pos, res))
                         } else if !res {
                                 err = break_with(pos, optBreak, "bad %s (%v) (expects %v)", key, v, t.Value)
                                 break ForPairs
@@ -1392,14 +1392,14 @@ ForPairs:
                         switch key {
                         case "file":
                                 if res := file.info.Mode().IsRegular(); makeResult != nil {
-                                        values = append(values, makeResult(res))
+                                        values = append(values, makeResult(pos, res))
                                 } else if !res {
                                         err = break_with(pos, optBreak, "`%v` is not a regular file", t.Value)
                                         break ForPairs
                                 }
                         case "dir":
                                 if res := file.info.Mode().IsDir(); makeResult != nil {
-                                        values = append(values, makeResult(res))
+                                        values = append(values, makeResult(pos, res))
                                 } else if !res {
                                         err = break_with(pos, optBreak, "`%v` is not a directory", t.Value)
                                         break ForPairs
@@ -1422,13 +1422,13 @@ ForPairs:
                                                 if a, err = p.Value.Strval(); err != nil { break ForPairs }
                                                 if b, err = def.Value.Strval(); err != nil { break ForPairs }
                                                 if res := a != b; makeResult != nil {
-                                                        values = append(values, makeResult(res))
+                                                        values = append(values, makeResult(pos, res))
                                                 } else if !res {
                                                         err = break_with(pos, optBreak, "`%v` != `%v`", p.Key, p.Value)
                                                         break ForPairs
                                                 }
                                         } else if makeResult != nil {
-                                                values = append(values, makeResult(false))
+                                                values = append(values, makeResult(pos, false))
                                         } else {
                                                 err = break_with(pos, optBreak, "`%v` is not defined", k)
                                                 break ForPairs

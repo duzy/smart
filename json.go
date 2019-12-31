@@ -18,6 +18,7 @@ type JSON struct { Value Value }
 func (p *JSON) refs(_ Value) bool { return false }
 func (p *JSON) closured() bool { return p.Value.closured() }
 func (p *JSON) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
+func (p *JSON) Position() Position { return p.Value.Position() }
 func (p *JSON) True() bool { return p.Value.True() }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
 func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
@@ -70,6 +71,7 @@ func DecodeJSON(source string) (result Value, err error) {
                 value Value
                 t, v json.Token
                 s string
+                pos Position // TODO: compute positions
         )
         jd := json.NewDecoder(strings.NewReader(source))
         LoopJSON: for {
@@ -81,7 +83,7 @@ func DecodeJSON(source string) (result Value, err error) {
                 case json.Delim:
                         switch d {
                         case '[':
-                                nn := &Group{List{elements{[]Value{&Bareword{JsonArray}}}}}
+                                nn := &Group{List{elements{[]Value{&Bareword{pos,JsonArray}}}}}
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -90,7 +92,7 @@ func DecodeJSON(source string) (result Value, err error) {
                                 stack = append(stack, nn) // APPEND
                                 break SwitchNodeType
                         case '{':
-                                nn := &Group{List{elements{[]Value{&Bareword{JsonObject}}}}}
+                                nn := &Group{List{elements{[]Value{&Bareword{pos,JsonObject}}}}}
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -124,7 +126,7 @@ func DecodeJSON(source string) (result Value, err error) {
                                 err = ErrorIllJson; break LoopJSON
                         }
                 case string:
-                        var sv = &String{d}
+                        var sv = &String{pos,d}
                         if x == 0 {
                                 nodes = append(nodes, sv)
                                 break
@@ -151,30 +153,30 @@ func DecodeJSON(source string) (result Value, err error) {
                         case json.Delim:
                                 var vn *Group
                                 switch vd {
-                                case '[': vn = &Group{List{elements{[]Value{&Bareword{JsonArray}}}}}
-                                case '{': vn = &Group{List{elements{[]Value{&Bareword{JsonObject}}}}}
+                                case '[': vn = &Group{List{elements{[]Value{&Bareword{pos,JsonArray}}}}}
+                                case '{': vn = &Group{List{elements{[]Value{&Bareword{pos,JsonObject}}}}}
                                 default: err = ErrorIllJson; break LoopJSON
                                 }
                                 stack = append(stack, vn)
                                 node.Append(&Pair{sv, vn})
                         case string:
-                                node.Append(&Pair{sv, &String{vd}})
+                                node.Append(&Pair{sv, &String{pos,vd}})
                         case float64:
-                                node.Append(&Pair{sv, &Float{vd}})
+                                node.Append(&Pair{sv, &Float{pos,vd}})
                         case nil: // null
-                                node.Append(&Pair{sv, &Bareword{"null"}})
+                                node.Append(&Pair{sv, &Bareword{pos,"null"}})
                         default:
                                 err = ErrorIllJson; break LoopJSON
                         }
                         //fmt.Fprintf(stderr, "node: %v\n", node)
                 case float64:
-                        if v := Value(&Float{d}); x == 0 {
+                        if v := Value(&Float{pos,d}); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
                         }
                 case nil: // null
-                        if v := Value(&Bareword{"null"}); x == 0 {
+                        if v := Value(&Bareword{pos,"null"}); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v

@@ -121,7 +121,7 @@ func do_configuration() (err error) {
 
         var defs = make(map[string]Value)
         for _, entry := range configuration.entries {
-                var pos = token.Position(entry.Position)
+                var pos = token.Position(entry.position)
                 if p := entry.OwnerProject(); p != project && p != nil {
                         var f, e = openConfigurationFile(p)
                         if e != nil {
@@ -149,7 +149,7 @@ func do_configuration() (err error) {
                         fmt.Fprintf(stderr, "configure: Project %s …… (%s)\n", p.name, p.relPath)
                         project, num = p, 0
                 }
-                if _, e := entry.Execute(entry.Position); e != nil {
+                if _, e := entry.Execute(entry.position); e != nil {
                         err = scanner.WrapErrors(pos, e, err)
                 } else if s, e := entry.target.Strval(); e != nil {
                         err = scanner.WrapErrors(pos, e, err)
@@ -182,8 +182,8 @@ func do_configuration() (err error) {
                 } else {
                         executed[entry] = true
                 }
-                if _, e := entry.Execute(entry.Position); e != nil {
-                        pos := token.Position(entry.Position)
+                if _, e := entry.Execute(entry.position); e != nil {
+                        pos := token.Position(entry.position)
                         err = scanner.WrapErrors(pos, e, err)
                 }
         }
@@ -263,7 +263,6 @@ func configPrintMessageHead(pos Position, fields map[string]Value, args... Value
         configPrintf(pos, str, ints...)
 }
 
-var strStructMember = &String{ "struct member" }
 func configMessageHead(pos Position, op string, fields map[string]Value, params... Value) (err error) {
         var str = "configure: "
         if v, ok := fields["info"]; ok {
@@ -509,13 +508,13 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
                 if len(params) > 1 { // [NAME 1 0]
                         result = params[1]
                 } else {
-                        result = universaltrue
+                        result = &boolean{pos, true}
                 }
         } else {
                 if len(params) > 2 { // [NAME 1 0]
                         result = params[2]
                 } else {
-                        result = universalfalse
+                        result = &boolean{pos, false}
                 }
         }
         return
@@ -524,12 +523,12 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
 // (configure -answer)
 // (configure -answer(opt_true,opt_false))
 func configureAnswer(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
-        return configureBool(pos, prog, def, params[0], universalyes, universalno)
+        return configureBool(pos, prog, def, params[0], &answer{pos,true}, &answer{pos,false})
 }
 
 func configureOption(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
         if result, err = def.Call(pos); err == nil {
-                if result == nil { result = universalno }
+                if result == nil { result = &answer{pos,false} }
         } else if result != nil {
                 var res Value
                 if res, err = result.expand(expandAll); err == nil && res != result {
@@ -617,7 +616,7 @@ func configurePackage(pos Position, prog *Program, def *Def, args... Value) (res
                         }
                         if info != nil {
                                 configuration.packages[name] = info
-                                result = universalyes
+                                result = &answer{pos,true}
                                 break
                         }
                 }
@@ -760,7 +759,7 @@ ForArgs:
         //   ...
 
         var value = configuration.project.scope.Lookup("_VALUE_").(*Def)
-        if err = value.set(DefSimple, universalnone); err != nil { return }
+        if err = value.set(DefSimple, &None{pos}); err != nil { return }
         if pipe.Value != nil {
                 if _, ok := pipe.Value.(*None); !ok {
                         value.Value = pipe.Value
@@ -769,7 +768,7 @@ ForArgs:
 
         var includesValues []Value
         var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
-        if err = includes.set(DefSimple, universalnone); err != nil { return }
+        if err = includes.set(DefSimple, &None{pos}); err != nil { return }
         if strName == "include" && len(params) > 1 {
                 // -include('<xxx.h>',...)
                 for _, value := range params[1:] {
@@ -805,13 +804,13 @@ ForArgs:
                         }
                         lines = append(lines, s)
                 }
-                value = &String{strings.Join(lines, "\n")}
+                value = &String{pos,strings.Join(lines, "\n")}
                 if err = includes.set(DefExpand, value); err != nil { return }
         }
 
         var loadlibsValues []Value
         var loadlibs = configuration.project.scope.Lookup("_LOADLIBES_").(*Def)
-        if err = loadlibs.set(DefSimple, universalnone); err != nil { return }
+        if err = loadlibs.set(DefSimple, &None{pos}); err != nil { return }
         if value, ok := fields["load"]; ok { loadlibsValues = append(loadlibsValues, value) }
         if value, ok := fields["loadlib"]; ok { loadlibsValues = append(loadlibsValues, value) }
         if value, ok := fields["loadlibs"]; ok { loadlibsValues = append(loadlibsValues, value) }
@@ -832,13 +831,13 @@ ForArgs:
                         }
                         lines = append(lines, s)
                 }
-                value = &String{strings.Join(lines, " ")}
+                value = &String{pos,strings.Join(lines, " ")}
                 if err = loadlibs.set(DefExpand, value); err != nil { return }
         }
 
         var libsValues []Value
         var libs = configuration.project.scope.Lookup("_LIBS_").(*Def)
-        if err = libs.set(DefSimple, universalnone); err != nil { return }
+        if err = libs.set(DefSimple, &None{pos}); err != nil { return }
         if value, ok := fields["lib"]; ok { libsValues = append(libsValues, value) }
         if value, ok := fields["libs"]; ok { libsValues = append(libsValues, value) }
         for _, value := range libsValues {
@@ -858,7 +857,7 @@ ForArgs:
                         }
                         lines = append(lines, s)
                 }
-                value = &String{strings.Join(lines, " ")}
+                value = &String{pos,strings.Join(lines, " ")}
                 if err = libs.set(DefExpand, value); err != nil { return }
         }
         /*
@@ -1209,7 +1208,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                 switch v := value.(type) {
                 default: err = def.set(DefExpand, value)
                 case *None: err = def.set(DefExecute, nil)
-                case *Plain: err = def.set(DefExecute, &String{v.Value})
+                case *Plain: err = def.set(DefExecute, &String{pos,v.Value})
                 case *ExecResult:
                         var s string
                         if v.Status == 0 && v.Stdout.Buf != nil {
@@ -1217,7 +1216,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                         } else if v.Stderr.Buf != nil {
                                 s = v.Stderr.Buf.String()
                         }
-                        err = def.set(DefExecute, &String{s})
+                        err = def.set(DefExecute, &String{pos,s})
                 // TODO: case *JSON
                 // TODO: case *XML
                 }
@@ -1241,7 +1240,7 @@ ForConfig:
                 case *Pair: // Set def
                         /*switch k := arg.Key.(type) {
                         case *Bareword:
-                                def, alt := prog.project.scope.define(prog.project, k.string, universalnone)
+                                def, alt := prog.project.scope.define(prog.project, k.string, &None{pos})
                                 if alt != nil {
                                         if p, _ := alt.(*Def); p != nil && p != def { def = p }
                                 }

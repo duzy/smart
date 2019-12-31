@@ -48,6 +48,8 @@ const (
 
 // Value represents a value of a type.
 type Value interface {
+        Positioner // The position where the value appears (or NoPos).
+
         // Returns true if the value can be evaluated as 'true', 'yes', etc.
         True() bool
 
@@ -494,7 +496,7 @@ func (pc *traversal) traverseAll(value interface{}, nested bool) (err error) {
 }
 
 func (pc *traversal) traverse(value interface{}) (err error) {
-        var pos = token.Position(pc.entry.Position)
+        var pos = token.Position(pc.entry.position)
         if value == nil {
                 err = scanner.Errorf(pos, "updating nil prerequisite")
         } else if p, ok := value.(prerequisite); !ok {
@@ -611,7 +613,7 @@ func (pc *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
                 }
         }
 
-        target, _ := prog.scope.Lookup("@").(*Def).Call(entry.Position)
+        target, _ := prog.scope.Lookup("@").(*Def).Call(entry.position)
         pc.addNotExistedTargets(target, res)
         return
 }
@@ -679,6 +681,7 @@ func (p *Argumented) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *Argumented) Position() Position { return p.Val.Position() }
 func (p *Argumented) True() (res bool) {
         if p.Val != nil {
                 res = p.Val.True()
@@ -752,7 +755,7 @@ func (p *Argumented) checkPatternDepends(pc *traversal, project *Project, se *St
         return
 }
 
-type None struct {}
+type None struct { position Position }
 func (_ *None) refs(_ Value) bool { return false }
 func (_ *None) closured() bool { return false }
 func (p *None) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -760,6 +763,7 @@ func (_ *None) cmp(v Value) (res cmpres) {
         if _, ok := v.(*None); ok { res = cmpEqual }
         return
 }
+func (p *None) Position() Position { return p.position }
 func (_ *None) True() bool { return false }
 func (_ *None) Integer() (int64, error) { return 0, nil }
 func (_ *None) Float() (float64, error) { return 0, nil }
@@ -832,6 +836,12 @@ func (p *Any) refs(o Value) (res bool) {
 func (p *Any) closured() (res bool) {
         if v, ok := p.value.(Value); ok {
                 res = v.closured()
+        }
+        return
+}
+func (p *Any) Position() (res Position) {
+        if v, ok := p.value.(Positioner); ok {
+                res = v.Position()
         }
         return
 }
@@ -913,6 +923,7 @@ func (p *negative) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *negative) Position() Position { return p.x.Position() }
 func (p *negative) True() (res bool) {
         if p.x == nil {
                 res = true
@@ -950,10 +961,14 @@ func (p *negative) traverse(pc *traversal) (err error) {
 
 func Negative(val Value) *negative { return &negative{val} }
 
-type boolean struct { bool }
+type boolean struct {
+        position Position
+        bool
+}
 func (p *boolean) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *boolean) refs(_ Value) bool { return false }
 func (p *boolean) closured() bool { return false }
+func (p *boolean) Position() Position { return p.position }
 func (p *boolean) True() bool { return p.bool }
 func (p *boolean) String() (s string) {
         if p.bool { s = "true" } else { s = "false" }
@@ -992,10 +1007,14 @@ func (p *boolean) cmp(v Value) (res cmpres) {
         return
 }
 
-type answer struct { bool }
+type answer struct {
+        position Position
+        bool
+}
 func (p *answer) refs(_ Value) bool { return false }
 func (p *answer) closured() bool { return false }
 func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *answer) Position() Position { return p.position }
 func (p *answer) True() bool { return p.bool }
 func (p *answer) String() (s string) {
         if p.bool { s = "yes" } else { s = "no" }
@@ -1034,9 +1053,13 @@ func (p *answer) cmp(v Value) (res cmpres) {
         return
 }
 
-type integer struct { int64 }
+type integer struct {
+        position Position
+        int64
+}
 func (p *integer) refs(_ Value) bool { return false }
 func (p *integer) closured() bool { return false }
+func (p *integer) Position() Position { return p.position }
 func (p *integer) True() bool { return p.int64 != 0 }
 func (p *integer) Integer() (int64, error) { return p.int64, nil }
 func (p *integer) Float() (float64, error) { return float64(p.int64), nil }
@@ -1076,10 +1099,14 @@ func (p *Hex) String() string { return fmt.Sprintf("0x%s", strconv.FormatInt(int
 func (p *Hex) Strval() (string, error) { return strconv.FormatInt(int64(p.int64),16), nil }
 
 const FloatEpsilon = 1e-15 /* 1e-16 */
-type Float struct { float64 } // IEEE-754 64-bit binary floating-point
+type Float struct {
+        position Position
+        float64
+} // IEEE-754 64-bit binary floating-point
 func (p *Float) refs(_ Value) bool { return false }
 func (p *Float) closured() bool { return false }
 func (p *Float) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *Float) Position() Position { return p.position }
 func (p *Float) True() bool { return math.Abs(p.float64)-0 > FloatEpsilon }
 func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 func (p *Float) Strval() (string, error) { return strconv.FormatFloat(float64(p.float64),'g', -1, 64), nil }
@@ -1100,10 +1127,14 @@ func (p *Float) cmp(v Value) (res cmpres) {
         return
 }
 
-type DateTime struct { Value time.Time }
+type DateTime struct {
+        position Position
+        Value time.Time
+}
 func (_ *DateTime) refs(_ Value) bool { return false }
 func (_ *DateTime) closured() bool { return false }
 func (p *DateTime) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *DateTime) Position() Position { return p.position }
 func (p *DateTime) True() bool { return !p.Value.IsZero() }
 func (p *DateTime) String() string {
         if s, e := p.Strval(); e == nil {
@@ -1137,10 +1168,10 @@ func (p *DateTime) cmp(v Value) (res cmpres) {
         return
 }
 
-func ParseDateTime(s string) *DateTime {
+func ParseDateTime(pos Position, s string) *DateTime {
         // time.RFC3339Nano
         if t, e := time.Parse("2006-01-02T15:04:05.999999999Z07:00", s); e == nil {
-                return &DateTime{t}
+                return &DateTime{pos,t}
         } else {
                 panic(e)
         }
@@ -1175,6 +1206,7 @@ func (p *Time) Float() (float64, error) { i, e := p.Integer(); return float64(i)
 //                └(//)┬──────────────┬<host>┬──────────┬┘      └(?)─<query>┘└(#)─<fragment>┘
 //                     └<userinfo>─(@)┘      └(:)─<port>┘
 type URL struct {
+        position Position
         Scheme Value
         Username Value
         Password Value
@@ -1187,6 +1219,7 @@ type URL struct {
 func (_ *URL) refs(_ Value) bool { return false }
 func (_ *URL) closured() bool { return false }
 func (p *URL) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *URL) Position() Position { return p.position }
 func (p *URL) True() bool { return p.String() != "" }
 func (p *URL) elemstr(o Object, k elemkind) (s string) {
         if s = elementString(o, p.Scheme, k); s == "" { return }
@@ -1336,10 +1369,14 @@ func (p *URL) Validate() (res *url.URL){
         return
 }
 
-type Raw struct { string }
+type Raw struct {
+        position Position
+        string
+}
 func (_ *Raw) refs(_ Value) bool { return false }
 func (_ *Raw) closured() bool { return false }
 func (p *Raw) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *Raw) Position() Position { return p.position }
 func (p *Raw) True() bool { return p.string != "" }
 func (p *Raw) String() string { return p.string }
 func (p *Raw) Strval() (string, error) { return p.string, nil }
@@ -1356,10 +1393,14 @@ func (p *Raw) cmp(v Value) (res cmpres) {
         return
 }
 
-type String struct { string }
+type String struct {
+        position Position
+        string
+}
 func (_ *String) refs(_ Value) bool { return false }
 func (_ *String) closured() bool { return false }
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *String) Position() Position { return p.position }
 func (p *String) True() bool { return p.string != "" }
 func (p *String) elemstr(o Object, k elemkind) (s string) {
         if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
@@ -1390,10 +1431,14 @@ func (p *String) cmp(v Value) (res cmpres) {
         return
 }
 
-type Bareword struct { string }
+type Bareword struct {
+        position Position
+        string
+}
 func (_ *Bareword) refs(_ Value) bool { return false }
 func (_ *Bareword) closured() bool { return false }
 func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *Bareword) Position() Position { return p.position }
 func (p *Bareword) True() (t bool) {
         switch p.string {
         case "", "false", "no", "off", "0": t = false
@@ -1454,6 +1499,12 @@ func (p *elements) Take(n int) (v Value) {
 func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{*p} }
 func (p *elements) ToCompound() *Compound { return &Compound{*p} }
 func (p *elements) ToList() *List { return &List{*p} }
+func (p *elements) Position() (pos Position) {
+        if len(p.Elems) > 0 {
+                pos = p.Elems[0].Position()
+        }
+        return
+}
 func (p *elements) True() (t bool) { // (or elems...)
         for _, elem := range p.Elems {
                 if elem != nil {
@@ -1568,6 +1619,7 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
+func (p *Barefile) Position() Position { return p.Name.Position() }
 func (p *Barefile) True() bool { return p.File != nil }
 func (p *Barefile) elemstr(o Object, k elemkind) (s string) { return elementString(o, p.Name, k) }
 func (p *Barefile) String() string { return p.elemstr(nil, 0) }
@@ -1620,10 +1672,14 @@ func (p *Barefile) cmp(v Value) (res cmpres) {
         return
 }
 
-type GlobMeta struct { token.Token }
+type GlobMeta struct {
+        position Position
+        token.Token
+}
 func (p *GlobMeta) refs(o Value) bool { return false }
 func (p *GlobMeta) closured() bool { return false }
 func (p *GlobMeta) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *GlobMeta) Position() Position { return p.position }
 func (p *GlobMeta) True() bool { return false }
 func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval() (string, error) { return p.Token.String(), nil }
@@ -1653,6 +1709,7 @@ func (p *GlobRange) expand(w expandwhat) (Value, error) {
                 return p, nil
         }
 }
+func (p *GlobRange) Position() Position { return p.Chars.Position() }
 func (p *GlobRange) True() bool { return false }
 func (p *GlobRange) elemstr(o Object, k elemkind) (s string) {
         return fmt.Sprintf("[%s]", elementString(o, p.Chars, k))
@@ -1714,12 +1771,16 @@ func (p *Path) Strval() (s string, e error) {
 }
 func (p *Path) Integer() (int64, error) { return 0, nil }
 func (p *Path) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
+func (p *Path) Position() (res Position) {
+        if p.Elems != nil {
+                res = p.Elems[0].Position()
+        }
+        return
+}
 func (p *Path) True() (t bool) {
-        //if t = p.File != nil; !t {
-                for _, elem := range p.Elems {
-                        t = elem.True(); break
-                }
-        //}
+        for _, elem := range p.Elems {
+                t = elem.True(); break
+        }
         return
 }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
@@ -1730,7 +1791,7 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
                 for _, elem := range elems {
                         switch v := elem.(type) {
                         case *String:
-                                segs := MakePathStr(v.string).Elems
+                                segs := MakePathStr(elem.Position(),v.string).Elems
                                 vals = append(vals, segs...)
                         default:
                                 vals = append(vals, elem)
@@ -1795,7 +1856,7 @@ func (p *Path) traverse(pc *traversal) (err error) {
                 }
                 //if p.File = stat(e.target, "", ""); p.File == nil {
                 if file := stat(e.target, "", ""); file == nil {
-                        pc.addNotExistedTarget1(&String{e.target}) // Append unknown path anyway.
+                        pc.addNotExistedTarget1(&String{p.Position(),e.target}) // Append unknown path anyway.
                         err.Err = pathNotFoundError{e.project, p}
                         errs = append(errs, err)
                 } else if /*p.File*/file.info != nil {
@@ -2026,10 +2087,14 @@ ForPathSegs:
         return
 }
 
-type PathSeg struct { rune }
+type PathSeg struct {
+        position Position
+        rune
+}
 func (p *PathSeg) refs(_ Value) bool { return false }
 func (p *PathSeg) closured() bool { return false }
 func (p *PathSeg) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *PathSeg) Position() Position { return p.position }
 func (p *PathSeg) True() bool { return true }
 func (p *PathSeg) String() (s string) { 
         var e error
@@ -2227,7 +2292,7 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                 filecache[fullname] = base
         }
 GotFile:
-        file = &File{ base, stub }
+        file = &File{Position{},base, stub} // FIXME: needs position information
         if enable_assertions {
                 if !addNotExisted {
                         assert(file.exists(), "`%s` file not existed", fullname)
@@ -2253,10 +2318,15 @@ GotFile:
         return
 }
 
-type File struct { *filebase ; *filestub }
+type File struct {
+        position Position
+        *filebase
+        *filestub
+}
 func (p *File) refs(_ Value) bool { return false }
 func (p *File) closured() bool { return false }
 func (p *File) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *File) Position() Position { return p.position }
 func (p *File) True() bool { return p.name != "" }
 func (p *File) String() string { return p.name }
 func (p *File) Strval() (s string, err error) { s = p.FullName(); return }
@@ -2489,6 +2559,7 @@ func (p *Flag) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
+func (p *Flag) Position() Position { return p.Name.Position() }
 func (p *Flag) True() bool { return p.Name.True() }
 func (p *Flag) elemstr(o Object, k elemkind) (s string) {
         return "-" + elementString(o, p.Name, k)
@@ -2773,6 +2844,7 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
         }
         return
 }
+func (p *Pair) Position() Position { return p.Key.Position() }
 func (p *Pair) True() bool { return p.Value.True() || p.Key.True() }
 func (p *Pair) elemstr(o Object, k elemkind) string {
         return elementString(o, p.Key, k)+`=`+elementString(o, p.Value, k)
@@ -3236,11 +3308,13 @@ func (p *closure) cmp(v Value) (res cmpres) {
 }
 
 type selection struct {
+        position Position
         t token.Token
         o Value // Object or selection
         s Value
 }
 
+func (p *selection) Position() Position { return p.position }
 func (p *selection) True() (t bool) {
         if s, err := p.Strval(); err == nil {
                 t = s != ""
@@ -3353,7 +3427,7 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
                 } else if s == nil { s = p.s }
         }
         if o != p.o || s != p.s {
-                res = &selection{ p.t, o, s }
+                res = &selection{p.position,p.t,o,s}
         } else {
                 res = p
         }
@@ -3400,7 +3474,8 @@ type Pattern interface {
         stencil(stems []string) (s string, rest []string, err error)
 }
 
-type pattern struct {}
+type pattern struct { position Position }
+func (p *pattern) Position() Position { return p.position }
 func (p *pattern) True() bool { return false }
 func (p *pattern) Integer() (int64, error) { return 0, nil }
 func (p *pattern) Float() (float64, error) { return 0, nil }
@@ -3957,46 +4032,62 @@ func EscapeChar(s string) string {
         return s
 }
 
-func MakeAnswer(v bool) Value { if v { return universalyes } else { return universalno } }
-func MakeBoolean(v bool) Value { if v { return universaltrue } else { return universalfalse } }
-func MakeBin(i int64) *Bin { return &Bin{integer{i}} }
-func MakeOct(i int64) *Oct { return &Oct{integer{i}} }
-func MakeInt(i int64) *Int { return &Int{integer{i}} }
-func MakeHex(i int64) *Hex { return &Hex{integer{i}} }
-func MakeFloat(f float64) *Float { return &Float{f} }
-func MakeDate(s time.Time) *Date { return &Date{DateTime{s}} }
-func MakeTime(t time.Time) *Time { return &Time{DateTime{t}} }
-func MakeString(s string) *String { return &String{s} }
-func MakeURL(s *url.URL) *URL {
+func MakeAnswer(pos Position, v bool) (res Value) {
+        if v {
+                res = &boolean{ pos, true }
+        } else {
+                res = &boolean{ pos, false }
+        }
+        return
+}
+func MakeBoolean(pos Position, v bool) (res Value) {
+        if v {
+                res = &answer{ pos, true }
+        } else {
+                res = &answer{ pos, false }
+        }
+        return
+}
+func MakeBin(pos Position, i int64) *Bin { return &Bin{integer{pos,i}} }
+func MakeOct(pos Position, i int64) *Oct { return &Oct{integer{pos,i}} }
+func MakeInt(pos Position, i int64) *Int { return &Int{integer{pos,i}} }
+func MakeHex(pos Position, i int64) *Hex { return &Hex{integer{pos,i}} }
+func MakeFloat(pos Position, f float64) *Float { return &Float{pos,f} }
+func MakeDate(pos Position, s time.Time) *Date { return &Date{DateTime{pos,s}} }
+func MakeTime(pos Position, t time.Time) *Time { return &Time{DateTime{pos,t}} }
+func MakeString(pos Position, s string) *String { return &String{pos,s} }
+func MakeURL(pos Position, s *url.URL) *URL {
         var host, port string
         v := strings.Split(s.Host, ":")
         if len(v) == 1 { host = v[0] }
         if len(v) == 2 { host, port = v[0], v[1] }
         var password Value
-        if t, ok := s.User.Password(); ok {password = &String{t}}
-        return &URL{
-                Scheme: &String{s.Scheme},
-                Username: &String{s.User.Username()},
+        if t, ok := s.User.Password(); ok {password = &String{pos,t}}
+        return &URL{ // FIXME: calculate component positions
+                position: pos,
+                Scheme: &String{pos,s.Scheme},
+                Username: &String{pos,s.User.Username()},
                 Password: password,
-                Host: &String{host},
-                Port: &String{port},
-                Path: &String{s.Path},
-                Query: &String{s.RawQuery},
-                Fragment: &String{s.Fragment},
+                Host: &String{pos,host},
+                Port: &String{pos,port},
+                Path: &String{pos,s.Path},
+                Query: &String{pos,s.RawQuery},
+                Fragment: &String{pos,s.Fragment},
         }
 }
 func MakeBarecomp(elems... Value) *Barecomp { return &Barecomp{elements{elems}} }
 func MakeCompound(elems... Value) *Compound { return &Compound{elements{elems}} }
 func MakeList(elems... Value) *List { return &List{elements{elems}} }
 func MakeGroup(elems... Value) (v *Group) { return &Group{List{elements{elems}}} }
-func MakeGlobMeta(tok token.Token) *GlobMeta { return &GlobMeta{tok} }
-func MakeGlobRange(v Value) *GlobRange { return &GlobRange{v} }
+func MakeGlobMeta(pos Position, tok token.Token) *GlobMeta { return &GlobMeta{pos,tok} }
+func MakeGlobRange(pos Position, v Value) *GlobRange { return &GlobRange{v} }
 func MakePath(segments... Value) (v *Path) { return &Path{elements{segments}/*, nil*/} }
-func MakePathSeg(ch rune) *PathSeg { return &PathSeg{ch} }
-func MakePathStr(str string) (v *Path) {
+func MakePathSeg(pos Position, ch rune) *PathSeg { return &PathSeg{pos,ch} }
+func MakePathStr(pos Position, str string) (v *Path) {
         var segments []Value
         for _, s := range strings.Split(str, PathSep) {
-                segments = append(segments, &Bareword{s})
+                // TODO: calculate position of each segment
+                segments = append(segments, &Bareword{pos,s})
         }
         return MakePath(segments...)
 }
@@ -4035,96 +4126,97 @@ func MakeListOrScalar(elems []Value) (res Value) {
         return
 }
 
-func Make(in interface{}) (out Value) {
+func Make(pos Position, in interface{}) (out Value) {
         switch v := in.(type) {
-        case int:       out = MakeInt(int64(v))
-        case int32:     out = MakeInt(int64(v))
-        case int64:     out = MakeInt(v)
-        case float32:   out = MakeFloat(float64(v))
-        case float64:   out = MakeFloat(v)
-        case string:    out = &String{v}
-        case time.Time: out = &DateTime{v} // FIXME: NewDate, NewTime
+        case int:       out = MakeInt(pos,int64(v))
+        case int32:     out = MakeInt(pos,int64(v))
+        case int64:     out = MakeInt(pos,v)
+        case float32:   out = MakeFloat(pos,float64(v))
+        case float64:   out = MakeFloat(pos,v)
+        case string:    out = &String{pos,v}
+        case time.Time: out = &DateTime{pos,v} // FIXME: NewDate, NewTime
         case Value:     out = v
-        default:        out = &Any{in}
+        default:        out = &Any{in} // TODO: position for any
         }
         return
 }
 
-func MakeAll(in... interface{}) (out []Value) {
+func MakeAll(pos Position, in... interface{}) (out []Value) {
         for _, v := range in {
-                out = append(out, Make(v))
+                // TODO: position for each element
+                out = append(out, Make(pos,v))
         }
         return
 }
 
-func ParseBin(s string) *Bin {
+func ParseBin(pos Position, s string) *Bin {
         if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
                 s = s[2:]
         }
         if i, e := strconv.ParseInt(s, 2, 64); e == nil {
-                return MakeBin(i)
+                return MakeBin(pos,i)
         } else {
                 panic(e)
         }
 }
 
-func ParseOct(s string) *Oct {
+func ParseOct(pos Position, s string) *Oct {
         if strings.HasPrefix(s, "0") {
                 s = s[1:]
         }
         if i, e := strconv.ParseInt(s, 8, 64); e == nil {
-                return MakeOct(i)
+                return MakeOct(pos,i)
         } else {
                 panic(e)
         }
 }
 
-func ParseInt(s string) *Int {
+func ParseInt(pos Position, s string) *Int {
         if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-                return MakeInt(i)
+                return MakeInt(pos,i)
         } else {
                 panic(e)
         }
 }
 
-func ParseHex(s string) *Hex {
+func ParseHex(pos Position, s string) *Hex {
         if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
                 s = s[2:]
         }
         if i, e := strconv.ParseInt(s, 16, 64); e == nil {
-                return MakeHex(i)
+                return MakeHex(pos,i)
         } else {
                 panic(e)
         }
 }
 
-func ParseFloat(s string) *Float {
+func ParseFloat(pos Position, s string) *Float {
         if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
-                return MakeFloat(f)
+                return MakeFloat(pos,f)
         } else {
                 panic(e)
         }
 }
 
-func ParseDate(s string) *Date {
+func ParseDate(pos Position, s string) *Date {
         if t, e := time.Parse("2006-01-02", s); e == nil {
-                return MakeDate(t)
+                return MakeDate(pos,t)
         } else {
                 panic(e)
         }
 }
 
-func ParseTime(s string) *Time {
+func ParseTime(pos Position, s string) *Time {
         if t, e := time.Parse("15:04:05.999999999Z07:00", s); e == nil {
-                return MakeTime(t)
+                return MakeTime(pos,t)
         } else {
                 panic(e)
         }
 }
 
-func ParseURL(s string) *URL {
+func ParseURL(pos Position, s string) *URL {
         if u, e := url.Parse(s); e == nil {
-                return MakeURL(u)
+                return MakeURL(pos,u)
         } else {
                 panic(e)
         }

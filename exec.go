@@ -322,6 +322,7 @@ func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, dock *Project, sh *
 }
 
 type ExecResult struct {
+        position Position
         Stdout ExecBuffer
         Stderr ExecBuffer
         Status int
@@ -336,6 +337,7 @@ func (p *ExecResult) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *ExecResult) Position() Position { return p.position }
 func (p *ExecResult) True() bool { return p.Status == 0 && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */ }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
@@ -663,6 +665,8 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         var log ExecLog
         var logfile *os.File
         var exeres = new(ExecResult)
+        exeres.position = prog.position
+
         if buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
         if bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
         if verbout { exeres.Stdout.Tie = stdout }

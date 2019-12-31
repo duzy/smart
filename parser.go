@@ -1112,8 +1112,8 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) ast.Expr {
         pos, tok, s := p.pos, p.tok, p.tok.String()[1:]
         p.next()
         
-        name := &ast.Bareword{ p.pos, s }
-        resolved, err := p.resolve(&Bareword{s})
+        name := &ast.Bareword{p.pos, s}
+        resolved, err := p.resolve(&Bareword{Position(p.file.Position(pos)),s})
         if err != nil {
                 p.error(pos, "%v", err)
         } else if resolved == nil {
@@ -1440,7 +1440,7 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, generic *genericoptions, _
                 p.error(spec.Props[0].Pos(), "`%v` illegal", spec.Props[0])
         } else if name, err := prop0.Strval(); err != nil {
                 p.error(spec.Props[0].Pos(), err)
-        } else if spec.Resolved, err = p.resolve(&Bareword{name}); err != nil {
+        } else if spec.Resolved, err = p.resolve(&Bareword{prop0.Position(),name}); err != nil {
                 p.error(spec.Pos(), err)
         } else if spec.Resolved == nil {
                 p.error(spec.Props[0].Pos(), "undefined eval symbol `%s' (%v).", name, prop0)
@@ -2145,17 +2145,19 @@ func (p *parser) parseFile() *ast.File {
                 defer p.closeScope(ls)
                 var ( def *Def ; s = ls.scope )
                 if p.mode&Flat == 0 {
+                        var pos = Position(p.file.Position(p.pos))
+
                         def, _ = p.def("/")
-                        def.set(DefExpand, MakePathStr(abs))
+                        def.set(DefExpand, MakePathStr(pos,abs))
 
                         def, _ = p.def(".")
-                        def.set(DefExpand, MakePathStr(rel))
+                        def.set(DefExpand, MakePathStr(pos,rel))
 
                         def, _ = p.def("CTD") // Current Temp Directory
-                        def.set(DefExpand, MakePathStr(tmp))
+                        def.set(DefExpand, MakePathStr(pos,tmp))
 
                         def, _ = p.def("CWD") // Current Work Directory
-                        def.set(DefExpand, MakePathStr(abs))
+                        def.set(DefExpand, MakePathStr(pos,abs))
                 } else if def = s.FindDef("/"); def == nil {
                         p.error(p.pos, "/ not in the scope (%v)", s.comment)
                 } else if def = s.FindDef("."); def == nil {

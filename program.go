@@ -67,7 +67,27 @@ type modifier struct {
         args []Value
 }
 
-func (m *modifier) True() bool { return false/*TODO*/ }
+func (_ *modifier) refs(_ Value) bool { return false }
+func (_ *modifier) closured() bool { return false }
+func (m *modifier) expand(_ expandwhat) (Value, error) { return m, nil }
+func (_ *modifier) cmp(v Value) (res cmpres) { 
+        if _, ok := v.(*modifier); ok { res = cmpEqual }
+        return
+}
+func (m *modifier) Position() Position { return m.position }
+func (m *modifier) True() bool { return false }
+func (m *modifier) Integer() (int64, error) { return 0, nil }
+func (m *modifier) Float() (float64, error) { return 0, nil }
+func (m *modifier) traverse(pc *traversal) (err error) { return }
+func (m *modifier) dependcompare(c *comparer) (err error) {
+        if enable_assertions { assert(c.target != m, "self comparation") }
+        return
+}
+
+func (p *modifier) Strval() (s string, err error) {
+        // TODO:
+        return
+}
 
 func (m *modifier) String() (s string) {
         s = "(" + m.name.String()
@@ -260,7 +280,7 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                         if true {
                                 result = append(result, a)
                         } else if false {
-                                result = append(result, &String{s})
+                                result = append(result, &String{prog.position,s})
                         } else {
                                 err = scanner.Errorf(token.Position(prog.position), "`%s` unknown target (via %s)", s, a)
                         }
@@ -482,7 +502,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
 
         if prog.pc.stems != nil {
-                prog.pc.stemDef.set(DefDefault, &String{prog.pc.stems[0]})
+                prog.pc.stemDef.set(DefDefault, &String{prog.position,prog.pc.stems[0]})
         }
 
         if fileTarget != nil && fileTarget.info != nil && fileTarget.updated {

@@ -57,7 +57,7 @@ func (p *using) traverse(pc *traversal) (err error) {
                                         return nil
                                 }
                         }
-                        err = scanner.WrapErrors(token.Position(entry.Position), err)
+                        err = scanner.WrapErrors(token.Position(entry.position), err)
                 } else {
                         usingPrepared[p.project] += 1
                 }
@@ -73,6 +73,7 @@ func (p *using) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *using) Position() (pos Position) { return /* TODO: calculate using position */ }
 func (p *using) True() bool { return p.project != nil }
 func (p *using) Integer() (i int64, err error) { return 0, nil }
 func (p *using) Float() (f float64, err error) { return 0, nil }
@@ -134,6 +135,7 @@ func (p *usinglist) traverse(pc *traversal) error {
 func (p *usinglist) redecl(scope *Scope) { panic("redeclaring using list") }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
 func (p *usinglist) OwnerProject() *Project { return p.owner }
+func (p *usinglist) Position() (pos Position) { return /* TODO: caculate position of using list */ }
 func (p *usinglist) True() bool { return len(p.list) > 0 }
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }

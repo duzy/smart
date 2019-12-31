@@ -141,7 +141,7 @@ func (ctx *Context) run() (result []Value, err error) {
         var updated int
         if len(goals) == 0 {
                 if entry := main.DefaultEntry(); entry != nil {
-                        if result, err = entry.Execute(entry.Position); err == nil {
+                        if result, err = entry.Execute(entry.position); err == nil {
                                 updated += 1
                         }
                 }
@@ -162,7 +162,7 @@ func (ctx *Context) run() (result []Value, err error) {
                         // The the base project scope as execution context. For
                         // example of 'base.test', the entry 'test' can resolve
                         // '&(FOO)', '&(BAR)', etc.
-                        if result, err = entry.Execute(entry.Position, v...); err == nil {
+                        if result, err = entry.Execute(entry.position, v...); err == nil {
                                 updated += 1
                         } else {
                                 break
@@ -328,13 +328,15 @@ func (ctx *Context) loadwork() (err error) {
 
                 at = ctx.loader.globe.project(nil, base, rel, tmp, ".", "@")
                 as = at.Scope()
+
+                pos Position
         )
 
         if def := as.FindDef("SMART"); def != nil {
                 def.set(DefSimple, nil)
                 for _, s := range globalPaths {
-                        def.append(&String{"-search"})
-                        def.append(&String{s})
+                        def.append(&String{pos,"-search"})
+                        def.append(&String{pos,s})
                 }
         }
 
@@ -348,15 +350,14 @@ func (ctx *Context) loadwork() (err error) {
 
         ctx.loader.globe.scope.ProjectName(nil, at.Name(), at)
 
+        /*
         var (
                 ab = base
-                defCTD, _ = as.define(at, "CTD", &String{tmp})
-                defCWD, _ = as.define(at, "CWD", &String{at.absPath})
-                defS, _ = as.define(at, "/", &String{at.absPath})
+                defCTD, _ = as.define(at, "CTD", &String{pos,tmp})
+                defCWD, _ = as.define(at, "CWD", &String{pos,at.absPath})
+                defS, _ = as.define(at, "/", &String{pos,at.absPath})
                 defD, _ = as.define(at, ".", universalnone)
         )
-        if defCTD == nil { /* ... */ }
-        if defCWD == nil { /* ... */ }
 AtLookupLoop:
         for {
                 var s1 = filepath.Join(ab, "@.smart")
@@ -390,7 +391,7 @@ AtLookupLoop:
                 }
                 if ab == "/" { break }
                 if ab = filepath.Dir(ab); ab == "." { break }
-        }
+        } */
 
         restoreLoadingInfo(ctx.loader)
 

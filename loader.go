@@ -801,43 +801,49 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
                         l.parser.error(x.Rhs.Pos(), "`%s` invalid property expression (%T)", x, x.Rhs)
                 }
         } else {
-                v = &selection{ x.Tok, obj, prop }
+                v = &selection{
+                        Position(l.parser.file.Position(x.Pos())),
+                        x.Tok, obj, prop,
+                }
         }
         return
 }
 
 func (l *loader) exprBasicLit(x *ast.BasicLit) (v Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         switch x.Kind {
         case token.BAR:      v = modifierbar
-        case token.BIN:      v = ParseBin(x.Value)
-        case token.OCT:      v = ParseOct(x.Value)
-        case token.INT:      v = ParseInt(x.Value)
-        case token.HEX:      v = ParseHex(x.Value)
-        case token.FLOAT:    v = ParseFloat(x.Value)
-        case token.DATETIME: v = ParseDateTime(x.Value)
-        case token.DATE:     v = ParseDate(x.Value)
-        case token.TIME:     v = ParseTime(x.Value)
-        case token.URI:      v = ParseURL(x.Value)
-        case token.BAREWORD: v = &Bareword{x.Value}
-        case token.STRING:   v = &String{x.Value}
-        case token.ESCAPE:   v = &String{EscapeChar(x.Value)}
-        case token.RAW:      v = &Raw{x.Value}
+        case token.BIN:      v = ParseBin(pos,x.Value)
+        case token.OCT:      v = ParseOct(pos,x.Value)
+        case token.INT:      v = ParseInt(pos,x.Value)
+        case token.HEX:      v = ParseHex(pos,x.Value)
+        case token.FLOAT:    v = ParseFloat(pos,x.Value)
+        case token.DATETIME: v = ParseDateTime(pos,x.Value)
+        case token.DATE:     v = ParseDate(pos,x.Value)
+        case token.TIME:     v = ParseTime(pos,x.Value)
+        case token.URI:      v = ParseURL(pos,x.Value)
+        case token.BAREWORD: v = &Bareword{pos,x.Value}
+        case token.STRING:   v = &String{pos,x.Value}
+        case token.ESCAPE:   v = &String{pos,EscapeChar(x.Value)}
+        case token.RAW:      v = &Raw{pos,x.Value}
         default: unreachable()
         }
         return
 }
 
 func (l *loader) exprBareword(x *ast.Bareword) (res Value) {
-        res = &Bareword{x.Value}
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        res = &Bareword{pos,x.Value}
         return
 }
 
 func (l *loader) exprConstant(x *ast.Constant) (res Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         switch x.Tok {
-        case token.TRUE:  res = &boolean{ true }
-        case token.FALSE: res = &boolean{ false }
-        case token.YES:   res = &answer{ true }
-        case token.NO:    res = &answer{ false }
+        case token.TRUE:  res = &boolean{pos,true}
+        case token.FALSE: res = &boolean{pos,false}
+        case token.YES:   res = &answer{pos,true}
+        case token.NO:    res = &answer{pos,false}
         }
         return
 }
@@ -848,11 +854,12 @@ func (l *loader) exprBarecomp(x *ast.Barecomp) (res Value) {
 }
 
 func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
+        //var pos = Position(l.parser.file.Position(x.Pos()))
         if file, _ := x.File.(*File); file != nil {
                 if x.Val != nil {
-                        v = &Barefile{x.Val.(Value), file}
+                        v = &Barefile{x.Val.(Value),file}
                 } else {
-                        v = &Barefile{l.expr(x.Name), file}
+                        v = &Barefile{l.expr(x.Name),file}
                 }
         }
         if v == nil {
@@ -887,12 +894,13 @@ func (l *loader) exprPath(x *ast.PathExpr) (res Value) {
 }
 
 func (l *loader) exprPathSeg(x *ast.PathSegExpr) (v Value) {
+        var pos = Position(l.parser.file.Position(l.pos))
         switch x.Tok {
-        case token.PCON:   v = MakePathSeg('/') // TODO: should be NONE
-        case token.TILDE:  v = MakePathSeg('~')
-        case token.PERIOD: v = MakePathSeg('.')
-        case token.DOTDOT: v = MakePathSeg('^') // 
-        case 0: v = MakePathSeg(0) // the tailing empty segment after '/', e.g. /foo/bar/
+        case token.PCON:   v = MakePathSeg(pos,'/') // TODO: should be NONE
+        case token.TILDE:  v = MakePathSeg(pos,'~')
+        case token.PERIOD: v = MakePathSeg(pos,'.')
+        case token.DOTDOT: v = MakePathSeg(pos,'^') // 
+        case 0: v = MakePathSeg(pos,0) // the tailing empty segment after '/', e.g. /foo/bar/
         default: l.parser.error(x.Pos(), "unsupported path segment `%v`", x.Tok)
         }
         return
@@ -947,12 +955,12 @@ func (l *loader) exprGlob(x *ast.GlobExpr) (v Value) {
 }
 
 func (l *loader) exprGlobMeta(x *ast.GlobMeta) (v Value) {
-        v = MakeGlobMeta(x.Tok)
+        v = MakeGlobMeta(Position(l.parser.file.Position(l.pos)),x.Tok)
         return
 }
 
 func (l *loader) exprGlobRange(x *ast.GlobRange) (v Value) {
-        v = MakeGlobRange(l.expr(x.Chars))
+        v = MakeGlobRange(Position(l.parser.file.Position(l.pos)),l.expr(x.Chars))
         return
 }
 
@@ -1346,7 +1354,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         l.parser.error(clause.Targets[n].Pos(), "%v", err)
                         return
                 } else /*if entry != nil*/ {
-                        entry.Position = Position(l.parser.file.Position(clause.Targets[n].Pos()))
+                        entry.position = Position(l.parser.file.Position(clause.Targets[n].Pos()))
                         entries = append(entries, entry)
                 }
                 if t, okay := entry.target.(*Flag); okay && t != nil {
@@ -1382,7 +1390,7 @@ func includespec(l *loader, pos token.Pos, spec Value) {
         // Execute the rule entry to update include source.
         if entry, ok := spec.(*RuleEntry); ok && entry != nil {
                 var result []Value
-                if result, err = entry.Execute(entry.Position); err != nil {
+                if result, err = entry.Execute(entry.position); err != nil {
                         l.parser.error(pos, "include error occurred (entry %v)", entry)
                         l.parser.error(pos, err) // add err to the list
                         return
@@ -2009,7 +2017,8 @@ ListLoop:
                                 err = fmt.Errorf("%s: invalid UTF8 content", fullname)
                                 break ListLoop
                         }
-                        def.set(DefExpand, &String{s})
+                        var pos = Position(l.parser.file.Position(l.pos))
+                        def.set(DefExpand, &String{pos,s})
                 } else if s != nil {
                         err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
                         break ListLoop
