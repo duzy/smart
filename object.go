@@ -43,7 +43,6 @@ type unknownobject struct { // generally unnamed objects
 func (p *unknownobject) refs(_ Value) bool { return false }
 func (p *unknownobject) closured() bool { return false }
 func (p *unknownobject) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *unknownobject) Type() Type { return UnknownObjectType }
 func (p *unknownobject) True() bool { return false }
 func (p *unknownobject) Name() string { panic("inquiring name of an unknown object") }
 func (p *unknownobject) DeclScope() *Scope { return p.scope }
@@ -55,8 +54,7 @@ func (p *unknownobject) Float() (float64, error) { return 0, nil }
 func (p *unknownobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *unknownobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
 func (p *unknownobject) cmp(v Value) (res cmpres) {
-        if v.Type() == UnknownObjectType {
-                a, ok := v.(*unknownobject)
+        if a, ok := v.(*unknownobject); ok {
                 assert(ok, "value is not unknownobject")
                 if p.owner == a.owner && p.scope == a.scope {
                         res = cmpEqual
@@ -70,7 +68,6 @@ type knownobject struct { // generally named objects
         name string
 }
 func (p *knownobject) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *knownobject) Type() Type { return KnownObjectType }
 func (p *knownobject) True() bool { return true }
 func (p *knownobject) Name() string { return p.name }
 func (p *knownobject) Strval() (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
@@ -86,8 +83,7 @@ func (p *knownobject) redecl(scope *Scope) {
         }
 }
 func (p *knownobject) cmp(v Value) (res cmpres) {
-        if v.Type() == KnownObjectType {
-                a, ok := v.(*knownobject)
+        if a, ok := v.(*knownobject); ok {
                 assert(ok, "value is not knownobject")
                 if p.owner == a.owner && p.scope == a.scope && p.name == a.name {
                         res = cmpEqual
@@ -101,7 +97,6 @@ type unresolvedobject struct { // named callable/executable objects
         name Value // name could be closured
 }
 func (p *unresolvedobject) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *unresolvedobject) Type() Type { return UnresolvedObjectType }
 func (p *unresolvedobject) True() bool { return false }
 func (p *unresolvedobject) Name() string {
         if p.name == nil {
@@ -131,8 +126,7 @@ func (p *unresolvedobject) redecl(scope *Scope) {
         }
 }
 func (p *unresolvedobject) cmp(v Value) (res cmpres) {
-        if v.Type() == UnresolvedObjectType {
-                a, ok := v.(*unresolvedobject)
+        if a, ok := v.(*unresolvedobject); ok {
                 assert(ok, "value is not unresolvedobject")
                 if p.owner == a.owner && p.scope == a.scope {
                         res = p.name.cmp(a.name)
@@ -155,7 +149,6 @@ func (p *ProjectName) expand(_ expandwhat) (Value, error) { return p, nil }
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
-func (p *ProjectName) Type() Type { return ProjectNameType }
 func (p *ProjectName) True() bool { return p.project != nil }
 func (p *ProjectName) NamedProject() *Project { return p.project }
 func (p *ProjectName) Strval() (string, error) { return p.name, nil }
@@ -193,8 +186,7 @@ func (p *ProjectName) traverse(pc *traversal) (err error) {
 }
 
 func (p *ProjectName) cmp(v Value) (res cmpres) {
-        if v.Type() == ProjectNameType {
-                a, ok := v.(*ProjectName)
+        if a, ok := v.(*ProjectName); ok {
                 assert(ok, "value is not ProjectName")
                 if p.name == a.name && p.project == a.project {
                         res = cmpEqual
@@ -213,7 +205,6 @@ func (p *ScopeName) expand(_ expandwhat) (Value, error) { return p, nil }
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
-func (n *ScopeName) Type() Type { return ScopeNameType }
 func (n *ScopeName) True() bool { return n.scope != nil }
 func (n *ScopeName) NamedScope() *Scope { return n.scope }
 func (n *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", n.name) }
@@ -228,8 +219,7 @@ func (n *ScopeName) Get(name string) (Value, error) {
 }
 
 func (p *ScopeName) cmp(v Value) (res cmpres) {
-        if v.Type() == ScopeNameType {
-                a, ok := v.(*ScopeName)
+        if a, ok := v.(*ScopeName); ok {
                 assert(ok, "value is not ScopeName")
                 if p.name == a.name && p.scope == a.scope {
                         res = cmpEqual
@@ -283,19 +273,15 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
 }
 
 func (d *Def) cmp(v Value) (res cmpres) {
-        if v.Type() == DefType {
-                if d.Value != nil {
-                        a, ok := v.(*Def)
-                        assert(ok, "value is not Def")
-                        if a.Value != nil {
-                                res = d.Value.cmp(a.Value)
-                        }
+        if a, ok := v.(*Def); ok && d.Value != nil {
+                assert(ok, "value is not Def")
+                if a.Value != nil {
+                        res = d.Value.cmp(a.Value)
                 }
         }
         return
 }
 
-func (d *Def) Type() Type { return DefType }
 func (d *Def) True() (res bool) {
         if d.Value != nil {
                 res = d.Value.True()
@@ -354,7 +340,9 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                 if d.Value, err = value.expand(expandAll); err != nil { return }
         case DefExecute:
                 var ( stdout, stderr bytes.Buffer; s string )
-                if value == nil || value.Type() == NoneType {
+                if value == nil {
+                        d.Value = nil // undef
+                } else if _, ok := value.(*None); ok {
                         d.Value = nil // undef
                 } else if s, err = value.Strval(); err == nil {
                         sh := exec.Command("sh", "-c", s)
@@ -389,16 +377,16 @@ func (d *Def) append(va... Value) (err error) {
         var list *List
         if num := len(va); num == 0 {
                 // Does nothing...
-        } else if d.Value != nil && d.Value.Type() != NoneType {
-                if list, _ = d.Value.(*List); list != nil {
-                        list.Append(merge(va...)...)
-                } else {
-                        elems := []Value{ d.Value }
-                        elems = append(elems, merge(va...)...)
-                        list = &List{elements{ elems }}
-                }
-        } else {
+        } else if d.Value == nil {
                 list = &List{elements{ merge(va...) }}
+        } else if _, okay := d.Value.(*None); okay {
+                list = &List{elements{ merge(va...) }}
+        } else if list, _ = d.Value.(*List); list != nil {
+                list.Append(merge(va...)...)
+        } else {
+                elems := []Value{ d.Value }
+                elems = append(elems, merge(va...)...)
+                list = &List{elements{ elems }}
         }
         if list != nil {
                 var origin = d.origin
@@ -423,8 +411,9 @@ func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
         default:
                 unreachable()
         }
-        if res != nil && res.Type() == ListType {
-                var list = res.(*List)
+        if res == nil {
+                // ...
+        } else if list, ok := res.(*List); ok {
                 if n := len(list.Elems); n == 0 {
                         res = universalnone
                 } else if n == 1 {
@@ -457,12 +446,12 @@ func (d *Def) dependcompare(c *comparer) error {
 }
 
 func (d *Def) traverse(pc *traversal) (err error) {
-        if d.Value != nil {
-                if p, ok := d.Value.(prerequisite); ok {
-                        err = p.traverse(pc)
-                } else {
-                        err = fmt.Errorf("%s: %s '%s' is not prerequisite", d.name, d.Value.Type(), d.Value)
-                }
+        if d.Value == nil {
+                // does nothing
+        } else if p, ok := d.Value.(prerequisite); ok {
+                err = p.traverse(pc)
+        } else {
+                err = fmt.Errorf("%s: %T '%s' is not prerequisite", d.name, d.Value, d.Value)
         }
         return
 }
@@ -494,7 +483,6 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         return
 }
 
-func (p *undetermined) Type() Type { return UndeterminedType }
 func (p *undetermined) True() bool { return p.value.True() }
 
 func (p *undetermined) String() (s string) {
@@ -513,8 +501,7 @@ func (p *undetermined) Float() (float64, error) { return 0, nil }
 func (p *undetermined) Integer() (int64, error) { return 0, nil }
 
 func (p *undetermined) cmp(v Value) (res cmpres) {
-        if v.Type() == UndeterminedType {
-                a, ok := v.(*undetermined)
+        if a, ok := v.(*undetermined); ok {
                 assert(ok, "value is not undetermined")
                 if p.identifier.cmp(a.identifier) == cmpEqual {
                         if p.value.cmp(a.value) == cmpEqual {
@@ -531,14 +518,12 @@ type Builtin struct {
         knownobject
         f BuiltinFunc
 }
-func (p *Builtin) Type() Type { return BuiltinType }
 func (p *Builtin) True() bool { return p.f != nil }
 func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) Call(pos Position, a... Value) (Value, error) { return p.f(pos, a...) }
 func (p *Builtin) cmp(v Value) (res cmpres) {
-        if v.Type() == BuiltinType {
-                a, ok := v.(*Builtin)
+        if a, ok := v.(*Builtin); ok {
                 assert(ok, "value is not Builtin")
                 if /*p.f == a.f &&*/ p.name == a.name {
                         res = cmpEqual
@@ -583,7 +568,6 @@ type RuleEntry struct {
         Position Position
 }
 
-func (entry *RuleEntry) Type() Type { return RuleEntryType }
 func (entry *RuleEntry) True() bool { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
 func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }
@@ -613,7 +597,7 @@ func (entry *RuleEntry) Depends() (depends []Value) {
 }
 
 func (entry *RuleEntry) IsFile() bool {
-        if entry.target.Type() == FileType { return true }
+        if p, ok := entry.target.(*File); ok && p != nil { return true }
         if p, ok := entry.target.(*Path); ok && p != nil /*&& p.File != nil*/ {
                 return true
         }
@@ -793,8 +777,7 @@ ForPrograms:
 }
 
 func (entry *RuleEntry) cmp(v Value) (res cmpres) {
-        if v.Type() == RuleEntryType {
-                a, ok := v.(*RuleEntry)
+        if a, ok := v.(*RuleEntry); ok {
                 assert(ok, "value is not RuleEntry")
                 if /*entry.class == a.class &&*/ entry.target.cmp(a.target) == cmpEqual {
                         if entry.OwnerProject() == a.OwnerProject() {
@@ -810,7 +793,6 @@ type PatternEntry struct {
         *RuleEntry
 }
 
-func (p *PatternEntry) Type() Type { return PatternEntryType }
 func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.RuleEntry.expand(w); err != nil {
@@ -821,8 +803,7 @@ func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *PatternEntry) cmp(v Value) (res cmpres) {
-        if v.Type() == PatternEntryType {
-                a, ok := v.(*PatternEntry)
+        if a, ok := v.(*PatternEntry); ok {
                 assert(ok, "value is not PatternEntry")
                 // FIXME: p.Pattern.cmp(p.Pattern)
                 if p.RuleEntry.cmp(a.RuleEntry) == cmpEqual {
@@ -839,7 +820,6 @@ type StemmedEntry struct {
         stub *filestub // source file matching the pattern
 }
 
-func (p *StemmedEntry) Type() Type { return StemmedEntryType }
 func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.PatternEntry.expand(w); err != nil {
@@ -850,8 +830,7 @@ func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *StemmedEntry) cmp(v Value) (res cmpres) {
-        if v.Type() == PatternEntryType {
-                a, ok := v.(*StemmedEntry)
+        if a, ok := v.(*StemmedEntry); ok {
                 assert(ok, "value is not StemmedEntry")
                 if len(p.Stems) != len(p.Stems) { return }
                 for i, stem := range p.Stems {

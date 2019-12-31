@@ -32,7 +32,7 @@ type Position token.Position
 type BuiltinFunc func(pos Position, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
-        `typeof`:       builtinTypeOf,
+        //`typeof`:       builtinTypeOf,
 
         `position`:     builtinPosition,
 
@@ -192,10 +192,9 @@ func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {
 }
 
 func EscapedString(v Value) (s string, e error) {
-        if v.Type() == StringType {
-                var sv string
-                if sv, e = v.Strval(); e == nil {
-                        s = strings.Replace(sv, "\\'", "'", -1)
+        if p, ok := v.(*String); ok {
+                if s, e = p.Strval(); e == nil {
+                        s = strings.Replace(s, "\\'", "'", -1)
                 }
         } else {
                 s, e = v.Strval()
@@ -266,6 +265,7 @@ ForArgs:
         return
 }
 
+/*
 func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
@@ -299,6 +299,7 @@ func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
         }
         return MakeListOrScalar(elems), nil
 }
+*/
 
 func builtinPosition(pos Position, args... Value) (res Value, err error) {
         var vals []Value
@@ -1084,12 +1085,17 @@ func builtinSubstring(pos Position, args... Value) (res Value, err error) {
                 var ( v Value ; i1, i2 int64 )
 
                 if v, err = args[0].expand(expandAll); err != nil { return }
-                if t := Scalar(v, IntType); t != nil {
+                if t := Scalar(v/*, IntType*/); t != nil {
                         args = args[1:] // remove the first element
                         if i1, err = t.Integer(); err != nil { return }
-                        if l, ok := t.(*List); ok && len(l.Elems) > 1 && l.Elems[1].Type() == IntType {
-                                if i2, err = l.Elems[1].Integer(); err != nil { return }
-                                goto CheckRange
+                        if l, ok := t.(*List); ok && len(l.Elems) > 1 {
+                                if _, ok := l.Elems[1].(*Int); ok {
+                                        if i2, err = l.Elems[1].Integer(); err != nil {
+                                                return
+                                        } else {
+                                                goto CheckRange
+                                        }
+                                }
                         }
                 } else {
                         err = scanner.Errorf(token.Position(pos), "'%v' is not integer", args[0])
@@ -1097,7 +1103,7 @@ func builtinSubstring(pos Position, args... Value) (res Value, err error) {
                 }
 
                 if v, err = args[0].expand(expandAll); err != nil { return }
-                if v = Scalar(v, IntType); v != nil {
+                if v = Scalar(v/*, IntType*/); v != nil {
                         args = args[1:] // remove the first element again
                         if i2, err = v.Integer(); err != nil { return }
                 } else {
@@ -1188,7 +1194,7 @@ ForSources:
 
                 if !matched {
                         // Just return what the src is if not matched.
-                        if src.Type().Kind() != NoneKind {
+                        if !isNone(src) {
                                 list = append(list, src)
                         }
                         continue ForSources
@@ -1480,7 +1486,7 @@ func builtinIndent(pos Position, args... Value) (res Value, err error) {
                 s string // indent
         )
         if x := len(args); x > 0 {
-                if v := Scalar(args[0], IntType); v != nil {
+                if v := Scalar(args[0]/*, IntType*/); v != nil {
                         var i int64
                         if i, err = v.Integer(); err != nil {
                                 return
@@ -1751,12 +1757,12 @@ func builtinDirs(pos Position, args... Value) (res Value, err error) {
                 n = 0
         )
         if x := len(args); x > 0 {
-                if v := Scalar(args[0], IntType); v != nil {
+                if v := Scalar(args[0]/*, IntType*/); v != nil {
                         if i, err = v.Integer(); err != nil {
                                 return
                         }
                         args, n = args[1:], int(i)
-                } else if v := Scalar(args[x-1], IntType); v != nil {
+                } else if v := Scalar(args[x-1]/*, IntType*/); v != nil {
                         if i, err = v.Integer(); err != nil {
                                 return
                         }
@@ -1811,12 +1817,12 @@ func builtinUndirs(pos Position, args... Value) (res Value, err error) {
                 n = 0
         )
         if x := len(args); x > 0 {
-                if v := Scalar(args[0], IntType); v != nil {
+                if v := Scalar(args[0]/*, IntType*/); v != nil {
                         if i, err = v.Integer(); err != nil {
                                 return
                         }
                         args, n = args[1:], int(i)
-                } else if v := Scalar(args[x-1], IntType); v != nil {
+                } else if v := Scalar(args[x-1]/*, IntType*/); v != nil {
                         if i, err = v.Integer(); err != nil {
                                 return
                         }
@@ -1835,12 +1841,12 @@ func builtinDirChop(pos Position, args... Value) (res Value, err error) {
         )
         if x := len(args); x > 0 {
                 var i int64
-                if v := Scalar(args[0], IntType); v != nil {
+                if v := Scalar(args[0]/*, IntType*/); v != nil {
                         if i, err = v.Integer(); err != nil {
                                 return
                         }
                         args, n = args[1:], int(i)
-                } else if v := Scalar(args[x-1], IntType); v != nil {
+                } else if v := Scalar(args[x-1]/*, IntType*/); v != nil {
                         if i, err = v.Integer(); err != nil {
                                 return
                         }

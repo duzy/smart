@@ -65,8 +65,7 @@ func (p *using) traverse(pc *traversal) (err error) {
         return
 }
 func (p *using) cmp(v Value) (res cmpres) {
-        if v.Type() == UsingType {
-                a, ok := v.(*using)
+        if a, ok := v.(*using); ok {
                 assert(ok, "value is not using")
                 if p.project == a.project {
                         res = cmpEqual
@@ -74,7 +73,6 @@ func (p *using) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *using) Type() Type { return UsingType }
 func (p *using) True() bool { return p.project != nil }
 func (p *using) Integer() (i int64, err error) { return 0, nil }
 func (p *using) Float() (f float64, err error) { return 0, nil }
@@ -136,14 +134,12 @@ func (p *usinglist) traverse(pc *traversal) error {
 func (p *usinglist) redecl(scope *Scope) { panic("redeclaring using list") }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
 func (p *usinglist) OwnerProject() *Project { return p.owner }
-func (p *usinglist) Type() Type { return UsingListType }
 func (p *usinglist) True() bool { return len(p.list) > 0 }
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }
 func (p *usinglist) Float() (float64, error) { return 0, nil }
 func (p *usinglist) cmp(v Value) (res cmpres) {
-        if v.Type() == UsingListType {
-                a, ok := v.(*usinglist)
+        if a, ok := v.(*usinglist); ok {
                 assert(ok, "value is not usinglist")
                 if p.name == a.name && p.owner == a.owner {
                         res = cmpEqual

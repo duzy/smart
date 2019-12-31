@@ -770,7 +770,7 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
         if obj == nil {
                 l.parser.error(x.Lhs.Pos(), "`%s` invalid object expression (%T)", x, x.Lhs)
                 return
-        } else if obj.Type() != SelectionType {
+        } else if _, ok := obj.(*selection); ok {
                 var ( o Object; err error )
                 if w, ok := obj.(*Bareword); ok && w.string == "usee" {
                         obj = l.project.using
@@ -930,10 +930,8 @@ func (l *loader) exprList(x *ast.ListExpr) (v Value) {
 func (l *loader) exprKeyValue(x *ast.KeyValueExpr) (res Value) {
         if k := l.expr(x.Key); l.parser.bits&parsingFilesSpec != 0 {
                 res = &Pair{k, l.expr(x.Value)}
-        } else if k.Type().Bits()&IsKeyName != 0 {
-                res = MakePair(k, l.expr(x.Value))
         } else {
-                l.parser.error(x.Key.Pos(), "not valid key `%T`", k)
+                res = MakePair(k, l.expr(x.Value))
         }
         return
 }
@@ -1825,7 +1823,9 @@ func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, va
                         }
                 }
         case token.SUB_ASSIGN: // -=
-                if def.Value != nil && def.Value.Type() != NoneType {
+                if def.Value == nil {
+                        // ...
+                } else if _, ok := def.Value.(*None); ok {
                         var vals []Value
                         for _, val := range merge(def.Value) {
                                 if val.cmp(value) != cmpEqual {
@@ -1836,7 +1836,9 @@ func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, va
                 }
         case token.SAD_ASSIGN: // -+=
                 var vals []Value
-                if def.Value != nil && def.Value.Type() != NoneType {
+                if def.Value == nil {
+                        // ...
+                } else if _, ok := def.Value.(*None); ok {
                         for _, val := range merge(def.Value) {
                                 if val.cmp(value) != cmpEqual || true {
                                         vals = append(vals, val)
@@ -1847,7 +1849,9 @@ func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, va
                 def.Value = &List{elements{vals}}
         case token.SSH_ASSIGN: // -=+
                 var vals = []Value{ value }
-                if def.Value != nil && def.Value.Type() != NoneType {
+                if def.Value == nil {
+                        // ...
+                } else if _, ok := def.Value.(*None); ok {
                         for _, val := range merge(def.Value) {
                                 if val.cmp(value) != cmpEqual {
                                         vals = append(vals, val)

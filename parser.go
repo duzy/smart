@@ -1782,7 +1782,7 @@ ForModifierExpr:
                                         p.error(kv.Key.Pos(), "'%v' name is empty ", kv.Key)
                                 }
                                 if def, alt := p.def(name); alt != nil {
-                                        p.error(kv.Key.Pos(), "%s '%s' already existed", alt.Type(), name)
+                                        p.error(kv.Key.Pos(), "%T '%s' already existed", alt, name)
                                 } else if def != nil {
                                         if g, ok := v.(*Group); ok {
                                                 def.set(DefDefault, g.ToList())
@@ -1804,7 +1804,7 @@ ForModifierExpr:
                                         if def, alt := p.def(s); alt != nil {
                                                 var ok bool
                                                 if def, ok = alt.(*Def); !ok {
-                                                        p.error(elem.Pos(), "%s '%s' already taken the name, no such parameter", alt.Type(), s)
+                                                        p.error(elem.Pos(), "%T '%s' already taken the name, no such parameter", alt, s)
                                                 }
                                         } else if def != nil {
                                                 //def.set(DefDefault, nil)

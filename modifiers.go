@@ -271,7 +271,7 @@ ForArgs:
                 case *Bareword:
                         name = a.string
                 default:
-                        err = scanner.Errorf(token.Position(pos), "%s `%s` is unsupported (try: foo=value)", arg.Type(), arg)
+                        err = scanner.Errorf(token.Position(pos), "%T `%s` is unsupported (try: foo=value)", arg, arg)
                         break ForArgs
                 }
                 if def := prog.scope.FindDef(name); def == nil {
@@ -729,7 +729,7 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
         } else if target == nil {
                 err = break_bad(pos, "comparing nil target")
                 return
-        } else if target.Type() == NoneType {
+        } else if _, ok := target.(*None); ok {
                 err = break_bad(pos, "comparing 'none' target")
                 return
         } else if file, ok := target.(*File); ok && file.info != nil && file.updated {
@@ -1028,8 +1028,10 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
 
                 if !sys && file != nil && file.match != nil && len(file.match.Paths) == 1 {
                         // mark system files defined by `files ((foo.xxx) => -)`
-                        if f, ok := file.match.Paths[0].(*Flag); ok && f.Name.Type() == NoneType {
-                                sys = true
+                        if f, ok := file.match.Paths[0].(*Flag); ok {
+                                if _, ok = f.Name.(*None); ok {
+                                        sys = true
+                                }
                         }
                 }
 

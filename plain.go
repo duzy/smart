@@ -19,7 +19,6 @@ type Plain struct {
 func (p *Plain) refs(_ Value) bool { return false }
 func (p *Plain) closured() bool { return false }
 func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Plain) Type() Type { return PlainType }
 func (p *Plain) True() bool { return strings.TrimSpace(p.Value) != "" }
 func (p *Plain) String() (s string) {
         if p.Name == "" {
@@ -33,8 +32,7 @@ func (p *Plain) Strval() (string, error) { return p.Value, nil }
 func (p *Plain) Integer() (int64, error) { return strconv.ParseInt(p.Value, 10, 64) }
 func (p *Plain) Float() (float64, error) { return strconv.ParseFloat(p.Value, 64) }
 func (p *Plain) cmp(v Value) (res cmpres) {
-        if v.Type() == PlainType {
-                a, ok := v.(*Plain)
+        if a, ok := v.(*Plain); ok {
                 assert(ok, "value is not Plain")
                 if p.Name == a.Name && p.Value == a.Value {
                         res = cmpEqual

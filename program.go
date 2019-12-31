@@ -67,6 +67,8 @@ type modifier struct {
         args []Value
 }
 
+func (m *modifier) True() bool { return false/*TODO*/ }
+
 func (m *modifier) String() (s string) {
         s = "(" + m.name.String()
         for _, a := range m.args {

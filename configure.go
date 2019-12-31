@@ -704,7 +704,11 @@ ForArgs:
 
         defer func() {
                 if configured && err == nil && result != nil && result.True() && strName != "compiles" {
-                        if v := pipe.Value; v != nil && v.Type() != NoneType { result = v }
+                        if v := pipe.Value; v != nil {
+                                if _, ok := v.(*None); !ok {
+                                        result = v
+                                }
+                        }
                 }
 
                 if err == nil {
@@ -757,8 +761,10 @@ ForArgs:
 
         var value = configuration.project.scope.Lookup("_VALUE_").(*Def)
         if err = value.set(DefSimple, universalnone); err != nil { return }
-        if pipe.Value != nil && pipe.Value.Type() != NoneType {
-                value.Value = pipe.Value
+        if pipe.Value != nil {
+                if _, ok := pipe.Value.(*None); !ok {
+                        value.Value = pipe.Value
+                }
         }
 
         var includesValues []Value
@@ -1249,8 +1255,10 @@ ForConfig:
                                 para = arg.Args
                         }
                 case *Flag:
-                        if arg.Name != nil && arg.Name.Type() != NoneType {
-                                name = arg.Name
+                        if arg.Name != nil {
+                                if _, ok := arg.Name.(*None); ok {
+                                        name = arg.Name
+                                }
                         }
                 }
                 if err == nil && name != nil {
