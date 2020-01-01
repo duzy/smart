@@ -61,43 +61,6 @@ func (xs executestack) String() (s string) {
         return fmt.Sprintf("[%s]", s)
 }
 
-type modifier struct {
-        position Position
-        name Value
-        args []Value
-}
-
-func (_ *modifier) refs(_ Value) bool { return false }
-func (_ *modifier) closured() bool { return false }
-func (m *modifier) expand(_ expandwhat) (Value, error) { return m, nil }
-func (_ *modifier) cmp(v Value) (res cmpres) { 
-        if _, ok := v.(*modifier); ok { res = cmpEqual }
-        return
-}
-func (m *modifier) Position() Position { return m.position }
-func (m *modifier) True() bool { return false }
-func (m *modifier) Integer() (int64, error) { return 0, nil }
-func (m *modifier) Float() (float64, error) { return 0, nil }
-func (m *modifier) traverse(pc *traversal) (err error) { return }
-func (m *modifier) dependcompare(c *comparer) (err error) {
-        if enable_assertions { assert(c.target != m, "self comparation") }
-        return
-}
-
-func (p *modifier) Strval() (s string, err error) {
-        // TODO:
-        return
-}
-
-func (m *modifier) String() (s string) {
-        s = "(" + m.name.String()
-        for _, a := range m.args {
-                s += " " + a.String()
-        }
-        s += ")"
-        return
-}
-
 type Program struct {
         mutex *sync.Mutex // execution mutex
         pc *traversal // current prepare context
@@ -107,7 +70,7 @@ type Program struct {
         depends []Value
         ordered []Value
         recipes []Value
-        pipline []*modifier
+        pipline []*modifier // deprecated
         callers []*traversecontext
         position Position
         changedWD string
@@ -237,23 +200,6 @@ func (prog *Program) getModifier(name string) (res *modifier) {
         }
         return
 }
-
-/*
-func (prog *Program) hasCDDash() (res bool) {
-        if m := prog.getModifier("cd"); m != nil && len(m.args) > 0 {
-                var (
-                        s string
-                        e error
-                )
-                if s, e = m.args[0].Strval(); e != nil {
-                        // TODO: error...
-                } else if s == "-" {
-                        res = true
-                }
-        }
-        return
-}
-*/
 
 func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
         // IMPORTANT: don't expand the args here. The prerequisites like
@@ -704,25 +650,6 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
                         err = scanner.Errorf(token.Position(prog.position), "no default dialect")
                 }
         }
-
-        // Update file info and timestamp.
-        /*if false && err == nil {
-                var target Value
-                target, err = prog.pc.targetDef.Call(prog.position)
-                if err != nil { return }
-                if file, ok := target.(*File); ok {
-                        fullname := file.FullName()
-                        file.info, err = os.Stat(fullname)
-                        context.globe.stamp(fullname, file.info.ModTime())
-                } else if path, ok := target.(*Path); ok && path.File != nil {
-                        fullname := path.File.FullName()
-                        path.File.info, err = os.Stat(fullname)
-                        context.globe.stamp(fullname, path.File.info.ModTime())
-                } else {
-                        //var file = stat(filename, "", "")
-                        //context.globe.stamp(filename, file.info.ModTime())
-                }
-        }*/
         return
 }
 

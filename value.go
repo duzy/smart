@@ -793,17 +793,6 @@ func isNil(v Value) (t bool) {
         return
 }
 
-type ModifierBar struct { None }
-func (p *ModifierBar) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *ModifierBar) Strval() (string, error) { return "|", nil }
-func (p *ModifierBar) String() string { return "|" }
-func (p *ModifierBar) cmp(v Value) (res cmpres) {
-        if _, ok := v.(*ModifierBar); ok {
-                res = cmpEqual
-        }
-        return
-}
-
 // Any is used to box an arbitrary value
 type Any struct { value interface{} }
 func (p *Any) cmp(v Value) (res cmpres) {
@@ -1515,7 +1504,6 @@ func (p *elements) True() (t bool) { // (or elems...)
         }
         return
 }
-
 func (p *elements) refs(v Value) bool {
         for _, elem := range p.Elems {
                 if elem != nil && (elem == v || elem.refs(v)) {
@@ -1524,14 +1512,12 @@ func (p *elements) refs(v Value) bool {
         }
         return false 
 }
-
 func (p *elements) closured() bool {
         for _, elem := range p.Elems {
                 if elem.closured() { return true }
         }
         return false 
 }
-
 func (p *elements) cmpElems(elems []Value) (res cmpres) {
         if len(p.Elems) == len(elems) {
                 for i, elem := range p.Elems {
@@ -1568,7 +1554,6 @@ func (p *Barecomp) elemstr(o Object, k elemkind) (s string) {
         return
 }
 func (p *Barecomp) String() (s string) { return p.elemstr(nil, 0) }
-
 func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {
@@ -1580,7 +1565,6 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-
 func (p *Barecomp) dependcompare(c *comparer) (err error) {
         var ds string
         if ds, err = p.Strval(); err == nil {
@@ -1588,12 +1572,10 @@ func (p *Barecomp) dependcompare(c *comparer) (err error) {
         }
         return
 }
-
 func (p *Barecomp) traverse(pc *traversal) error {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         return pc.updateTargetValue(p)
 }
-
 func (p *Barecomp) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Barecomp); ok {
                 assert(ok, "value is not Barecomp")
@@ -1636,7 +1618,6 @@ func (p *Barefile) Float() (float64, error) {
         i, e := p.Integer()
         return float64(i), e
 }
-
 func (p *Barefile) dependcompare(c *comparer) (err error) {
         if optionTraceCompare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
@@ -1647,7 +1628,6 @@ func (p *Barefile) dependcompare(c *comparer) (err error) {
         }
         return
 }
-
 func (p *Barefile) traverse(pc *traversal) error {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
         if p.File != nil {
@@ -1662,7 +1642,6 @@ func (p *Barefile) traverse(pc *traversal) error {
                 return pc.updateTargetValue(p)
         }
 }
-
 func (p *Barefile) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Barefile); ok {
                 assert(ok, "value is not Barefile")
@@ -1806,7 +1785,6 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-
 func (p *Path) dependcompare(c *comparer) (err error) {
         if optionTraceCompare { defer compun(comptrace(c, p)) }
         if enable_assertions { assert(c.target != p, "self comparation") }
@@ -1818,7 +1796,6 @@ func (p *Path) dependcompare(c *comparer) (err error) {
         }
         return
 }
-
 func (p *Path) traverse(pc *traversal) (err error) {
         if optionTracePrepare { defer prepun(preptrace(pc, p)) }
 
@@ -1882,7 +1859,6 @@ func (p *Path) traverse(pc *traversal) (err error) {
         if len(errs) > 0 { err = errs } else { err = nil }
         return
 }
-
 func (p *Path) isPattern() (result bool) {
         for _, seg := range p.Elems {
                 _, result = seg.(Pattern)
@@ -1890,7 +1866,6 @@ func (p *Path) isPattern() (result bool) {
         }
         return
 }
-
 func (p *Path) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Path); ok {
                 assert(ok, "value is not Path")
@@ -1898,7 +1873,6 @@ func (p *Path) cmp(v Value) (res cmpres) {
         }
         return
 }
-
 func (p *Path) match(i interface{}) (result string, stems []string, err error) {
         var retained []string
         result, retained, stems, err = p.partialMatch(i)
@@ -1908,7 +1882,6 @@ func (p *Path) match(i interface{}) (result string, stems []string, err error) {
         }
         return
 }
-
 func (p *Path) partialMatch(i interface{}) (result string, retained, stems []string, err error) {
         switch t := i.(type) {
         case *File:
@@ -1932,7 +1905,6 @@ func (p *Path) partialMatch(i interface{}) (result string, retained, stems []str
         }
         return
 }
-
 func (p *Path) match1(i interface{}) (result string, retained, stems []string, err error) {
         var (
                 srcs []string
@@ -2052,7 +2024,6 @@ ForPathSegs:
         }
         return
 }
-
 func (p *Path) stencil(stems []string) (result string, rest []string, err error) {
         var (
                 strs []string
@@ -3742,7 +3713,7 @@ func (p *GlobPattern) match(i interface{}) (result string, stems []string, err e
 }
 
 func (p *GlobPattern) stencil(stems []string) (s string, rest []string, err error) {
-        unreachable("FIXME: GlobPattern stencil(%v)", stems)
+        unreachable(fmt.Sprintf("Unimplemented GlobPattern stencil %v (stems=%v)", p, stems))
         return
 }
 

@@ -964,6 +964,31 @@ func (l *loader) exprGlobRange(x *ast.GlobRange) (v Value) {
         return
 }
 
+func (l *loader) exprModifierGroup(x *ast.ModifiersExpr) Value {
+        var modifiers []*modifier
+        for i, elem := range l.exprs(x.Elems) {
+                switch t := elem.(type) {
+                case *Group:
+                        // Just ignore empty modifier
+                        if len(t.Elems) == 0 { continue }
+                        var m = &modifier{
+                                position: t.Position(),
+                                name: t.Elems[0],
+                        }
+                        if len(t.Elems) > 1 {
+                                m.args = t.Elems[1:]
+                        }
+                        modifiers = append(modifiers, m)
+                default:
+                        l.parser.error(x.Elems[i].Pos(), "invalid modifier `%v` (%T)", elem, elem)
+                }
+        }
+        return &modifiergroup{
+                position: Position(l.parser.file.Position(x.Pos())),
+                modifiers: modifiers,
+        }
+}
+
 func (l *loader) exprRecipe(x *ast.RecipeExpr) (v Value) {
         if len(x.Elems) == 0 {
                 v = universalnone
@@ -1043,7 +1068,9 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
         case *ast.GlobMeta: // "*", "?"
                 v = l.exprGlobMeta(x)
         case *ast.GlobRange: // "[a-z]", "[abc]", `[a\-b]`, `[a\]b]`
-                v = l.exprGlobRange(x)
+                v = l.exprGlobRange(x) // FIXME: `[...]` is used for modifier expressions
+        case *ast.ModifiersExpr: // [(foo a b c) (bar a b c)]
+                v = l.exprModifierGroup(x)
         case *ast.RecipeExpr:
                 v = l.exprRecipe(x)
         case *ast.RecipeDefineClause:
@@ -1301,8 +1328,8 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
         }
         
         var modifiers []Value
-        if clause.Modifier != nil {
-                modifiers = l.exprs(clause.Modifier.Elems)
+        if clause.Modifiers != nil {
+                modifiers = l.exprs(clause.Modifiers.Elems)
         }
 
         var configure = false
@@ -1317,7 +1344,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 position: Position(clause.Position),
         }
         for i, m := range modifiers {
-                position := l.parser.file.Position(clause.Modifier.Elems[i].Pos())
+                position := l.parser.file.Position(clause.Modifiers.Elems[i].Pos())
                 if p, err := prog.pipe(Position(position), m); err != nil {
                         l.parser.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
                         return

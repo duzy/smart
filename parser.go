@@ -29,6 +29,7 @@ const (
         composingPERC
         composingREXP
         composingURL
+        composingModifier
 
         parsingFilesSpec // files ( ... )
         parsingSpecialRule // e.g. :use ...:
@@ -426,6 +427,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
         case *ast.PercExpr:
         case *ast.SelectionExpr:
         case *ast.URLExpr:
+        case *ast.ModifiersExpr:
         case nil:
                 //p.warn(p.pos, "nil expression")
 		p.error(p.pos, "nil expression")
@@ -605,7 +607,7 @@ func (p *parser) parseGlobMeta() (x ast.Expr) {
 func (p *parser) parseGlobRange() (x ast.Expr) {
 	if p.tracing.enabled { defer un(trace(p, "Glob")) }
 
-        p.next() // skip '['
+        p.expect(token.LBRACK) // skip '['
 
         chars := p.parseExpr(false)
 
@@ -636,6 +638,7 @@ func (p *parser) parseGlobExpr(x ast.Expr) ast.Expr {
                 case token.STAR, token.QUE:
                         x = p.parseGlobMeta()
                 case token.LBRACK:
+                        // FIXME: '[...]' has been used for modifier expressions
                         x = p.parseGlobRange()
                 default:
                         // FIXME: escaped glob metas/chars
@@ -1181,8 +1184,11 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
                 
         case token.PCON:
                 return p.parsePathExpr(lhs, &ast.PathSegExpr{ p.pos, p.tok })
+
+        case token.LBRACK:
+                return p.parseModifiersExpr2()
                 
-        case token.STAR, token.QUE, token.LBRACK: // * ? [
+        case token.STAR, token.QUE/*, token.LBRACK*/: // * ? [
                 return p.parseGlobExpr(nil) // (ie. no prefix)
 
         case token.PERC: // %bar (ie. no prefix)
@@ -1214,7 +1220,6 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
 
 func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
 	if p.tracing.enabled { defer un(trace(p, "Composed")) }
-
         switch x = p.parseUnaryExpr(lhs); p.tok { // check composible expressions
         case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2: // foo->bar  foo=>bar  foo~>bar
                 if p.bits&composingNoSelect == 0 {
@@ -1227,7 +1232,14 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
                                 x = p.parseKeyValueExpr(x); break
                         }*/
                 }
-        case token.STAR, token.QUE, token.LBRACK: // foo*bar foo?bar foo[a-z]bar
+
+        case token.LBRACK: // xxx[(foo ...)]
+                if p.bits&composingModifier == 0 && x.End() == p.pos {
+                        // FIXME: compose lhs x
+                        m := p.parseModifiersExpr2()
+                        p.error(m.Pos(), "composing modifiers is ignored (unimplemented yet)")
+                }
+        case token.STAR, token.QUE/*, token.LBRACK*/: // foo*bar foo?bar foo[a-z]bar
                 if p.bits&composingNoGlob == 0 && x.End() == p.pos {
                         x = p.parseGlobExpr(x)
                 }
@@ -1727,25 +1739,25 @@ SwitchDialect:
         }
 }
 
-func (p *parser) parseModifierExpr() (string, []string, *ast.ModifierExpr) {
+func (p *parser) parseModifiersExpr() (string, []string, *ast.ModifiersExpr) {
         var (
                 lpos = p.expect(token.LBRACK)
                 elems []ast.Expr
                 params []string
                 dialect string
         )
-ForModifierExpr:
+ForModifiersExpr:
         for p.tok != token.RBRACK && p.tok != token.EOF {
                 switch p.tok {
                 case token.COMMA:
                         p.next() // TODO: grouping modifiers
-                        continue ForModifierExpr
+                        continue ForModifiersExpr
                 case token.BAR:
                         pos := p.pos
                         p.next()
                         bar := &ast.BasicLit{ pos, token.BAR, "|", p.pos }
                         elems = append(elems, bar)
-                        continue ForModifierExpr
+                        continue ForModifiersExpr
                 }
                 
                 var (
@@ -1862,7 +1874,132 @@ ForModifierExpr:
                 }*/
         }
         rpos := p.expect(token.RBRACK)
-        return dialect, params, &ast.ModifierExpr{
+        return dialect, params, &ast.ModifiersExpr{
+                Lbrack: lpos,
+                Elems: elems,
+                Rbrack: rpos,
+        }
+}
+
+func (p *parser) parseModifiersExpr2() *ast.ModifiersExpr {
+	if p.tracing.enabled { defer un(trace(p, "Modifiers")) }
+
+        var (
+                lpos = p.expect(token.LBRACK)
+                elems []ast.Expr
+        )
+
+        defer func(a parsingBits) { p.bits = a }(p.bits)
+        p.bits |= composingModifier
+
+ForModifiersExpr:
+        for p.tok != token.RBRACK && p.tok != token.EOF {
+                var (
+                        x = p.checkExpr(p.parseExpr(false))
+                        name string
+                        pos token.Pos
+                        err error
+                )
+                if pos == token.NoPos { /* unused */ }
+
+                group, ok := x.(*ast.GroupExpr)
+                if !ok {
+                        p.error(x.Pos(), "unsupported modifier")
+                        continue ForModifiersExpr
+                }
+                if l, ok := group.Elems[0].(*ast.ListExpr); ok {
+                        group.Elems = append([]ast.Expr{l.Elems[0]},
+                                append(l.Elems[1:], group.Elems[1:]...)...)
+                }
+
+                switch n := group.Elems[0].(type) {
+                case *ast.Bareword:
+                        if name, pos = n.Value, n.Pos(); name != "var" { goto checkName }
+                        // Parsing (var a=xxx,b=yyy) definitions
+                        for _, elem := range group.Elems[1:] {
+                                var kv, ok = elem.(*ast.KeyValueExpr)
+                                if !ok || kv == nil {
+                                        p.error(elem.Pos(), "bad var form (%T)", elem)
+                                        continue
+                                }
+                                var name string
+                                var k, v = p.expr(kv.Key), p.expr(kv.Value)
+                                if name, err = k.Strval(); err != nil {
+                                        p.error(kv.Key.Pos(), "%s", err)
+                                } else if name == "" {
+                                        p.error(kv.Key.Pos(), "'%v' name is empty ", kv.Key)
+                                }
+                                if def, alt := p.def(name); alt != nil {
+                                        p.error(kv.Key.Pos(), "%T '%s' already existed", alt, name)
+                                } else if def != nil {
+                                        if g, ok := v.(*Group); ok {
+                                                def.set(DefDefault, g.ToList())
+                                        } else {
+                                                def.set(DefDefault, v)
+                                        }
+                                }
+                        }
+                        continue ForModifiersExpr
+                case *ast.GroupExpr: // parameters: ((foo bar))
+                        for _, elem := range n.Elems {
+                                switch elem.(type) {
+                                case *ast.Bareword, *ast.Barecomp:
+                                        var v = p.expr(elem)
+                                        var s string
+                                        if s, err = v.Strval(); err != nil {
+                                                p.error(elem.Pos(), "%s", err)
+                                        }
+                                        if def, alt := p.def(s); alt != nil {
+                                                var ok bool
+                                                if def, ok = alt.(*Def); !ok {
+                                                        p.error(elem.Pos(), "%T '%s' already taken the name, no such parameter", alt, s)
+                                                }
+                                        } else if def != nil {
+                                                //def.set(DefDefault, nil)
+                                        } else {
+                                                // TODO: errors
+                                        }
+                                default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
+                                        p.error(elem.Pos(), "bad parameter form (%T)", elem)
+                                }
+                        }
+                        continue ForModifiersExpr
+                case *ast.DelegateExpr, *ast.ClosureExpr, *ast.Barecomp, *ast.BasicLit:
+                        var v []Value
+                        if v, err = mergeresult(ExpandAll(p.expr(n))); err != nil {
+                                p.error(n.Pos(), "%v", err)
+                        } else if name, err = v[0].Strval(); err != nil {
+                                p.error(n.Pos(), "%v", err)
+                                continue ForModifiersExpr
+                        } else if name == "" {
+                                p.error(n.Pos(), "empty name (%v)", n)
+                                continue ForModifiersExpr
+                        }
+                        pos = x.Pos()
+                        goto checkName
+                default:
+                        p.error(n.Pos(), "unsupported dialect or modifier (%T): %v", group.Elems[0], group.Elems[0])
+                        continue ForModifiersExpr
+                }
+
+                goto addModifier
+
+        checkName:
+                /*if _, ok = dialects[name]; ok {
+                        if dialect == "" { dialect = name } else {
+                                p.error(pos, "multi-dialects unsupported, already defined '%s'", dialect)
+                                continue ForModifiersExpr
+                        }
+                } else if _, ok = modifiers[name]; !ok {
+                        p.error(pos, "`%s` no such dialect or modifier", name)
+                        continue ForModifiersExpr
+                }*/
+                
+        addModifier:
+                elems = append(elems, x)
+        }
+        rpos := p.expect(token.RBRACK)
+        return &ast.ModifiersExpr{
                 Lbrack: lpos,
                 Elems: elems,
                 Rbrack: rpos,
@@ -1907,7 +2044,7 @@ func parseRuleClause(p *parser, tok token.Token, special specialRule, options, t
         var (
                 doc = p.leadComment
                 pos = p.expect(tok)
-                modifier *ast.ModifierExpr
+                modifiers *ast.ModifiersExpr
                 depends []ast.Expr
                 ordered []ast.Expr
                 recipes []ast.Expr
@@ -1956,7 +2093,7 @@ func parseRuleClause(p *parser, tok token.Token, special specialRule, options, t
         switch p.tok {
         case token.LBRACK: // [
                 // Parse modifiers in the program scope.
-                dialect, params, modifier = p.parseModifierExpr()
+                dialect, params, modifiers = p.parseModifiersExpr()
         case token.MINUS, token.EXC, token.QUE: // - ! ?
                 p.error(p.pos, "modifier '%v' unimplemented", p.tok)
                 p.next()
@@ -2001,7 +2138,7 @@ func parseRuleClause(p *parser, tok token.Token, special specialRule, options, t
                         Recipes: recipes,
                         Scope: ls.scope,
                 },
-                Modifier: modifier,
+                Modifiers: modifiers,
                 Position: p.file.Position(pos),
         }
 

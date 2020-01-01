@@ -286,8 +286,8 @@ type (
 		Value Expr
 	}
 
-        // A ModifierExpr node represents [...] expression
-        ModifierExpr struct {
+        // A ModifiersExpr node represents [...] expression
+        ModifiersExpr struct {
                 Lbrack token.Pos
                 Elems []Expr
                 Rbrack token.Pos
@@ -332,7 +332,7 @@ func (d *GlobExpr) Pos() token.Pos        { return d.Components[0].Pos() }
 func (d *GlobMeta) Pos() token.Pos        { return d.TokPos }
 func (d *GlobRange) Pos() token.Pos       { return d.Chars.Pos() - 1 }
 func (d *KeyValueExpr) Pos() token.Pos    { return d.Key.Pos() }
-func (d *ModifierExpr) Pos() token.Pos    { return d.Lbrack }
+func (d *ModifiersExpr) Pos() token.Pos    { return d.Lbrack }
 func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
 func (d *ProgramExpr) Pos() token.Pos     { return d.Recipes[0].Pos() }
 
@@ -405,7 +405,7 @@ func (d *GlobExpr) End() token.Pos        { return d.Components[len(d.Components
 func (d *GlobMeta) End() token.Pos        { return d.TokPos + 1 }
 func (d *GlobRange) End() token.Pos        { return d.Chars.End() + 1 }
 func (d *KeyValueExpr) End() token.Pos    { return d.Value.End() }
-func (d *ModifierExpr) End() token.Pos    { return d.Rbrack + 1 }
+func (d *ModifiersExpr) End() token.Pos    { return d.Rbrack + 1 }
 func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
 func (d *ProgramExpr) End() token.Pos     { return d.Recipes[len(d.Recipes)-1].End() }
 
@@ -500,7 +500,7 @@ func (x *GlobExpr) String() string        { return fmt.Sprintf("%v", joins(x.Com
 func (x *GlobMeta) String() string        { return x.Tok.String() }
 func (x *GlobRange) String() string       { return fmt.Sprintf("[%s]", x.Chars) }
 func (x *KeyValueExpr) String() string    { return fmt.Sprintf("%v%s%v", x.Key, x.Tok, x.Value) }
-func (x *ModifierExpr) String() string    { return fmt.Sprintf("(%v)", joinx(" ", x.Elems...)) }
+func (x *ModifiersExpr) String() string    { return fmt.Sprintf("[%v]", joinx(" ", x.Elems...)) }
 func (x *RecipeExpr) String() string      { return fmt.Sprintf("Recipe(%s){%v}", x.Dialect, x.Elems) }
 func (x *ProgramExpr) String() string     { return fmt.Sprintf("Program(%v){%v}", x.Params, x.Recipes) }
 
@@ -526,7 +526,7 @@ func (*GlobExpr) expr()        {}
 func (*GlobMeta) expr()        {}
 func (*GlobRange) expr()       {}
 func (*KeyValueExpr) expr()    {}
-func (*ModifierExpr) expr()    {}
+func (*ModifiersExpr) expr()    {}
 func (*RecipeExpr) expr()      {}
 func (*ProgramExpr) expr()     {}
 
@@ -659,7 +659,7 @@ type (
 		Targets  []Expr         // targets
                 Depends  []Expr         // normal prerequisites
                 Ordered  []Expr         // ordered prerequisites
-                Modifier *ModifierExpr  // modifier (e.g. [shell])
+                Modifiers *ModifiersExpr  // modifiers (e.g. [(shell)])
                 Program  Expr           // program (e.g. recipes)
                 Position token.Position
                 TokPos   token.Pos      // position of ':', '::', etc

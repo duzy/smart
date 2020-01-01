@@ -126,6 +126,108 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
         return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil, nil }
 }
 
+type ModifierBar struct { None }
+func (p *ModifierBar) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *ModifierBar) Strval() (string, error) { return "|", nil }
+func (p *ModifierBar) String() string { return "|" }
+func (p *ModifierBar) cmp(v Value) (res cmpres) {
+        if _, ok := v.(*ModifierBar); ok {
+                res = cmpEqual
+        }
+        return
+}
+
+type modifier struct {
+        position Position
+        name Value
+        args []Value
+}
+func (m *modifier) refs(v Value) bool {
+        if m.name.refs(v) { return true }
+        for _, a := range m.args {
+                if a.refs(v) { return true }
+        }
+        return false
+}
+func (_ *modifier) closured() bool { return false }
+func (m *modifier) expand(_ expandwhat) (Value, error) { return m, nil }
+func (_ *modifier) cmp(v Value) (res cmpres) { 
+        if _, ok := v.(*modifier); ok { res = cmpEqual }
+        return
+}
+func (m *modifier) Position() Position { return m.position }
+func (m *modifier) True() bool { return false }
+func (m *modifier) Integer() (int64, error) { return 0, nil }
+func (m *modifier) Float() (float64, error) { return 0, nil }
+func (m *modifier) traverse(pc *traversal) (err error) {
+        if optionTracePrepare { defer prepun(preptrace(pc, m)) }
+        fmt.Fprintf(stderr, "todo: modifier.traverse %v\n", m)
+        return
+}
+func (m *modifier) dependcompare(c *comparer) (err error) {
+        if enable_assertions { assert(c.target != m, "self comparation") }
+        return
+}
+func (m *modifier) Strval() (s string, err error) {
+        // TODO: modifier strval
+        return
+}
+func (m *modifier) String() (s string) {
+        s = "(" + m.name.String()
+        for _, a := range m.args {
+                s += " " + a.String()
+        }
+        s += ")"
+        return
+}
+
+type modifiergroup struct {
+        position Position
+        modifiers []*modifier
+}
+func (g *modifiergroup) refs(v Value) bool {
+        for _, m := range g.modifiers {
+                if m.refs(v) { return true }
+        }
+        return false
+}
+func (_ *modifiergroup) closured() bool { return false }
+func (g *modifiergroup) expand(_ expandwhat) (Value, error) { return g, nil }
+func (_ *modifiergroup) cmp(v Value) (res cmpres) { 
+        if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
+        return
+}
+func (g *modifiergroup) Position() Position { return g.position }
+func (g *modifiergroup) True() bool { return false }
+func (g *modifiergroup) Integer() (int64, error) { return 0, nil }
+func (g *modifiergroup) Float() (float64, error) { return 0, nil }
+func (g *modifiergroup) traverse(pc *traversal) (err error) {
+        if optionTracePrepare { defer prepun(preptrace(pc, g)) }
+        for _, m := range g.modifiers {
+                if err = m.traverse(pc); err == nil {
+                        continue // The element target is good!
+                }                
+        }
+        return
+}
+func (g *modifiergroup) dependcompare(c *comparer) (err error) {
+        if enable_assertions { assert(c.target != g, "self comparation") }
+        return
+}
+func (g *modifiergroup) Strval() (s string, err error) {
+        // TODO: modifier strval
+        return
+}
+func (g *modifiergroup) String() (s string) {
+        s = "["
+        for i, m := range g.modifiers {
+                if i > 0 { s += " " }
+                s += m.String()
+        }
+        s += "]"
+        return
+}
+
 type ModifierFunc func(pos Position, prog *Program, args... Value) (Value, error)
 
 var (
