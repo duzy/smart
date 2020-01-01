@@ -1,5 +1,5 @@
 # -*- org -*-
-* 2019-12-28
+* New
 ** TODO Move ":[...]:" modifiers to dependency list
    For example:
    #+NAME: smart-modifiers-deprecated
@@ -18,6 +18,8 @@
     implementation.
 ** TODO Always ~compare~ files (including paths)
    Get rid of explicit ~(compare)~ modifier.
+** TODO Add instances of execution context for each ~use~ project
+   Refers to ~Program.Execute~ and ~prog.pc~.
 * Passed
 ** DONE Update target whenever recipe command changed
   - save recipe record in file .smart/recipe/target

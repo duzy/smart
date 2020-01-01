@@ -353,9 +353,9 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
         defer func(pc *traversal) { prog.pc = pc } (prog.pc)
         prog.pc = &traversal{
-                program:prog,
-                traversecontext:ctx,
-                print:true,
+                program: prog,
+                traversecontext: ctx,
+                print: true,
         }
 
         // Flag targets (-foo) turn off printing
