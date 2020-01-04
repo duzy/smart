@@ -295,7 +295,7 @@ func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts impor
                 var s string
                 switch v := l.expr(prop); t := v.(type) {
                 case *Flag:
-                        if s, err = t.Name.Strval(); err != nil {
+                        if s, err = t.name.Strval(); err != nil {
                                 l.parser.error(prop.Pos(), "invalid flag `%v` (%v)", v, err)
                                 return
                         }
@@ -307,8 +307,8 @@ func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts impor
                 case *Pair: // -param=value
                         switch tt := t.Key.(type) {
                         case *Flag:
-                                if s, err = tt.Name.Strval(); err != nil {
-                                        l.parser.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.Name, err)
+                                if s, err = tt.name.Strval(); err != nil {
+                                        l.parser.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.name, err)
                                         return
                                 }
                                 switch s {
@@ -320,14 +320,14 @@ func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts impor
                                 return
                         }
                 case *Argumented: // -param(value)
-                        switch tt := t.Val.(type) {
+                        switch tt := t.value.(type) {
                         case *Flag:
-                                if s, err = tt.Name.Strval(); err != nil {
-                                        l.parser.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.Name, err)
+                                if s, err = tt.name.Strval(); err != nil {
+                                        l.parser.error(prop.Pos(), "invalid flag name `%v` (%v)", tt.name, err)
                                         return
                                 }
                                 switch s {
-                                case "use": useList = append(useList, t.Args...)
+                                case "use": useList = append(useList, t.args...)
                                 default: params = append(params, v)
                                 }
                         default:
@@ -342,7 +342,7 @@ func (l *loader) parseImportProps(props []ast.Expr) (specName string, opts impor
         return
 }
 
-func (l *loader) loadImportSpec(opts importoptions, spec *ast.ImportSpec) {
+func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
         var (
                 linfo = l.loads[len(l.loads)-1]
                 specOpts importspecoptions
@@ -598,8 +598,8 @@ func (l *loader) exprEvaluated(x *ast.EvaluatedExpr) (v Value) {
 
 func (l *loader) exprArgumented(x *ast.ArgumentedExpr) Value {
         return &Argumented{
-                Val: l.expr(x.X),
-                Args: l.exprs(x.Arguments),
+                value: l.expr(x.X),
+                args: l.exprs(x.Arguments),
         }
 }
 
@@ -643,7 +643,6 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
 
         s, err := name.Strval()
         if err != nil {
-                l.parser.error(x.Name.Pos(), "invalid name")
                 l.parser.error(x.Name.Pos(), err)
                 return
         }
@@ -766,45 +765,46 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
 }
 
 func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         var obj = l.expr(x.Lhs)
         if obj == nil {
                 l.parser.error(x.Lhs.Pos(), "`%s` invalid object expression (%T)", x, x.Lhs)
                 return
-        } else if _, ok := obj.(*selection); ok {
-                var ( o Object; err error )
-                if w, ok := obj.(*Bareword); ok && w.string == "usee" {
-                        obj = l.project.using
-                } else if ok && w.string == "self" {
-                        obj = l.project.self
-                } else if ok && w.string == "os" {
-                        obj = context.globe.os.self
-                /*} else if ok && w.string == "goals" { // "goals"
-                        obj = context.goals*/
-                } else if o, err = l.resolve(obj); err != nil {
-                        l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
-                        return
-                } else if o == nil {
-                        if x.Tok == token.SELECT_PROG2 {
-                                v = universalnil // ignore
+        }
+        switch t := obj.(type) {
+        case *selection:
+                // TODO: ...
+        case *Bareword:
+                switch t.string {
+                case "usee": obj = l.project.using
+                case "self": obj = l.project.self
+                case "os": obj = context.globe.os.self
+                case "goals": obj = context.goals
+                default:
+                        if o, err := l.resolve(obj); err != nil {
+                                l.parser.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
+                                return
+                        } else if o == nil {
+                                if x.Tok == token.SELECT_PROG2 {
+                                        v = &Nil{None{trivial{pos}}} // ignore
+                                } else {
+                                        l.parser.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                                }
+                                return
                         } else {
-                                l.parser.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                                obj = o
                         }
-                        return
-                } else {
-                        obj = o
                 }
         }
+
         if prop := l.expr(x.Rhs); prop == nil {
                 if x.Tok == token.SELECT_PROG2 {
-                        v = universalnil // ignore
+                        v = &Nil{None{trivial{pos}}} // ignore
                 } else {
                         l.parser.error(x.Rhs.Pos(), "`%s` invalid property expression (%T)", x, x.Rhs)
                 }
         } else {
-                v = &selection{
-                        Position(l.parser.file.Position(x.Pos())),
-                        x.Tok, obj, prop,
-                }
+                v = &selection{ trivial{pos}, x.Tok, obj, prop }
         }
         return
 }
@@ -812,7 +812,8 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
 func (l *loader) exprBasicLit(x *ast.BasicLit) (v Value) {
         var pos = Position(l.parser.file.Position(x.Pos()))
         switch x.Kind {
-        case token.BAR:      v = modifierbar
+        case token.BAR:
+                l.parser.error(x.Pos(), "`|` is deprecated, changed the modifiers!")
         case token.BIN:      v = ParseBin(pos,x.Value)
         case token.OCT:      v = ParseOct(pos,x.Value)
         case token.INT:      v = ParseInt(pos,x.Value)
@@ -822,10 +823,10 @@ func (l *loader) exprBasicLit(x *ast.BasicLit) (v Value) {
         case token.DATE:     v = ParseDate(pos,x.Value)
         case token.TIME:     v = ParseTime(pos,x.Value)
         case token.URI:      v = ParseURL(pos,x.Value)
-        case token.BAREWORD: v = &Bareword{pos,x.Value}
-        case token.STRING:   v = &String{pos,x.Value}
-        case token.ESCAPE:   v = &String{pos,EscapeChar(x.Value)}
-        case token.RAW:      v = &Raw{pos,x.Value}
+        case token.BAREWORD: v = &Bareword{trivial{pos},x.Value}
+        case token.STRING:   v = &String{trivial{pos},x.Value}
+        case token.ESCAPE:   v = &String{trivial{pos},EscapeChar(x.Value)}
+        case token.RAW:      v = &Raw{trivial{pos},x.Value}
         default: unreachable()
         }
         return
@@ -833,33 +834,34 @@ func (l *loader) exprBasicLit(x *ast.BasicLit) (v Value) {
 
 func (l *loader) exprBareword(x *ast.Bareword) (res Value) {
         var pos = Position(l.parser.file.Position(x.Pos()))
-        res = &Bareword{pos,x.Value}
+        res = &Bareword{trivial{pos},x.Value}
         return
 }
 
 func (l *loader) exprConstant(x *ast.Constant) (res Value) {
         var pos = Position(l.parser.file.Position(x.Pos()))
         switch x.Tok {
-        case token.TRUE:  res = &boolean{pos,true}
-        case token.FALSE: res = &boolean{pos,false}
-        case token.YES:   res = &answer{pos,true}
-        case token.NO:    res = &answer{pos,false}
+        case token.TRUE:  res = &boolean{trivial{pos},true}
+        case token.FALSE: res = &boolean{trivial{pos},false}
+        case token.YES:   res = &answer{trivial{pos},true}
+        case token.NO:    res = &answer{trivial{pos},false}
         }
         return
 }
 
 func (l *loader) exprBarecomp(x *ast.Barecomp) (res Value) {
-        res = MakeBarecomp(l.exprs(x.Elems)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        res = MakeBarecomp(pos, l.exprs(x.Elems)...)
         return
 }
 
 func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
-        //var pos = Position(l.parser.file.Position(x.Pos()))
         if file, _ := x.File.(*File); file != nil {
+                var pos = Position(l.parser.file.Position(x.Pos()))
                 if x.Val != nil {
-                        v = &Barefile{x.Val.(Value),file}
+                        v = &Barefile{trivial{pos},x.Val.(Value),file}
                 } else {
-                        v = &Barefile{l.expr(x.Name),file}
+                        v = &Barefile{trivial{pos},l.expr(x.Name),file}
                 }
         }
         if v == nil {
@@ -869,27 +871,29 @@ func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
 }
 
 func (l *loader) exprURL(x *ast.URLExpr) (res Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         var url = &URL{ Scheme:l.expr(x.Scheme) }
         if x.Username != nil { url.Username = l.expr(x.Username) }
         if x.Password != nil { url.Password = l.expr(x.Password) } else if x.Colon2 != token.NoPos {
-                url.Password = universalnone
+                url.Password = &None{trivial{pos}}
         }
         if x.Host != nil { url.Host = l.expr(x.Host) }
         if x.Port != nil { url.Port = l.expr(x.Port) } else if x.Colon3 != token.NoPos {
-                url.Port = universalnone
+                url.Port = &None{trivial{pos}}
         }
         if x.Path != nil { url.Path = l.expr(x.Path) }
         if x.Query != nil { url.Query = l.expr(x.Query) } else if x.Que != token.NoPos {
-                url.Query = universalnone
+                url.Query = &None{trivial{pos}}
         }
         if x.Fragment != nil { url.Fragment = l.expr(x.Fragment) } else if x.NumSign != token.NoPos {
-                url.Fragment = universalnone
+                url.Fragment = &None{trivial{pos}}
         }
         return url
 }
 
 func (l *loader) exprPath(x *ast.PathExpr) (res Value) {
-        res = MakePath(l.exprs(x.Segments)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        res = MakePath(pos, l.exprs(x.Segments)...)
         return
 }
 
@@ -907,10 +911,11 @@ func (l *loader) exprPathSeg(x *ast.PathSegExpr) (v Value) {
 }
 
 func (l *loader) exprFlag(x *ast.FlagExpr) (v Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         if x.Name == nil {
-                v = &Flag{ universalnone }
+                v = &Flag{trivial{pos},&None{trivial{pos}}}
         } else {
-                v = &Flag{ l.expr(x.Name) }
+                v = &Flag{trivial{pos},l.expr(x.Name)}
         }
         return
 }
@@ -921,17 +926,20 @@ func (l *loader) exprNeg(x *ast.NegExpr) (v Value) {
 }
 
 func (l *loader) exprCompoundLit(x *ast.CompoundLit) (v Value) {
-        v = MakeCompound(l.exprs(x.Elems)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeCompound(pos, l.exprs(x.Elems)...)
         return
 }
 
 func (l *loader) exprGroup(x *ast.GroupExpr) (v Value) {
-        v = MakeGroup(l.exprs(x.Elems)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeGroup(pos, l.exprs(x.Elems)...)
         return
 }
 
 func (l *loader) exprList(x *ast.ListExpr) (v Value) {
-        v = MakeList(l.exprs(x.Elems)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeList(pos, l.exprs(x.Elems)...)
         return
 }
 
@@ -955,12 +963,14 @@ func (l *loader) exprGlob(x *ast.GlobExpr) (v Value) {
 }
 
 func (l *loader) exprGlobMeta(x *ast.GlobMeta) (v Value) {
-        v = MakeGlobMeta(Position(l.parser.file.Position(l.pos)),x.Tok)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeGlobMeta(pos, x.Tok)
         return
 }
 
 func (l *loader) exprGlobRange(x *ast.GlobRange) (v Value) {
-        v = MakeGlobRange(Position(l.parser.file.Position(l.pos)),l.expr(x.Chars))
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeGlobRange(pos, l.expr(x.Chars))
         return
 }
 
@@ -990,12 +1000,13 @@ func (l *loader) exprModifierGroup(x *ast.ModifiersExpr) Value {
 }
 
 func (l *loader) exprRecipe(x *ast.RecipeExpr) (v Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         if len(x.Elems) == 0 {
-                v = universalnone
+                v = &None{trivial{pos}}
         } else if x.Dialect == "" || x.Dialect == "eval" {
-                v = MakeList(l.exprs(x.Elems)...)
+                v = MakeList(pos, l.exprs(x.Elems)...)
         } else {
-                v = MakeCompound(l.exprs(x.Elems)...)
+                v = MakeCompound(pos, l.exprs(x.Elems)...)
         }
         return
 }
@@ -1018,7 +1029,7 @@ func (l *loader) exprIncludeRuleClause(x *ast.IncludeRuleClause) (v Value) {
 
 func (l *loader) expr(expr ast.Expr) (v Value) {
         if expr == nil {
-                v = universalnone
+                v = &None{}
                 return
         }
 
@@ -1327,10 +1338,10 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 return
         }
         
-        var modifiers []Value
+        /*var modifiers []Value
         if clause.Modifiers != nil {
                 modifiers = l.exprs(clause.Modifiers.Elems)
-        }
+        }*/
 
         var configure = false
         var prog = &Program{
@@ -1343,7 +1354,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 recipes:  recipes,
                 position: Position(clause.Position),
         }
-        for i, m := range modifiers {
+        /*for i, m := range modifiers {
                 position := l.parser.file.Position(clause.Modifiers.Elems[i].Pos())
                 if p, err := prog.pipe(Position(position), m); err != nil {
                         l.parser.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
@@ -1356,7 +1367,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                                 configure = true
                         }
                 }
-        }
+        }*/
 
         var optionVals = l.exprs(options)
         for n, target := range l.exprs(clause.Targets) {
@@ -1385,7 +1396,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         entries = append(entries, entry)
                 }
                 if t, okay := entry.target.(*Flag); okay && t != nil {
-                        if s, _ := t.Name.Strval(); s == "configure" {
+                        if s, _ := t.name.Strval(); s == "configure" {
                                 configuration.configs = append(configuration.configs, entry)
                         }
                 } else if configure {
@@ -1506,7 +1517,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
         ParamsLoop: for _, elem := range params {
                 var args []Value
                 if arged, ok := elem.(*Argumented); ok {
-                        elem, args = arged.Val, arged.Args
+                        elem, args = arged.value, arged.args
                 }
 
                 if specName, err = elem.Strval(); err != nil { return }
@@ -1573,7 +1584,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 switch t := param.(type) {
                 case *Flag:
                         var s string
-                        if s, err = t.Name.Strval(); err != nil { return }
+                        if s, err = t.name.Strval(); err != nil { return }
                         switch s {
                         case "final": optFinal = true;
                         case "nodock": optNoDock = true;
@@ -1835,7 +1846,8 @@ func (l *loader) def(name string) (def *Def, alt Object) {
                 // to ensure that the symbol is valid in the project
                 scope = l.project.scope
         }
-        return scope.define(l.project, name, universalnone)
+        var pos = Position(l.parser.file.Position(l.pos))
+        return scope.define(l.project, name, &None{trivial{pos}})
 }
 
 func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, value Value) (err error) {
@@ -1947,22 +1959,23 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
 
 	l.tracing.enabled = l.mode&Trace != 0 // for convenience (l.trace is used frequently)
 	defer func(saved *parser) {
+                var dbPrintStack = optionPrintStack || true
                 var e = recover()
 		for e != nil {
 			// resume same panic if it's not a bailout
-			if _, ok := e.(bailout); !ok {
+			switch failure := e.(type) {
+                        case bailout: // Good!
+                        default:
                                 if l.parser != nil && l.parser.file != nil {
                                         position := l.parser.file.Position(l.pos)
-                                        fmt.Fprintf(stderr, "%s: parse file fail: %v\n", position, e)
+                                        fmt.Fprintf(stderr, "%s: parse failure %T\n", position, failure)
                                 } else {
-                                        fmt.Fprintf(stderr, "%s: encountered %T\n", filename, e)
+                                        fmt.Fprintf(stderr, "%s: run failure %T\n", filename, failure)
                                 }
-                                fmt.Fprintf(stderr, "%v\n", e)
+                                fmt.Fprintf(stderr, "failure: %v\n", failure)
+                                if dbPrintStack { debug.PrintStack() }
                                 if e = recover(); e != nil {
-                                        fmt.Fprintf(stderr, "----\n")
-                                }
-                                if optionPrintStack {
-                                        debug.PrintStack()
+                                        fmt.Fprintf(stderr, "\n----\n")
                                 }
 			}
 		}
@@ -2045,7 +2058,7 @@ ListLoop:
                                 break ListLoop
                         }
                         var pos = Position(l.parser.file.Position(l.pos))
-                        def.set(DefExpand, &String{pos,s})
+                        def.set(DefExpand, &String{trivial{pos},s})
                 } else if s != nil {
                         err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
                         break ListLoop

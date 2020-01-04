@@ -14,16 +14,8 @@ import (
         "io"
 )
 
-type JSON struct { Value Value }
-func (p *JSON) refs(_ Value) bool { return false }
-func (p *JSON) closured() bool { return p.Value.closured() }
-func (p *JSON) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
-func (p *JSON) Position() Position { return p.Value.Position() }
-func (p *JSON) True() bool { return p.Value.True() }
+type JSON struct { Value }
 func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
-func (p *JSON) Strval() (string, error) { return p.Value.Strval() }
-func (p *JSON) Integer() (int64, error) { return 0, nil }
-func (p *JSON) Float() (float64, error) { return 0, nil }
 func (p *JSON) cmp(v Value) (res cmpres) {
         if a, ok := v.(*JSON); ok {
                 assert(ok, "value is not JSON")
@@ -83,7 +75,7 @@ func DecodeJSON(source string) (result Value, err error) {
                 case json.Delim:
                         switch d {
                         case '[':
-                                nn := &Group{List{elements{[]Value{&Bareword{pos,JsonArray}}}}}
+                                nn := &Group{trivial{pos},List{elements{[]Value{&Bareword{trivial{pos},JsonArray}}}}}
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -92,7 +84,7 @@ func DecodeJSON(source string) (result Value, err error) {
                                 stack = append(stack, nn) // APPEND
                                 break SwitchNodeType
                         case '{':
-                                nn := &Group{List{elements{[]Value{&Bareword{pos,JsonObject}}}}}
+                                nn := &Group{trivial{pos},List{elements{[]Value{&Bareword{trivial{pos},JsonObject}}}}}
                                 if x == 0 {
                                         nodes = append(nodes, nn)
                                 } else {
@@ -126,7 +118,7 @@ func DecodeJSON(source string) (result Value, err error) {
                                 err = ErrorIllJson; break LoopJSON
                         }
                 case string:
-                        var sv = &String{pos,d}
+                        var sv = &String{trivial{pos},d}
                         if x == 0 {
                                 nodes = append(nodes, sv)
                                 break
@@ -153,30 +145,30 @@ func DecodeJSON(source string) (result Value, err error) {
                         case json.Delim:
                                 var vn *Group
                                 switch vd {
-                                case '[': vn = &Group{List{elements{[]Value{&Bareword{pos,JsonArray}}}}}
-                                case '{': vn = &Group{List{elements{[]Value{&Bareword{pos,JsonObject}}}}}
+                                case '[': vn = &Group{trivial{pos},List{elements{[]Value{&Bareword{trivial{pos},JsonArray}}}}}
+                                case '{': vn = &Group{trivial{pos},List{elements{[]Value{&Bareword{trivial{pos},JsonObject}}}}}
                                 default: err = ErrorIllJson; break LoopJSON
                                 }
                                 stack = append(stack, vn)
                                 node.Append(&Pair{sv, vn})
                         case string:
-                                node.Append(&Pair{sv, &String{pos,vd}})
+                                node.Append(&Pair{sv, &String{trivial{pos},vd}})
                         case float64:
-                                node.Append(&Pair{sv, &Float{pos,vd}})
+                                node.Append(&Pair{sv, &Float{trivial{pos},vd}})
                         case nil: // null
-                                node.Append(&Pair{sv, &Bareword{pos,"null"}})
+                                node.Append(&Pair{sv, &Bareword{trivial{pos},"null"}})
                         default:
                                 err = ErrorIllJson; break LoopJSON
                         }
                         //fmt.Fprintf(stderr, "node: %v\n", node)
                 case float64:
-                        if v := Value(&Float{pos,d}); x == 0 {
+                        if v := Value(&Float{trivial{pos},d}); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
                         }
                 case nil: // null
-                        if v := Value(&Bareword{pos,"null"}); x == 0 {
+                        if v := Value(&Bareword{trivial{pos},"null"}); x == 0 {
                                 nodes = append(nodes, v)
                         } else {
                                 node, value = stack[x-1], v
@@ -217,7 +209,7 @@ func (t *_json) Evaluate(prog *Program, args []Value) (result Value, err error) 
         if result, err = DecodeJSON(source); err == nil {
                 result = &JSON{ result }
         } else {
-                result = &JSON{ universalnone }
+                result = &JSON{ &None{trivial{prog.position}} }
         }
         return
 }

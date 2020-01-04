@@ -126,17 +126,6 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
         return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil, nil }
 }
 
-type ModifierBar struct { None }
-func (p *ModifierBar) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *ModifierBar) Strval() (string, error) { return "|", nil }
-func (p *ModifierBar) String() string { return "|" }
-func (p *ModifierBar) cmp(v Value) (res cmpres) {
-        if _, ok := v.(*ModifierBar); ok {
-                res = cmpEqual
-        }
-        return
-}
-
 type modifier struct {
         position Position
         name Value
@@ -151,6 +140,7 @@ func (m *modifier) refs(v Value) bool {
 }
 func (_ *modifier) closured() bool { return false }
 func (m *modifier) expand(_ expandwhat) (Value, error) { return m, nil }
+func (_ *modifier) after(v Value) (after bool, err error) { return }
 func (_ *modifier) cmp(v Value) (res cmpres) { 
         if _, ok := v.(*modifier); ok { res = cmpEqual }
         return
@@ -160,16 +150,12 @@ func (m *modifier) True() bool { return false }
 func (m *modifier) Integer() (int64, error) { return 0, nil }
 func (m *modifier) Float() (float64, error) { return 0, nil }
 func (m *modifier) traverse(pc *traversal) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, m)) }
-        fmt.Fprintf(stderr, "todo: modifier.traverse %v\n", m)
-        return
-}
-func (m *modifier) dependcompare(c *comparer) (err error) {
-        if enable_assertions { assert(c.target != m, "self comparation") }
+        if optionTraceTraversal { defer un(tt(pc, m)) }
+        err = pc.program.modify(pc, m)
         return
 }
 func (m *modifier) Strval() (s string, err error) {
-        // TODO: modifier strval
+        s = m.String()
         return
 }
 func (m *modifier) String() (s string) {
@@ -193,6 +179,7 @@ func (g *modifiergroup) refs(v Value) bool {
 }
 func (_ *modifiergroup) closured() bool { return false }
 func (g *modifiergroup) expand(_ expandwhat) (Value, error) { return g, nil }
+func (_ *modifiergroup) after(v Value) (after bool, err error) { return }
 func (_ *modifiergroup) cmp(v Value) (res cmpres) { 
         if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
         return
@@ -202,16 +189,12 @@ func (g *modifiergroup) True() bool { return false }
 func (g *modifiergroup) Integer() (int64, error) { return 0, nil }
 func (g *modifiergroup) Float() (float64, error) { return 0, nil }
 func (g *modifiergroup) traverse(pc *traversal) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, g)) }
+        if optionTraceTraversal { defer un(tt(pc, g)) }
         for _, m := range g.modifiers {
-                if err = m.traverse(pc); err == nil {
-                        continue // The element target is good!
-                }                
+                if err = m.traverse(pc); err != nil {
+                        break
+                }
         }
-        return
-}
-func (g *modifiergroup) dependcompare(c *comparer) (err error) {
-        if enable_assertions { assert(c.target != g, "self comparation") }
         return
 }
 func (g *modifiergroup) Strval() (s string, err error) {
@@ -244,7 +227,7 @@ var (
                 `cd`:           modifierCD,
                 `sudo`:         modifierSudo,
 
-                `compare`:      modifierCompare,
+                //`compare`:      modifierCompare,
                 `grep`:         modifierGrep,
                 `grep-files`:   modifierGrepFiles,
                 //`grep-compare`:      modifierGrepCompare,
@@ -322,7 +305,7 @@ func modifierSelect(pos Position, prog *Program, args... Value) (result Value, e
                         result = g.Get(int(num))
                 }
         } else {
-                result = universalnone
+                result = &None{trivial{pos}}
         }
         return
 }
@@ -359,15 +342,15 @@ func modifierSetVar(pos Position, prog *Program, args... Value) (result Value, e
 ForArgs:
         for _, arg := range args {
                 var name string
-                var value Value = universalnone
+                var value Value = &None{trivial{pos}}
                 switch a := arg.(type) {
                 case *Pair:
                         if name, err = a.Key.Strval(); err == nil {
                                 value = a.Value
                         } else { break ForArgs }
                 case *Flag:
-                        if name, err = a.Name.Strval(); err == nil {
-                                value = universalnone
+                        if name, err = a.name.Strval(); err == nil {
+                                value = &None{trivial{pos}}
                                 if name == "" { name = "-" }
                         } else { break ForArgs }
                 case *Bareword:
@@ -775,7 +758,7 @@ var uniqueCompareGood = make(map[string]*breaker)
 // grepcmps := '^\s*#\s*include\s*"(.*)"'
 // (compare -pg=(regexp=(top=(llvm,llvm-c,clang,clang-c) sys=$(sysgrcmp) $(grepcmps)) -re $<))
 // (compare -pg=(lang=c++) -re $<)
-func modifierCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
+/*func modifierCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
         var (
                 optDiscardMissing, optVerbose bool
                 optPath, optNoUpdate, optMulti bool
@@ -889,7 +872,7 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
 
         // Change into compare mode to avoid interpretion if there're
         // no targets are updated
-        prog.pc.mode = compareMode
+        //prog.pc.mode = compareMode
 
         var c *comparer
         if c, err = newcompariation(prog, target); err != nil {
@@ -942,10 +925,10 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
         if len(c.updated) > 0 && enable_assertions {
                 assert(err != nil, "expects update breaker")
                 if false { fmt.Fprintf(stderr, "compare: %v\n", err) }
-                /*e, ok := err.(*breaker)
-                assert(ok, "expects update breaker")
-                assert(e.what == breakUpdates, "expects update breaker")
-                assert(e.updated != nil, "nil updated target") */
+                // e, ok := err.(*breaker)
+                // assert(ok, "expects update breaker")
+                // assert(e.what == breakUpdates, "expects update breaker")
+                // assert(e.updated != nil, "nil updated target")
                 //assert(e.updated.target == c.target, "updated target differs")
                 //assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
                 //for i, preq := range e.updated.prerequisites {
@@ -953,13 +936,13 @@ func modifierCompare(pos Position, prog *Program, args... Value) (result Value, 
                 //}
         }
         return
-}
+}*/
 
 // grep-compare - grep files from target and compare, example usage:
 //
 //      (grep-compare '\s*#\s*include\s*<(.*)>')
 //      
-func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
+/*func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
         var (
                 optPath, optNoUpdate, optDisMiss bool
                 optTarget Value
@@ -1009,7 +992,7 @@ func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Val
                 }
         }
         return
-}
+}*/
 
 // grep-dependencies - grep dependencies from target, example usage:
 //
@@ -1131,7 +1114,7 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
                 if !sys && file != nil && file.match != nil && len(file.match.Paths) == 1 {
                         // mark system files defined by `files ((foo.xxx) => -)`
                         if f, ok := file.match.Paths[0].(*Flag); ok {
-                                if _, ok = f.Name.(*None); ok {
+                                if _, ok = f.name.(*None); ok {
                                         sys = true
                                 }
                         }

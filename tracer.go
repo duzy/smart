@@ -14,9 +14,20 @@ import (
 )
 
 type tracer interface {
+        trace(a ...interface{})
         level(n int)
-        traceAt(pos token.Position, a ...interface{})
-        errorAt(pos token.Position, err interface{}, a ...interface{})
+}
+
+func trace(p tracer, msg string) tracer {
+	p.trace(msg, "(")
+	p.level(+1)
+	return p
+}
+
+// Usage pattern: defer un(trace(p, "..."))
+func un(p tracer) {
+	p.level(-1)
+	p.trace(")")
 }
 
 type tracing struct {

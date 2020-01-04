@@ -70,7 +70,6 @@ type Program struct {
         depends []Value
         ordered []Value
         recipes []Value
-        pipline []*modifier // deprecated
         callers []*traversecontext
         position Position
         changedWD string
@@ -116,22 +115,6 @@ func (prog *Program) waitForPrerequisites() (err error) {
 }
 
 func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (err error) {
-        var mode = prog.pc.mode
-        if prog.scope.comment != usecomment {
-                if len(prog.depends) == 0 {
-                        // If the program has no prerequisites and not
-                        // updated yet, we force to update it, e.g.:
-                        //
-                        //      foobar.cpp:; println "name: $@"
-                        //
-                        // As it's supposed to be invoked alone.
-                } else if mode == compareMode {
-                        return // Compared and no updated targets was found.
-                } else if mode == defaultMode && mode == updateMode {
-                        // Interpret the recipes...
-                }
-        }
-
         if err = prog.waitForPrerequisites(); err != nil {
                 return
         }
@@ -154,12 +137,12 @@ func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (er
         return
 }
 
-func (prog *Program) modify(pc *traversal, m *modifier, post bool) (err error) {
+func (prog *Program) modify(pc *traversal, m *modifier) (err error) {
         // TODO: using rules in a different project to implement modifiers, e.g.
         //       [ foo.check-preprequisites ]
         //       [ foo.baaaar ]
-        var v []Value
         var name string
+        var v []Value
         if v, err = mergeresult(ExpandAll(m.name)); err != nil {
                 return
         } else if name, err = v[0].Strval(); err != nil {
@@ -170,7 +153,7 @@ func (prog *Program) modify(pc *traversal, m *modifier, post bool) (err error) {
 
         if f, ok := modifiers[name]; ok {
                 // Special modifier processing (implicit interpretation)
-                if post && name == "configure" && pc.interpreted == nil {
+                if name == "configure" && pc.interpreted == nil {
                         // Evaluate for configure modifier
                         if i, ok := dialects["eval"]; ok && i != nil {
                                 err = prog.interpret(pc, i, v)
@@ -185,17 +168,21 @@ func (prog *Program) modify(pc *traversal, m *modifier, post bool) (err error) {
         } else if i, _ := dialects[name]; i != nil {
                 err = prog.interpret(pc, i, v)
         } else {
-                err = fmt.Errorf("no modifier or dialect '%s'", name)
+                err = fmt.Errorf("unknown modifier '%s'", name)
         }
         return
 }
 
 func (prog *Program) getModifier(name string) (res *modifier) {
-        for _, m := range prog.pipline {
-                if s, err := m.name.Strval(); err != nil {
-                        return
-                } else if name == s {
-                        res = m
+        for _, d := range prog.depends {
+                var g, ok = d.(*modifiergroup)
+                if !ok { continue }
+                for _, m := range g.modifiers {
+                        if s, err := m.name.Strval(); err != nil {
+                                break
+                        } else if name == s {
+                                res = m
+                        }
                 }
         }
         return
@@ -226,7 +213,7 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                         if true {
                                 result = append(result, a)
                         } else if false {
-                                result = append(result, &String{prog.position,s})
+                                result = append(result, &String{trivial{prog.position},s})
                         } else {
                                 err = scanner.Errorf(token.Position(prog.position), "`%s` unknown target (via %s)", s, a)
                         }
@@ -239,31 +226,11 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
         return
 }
 
-// Split modifiers by '|', if no '|', all goes postModifiers.
-func (prog *Program) modifiers() (preModifiers, postModifiers []*modifier) {
-        for i, m := range prog.pipline {
-                if m.name == modifierbar {
-                        preModifiers = prog.pipline[:i]
-                        postModifiers = prog.pipline[i+1:]
-                        return
-                }
-        }
-        if len(postModifiers) == 0 {
-                if n := len(preModifiers); n > 0 {
-                        postModifiers = preModifiers
-                        preModifiers = nil
-                } else if n == 0 {
-                        postModifiers = prog.pipline
-                }
-        }
-        return
-}
-
 func (prog *Program) setParams(args []Value) (err error, restore func()) {
         var params []*Def
         for i, param := range prog.params {
                 var def *Def
-                if def, err = prog.auto(param, universalnone); err != nil {
+                if def, err = prog.auto(param, &None{}); err != nil {
                         err = scanner.WrapErrors(token.Position(prog.position), err)
                         return
                 }
@@ -305,7 +272,7 @@ func (prog *Program) setParams(args []Value) (err error, restore func()) {
         }
         restore = func() {
                 for _, param := range params {
-                        param.set(DefDefault, universalnone)
+                        param.set(DefDefault, &None{})
                 }
         }
         return
@@ -323,6 +290,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 prog.project.changedWD = s
         } (prog.project.changedWD)
 
+        var none = &None{trivial{prog.position}}
         var ctx = traversecontext{
                 derived: mostDerived(),
                 group: new(sync.WaitGroup),
@@ -331,9 +299,10 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         }
         if len(prog.callers) > 0 {
                 var caller = prog.callers[0]
-                ctx.level = caller.level
                 ctx.stems = caller.stems
-                //ctx.mode = caller.mode
+                if optionTraceTraversalNestIndent {
+                        ctx.traceLevel = caller.traceLevel
+                }
         }
 
         var nestedExecution bool
@@ -388,14 +357,14 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         } ()
 
         // set $@, $^, $<, $|, $~, $?, etc
-        if prog.pc.targetDef,  err = prog.auto("@", universalnone); err != nil { return }
-        if prog.pc.dependsDef, err = prog.auto("^", universalnone); err != nil { return }
-        if prog.pc.depend0Def, err = prog.auto("<", universalnone); err != nil { return }
-        if prog.pc.orderedDef, err = prog.auto("|", universalnone); err != nil { return }
-        if prog.pc.greppedDef, err = prog.auto("~", universalnone); err != nil { return }
-        if prog.pc.updatedDef, err = prog.auto("?", universalnone); err != nil { return }
-        if prog.pc.stemDef,    err = prog.auto("*", universalnone); err != nil { return }
-        if prog.pc.modifyBuf,  err = prog.auto("-", universalnone); err != nil { return }
+        if prog.pc.targetDef,  err = prog.auto("@", none); err != nil { return }
+        if prog.pc.depend0Def, err = prog.auto("<", none); err != nil { return }
+        if prog.pc.dependsDef, err = prog.auto("^", none); err != nil { return }
+        if prog.pc.orderedDef, err = prog.auto("|", none); err != nil { return }
+        if prog.pc.greppedDef, err = prog.auto("~", none); err != nil { return }
+        if prog.pc.updatedDef, err = prog.auto("?", none); err != nil { return }
+        if prog.pc.stemDef,    err = prog.auto("*", none); err != nil { return }
+        if prog.pc.modifyBuf,  err = prog.auto("-", none); err != nil { return }
 
         var fileTarget *File
 
@@ -439,16 +408,16 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 return
         }
 
-        prog.pc.dependsDef.set(DefDefault, MakeList(depends...))
+        prog.pc.dependsDef.set(DefDefault, MakeList(prog.position, depends...))
         if len(depends) > 0 {
                 prog.pc.depend0Def.set(DefDefault, depends[0])
         }
         if len(ordered) > 0 {
-                prog.pc.orderedDef.set(DefDefault, MakeList(ordered...))
+                prog.pc.orderedDef.set(DefDefault, MakeList(prog.position, ordered...))
         }
 
         if prog.pc.stems != nil {
-                prog.pc.stemDef.set(DefDefault, &String{prog.position,prog.pc.stems[0]})
+                prog.pc.stemDef.set(DefDefault, &String{trivial{prog.position},prog.pc.stems[0]})
         }
 
         if fileTarget != nil && fileTarget.info != nil && fileTarget.updated {
@@ -472,7 +441,6 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         err = scanner.WrapErrors(token.Position(prog.position), err)
                 }
         } ()
-        prog.pc.preModifiers, prog.pc.postModifiers = prog.modifiers()
         return prog.pc.exec(prog, nestedExecution)
 }
 
@@ -480,7 +448,7 @@ func (pc *traversal) checkTargetMode() (err error) {
         // Check (file) target existence
         var s string
         if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
-                pc.mode = updateMode // switch into update mode
+                //pc.mode = updateMode // switch into update mode
                 //if len(prog.callers) > 0 {
                 //        var caller = prog.callers[0]
                 //        caller.updated = append(...)
@@ -488,19 +456,20 @@ func (pc *traversal) checkTargetMode() (err error) {
         } else if s, err = pc.targetDef.Value.Strval(); err != nil {
                 return
         } else if file := pc.derived.matchFile(s); file != nil && !file.exists() {
-                pc.mode = updateMode // switch into update mode
+                //pc.mode = updateMode // switch into update mode
                 pc.targetDef.Value = file
         }
         return
 }
 
+/*
 func (pc *traversal) checkMode4Breaker(tag string, name Value, br *breaker) (done bool, err error) {
         switch tag = fmt.Sprintf("(%s) %s:", tag, name); br.what {
         case breakBad:
-                if optionTracePrepare { pc.trace(tag, "(bad)", br.message) }
+                if optionTraceTraversal { pc.trace(tag, "(bad)", br.message) }
                 err = scanner.Errorf(token.Position(br.pos), br.message)
         case breakGood:
-                //if optionTracePrepare { pc.trace(tag, "(good)") }
+                //if optionTraceTraversal { pc.trace(tag, "(good)") }
                 err = pc.checkTargetMode()
         case breakModified:
                 for _, m := range br.modified {
@@ -512,7 +481,7 @@ func (pc *traversal) checkMode4Breaker(tag string, name Value, br *breaker) (don
                 }
                 err = br
         case breakUpdates: // found prerequiste updates
-                if optionTracePrepare { pc.trace(tag, "(updates)", br.updated) }
+                if optionTraceTraversal { pc.trace(tag, "(updates)", br.updated) }
 
                 // Collect updates, so that the updated targets could be
                 // returned to the caller.
@@ -522,7 +491,7 @@ func (pc *traversal) checkMode4Breaker(tag string, name Value, br *breaker) (don
                 }
                 
                 if len(br.updated) > 0 {
-                        pc.mode = updateMode // switch into update mode
+                        //pc.mode = updateMode // switch into update mode
                 } else {
                         err = pc.checkTargetMode()
                 }
@@ -535,7 +504,7 @@ ForModifiers:
         for _, m := range pc.preModifiers {
                 if m.name == modifierbar { continue }
                 if err = prog.modify(pc, m, false); err == nil { continue }
-                if br, ok := err.(*breaker); ok /*&& pc.mode == defaultMode*/ {
+                if br, ok := err.(*breaker); ok  {
                         switch br.what {
                         case breakCase:
                                 casebreaks = append(casebreaks, br)
@@ -559,7 +528,7 @@ ForModifiers:
         for _, m := range pc.postModifiers {
                 if m.name == modifierbar { continue }
                 if err = prog.modify(pc, m, true); err == nil { continue }
-                if br, ok := err.(*breaker); ok /*&& pc.mode == defaultMode*/ {
+                if br, ok := err.(*breaker); ok {
                         switch br.what {
                         case breakCase:
                                 casebreaks = append(casebreaks, br)
@@ -577,67 +546,48 @@ ForModifiers:
         }
         return
 }
+*/
 
 func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) {
-        pc.updatedDef.set(DefDefault, universalnone)
+        var (
+                //target = pc.entry.target
+                depends = pc.dependsDef.Value
+                ordered = pc.orderedDef.Value
+                grepped = pc.greppedDef.Value
+                none = &None{trivial{prog.position}}
+        )
 
-        // Defers to collect all updates.
-        defer func() {
-                if err == nil {
-                        if pc.updated != nil {
-                                // Return the updates to caller program.
-                                err = break_updates(prog.position, pc.updated...)
-                        }
+        pc.updatedDef.set(DefDefault, none)
+
+        err = pc.traverseAll([]Value{depends,ordered,grepped}, nested)
+        if err != nil {
+                return
+        }
+        if optionTraceTraversal && false {
+                pc.tracef("%v", pc.targets)
+                pc.tracef("%v", pc.targetDef)
+                pc.tracef("%v", pc.depend0Def)
+                pc.tracef("%v", pc.dependsDef)
+                pc.tracef("%v", pc.orderedDef)
+                pc.tracef("%v", pc.greppedDef)
+                pc.tracef("%v", pc.updatedDef)
+                pc.tracef("%v", pc.stemDef)
+                pc.tracef("%v", pc.modifyBuf)
+        }
+
+        // TODO: Using Value.exists() instead of switch
+        switch target := pc.entry.target.(type) {
+        case *File:
+                if optionTraceTraversal {
+                        pc.tracef("updated: %v (exists=%v) ; %v", target, target.exists(), pc.updated)
                 }
-        } ()
-
-        var done bool
-        var casebreaks []*breaker
-        // Pre-modifying could change $@, $^, $<, $|, etc.
-        done, casebreaks, err = pc.preModify(prog)
-        if casebreaks != nil {
-                // RuleEntry.Execute needs to handle breakers.
-                defer func(brs []*breaker) {
-                        if err != nil {
-                                fmt.Fprintf(stderr, "%s: pre-modify: %s\n", prog.pc.entry.Position, err)
-                        }
-                        err = brs[0]
-                } (casebreaks)
-        } else if _, ok := err.(*breaker); ok {
-                // breakNext, breakDone, breakFail, breakModified
-                return
-        } else if err != nil {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
-                return
-        } else if done {
-                return
-        }
-
-        if err = pc.traversePrerequites(prog, nested); err != nil {
-                //fmt.Fprintf(stderr, "%s: update target '%s' error\n%v\n", prog.position, prog.pc.targetDef.Value, err)
-                err = scanner.WrapErrors(token.Position(prog.position), err)
-                return
-        }
-
-        // Post modifying
-        done, casebreaks, err = pc.postModify(prog)
-
-        if casebreaks != nil {
-                // RuleEntry.Execute needs to handle breakers.
-                defer func(brs []*breaker) {
-                        if err != nil {
-                                fmt.Fprintf(stderr, "%s: post-modify: %s\n", prog.pc.entry.Position, err)
-                        }
-                        err = brs[0]
-                } (casebreaks)
-        } else if _, ok := err.(*breaker); ok {
-                // breakNext, breakDone, breakFail, breakModified
-                return
-        } else if err != nil {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
-                return
-        } else if done {
-                return
+                if target.exists() && len(pc.updated) == 0 {
+                        return
+                }
+        default:
+                if optionTraceTraversal {
+                        pc.tracef("updated: %T %v ; %v", target, target, pc.updated)
+                }
         }
 
         if pc.interpreted == nil {
@@ -654,6 +604,8 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
 }
 
 func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error) {
+        var none = &None{trivial{prog.position}}
+
         // Updating $^
         pc.targets = nil // clear the target list
         if err = pc.traverseAll(pc.dependsDef, nested); err == nil {
@@ -666,16 +618,16 @@ func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error)
                 return
         }
         if n := len(pc.targets); n == 0 {
-                //if optionTracePrepare { pc.tracef("%v:$^: <none>", pc.entry) }
-                pc.dependsDef.set(DefDefault, universalnone)
-                pc.depend0Def.set(DefDefault, universalnone)
+                //if optionTraceTraversal { pc.tracef("%v:$^: <none>", pc.entry) }
+                pc.dependsDef.set(DefDefault, none)
+                pc.depend0Def.set(DefDefault, none)
         } else if n == 1 {
-                //if optionTracePrepare { pc.tracef("%v:$^: %v", pc.entry, pc.targets[0]) }
+                //if optionTraceTraversal { pc.tracef("%v:$^: %v", pc.entry, pc.targets[0]) }
                 pc.dependsDef.set(DefDefault, pc.targets[0])
                 pc.depend0Def.set(DefDefault, pc.targets[0])
         } else if n > 1 {
-                //if optionTracePrepare { pc.tracef("%v:$^: (%d) %v", pc.entry, n, pc.targets) }
-                pc.dependsDef.set(DefDefault, MakeList(pc.targets...))
+                //if optionTraceTraversal { pc.tracef("%v:$^: (%d) %v", pc.entry, n, pc.targets) }
+                pc.dependsDef.set(DefDefault, MakeList(prog.position, pc.targets...))
                 pc.depend0Def.set(DefDefault, pc.targets[0])
         }
 
@@ -691,12 +643,12 @@ func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error)
                 return
         }
         if n := len(pc.targets); n == 0 {
-                pc.orderedDef.set(DefDefault, universalnone)
+                pc.orderedDef.set(DefDefault, none)
         } else {
-                if optionTracePrepare {
+                if optionTraceTraversal {
                         pc.tracef("$|: (%d) %v", n, pc.targets)
                 }
-                pc.orderedDef.set(DefDefault, MakeList(pc.targets...))
+                pc.orderedDef.set(DefDefault, MakeList(prog.position, pc.targets...))
         }
 
         // Updating $~
@@ -711,30 +663,15 @@ func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error)
                 return
         }
         if n := len(pc.targets); n == 0 {
-                pc.greppedDef.set(DefDefault, universalnone)
+                pc.greppedDef.set(DefDefault, none)
         } else {
-                if optionTracePrepare {
+                if optionTraceTraversal {
                         pc.tracef("$~: (%d) %v", n, pc.targets)
                 }
-                pc.greppedDef.set(DefDefault, MakeList(pc.targets...))
+                pc.greppedDef.set(DefDefault, MakeList(prog.position, pc.targets...))
         }
 
         pc.targets = nil // clear the target list
-        return
-}
-
-func (prog *Program) pipe(position Position, operation Value) (m *modifier, err error) {
-        switch g := operation.(type) {
-        case *Group:
-                m = &modifier{ position, g.Get(0), g.Slice(1) }
-        case *ModifierBar:
-                m = &modifier{ position, g, nil }
-        default:
-                err = fmt.Errorf("unknown modifier (%T `%v`)", operation, operation)
-        }
-        if m != nil && err == nil {
-                prog.pipline = append(prog.pipline, m)
-        }
         return
 }
 

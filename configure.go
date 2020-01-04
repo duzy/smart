@@ -508,13 +508,13 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
                 if len(params) > 1 { // [NAME 1 0]
                         result = params[1]
                 } else {
-                        result = &boolean{pos, true}
+                        result = &boolean{trivial{pos},true}
                 }
         } else {
                 if len(params) > 2 { // [NAME 1 0]
                         result = params[2]
                 } else {
-                        result = &boolean{pos, false}
+                        result = &boolean{trivial{pos},false}
                 }
         }
         return
@@ -523,12 +523,12 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
 // (configure -answer)
 // (configure -answer(opt_true,opt_false))
 func configureAnswer(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
-        return configureBool(pos, prog, def, params[0], &answer{pos,true}, &answer{pos,false})
+        return configureBool(pos, prog, def, params[0], &answer{trivial{pos},true}, &answer{trivial{pos},false})
 }
 
 func configureOption(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
         if result, err = def.Call(pos); err == nil {
-                if result == nil { result = &answer{pos,false} }
+                if result == nil { result = &answer{trivial{pos},false} }
         } else if result != nil {
                 var res Value
                 if res, err = result.expand(expandAll); err == nil && res != result {
@@ -607,8 +607,8 @@ func configurePackage(pos Position, prog *Program, def *Def, args... Value) (res
                 var info, cached = configuration.packages[name]
                 if !cached {
                         switch optType {
-                        case packageSmart:
-                                if info, err = loadPackageSmartInfo(pos, name); err != nil { return }
+                        //case packageSmart:
+                        //        if info, err = loadPackageSmartInfo(pos, name); err != nil { return }
                         case packageConfig:
                                 if info, err = loadPackageConfigInfo(pos, name); err != nil { return }
                         case packageUnknown:
@@ -616,7 +616,7 @@ func configurePackage(pos Position, prog *Program, def *Def, args... Value) (res
                         }
                         if info != nil {
                                 configuration.packages[name] = info
-                                result = &answer{pos,true}
+                                result = &answer{trivial{pos},true}
                                 break
                         }
                 }
@@ -759,7 +759,7 @@ ForArgs:
         //   ...
 
         var value = configuration.project.scope.Lookup("_VALUE_").(*Def)
-        if err = value.set(DefSimple, &None{pos}); err != nil { return }
+        if err = value.set(DefSimple, &None{trivial{pos}}); err != nil { return }
         if pipe.Value != nil {
                 if _, ok := pipe.Value.(*None); !ok {
                         value.Value = pipe.Value
@@ -768,7 +768,7 @@ ForArgs:
 
         var includesValues []Value
         var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
-        if err = includes.set(DefSimple, &None{pos}); err != nil { return }
+        if err = includes.set(DefSimple, &None{trivial{pos}}); err != nil { return }
         if strName == "include" && len(params) > 1 {
                 // -include('<xxx.h>',...)
                 for _, value := range params[1:] {
@@ -804,13 +804,13 @@ ForArgs:
                         }
                         lines = append(lines, s)
                 }
-                value = &String{pos,strings.Join(lines, "\n")}
+                value = &String{trivial{pos},strings.Join(lines, "\n")}
                 if err = includes.set(DefExpand, value); err != nil { return }
         }
 
         var loadlibsValues []Value
         var loadlibs = configuration.project.scope.Lookup("_LOADLIBES_").(*Def)
-        if err = loadlibs.set(DefSimple, &None{pos}); err != nil { return }
+        if err = loadlibs.set(DefSimple, &None{trivial{pos}}); err != nil { return }
         if value, ok := fields["load"]; ok { loadlibsValues = append(loadlibsValues, value) }
         if value, ok := fields["loadlib"]; ok { loadlibsValues = append(loadlibsValues, value) }
         if value, ok := fields["loadlibs"]; ok { loadlibsValues = append(loadlibsValues, value) }
@@ -831,13 +831,13 @@ ForArgs:
                         }
                         lines = append(lines, s)
                 }
-                value = &String{pos,strings.Join(lines, " ")}
+                value = &String{trivial{pos},strings.Join(lines, " ")}
                 if err = loadlibs.set(DefExpand, value); err != nil { return }
         }
 
         var libsValues []Value
         var libs = configuration.project.scope.Lookup("_LIBS_").(*Def)
-        if err = libs.set(DefSimple, &None{pos}); err != nil { return }
+        if err = libs.set(DefSimple, &None{trivial{pos}}); err != nil { return }
         if value, ok := fields["lib"]; ok { libsValues = append(libsValues, value) }
         if value, ok := fields["libs"]; ok { libsValues = append(libsValues, value) }
         for _, value := range libsValues {
@@ -857,7 +857,7 @@ ForArgs:
                         }
                         lines = append(lines, s)
                 }
-                value = &String{pos,strings.Join(lines, " ")}
+                value = &String{trivial{pos},strings.Join(lines, " ")}
                 if err = libs.set(DefExpand, value); err != nil { return }
         }
         /*
@@ -932,10 +932,10 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
 //     
 func modifierConfigureFile(pos Position, prog *Program, args... Value) (result Value, err error) {
         // Only configure file in update mode.
-        if prog.pc.mode != updateMode {
+        /*if prog.pc.mode != updateMode {
                 // Return to not overriding the configured file. 
                 return
-        }
+        }*/
 
         var target Value
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
@@ -979,9 +979,9 @@ func modifierConfigureFile(pos Position, prog *Program, args... Value) (result V
 //
 func modifierExtractConfiguration(pos Position, prog *Program, args... Value) (result Value, err error) {
         // Only generate configure file in update mode
-        if m := prog.pc.mode; m != updateMode {
+        /*if m := prog.pc.mode; m != updateMode {
                 return
-        }
+        }*/
 
         var target Value
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
@@ -1158,7 +1158,7 @@ ForSources:
 // configure - configures a variable, example usage:
 func modifierConfigure(pos Position, prog *Program, args... Value) (result Value, err error) {
         // don't configure in compare mode
-        if m := prog.pc.mode; m == compareMode { return }
+        //if m := prog.pc.mode; m == compareMode { return }
 
         var optAccumulate bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
@@ -1208,7 +1208,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                 switch v := value.(type) {
                 default: err = def.set(DefExpand, value)
                 case *None: err = def.set(DefExecute, nil)
-                case *Plain: err = def.set(DefExecute, &String{pos,v.Value})
+                case *Plain: err = def.set(DefExecute, &String{trivial{pos},v.Value})
                 case *ExecResult:
                         var s string
                         if v.Status == 0 && v.Stdout.Buf != nil {
@@ -1216,7 +1216,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
                         } else if v.Stderr.Buf != nil {
                                 s = v.Stderr.Buf.String()
                         }
-                        err = def.set(DefExecute, &String{pos,s})
+                        err = def.set(DefExecute, &String{trivial{pos},s})
                 // TODO: case *JSON
                 // TODO: case *XML
                 }
@@ -1240,7 +1240,7 @@ ForConfig:
                 case *Pair: // Set def
                         /*switch k := arg.Key.(type) {
                         case *Bareword:
-                                def, alt := prog.project.scope.define(prog.project, k.string, &None{pos})
+                                def, alt := prog.project.scope.define(prog.project, k.string, &None{trivial{pos}})
                                 if alt != nil {
                                         if p, _ := alt.(*Def); p != nil && p != def { def = p }
                                 }
@@ -1249,14 +1249,14 @@ ForConfig:
                         }*/
                         err = scanner.Errorf(token.Position(pos), "`%v` is useless for assignment\n", a)
                 case *Argumented:
-                        if flag, okay := arg.Val.(*Flag); okay {
-                                name = flag.Name
-                                para = arg.Args
+                        if flag, okay := arg.value.(*Flag); okay {
+                                name = flag.name
+                                para = arg.args
                         }
                 case *Flag:
-                        if arg.Name != nil {
-                                if _, ok := arg.Name.(*None); ok {
-                                        name = arg.Name
+                        if arg.name != nil {
+                                if _, ok := arg.name.(*None); ok {
+                                        name = arg.name
                                 }
                         }
                 }
@@ -1270,7 +1270,7 @@ ForConfig:
                 }
                 if err != nil { break ForConfig }
                 if configured {
-                        if value == nil { value = universalnil }
+                        if value == nil { value = &Nil{None{trivial{pos}}} }
                         if optAccumulate {
                                 err = def.append(value)
                         } else {

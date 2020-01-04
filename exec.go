@@ -330,6 +330,7 @@ type ExecResult struct {
 func (p *ExecResult) refs(_ Value) bool { return false }
 func (p *ExecResult) closured() bool { return false }
 func (p *ExecResult) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *ExecResult) after(v Value) (after bool, err error) { return }
 func (p *ExecResult) cmp(v Value) (res cmpres) {
         if a, ok := v.(*ExecResult); ok {
                 assert(ok, "value is not ExecResult")

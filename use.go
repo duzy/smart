@@ -42,7 +42,7 @@ func (p *using) expand(w expandwhat) (Value, error) {
         return p, nil
 }
 func (p *using) traverse(pc *traversal) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
+        if optionTraceTraversal { defer un(tt(pc, p)) }
         if _, done := usingPrepared[p.project]; done {
                 usingPrepared[p.project] += 1
                 // FIXME: allow re-using the project
@@ -64,6 +64,7 @@ func (p *using) traverse(pc *traversal) (err error) {
         }
         return
 }
+func (p *using) after(v Value) (after bool, err error) { return }
 func (p *using) cmp(v Value) (res cmpres) {
         if a, ok := v.(*using); ok {
                 assert(ok, "value is not using")
@@ -124,7 +125,7 @@ func (p *usinglist) expand(w expandwhat) (Value, error) {
         return p, nil
 }
 func (p *usinglist) traverse(pc *traversal) error {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
+        if optionTraceTraversal { defer un(tt(pc, p)) }
         for _, elem := range p.list {
                 if err := elem.traverse(pc); err != nil {
                         return err
@@ -140,6 +141,7 @@ func (p *usinglist) True() bool { return len(p.list) > 0 }
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }
 func (p *usinglist) Float() (float64, error) { return 0, nil }
+func (p *usinglist) after(v Value) (after bool, err error) { return }
 func (p *usinglist) cmp(v Value) (res cmpres) {
         if a, ok := v.(*usinglist); ok {
                 assert(ok, "value is not usinglist")
@@ -190,7 +192,7 @@ func (p *usinglist) Get(name string) (result Value, err error) {
                 if list != nil {
                         result = MakeListOrScalar(list)
                 } else {
-                        result = universalnone
+                        result = &None{}
                 }
         }
         return

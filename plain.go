@@ -14,13 +14,10 @@ import (
 
 // Value returned by (plain) modifier.
 type Plain struct {
-        position Position
+        trivial
         Name, Value string
 }
-func (p *Plain) refs(_ Value) bool { return false }
-func (p *Plain) closured() bool { return false }
 func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Plain) Position() Position { return p.position }
 func (p *Plain) True() bool { return strings.TrimSpace(p.Value) != "" }
 func (p *Plain) String() (s string) {
         if p.Name == "" {
@@ -52,6 +49,6 @@ func (t *_plain) Evaluate(prog *Program, args []Value) (result Value, err error)
         }
         if str, err = joinRecipesString(prog.recipes...); err != nil { return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{prog.position,name,str}
+        result = &Plain{trivial{prog.position},name,str}
         return
 }

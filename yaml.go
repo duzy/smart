@@ -13,16 +13,8 @@ import (
         "fmt"
 )
 
-type YAML struct { Value Value }
-func (p *YAML) refs(_ Value) bool { return false }
-func (p *YAML) closured() bool { return p.Value.closured() }
-func (p *YAML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
-func (p *YAML) Position() Position { return p.Value.Position() }
-func (p *YAML) True() bool { return p.Value.True() }
+type YAML struct { Value }
 func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
-func (p *YAML) Strval() (string, error) { return p.Value.Strval() }
-func (p *YAML) Integer() (int64, error) { return 0, nil }
-func (p *YAML) Float() (float64, error) { return 0, nil }
 func (p *YAML) cmp(v Value) (res cmpres) {
         if a, ok := v.(*YAML); ok {
                 assert(ok, "value is not YAML")
@@ -46,7 +38,7 @@ func (t *_yaml) Evaluate(prog *Program, args []Value) (result Value, err error) 
         if result, err = DecodeYAML(source, t.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
-                result = &YAML{ universalnone }
+                result = &YAML{ &None{trivial{prog.position}} }
         }
         return
 }

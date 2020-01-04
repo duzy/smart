@@ -36,14 +36,15 @@ var (
 )
 const (
         optionTraceParsing = false
-        optionTracePrepare = false
+        optionTraceTraversal = false
+        optionTraceTraversalNestIndent = false
         optionTraceCompare = false
         optionTraceCompareOutdated = false
-        optionTraceEntering = optionTracePrepare && false
+        optionTraceEntering = optionTraceTraversal && false
 
         optionExecuteUseRulesRecursively = false
         optionExecuteUseRuleMultiTimes = false
-        optionExecuteUseLightly = true
+        optionExecuteUseLightly = false
         optionExecuteUseBases = false
 
         optionSearchImportedFiles = false // time consuming
@@ -293,6 +294,7 @@ func (ctx *Context) loadCommandArguments(text string) (err error) {
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
 func (ctx *Context) loadwork() (err error) {
+        var pos Position
         defer func(l *loader) { ctx.loader = l } (ctx.loader)
         ctx.loader = &loader{
                 Context:  ctx,
@@ -310,7 +312,8 @@ func (ctx *Context) loadwork() (err error) {
                                 owner: nil,
                         }, ":goals:",
                 },
-                DefDefault, universalnone,
+                DefDefault,
+                &None{trivial{pos}},
         }
 
         if optionVerbose || optionBenchImport {
@@ -328,15 +331,13 @@ func (ctx *Context) loadwork() (err error) {
 
                 at = ctx.loader.globe.project(nil, base, rel, tmp, ".", "@")
                 as = at.Scope()
-
-                pos Position
         )
 
         if def := as.FindDef("SMART"); def != nil {
                 def.set(DefSimple, nil)
                 for _, s := range globalPaths {
-                        def.append(&String{pos,"-search"})
-                        def.append(&String{pos,s})
+                        def.append(&String{trivial{pos},"-search"})
+                        def.append(&String{trivial{pos},s})
                 }
         }
 
@@ -356,7 +357,7 @@ func (ctx *Context) loadwork() (err error) {
                 defCTD, _ = as.define(at, "CTD", &String{pos,tmp})
                 defCWD, _ = as.define(at, "CWD", &String{pos,at.absPath})
                 defS, _ = as.define(at, "/", &String{pos,at.absPath})
-                defD, _ = as.define(at, ".", universalnone)
+                defD, _ = as.define(at, ".", &None{trivial{pos}})
         )
 AtLookupLoop:
         for {

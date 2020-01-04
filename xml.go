@@ -12,16 +12,8 @@ import (
         "io"
 )
 
-type XML struct { Value Value }
-func (p *XML) refs(_ Value) bool { return false }
-func (p *XML) closured() bool { return p.Value.closured() }
-func (p *XML) expand(w expandwhat) (Value, error) { return p.Value.expand(w) }
-func (p *XML) Position() Position { return p.Value.Position() }
-func (p *XML) True() bool { return p.Value.True() }
+type XML struct { Value }
 func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
-func (p *XML) Strval() (string, error) { return p.Value.Strval() }
-func (p *XML) Integer() (int64, error) { return 0, nil }
-func (p *XML) Float() (float64, error) { return 0, nil }
 func (p *XML) cmp(v Value) (res cmpres) {
         if a, ok := v.(*XML); ok {
                 assert(ok, "value is not XML")
@@ -71,13 +63,13 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                 case xml.ProcInst:
                         // TODO: ...
                 case xml.StartElement:
-                        nn := MakeGroup(&Bareword{pos,elem.Name.Local})
+                        nn := MakeGroup(pos, &Bareword{trivial{pos},elem.Name.Local})
                         for _, a := range elem.Attr {
                                 var k, v Value
-                                k = &Bareword{pos,a.Name.Local}
-                                v = &String{pos,a.Value}
+                                k = &Bareword{trivial{pos},a.Name.Local}
+                                v = &String{trivial{pos},a.Value}
                                 if s := a.Name.Space; s != "" {
-                                        k = MakeGroup(&String{pos,s}, k)
+                                        k = MakeGroup(pos, &String{trivial{pos},s}, k)
                                 }
                                 nn.Append(MakePair(k, v))
                         }
@@ -97,10 +89,10 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
-                                        node.Append(&String{pos,s})
+                                        node.Append(&String{trivial{pos},s})
                                 } else {
                                         if s = strings.TrimSpace(s); s != "" {
-                                                node.Append(&String{pos,s})
+                                                node.Append(&String{trivial{pos},s})
                                         }
                                 }
                         }
@@ -111,7 +103,7 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                 }
         }
         if x := len(nodes); x > 1 {
-                g := MakeGroup()
+                g := MakeGroup(pos)
                 for _, node := range nodes {
                         g.Append(node)
                 }
@@ -135,7 +127,7 @@ func (t *_xml) Evaluate(prog *Program, args []Value) (result Value, err error) {
         if result, err = DecodeXML(source, t.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ universalnone }
+                result = &XML{ &None{trivial{prog.position}} }
         }
         return
 }

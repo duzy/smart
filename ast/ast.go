@@ -317,22 +317,43 @@ func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
 func (d *NegExpr) Pos() token.Pos         { return d.NegPos }
 func (d *CompoundLit) Pos() token.Pos     { return d.Lquote }
-func (d *PathExpr) Pos() token.Pos        { return d.Segments[0].Pos() }
+func (d *PathExpr) Pos() (pos token.Pos) {
+        if d.Segments == nil {
+                pos = token.NoPos
+        } else {
+                pos = d.Segments[0].Pos()
+        }
+        return
+}
 func (d *URLExpr) Pos() token.Pos         { return d.Scheme.Pos() }
 func (d *PathSegExpr) Pos() token.Pos     { return d.TokPos }
 func (d *ClosureDelegate) Pos() token.Pos { return d.TokPos }
 func (d *SelectionExpr) Pos() token.Pos   { return d.Lhs.Pos() }
 func (d *ArgumentedExpr) Pos() token.Pos  { return d.X.Pos() }
-func (d *Barecomp) Pos() token.Pos        { return d.Elems[0].Pos() }
+func (d *Barecomp) Pos() (pos token.Pos) {
+        if d.Elems == nil {
+                pos = token.NoPos
+        } else {
+                pos = d.Elems[0].Pos()
+        }
+        return
+}
 func (d *Barefile) Pos() token.Pos        { return d.Name.Pos() }
-func (d *ListExpr) Pos() token.Pos        { return d.Elems[0].Pos() }
+func (d *ListExpr) Pos() (pos token.Pos) {
+        if d.Elems == nil {
+                pos = token.NoPos
+        } else {
+                pos = d.Elems[0].Pos()
+        }
+        return
+}
 func (d *GroupExpr) Pos() token.Pos       { return d.Lparen }
 func (d *PercExpr) Pos() token.Pos        { return d.OpPos }
 func (d *GlobExpr) Pos() token.Pos        { return d.Components[0].Pos() }
 func (d *GlobMeta) Pos() token.Pos        { return d.TokPos }
 func (d *GlobRange) Pos() token.Pos       { return d.Chars.Pos() - 1 }
 func (d *KeyValueExpr) Pos() token.Pos    { return d.Key.Pos() }
-func (d *ModifiersExpr) Pos() token.Pos    { return d.Lbrack }
+func (d *ModifiersExpr) Pos() token.Pos   { return d.Lbrack }
 func (d *RecipeExpr) Pos() token.Pos      { return d.TabPos }
 func (d *ProgramExpr) Pos() token.Pos     { return d.Recipes[0].Pos() }
 
@@ -403,9 +424,9 @@ func (d *GroupExpr) End() token.Pos       { return d.Rparen + 1 }
 func (d *PercExpr) End() token.Pos        { return d.OpPos + 1 }
 func (d *GlobExpr) End() token.Pos        { return d.Components[len(d.Components)-1].End() }
 func (d *GlobMeta) End() token.Pos        { return d.TokPos + 1 }
-func (d *GlobRange) End() token.Pos        { return d.Chars.End() + 1 }
+func (d *GlobRange) End() token.Pos       { return d.Chars.End() + 1 }
 func (d *KeyValueExpr) End() token.Pos    { return d.Value.End() }
-func (d *ModifiersExpr) End() token.Pos    { return d.Rbrack + 1 }
+func (d *ModifiersExpr) End() token.Pos   { return d.Rbrack + 1 }
 func (d *RecipeExpr) End() token.Pos      { return d.LendPos /*+ 1*/ }
 func (d *ProgramExpr) End() token.Pos     { return d.Recipes[len(d.Recipes)-1].End() }
 
@@ -500,7 +521,7 @@ func (x *GlobExpr) String() string        { return fmt.Sprintf("%v", joins(x.Com
 func (x *GlobMeta) String() string        { return x.Tok.String() }
 func (x *GlobRange) String() string       { return fmt.Sprintf("[%s]", x.Chars) }
 func (x *KeyValueExpr) String() string    { return fmt.Sprintf("%v%s%v", x.Key, x.Tok, x.Value) }
-func (x *ModifiersExpr) String() string    { return fmt.Sprintf("[%v]", joinx(" ", x.Elems...)) }
+func (x *ModifiersExpr) String() string   { return fmt.Sprintf("[%v]", joinx(" ", x.Elems...)) }
 func (x *RecipeExpr) String() string      { return fmt.Sprintf("Recipe(%s){%v}", x.Dialect, x.Elems) }
 func (x *ProgramExpr) String() string     { return fmt.Sprintf("Program(%v){%v}", x.Params, x.Recipes) }
 
@@ -526,7 +547,7 @@ func (*GlobExpr) expr()        {}
 func (*GlobMeta) expr()        {}
 func (*GlobRange) expr()       {}
 func (*KeyValueExpr) expr()    {}
-func (*ModifiersExpr) expr()    {}
+func (*ModifiersExpr) expr()   {}
 func (*RecipeExpr) expr()      {}
 func (*ProgramExpr) expr()     {}
 
@@ -559,9 +580,9 @@ type (
 		EndPos  token.Pos     // end of spec (overrides Path.Pos if nonzero)
 	}
         
-	// An ImportSpec node represents a single project import.
+	// An UseSpec node represents a single project import.
         // 
-	ImportSpec struct {
+	UseSpec struct {
                 DirectiveSpec
 	}
 
@@ -571,12 +592,6 @@ type (
                 DirectiveSpec
         }
 
-	// An UseSpec node represents a single project import.
-        // 
-	/*UseSpec struct {
-                DirectiveSpec
-	}*/
-        
         // A InstanceSpec node represents a project instanciation.
         // 
 	InstanceSpec struct {
@@ -624,7 +639,6 @@ type (
 	//
 	// Relationship between Tok value and Specs element type:
 	//
-	//	#token.IMPORT     *ImportSpec
 	//	token.USE        *UseSpec
 	//	token.INCLUDE    *IncludeSpec
 	//	token.INSTANCE   *InstanceSpec
@@ -659,7 +673,6 @@ type (
 		Targets  []Expr         // targets
                 Depends  []Expr         // normal prerequisites
                 Ordered  []Expr         // ordered prerequisites
-                Modifiers *ModifiersExpr  // modifiers (e.g. [(shell)])
                 Program  Expr           // program (e.g. recipes)
                 Position token.Position
                 TokPos   token.Pos      // position of ':', '::', etc
@@ -730,7 +743,7 @@ type File struct {
 	Name       *Bareword       // project/module name
 	Scope      Scope           // module scope (this file only)
 	Clauses    []Clause        // top-level declarations; or nil
-	Imports    []*ImportSpec   // imports in this file
+	Imports    []*UseSpec   // imports in this file
 	//Unresolved []*Bareword     // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
 }

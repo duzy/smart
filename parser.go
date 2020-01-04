@@ -92,7 +92,10 @@ type parser struct {
         bits parsingBits
         
 	// Ordinary identifier scopes
-	imports []*ast.ImportSpec // list of imports
+	imports []*ast.UseSpec // list of imports
+
+        params []string // parameters of current rule
+        dialect string // recipe dialect of current rule
 }
 
 func (p *parser) init(l *loader, filename string, src []byte) {
@@ -126,18 +129,6 @@ func (p *parser) clearbit(bit parsingBits) (bits parsingBits) {
 
 // ----------------------------------------------------------------------------
 // Parsing support
-
-func trace(p *parser, msg string) *parser {
-	p.trace(msg, "(")
-	p.level(+1)
-	return p
-}
-
-// Usage pattern: defer un(trace(p, "..."))
-func un(p *parser) {
-	p.level(-1)
-	p.trace(")")
-}
 
 func (p *parser) trace(a ...interface{}) {
 	p.traceAt(p.file.Position(p.pos), a...)
@@ -512,10 +503,18 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
         return p.tok == token.LPAREN || p.tok == token.COLON || p.tok == token.PCON || p.isEndOfLine() || p.isEndOfList(lhs)
 }
 
+func (p *parser) parseDependList() (list []ast.Expr) {
+	if p.tracing.enabled { defer un(trace(p, "Depends")) }
+        for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
+                x := p.checkExpr(p.parseExpr(false))
+                list = append(list, x)
+        }
+	return
+}
+
 // If lhs is set, result list elements which are identifiers are not resolved.
 func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
 	if p.tracing.enabled { defer un(trace(p, "List")) }
-
         for !p.isEndOfList(lhs) {
                 x := p.checkExpr(p.parseExpr(lhs))
                 list = append(list, x)
@@ -1028,10 +1027,8 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                                 case token.LCOLON:
                                         // TODO: check special var names
                                 }
-                                if err != nil {
-                                        p.error(name.Pos(), "invalid name")
-                                        p.error(name.Pos(), err) // add err to the list
-                                }
+                                // add err to the parse error list
+                                if err != nil { p.error(name.Pos(), err) }
                         }
                         name = &ast.EvaluatedExpr{ name, v }
                 }
@@ -1116,7 +1113,7 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) ast.Expr {
         p.next()
         
         name := &ast.Bareword{p.pos, s}
-        resolved, err := p.resolve(&Bareword{Position(p.file.Position(pos)),s})
+        resolved, err := p.resolve(&Bareword{trivial{Position(p.file.Position(pos))},s})
         if err != nil {
                 p.error(pos, "%v", err)
         } else if resolved == nil {
@@ -1295,7 +1292,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
                                 x = p.parseArgumentedExpr(x)
                         }
 
-                case token.COMPOSED, token.COMMA, token.COLON:
+                case token.COMPOSED, token.COMMA, token.COLON, token.SEMICOLON:
                 case token.RPAREN, token.RBRACK, token.RBRACE, token.RCOLON:
                 case token.SELECT_PROP, /*token.SELECT_PROG,*/ token.LINEND:
                         // Compose nothing at this point!
@@ -1337,8 +1334,8 @@ func isValidImport(lit string) bool {
 	return s != ""
 }
 
-func (p *parser) parseImportSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) (res ast.Spec) {
-	var spec = &ast.ImportSpec{ p.parseDirectiveSpec() }
+func (p *parser) parseUseSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) (res ast.Spec) {
+	var spec = &ast.UseSpec{ p.parseDirectiveSpec() }
         p.imports = append(p.imports, spec)
         res = spec
         if generic.dontOperate {
@@ -1353,7 +1350,7 @@ func (p *parser) parseImportSpec(doc *ast.CommentGroup, generic *genericoptions,
                 case 'r': opts.allowReuse = trueVal(v, false)
                 }
         }); err == nil {
-                p.loadImportSpec(opts, spec)
+                p.loadUseSpec(opts, spec)
         }
         return
 }
@@ -1452,7 +1449,7 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, generic *genericoptions, _
                 p.error(spec.Props[0].Pos(), "`%v` illegal", spec.Props[0])
         } else if name, err := prop0.Strval(); err != nil {
                 p.error(spec.Props[0].Pos(), err)
-        } else if spec.Resolved, err = p.resolve(&Bareword{prop0.Position(),name}); err != nil {
+        } else if spec.Resolved, err = p.resolve(&Bareword{trivial{prop0.Position()},name}); err != nil {
                 p.error(spec.Pos(), err)
         } else if spec.Resolved == nil {
                 p.error(spec.Props[0].Pos(), "undefined eval symbol `%s' (%v).", name, prop0)
@@ -1518,17 +1515,17 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                 opt := p.expr(x)
                 switch t := opt.(type) {
                 case *Argumented:
-                        if flag, ok := t.Val.(*Flag); !ok {
+                        if flag, ok := t.value.(*Flag); !ok {
                                 // does nothing
-                        } else if s, err := flag.Name.Strval(); err != nil {
-                                p.error(x.Pos(), "bad argumented option `%v` (%v)", x, t.Val)
+                        } else if s, err := flag.name.Strval(); err != nil {
+                                p.error(x.Pos(), "bad argumented option `%v` (%v)", x, t.value)
                         } else if s == "cond" {
-                                conds = t.Args
+                                conds = t.args
                         }
                 case *Pair:
                         if flag, ok := t.Key.(*Flag); !ok {
                                 // does nothing
-                        } else if s, err := flag.Name.Strval(); err != nil {
+                        } else if s, err := flag.name.Strval(); err != nil {
                                 p.error(x.Pos(), "bad option key `%v` (%v)", x, t.Key)
                         } else if s == "cond" {
                                 if g, ok := t.Value.(*Group); ok {
@@ -1661,7 +1658,7 @@ func (p *parser) parseRecipeRuleClause(elems []ast.Expr) (x ast.Expr) {
         return &ast.RecipeRuleClause{ d }
 }
 
-func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
+func (p *parser) parseRecipeExpr() ast.Expr {
 	if p.tracing.enabled { defer un(trace(p, "Recipe")) }
 
         var (
@@ -1672,12 +1669,12 @@ func (p *parser) parseRecipeExpr(dialect string) ast.Expr {
         )
 
 SwitchDialect:
-        switch dialect {
+        switch p.dialect {
         case "", "eval", "value":
                 p.scanner.LeaveCompoundLineContext()
                 p.next() // skip RECIPE or SEMICOLON and parse in list mode
                 if !p.isEndOfLine() {
-                        var isVal = dialect == "value"
+                        var isVal = p.dialect == "value"
                         var bits = p.setbit(parsingBuiltinCommand)
                         var x = p.parseExpr(!isVal) // parse first expr of recipe
                         p.setbits(bits) // restore bits
@@ -1731,7 +1728,7 @@ SwitchDialect:
         }
         if p.tok != token.EOF { p.expectLinend() }
         return &ast.RecipeExpr{
-                Dialect: dialect,
+                Dialect: p.dialect,
                 Doc:     doc,
                 TabPos:  pos,
                 Elems:   elems,
@@ -1959,6 +1956,7 @@ ForModifiersExpr:
                                         } else {
                                                 // TODO: errors
                                         }
+                                        p.params = append(p.params, s)
                                 default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
                                         p.error(elem.Pos(), "bad parameter form (%T)", elem)
                                 }
@@ -1985,15 +1983,15 @@ ForModifiersExpr:
                 goto addModifier
 
         checkName:
-                /*if _, ok = dialects[name]; ok {
-                        if dialect == "" { dialect = name } else {
-                                p.error(pos, "multi-dialects unsupported, already defined '%s'", dialect)
+                if _, ok = dialects[name]; ok {
+                        if p.dialect == "" { p.dialect = name } else {
+                                p.error(pos, "multi-dialects unsupported, already defined '%s'", p.dialect)
                                 continue ForModifiersExpr
                         }
                 } else if _, ok = modifiers[name]; !ok {
                         p.error(pos, "`%s` no such dialect or modifier", name)
                         continue ForModifiersExpr
-                }*/
+                }
                 
         addModifier:
                 elems = append(elems, x)
@@ -2037,21 +2035,20 @@ func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, 
         }
         return p.ruleParseFunc(p, tok, special, options, targets)
 }
-
 func parseRuleClause(p *parser, tok token.Token, special specialRule, options, targets []ast.Expr) *ast.RuleClause {
 	if p.tracing.enabled { defer un(trace(p, "Rule")) }
 
         var (
                 doc = p.leadComment
                 pos = p.expect(tok)
-                modifiers *ast.ModifiersExpr
                 depends []ast.Expr
                 ordered []ast.Expr
                 recipes []ast.Expr
-                params  []string
                 scopeComment string
-                dialect string
         )
+
+        p.params = nil
+        p.dialect = ""
 
         switch special {
         case specialRuleUse:
@@ -2090,39 +2087,26 @@ func parseRuleClause(p *parser, tok token.Token, special specialRule, options, t
                 }
         }
 
-        switch p.tok {
-        case token.LBRACK: // [
-                // Parse modifiers in the program scope.
-                dialect, params, modifiers = p.parseModifiersExpr()
-        case token.MINUS, token.EXC, token.QUE: // - ! ?
-                p.error(p.pos, "modifier '%v' unimplemented", p.tok)
-                p.next()
-        }
-
-        if p.tok == token.COLON {
-                p.next() // the second colon ':' is just optional
-        }
-
         if p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
-                depends = p.parseExprList(false)
+                depends = p.parseDependList()
         }
         if p.tok == token.BAR {
                 p.next() // '|' starts the ordered prerequisites
                 if p.tok != token.SEMICOLON && !p.isEndOfLine() {
-                        ordered = p.parseExprList(false)
+                        ordered = p.parseDependList()
                 }
         }
 
-        if p.tok == token.LINEND || p.lineComment != nil {
+        if p.tok == token.SEMICOLON { // :;
+                // Parse inline recipe in the program scope.
+                recipes = append(recipes, p.parseRecipeExpr())
+        } else if p.tok == token.LINEND || p.lineComment != nil {
                 // Proceed with the next line
                 p.expectLinend() // Take the new line
                 // Parse recipes in the program scope.
                 for p.tok != token.EOF && p.tok == token.RECIPE {
-                        recipes = append(recipes, p.parseRecipeExpr(dialect))
+                        recipes = append(recipes, p.parseRecipeExpr())
                 }
-        } else if p.tok == token.SEMICOLON { // :;
-                // Parse inline recipe in the program scope.
-                recipes = append(recipes, p.parseRecipeExpr(dialect))
         }
 
         clause := &ast.RuleClause{
@@ -2134,11 +2118,10 @@ func parseRuleClause(p *parser, tok token.Token, special specialRule, options, t
                 Ordered: ordered,
                 Program: &ast.ProgramExpr{
                         Lang: 0, // FIXME: language definition
-                        Params: params,
+                        Params: p.params,
                         Recipes: recipes,
                         Scope: ls.scope,
                 },
-                Modifiers: modifiers,
                 Position: p.file.Position(pos),
         }
 
@@ -2403,7 +2386,7 @@ func (p *parser) parseFile() *ast.File {
                                 case token.LINEND:
                                         p.next() // skip empty lines
                                 case token.USE/*token.IMPORT*/:
-                                        clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseImportSpec))
+                                        clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseUseSpec))
                                 case token.EVAL:
                                         clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(token.EVAL), p.parseEvalSpec))
                                 default:

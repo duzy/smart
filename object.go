@@ -55,6 +55,7 @@ func (p *unknownobject) Integer() (int64, error) { return 0, nil }
 func (p *unknownobject) Float() (float64, error) { return 0, nil }
 func (p *unknownobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *unknownobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
+func (p *unknownobject) after(v Value) (after bool, err error) { return }
 func (p *unknownobject) cmp(v Value) (res cmpres) {
         if a, ok := v.(*unknownobject); ok {
                 assert(ok, "value is not unknownobject")
@@ -84,6 +85,7 @@ func (p *knownobject) redecl(scope *Scope) {
                 }
         }
 }
+func (p *knownobject) after(v Value) (after bool, err error) { return }
 func (p *knownobject) cmp(v Value) (res cmpres) {
         if a, ok := v.(*knownobject); ok {
                 assert(ok, "value is not knownobject")
@@ -127,6 +129,7 @@ func (p *unresolvedobject) redecl(scope *Scope) {
                 }
         }
 }
+func (p *unresolvedobject) after(v Value) (after bool, err error) { return }
 func (p *unresolvedobject) cmp(v Value) (res cmpres) {
         if a, ok := v.(*unresolvedobject); ok {
                 assert(ok, "value is not unresolvedobject")
@@ -172,13 +175,13 @@ func (p *ProjectName) Get(name string) (value Value, err error) {
 // Call a ProjectName returns the project name.
 func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
         if p.project != nil {
-                value = &String{pos,p.project.name}
+                value = &String{trivial{pos},p.project.name}
         }
         return
 }
 
 func (p *ProjectName) traverse(pc *traversal) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
+        if optionTraceTraversal { defer un(tt(pc, p)) }
 
         var defent = p.project.DefaultEntry()
         if defent != nil && defent.class != UseRuleEntry {
@@ -187,6 +190,7 @@ func (p *ProjectName) traverse(pc *traversal) (err error) {
         return
 }
 
+func (p *ProjectName) after(v Value) (after bool, err error) { return }
 func (p *ProjectName) cmp(v Value) (res cmpres) {
         if a, ok := v.(*ProjectName); ok {
                 assert(ok, "value is not ProjectName")
@@ -220,6 +224,7 @@ func (n *ScopeName) Get(name string) (Value, error) {
         return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name())
 }
 
+func (p *ScopeName) after(v Value) (after bool, err error) { return }
 func (p *ScopeName) cmp(v Value) (res cmpres) {
         if a, ok := v.(*ScopeName); ok {
                 assert(ok, "value is not ScopeName")
@@ -273,6 +278,8 @@ func (d *Def) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
+
+func (p *Def) after(v Value) (after bool, err error) { return }
 
 func (d *Def) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Def); ok && d.Value != nil {
@@ -330,7 +337,7 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                 }
                 return
         } else if origin != DefExecute && value == nil {
-                value = universalnone
+                value = &None{}
         }
 
         switch d.origin = origin; origin {
@@ -349,14 +356,14 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                 } else if s, err = value.Strval(); err == nil {
                         sh := exec.Command("sh", "-c", s)
                         sh.Stdout, sh.Stderr = &stdout, &stderr
-                        if err = sh.Run(); err != nil { value = universalnone } else {
-                                value = &String{d.Value.Position(),strings.TrimSpace(stdout.String())}
+                        if err = sh.Run(); err != nil { value = &None{} } else {
+                                value = &String{trivial{d.Value.Position()},strings.TrimSpace(stdout.String())}
                         }
                         stdout.Reset()
                         stderr.Reset()
                         d.Value = value
                 } else {
-                        d.Value = universalnone
+                        d.Value = &None{}
                 }
         default:
                 unreachable()
@@ -417,7 +424,7 @@ func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
                 // ...
         } else if list, ok := res.(*List); ok {
                 if n := len(list.Elems); n == 0 {
-                        res = universalnone
+                        res = &None{}
                 } else if n == 1 {
                         res = list.Elems[0] 
                 }
@@ -435,16 +442,10 @@ func (d *Def) DiscloseValue() (res Value, err error) {
 
 func (d *Def) Get(name string) (Value, error) {
         switch name {
-        case "name": return &String{d.Position(),d.name}, nil
+        case "name": return &String{trivial{d.Position()},d.name}, nil
         case "value": return d.Value, nil
         }
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
-}
-
-func (d *Def) dependcompare(c *comparer) error {
-        if optionTraceCompare { defer compun(comptrace(c, d))}
-        if enable_assertions { assert(c.target != d, "self comparation") }
-        return c.compareDepend(d.Value)
 }
 
 func (d *Def) traverse(pc *traversal) (err error) {
@@ -503,6 +504,8 @@ func (p *undetermined) Strval() (s string, err error) {
 func (p *undetermined) Float() (float64, error) { return 0, nil }
 func (p *undetermined) Integer() (int64, error) { return 0, nil }
 
+func (p *undetermined) after(v Value) (after bool, err error) { return }
+
 func (p *undetermined) cmp(v Value) (res cmpres) {
         if a, ok := v.(*undetermined); ok {
                 assert(ok, "value is not undetermined")
@@ -525,6 +528,7 @@ func (p *Builtin) True() bool { return p.f != nil }
 func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) Call(pos Position, a... Value) (Value, error) { return p.f(pos, a...) }
+func (p *Builtin) after(v Value) (after bool, err error) { return }
 func (p *Builtin) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {
                 assert(ok, "value is not Builtin")
@@ -671,8 +675,8 @@ ForPrograms:
 
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
-        case "class": return &String{entry.position,entry.class.String()}, nil
-        case "name": return &String{entry.position,entry.Name()}, nil
+        case "class": return &String{trivial{entry.position},entry.class.String()}, nil
+        case "name": return &String{trivial{entry.position},entry.Name()}, nil
         // case "prerequisites": ...
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
@@ -698,11 +702,11 @@ func (entry *RuleEntry) refs(v Value) bool {
         return false // only check closured agaist target
 
         for _, prog := range entry.programs {
-                for _, m := range prog.pipline {
+                /*for _, m := range prog.pipline {
                         for _, a := range m.args {
                                 if a.refs(v) { return true }
                         }
-                }
+                }*/
                 for _, depend := range prog.depends {
                         if depend.refs(v) { return true }
                 }
@@ -720,11 +724,11 @@ func (entry *RuleEntry) closured() bool {
         return false // only check closured agaist target
 
         for _, prog := range entry.programs {
-                for _, m := range prog.pipline {
+                /*for _, m := range prog.pipline {
                         for _, a := range m.args {
                                 if a.closured() { return true }
                         }
-                }
+                }*/
                 for _, depend := range prog.depends {
                         if depend.closured() { return true }
                 }
@@ -751,14 +755,8 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         return
 }
 
-func (entry *RuleEntry) dependcompare(c *comparer) (err error) {
-        if optionTraceCompare { defer compun(comptrace(c, entry)) }
-        if enable_assertions { assert(c.target != entry, "self comparation") }
-        return c.compareDepend(entry.target)
-}
-
 func (entry *RuleEntry) traverse(pc *traversal) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, entry.target)) }
+        if optionTraceTraversal { defer un(tt(pc, entry.target)) }
         var failed bool
 ForPrograms:
         for _, prog := range entry.programs {
@@ -782,6 +780,8 @@ ForPrograms:
         }
         return
 }
+
+func (entry *RuleEntry) after(v Value) (after bool, err error) { return }
 
 func (entry *RuleEntry) cmp(v Value) (res cmpres) {
         if a, ok := v.(*RuleEntry); ok {
@@ -809,6 +809,7 @@ func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
+func (p *PatternEntry) after(v Value) (after bool, err error) { return }
 func (p *PatternEntry) cmp(v Value) (res cmpres) {
         if a, ok := v.(*PatternEntry); ok {
                 assert(ok, "value is not PatternEntry")
@@ -836,6 +837,7 @@ func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
+func (p *StemmedEntry) after(v Value) (after bool, err error) { return }
 func (p *StemmedEntry) cmp(v Value) (res cmpres) {
         if a, ok := v.(*StemmedEntry); ok {
                 assert(ok, "value is not StemmedEntry")
@@ -884,22 +886,16 @@ func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry
                 }*/
 
                 if file := proj.matchFile(name); file != nil {
-                        if enable_assertions {
-                                assert(proj.isFileName(name), "`%s` is not file", name)
-                        }
                         entry.target = file
                 } else {
-                        if enable_assertions {
-                                assert(!proj.isFileName(name), "`%s` is file", name)
-                        }
-                        entry.target = &String{entry.position,name}
+                        entry.target = &String{trivial{entry.position},name}
                 }
         }
         return
 }
 
 func (p *StemmedEntry) traverse(pc *traversal) (err error) {
-        if optionTracePrepare { defer prepun(preptrace(pc, p)) }
+        if optionTraceTraversal { defer un(tt(pc, p)) }
 
         var names = []string{ p.target }
         if p.stub != nil {
@@ -944,9 +940,9 @@ ForStems:
                 if err = entry.traverse(pc); err == nil {
                         break ForStems // Good!
                 } else if ute, ok := err.(targetNotFoundError); ok {
-                        if optionTracePrepare { pc.trace("stemmed: unknown target:", ute.target) }
+                        if optionTraceTraversal { pc.trace("stemmed: unknown target:", ute.target) }
                 } else if ufe, ok := err.(fileNotFoundError); ok {
-                        if optionTracePrepare { pc.trace("stemmed: unknown file:", ufe.file) }
+                        if optionTraceTraversal { pc.trace("stemmed: unknown file:", ufe.file) }
                 }
         }
         return

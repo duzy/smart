@@ -21,15 +21,6 @@ const maxNumVarVal = 9
 
 var (
 	universe *Scope
-
-        universalnone = &None{}
-        universalnil = &Nil{}
-        modifierbar = &ModifierBar{}
-        /*
-        universalyes = &answer{ true }
-        universalno = &answer{ false }
-        universaltrue = &boolean{ true }
-        universalfalse = &boolean{ false } */
 )
 
 func defUniverseBuiltins() {
@@ -44,9 +35,9 @@ func init() {
         universe = NewScope(nil, nil, "universe")
 
         var pos Position
-        bin, args := &String{pos,os.Args[0]}, new(List)
+        bin, args := &String{trivial{pos},os.Args[0]}, new(List)
         for _, a := range os.Args[1:] {
-                args.Elems = append(args.Elems, &String{pos,a})
+                args.Elems = append(args.Elems, &String{trivial{pos},a})
         }
         _, _ = universe.define(nil, "SMART.BIN", bin)
         _, _ = universe.define(nil, "SMART.ARGS", args)
@@ -129,11 +120,11 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
 
                 g.main = m
 
-                def, _ := g.scope.define(m, "_", universalnone)
+                def, _ := g.scope.define(m, "_", &None{})
                 if enable_assertions { assert(def != nil, "'$_' is nil") }
 
                 for i := 1; i <= maxNumVarVal; i += 1 {
-                        def, _ := g.scope.define(m, strconv.Itoa(i), universalnone)
+                        def, _ := g.scope.define(m, strconv.Itoa(i), &None{})
                         if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
                 }
         }
@@ -151,6 +142,6 @@ func NewGlobe(name string) (g *Globe) {
         var absPath, relPath, tmpPath, spec string
         // TODO: determines absPath, relPath, tmpPath, spec
         g.os = g.project(nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
-        //g.os.scope.define(g.os, "name", universalnone)
+        //g.os.scope.define(g.os, "name", &None{})
         return g
 }
