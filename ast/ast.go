@@ -499,8 +499,9 @@ func (x *ClosureDelegate) String() (s string) {
                 a = " " + joinx(" ", x.Args...)
         }
         switch x.TokLp {
-        case token.ILLEGAL:
-                s = fmt.Sprintf("%v%v", x.Tok, x.Name)
+        case token.ILLEGAL: // ie. $@ $< $^ $/ $- ...
+                // Note that x.Name is redundant in this case!
+                s = fmt.Sprintf("%s", x.Tok)
         case token.LPAREN:
                 s = fmt.Sprintf("%v(%v%s)", x.Tok, x.Name, a)
         case token.LBRACE:
@@ -743,7 +744,7 @@ type File struct {
 	Name       *Bareword       // project/module name
 	Scope      Scope           // module scope (this file only)
 	Clauses    []Clause        // top-level declarations; or nil
-	Imports    []*UseSpec   // imports in this file
+	Imports    []*UseSpec      // imports in this file
 	//Unresolved []*Bareword     // unresolved identifiers in this file
 	Comments   []*CommentGroup // list of all comments in the source file
 }

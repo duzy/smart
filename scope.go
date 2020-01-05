@@ -186,7 +186,7 @@ func (scope *Scope) ProjectName(owner *Project, name string, project *Project) (
         if alt = scope.elems[name]; alt == nil {
                 pn = &ProjectName{
                         knownobject{
-                                unknownobject{
+                                trivialobject{
                                         scope: scope,
                                         owner: owner,
                                 }, name,
@@ -202,7 +202,7 @@ func (scope *Scope) ScopeName(owner *Project, name string, s *Scope) (sn *ScopeN
         if alt = scope.elems[name]; alt == nil {
                 sn = &ScopeName{
                         knownobject{
-                                unknownobject{
+                                trivialobject{
                                         scope: scope,
                                         owner: owner,
                                 }, name,
@@ -223,7 +223,7 @@ func (scope *Scope) define(owner *Project, name string, value Value) (def *Def, 
         if !okay {
                 def = &Def{
                         knownobject{
-                                unknownobject{
+                                trivialobject{
                                         scope: scope,
                                         owner: owner,
                                 }, name,
@@ -239,7 +239,7 @@ func (scope *Scope) builtin(name string, f BuiltinFunc) (bui *Builtin, alt Objec
         if alt = scope.elems[name]; alt == nil {
                 bui = &Builtin{
                         knownobject{
-                                unknownobject{
+                                trivialobject{
                                         scope: scope,
                                         owner: nil,
                                 }, name,

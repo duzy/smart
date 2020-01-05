@@ -16,6 +16,7 @@ import (
 var usingPrepared = make(map[*Project]int)
 
 type using struct {
+        trivial
         project *Project
         params []Value
         opts useoptions
@@ -37,7 +38,7 @@ func (p *using) expand(w expandwhat) (Value, error) {
         if params, num, err := expandall(w, p.params...); err != nil {
                 return nil, err
         } else if num > 0 {
-                return &using{ p.project, params, p.opts }, nil
+                return &using{p.trivial,p.project,params,p.opts}, nil
         }
         return p, nil
 }
@@ -64,7 +65,14 @@ func (p *using) traverse(pc *traversal) (err error) {
         }
         return
 }
-func (p *using) after(v Value) (after bool, err error) { return }
+func (p *using) exists() (res existence) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                res = entry.exists()
+        } else {
+                res = existenceMatterless
+        }
+        return
+}
 func (p *using) cmp(v Value) (res cmpres) {
         if a, ok := v.(*using); ok {
                 assert(ok, "value is not using")
@@ -74,10 +82,7 @@ func (p *using) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *using) Position() (pos Position) { return /* TODO: calculate using position */ }
 func (p *using) True() bool { return p.project != nil }
-func (p *using) Integer() (i int64, err error) { return 0, nil }
-func (p *using) Float() (f float64, err error) { return 0, nil }
 func (p *using) String() string {
         if len(p.params) > 0 {
                 return fmt.Sprintf("%s(%v)", p.project.name, p.params)
@@ -136,8 +141,28 @@ func (p *usinglist) traverse(pc *traversal) error {
 func (p *usinglist) redecl(scope *Scope) { panic("redeclaring using list") }
 func (p *usinglist) DeclScope() *Scope { return p.scope }
 func (p *usinglist) OwnerProject() *Project { return p.owner }
-func (p *usinglist) Position() (pos Position) { return /* TODO: caculate position of using list */ }
+func (p *usinglist) Position() (pos Position) {
+        if len(p.list) > 0 {
+                pos = p.list[0].Position()
+        }
+        return
+}
 func (p *usinglist) True() bool { return len(p.list) > 0 }
+func (p *usinglist) exists() (res existence) {
+        res = existenceMatterless
+ForElems:
+        for _, elem := range p.list {
+                switch elem.exists() {
+                case existenceMatterless:
+                case existenceConfirmed:
+                        res = existenceConfirmed
+                case existenceNegated:
+                        res = existenceNegated
+                        break ForElems
+                }
+        }
+        return
+}
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }
 func (p *usinglist) Float() (float64, error) { return 0, nil }
@@ -168,13 +193,13 @@ func (p *usinglist) String() string {
         return fmt.Sprintf("%s", s)
 }
 
-func (p *usinglist) append(proj *Project, params []Value, opts useoptions) {
+func (p *usinglist) append(pos Position, proj *Project, params []Value, opts useoptions) {
         for _, elem := range p.list {
                 if elem.project == proj {
                         return
                 }
         }
-        p.list = append(p.list, &using{ proj, params, opts })
+        p.list = append(p.list, &using{trivial{pos},proj,params,opts})
 }
 
 func (p *usinglist) Get(name string) (result Value, err error) {
@@ -190,9 +215,9 @@ func (p *usinglist) Get(name string) (result Value, err error) {
         }*/
         if err == nil {
                 if list != nil {
-                        result = MakeListOrScalar(list)
+                        result = MakeListOrScalar(p.Position(), list)
                 } else {
-                        result = &None{}
+                        result = &None{trivial{p.Position()}}
                 }
         }
         return

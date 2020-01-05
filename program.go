@@ -90,7 +90,7 @@ func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
                 }
         }
         if enable_assertions {
-                assert(auto.Value == value, "wrong auto value")
+                assert(auto.value == value, "wrong auto value")
         }
         return
 }
@@ -115,6 +115,11 @@ func (prog *Program) waitForPrerequisites() (err error) {
 }
 
 func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (err error) {
+        var target = pc.targetDef.value // pc.entry.target
+        if exists(target) && len(pc.updated) == 0 {
+                return
+        }
+
         if err = prog.waitForPrerequisites(); err != nil {
                 return
         }
@@ -161,7 +166,7 @@ func (prog *Program) modify(pc *traversal, m *modifier) (err error) {
                 }
                 if err == nil {
                         var value Value
-                        if value, err = f(prog.position, prog, v...); err == nil && value != nil {
+                        if value, err = f(m.position, prog, v...); err == nil && value != nil {
                                 pc.modifyBuf.set(DefDefault, value)
                         }
                 }
@@ -307,7 +312,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 
         var nestedExecution bool
         if pc := prog.pc; pc != nil {
-                setVal := func(def *Def, val Value) { def.Value = val }
+                setVal := func(def *Def, val Value) { def.value = val }
                 for _, def := range []*Def{
                         pc.targetDef,
                         pc.dependsDef,
@@ -317,7 +322,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         pc.updatedDef,
                         pc.stemDef,
                         pc.modifyBuf,
-                } { defer setVal(def, def.Value) }
+                } { defer setVal(def, def.value) }
                 nestedExecution = true
         }
         defer func(pc *traversal) { prog.pc = pc } (prog.pc)
@@ -447,122 +452,32 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
 func (pc *traversal) checkTargetMode() (err error) {
         // Check (file) target existence
         var s string
-        if file, ok := pc.targetDef.Value.(*File); ok && !file.exists() {
-                //pc.mode = updateMode // switch into update mode
+        if file, ok := pc.targetDef.value.(*File); ok && !exists(file) {
                 //if len(prog.callers) > 0 {
                 //        var caller = prog.callers[0]
                 //        caller.updated = append(...)
                 //}
-        } else if s, err = pc.targetDef.Value.Strval(); err != nil {
+        } else if s, err = pc.targetDef.value.Strval(); err != nil {
                 return
-        } else if file := pc.derived.matchFile(s); file != nil && !file.exists() {
-                //pc.mode = updateMode // switch into update mode
-                pc.targetDef.Value = file
+        } else if file := pc.derived.matchFile(s); !exists(file) {
+                pc.targetDef.value = file
         }
         return
 }
-
-/*
-func (pc *traversal) checkMode4Breaker(tag string, name Value, br *breaker) (done bool, err error) {
-        switch tag = fmt.Sprintf("(%s) %s:", tag, name); br.what {
-        case breakBad:
-                if optionTraceTraversal { pc.trace(tag, "(bad)", br.message) }
-                err = scanner.Errorf(token.Position(br.pos), br.message)
-        case breakGood:
-                //if optionTraceTraversal { pc.trace(tag, "(good)") }
-                err = pc.checkTargetMode()
-        case breakModified:
-                for _, m := range br.modified {
-                        t, ok1 := m.target.(*File)
-                        r, ok2 := m.result.(*File)
-                        if ok1 && ok2 {
-                                assert(t.filebase == r.filebase, "two instance for the same file")
-                        }
-                }
-                err = br
-        case breakUpdates: // found prerequiste updates
-                if optionTraceTraversal { pc.trace(tag, "(updates)", br.updated) }
-
-                // Collect updates, so that the updated targets could be
-                // returned to the caller.
-                pc.updated = append(pc.updated, br.updated...)
-                for _, updated := range br.updated {
-                        pc.updatedDef.append(updated.target)
-                }
-                
-                if len(br.updated) > 0 {
-                        //pc.mode = updateMode // switch into update mode
-                } else {
-                        err = pc.checkTargetMode()
-                }
-        }
-        return
-}
-
-func (pc *traversal) preModify(prog *Program) (done bool, casebreaks []*breaker, err error) {
-ForModifiers:
-        for _, m := range pc.preModifiers {
-                if m.name == modifierbar { continue }
-                if err = prog.modify(pc, m, false); err == nil { continue }
-                if br, ok := err.(*breaker); ok  {
-                        switch br.what {
-                        case breakCase:
-                                casebreaks = append(casebreaks, br)
-                                continue ForModifiers
-                        case breakNext, breakDone:
-                                done = true
-                                return
-                        case breakFail:
-                                return
-                        default:
-                                done, err = pc.checkMode4Breaker("pre", m.name, br)
-                        }
-                }
-                if err != nil { break }
-        }
-        return
-}
-
-func (pc *traversal) postModify(prog *Program) (done bool, casebreaks []*breaker, err error) {
-ForModifiers:
-        for _, m := range pc.postModifiers {
-                if m.name == modifierbar { continue }
-                if err = prog.modify(pc, m, true); err == nil { continue }
-                if br, ok := err.(*breaker); ok {
-                        switch br.what {
-                        case breakCase:
-                                casebreaks = append(casebreaks, br)
-                                continue ForModifiers
-                        case breakNext, breakDone:
-                                done = true
-                                return
-                        case breakFail:
-                                return
-                        default:
-                                done, err = pc.checkMode4Breaker("post", m.name, br)
-                        }
-                }
-                if err != nil { break }
-        }
-        return
-}
-*/
 
 func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) {
         var (
-                //target = pc.entry.target
-                depends = pc.dependsDef.Value
-                ordered = pc.orderedDef.Value
-                grepped = pc.greppedDef.Value
+                target = pc.entry.target
+                depends = pc.dependsDef.value
+                ordered = pc.orderedDef.value
+                grepped = pc.greppedDef.value
                 none = &None{trivial{prog.position}}
         )
 
         pc.updatedDef.set(DefDefault, none)
 
         err = pc.traverseAll([]Value{depends,ordered,grepped}, nested)
-        if err != nil {
-                return
-        }
+        if err != nil { return }
         if optionTraceTraversal && false {
                 pc.tracef("%v", pc.targets)
                 pc.tracef("%v", pc.targetDef)
@@ -575,22 +490,9 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
                 pc.tracef("%v", pc.modifyBuf)
         }
 
-        // TODO: Using Value.exists() instead of switch
-        switch target := pc.entry.target.(type) {
-        case *File:
-                if optionTraceTraversal {
-                        pc.tracef("updated: %v (exists=%v) ; %v", target, target.exists(), pc.updated)
-                }
-                if target.exists() && len(pc.updated) == 0 {
-                        return
-                }
-        default:
-                if optionTraceTraversal {
-                        pc.tracef("updated: %T %v ; %v", target, target, pc.updated)
-                }
-        }
-
-        if pc.interpreted == nil {
+        if exists(target) && len(pc.updated) == 0 {
+                return
+        } else if len(pc.interpreted) == 0 {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
                         if err = prog.interpret(pc, i, nil); err != nil {

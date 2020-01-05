@@ -137,8 +137,6 @@ type loader struct {
         useesExecuted []*Project // all executed usees
         project  *Project // the current project
         scope    *Scope   // the current scope
-        ruleParseFunc func(p *parser, tok token.Token, special specialRule, options, targets []ast.Expr) *ast.RuleClause
-        includeFunc func(l *loader, pos token.Pos, val Value)
         isIncludingConf bool // including configuration
         vs string // verbose prefix
 }
@@ -562,7 +560,7 @@ func (l *loader) loadPlugin() (err error) {
 
         so := stat(/*l.project.name*/"plugin", "", s, nil)
         if s, err = so.Strval(); err != nil { return }
-        if so.exists() && !optionAlwaysBuildPlugins {
+        if exists(so) && !optionAlwaysBuildPlugins {
                 if so.info.ModTime().After(g.info.ModTime()) {
                         build = false // Plugin already updated.
                 }
@@ -870,6 +868,31 @@ func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
         return
 }
 
+func (l *loader) convertBarefiles(targets []ast.Expr) []ast.Expr {
+        for i, target := range targets {
+                switch t := target.(type) {
+                case *ast.Bareword:
+                        if file := l.project.matchFile(t.Value); file != nil {
+                                targets[i] = &ast.Barefile{ Name:target, File:file }
+                        }
+                case *ast.Barecomp:
+                        var value = l.exprBarecomp(t)
+                        target = &ast.EvaluatedExpr{target, value}
+                        if s, err := value.Strval(); err != nil {
+                                l.parser.error(t.Pos(), "%v: %v", value, err)
+                        } else if file := l.project.matchFile(s); file != nil {
+                                targets[i] = &ast.Barefile{ Name:target, File:file }
+                        }
+                case *ast.ArgumentedExpr:
+                        vals := l.convertBarefiles(append([]ast.Expr{t.X},t.Arguments...))
+                        t.X, t.Arguments = vals[0], vals[1:]
+                default:
+                        //fmt.Fprintf(stderr, "%T: %v\n", t, t)
+                }
+        }
+        return targets
+}
+
 func (l *loader) exprURL(x *ast.URLExpr) (res Value) {
         var pos = Position(l.parser.file.Position(x.Pos()))
         var url = &URL{ Scheme:l.expr(x.Scheme) }
@@ -947,18 +970,21 @@ func (l *loader) exprKeyValue(x *ast.KeyValueExpr) (res Value) {
         if k := l.expr(x.Key); l.parser.bits&parsingFilesSpec != 0 {
                 res = &Pair{k, l.expr(x.Value)}
         } else {
-                res = MakePair(k, l.expr(x.Value))
+                var pos = Position(l.parser.file.Position(x.Pos()))
+                res = MakePair(pos, k, l.expr(x.Value))
         }
         return
 }
 
 func (l *loader) exprPerc(x *ast.PercExpr) (v Value) {
-        v = MakePercPattern(l.expr(x.X), l.expr(x.Y))
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakePercPattern(pos, l.expr(x.X), l.expr(x.Y))
         return
 }
 
 func (l *loader) exprGlob(x *ast.GlobExpr) (v Value) {
-        v = MakeGlobPattern(l.exprs(x.Components)...)
+        var pos = Position(l.parser.file.Position(x.Pos()))
+        v = MakeGlobPattern(pos, l.exprs(x.Components)...)
         return
 }
 
@@ -982,7 +1008,7 @@ func (l *loader) exprModifierGroup(x *ast.ModifiersExpr) Value {
                         // Just ignore empty modifier
                         if len(t.Elems) == 0 { continue }
                         var m = &modifier{
-                                position: t.Position(),
+                                trivial: trivial{t.Position()},
                                 name: t.Elems[0],
                         }
                         if len(t.Elems) > 1 {
@@ -994,7 +1020,7 @@ func (l *loader) exprModifierGroup(x *ast.ModifiersExpr) Value {
                 }
         }
         return &modifiergroup{
-                position: Position(l.parser.file.Position(x.Pos())),
+                trivial: trivial{Position(l.parser.file.Position(x.Pos()))},
                 modifiers: modifiers,
         }
 }
@@ -1141,8 +1167,8 @@ func (l *loader) usePathStr() (s string) {
 }
 
 func (l *loader) useProject2(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
+        position := l.parser.file.Position(pos)
         if usee == l.project {
-                position := l.parser.file.Position(pos)
                 err = scanner.Errorf(position, "'%v' use loop (%s)", usee.name, l.usePathStr())
                 return
         } else if false {
@@ -1170,7 +1196,7 @@ func (l *loader) useProject2(pos token.Pos, usee *Project, params []Value, opts 
         l.usePath = append(l.usePath, usee) // build the use path
 
         // Add to the project using list, so that the use path is correct.
-        l.project.using.append(usee, params, opts)
+        l.project.using.append(Position(position), usee, params, opts)
 
         return // :user: rules are deprecated!
 }
@@ -1228,7 +1254,7 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                         // not a def
                 } else if derived == nil {
                         assert(false, "encounterred nil def `%s`", name)
-                } else if derived == def || def.Value.refs(derived) {
+                } else if derived == def || def.value.refs(derived) {
                         // same def
                 } else if tok == token.ADD_ASSIGN {
                         // Unshift the delegation to derive value.
@@ -1412,18 +1438,18 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
 }
 
 func (l *loader) include(spec *ast.IncludeSpec) {
-        if l.includeFunc == nil {
-                l.parser.error(spec.Pos(), "`include` is forbiden")
-        } else if len(spec.Props) > 0 {
-                prop := spec.Props[0]
-                l.includeFunc(l, prop.Pos(), l.expr(prop))
+        if len(spec.Props) > 0 {
+                var prop = spec.Props[0]
+                l.includeFile(prop.Pos(), l.expr(prop))
         }
 }
 
-func includespec(l *loader, pos token.Pos, spec Value) {
-        var linfo = l.loads[len(l.loads)-1]
-        var specName, fullname string
-        var err error
+func (l *loader) includeFile(pos token.Pos, spec Value) {
+        var (
+                linfo = l.loads[len(l.loads)-1]
+                specName, fullname string
+                err error
+        )
 
         // Execute the rule entry to update include source.
         if entry, ok := spec.(*RuleEntry); ok && entry != nil {
@@ -1714,7 +1740,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         //        is matched!
         defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
-        if declared || l.includeFunc == nil || optionConfigure {
+        if declared || optionConfigure {
                 // Does nothing!
         } else if s, err := configurationFileName(l.project); err != nil {
                 return err
@@ -1726,7 +1752,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         fmt.Fprintf(stderr, "smart: Load configuration for %s (%s)\n", l.project, l.project.relPath)
                 }
                 l.isIncludingConf = true
-                l.includeFunc(l, ident.Pos(), file)
+                l.includeFile(ident.Pos(), file)
                 l.isIncludingConf = false
         }
 
@@ -1736,7 +1762,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
         // Looking for project specific ".dock" module
         file := stat(".dock", "", l.project.absPath)
-        if file != nil  && file.exists() {
+        if exists(file) {
                 err = l.loadDotDock(ident, file)
                 return
         }
@@ -1744,7 +1770,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         // Looking for .smart/.dock
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
                 file := stat(".dock", "", filepath.Join(s, ".smart"))
-                if file == nil || !file.exists() {
+                if !exists(file) {
                         // no docking enabled
                 } else if err = l.loadDotDock(ident, file); err != nil {
                         // FIXME: error...
@@ -1859,53 +1885,53 @@ func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, va
         case token.ADD_ASSIGN: // +=
                 if value ==  nil {
                         // NOOP
-                } else if def.Value == nil || !def.Value.refs(value) {
+                } else if def.value == nil || !def.value.refs(value) {
                         err = def.append(value)
                 }
         case token.SHI_ASSIGN: // =+
-                if !def.Value.refs(value) {
-                        var tail = def.Value
+                if !def.value.refs(value) {
+                        var tail = def.value
                         if err = def.set(DefDefault, value); err == nil {
                                 err = def.append(tail)
                         }
                 }
         case token.SUB_ASSIGN: // -=
-                if def.Value == nil {
+                if def.value == nil {
                         // ...
-                } else if _, ok := def.Value.(*None); ok {
+                } else if _, ok := def.value.(*None); ok {
                         var vals []Value
-                        for _, val := range merge(def.Value) {
+                        for _, val := range merge(def.value) {
                                 if val.cmp(value) != cmpEqual {
                                         vals = append(vals, val)
                                 }
                         }
-                        def.Value = &List{elements{vals}}
+                        def.value = &List{elements{vals}}
                 }
         case token.SAD_ASSIGN: // -+=
                 var vals []Value
-                if def.Value == nil {
+                if def.value == nil {
                         // ...
-                } else if _, ok := def.Value.(*None); ok {
-                        for _, val := range merge(def.Value) {
+                } else if _, ok := def.value.(*None); ok {
+                        for _, val := range merge(def.value) {
                                 if val.cmp(value) != cmpEqual || true {
                                         vals = append(vals, val)
                                 }
                         }
                 }
                 vals = append(vals, value)
-                def.Value = &List{elements{vals}}
+                def.value = &List{elements{vals}}
         case token.SSH_ASSIGN: // -=+
                 var vals = []Value{ value }
-                if def.Value == nil {
+                if def.value == nil {
                         // ...
-                } else if _, ok := def.Value.(*None); ok {
-                        for _, val := range merge(def.Value) {
+                } else if _, ok := def.value.(*None); ok {
+                        for _, val := range merge(def.value) {
                                 if val.cmp(value) != cmpEqual {
                                         vals = append(vals, val)
                                 }
                         }
                 }
-                def.Value = &List{elements{vals}}
+                def.value = &List{elements{vals}}
         case token.QUE_ASSIGN: // ?=
                 if alt == nil { err = def.set(DefDefault, value) }
         case token.SCO_ASSIGN: // :=

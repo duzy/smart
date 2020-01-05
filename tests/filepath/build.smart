@@ -6,5 +6,5 @@ files (
 
 objects := main.o src/foo.o src/bar.o src/baz.o
 
-hello:[(shell -oe)]: program($@,$(objects))
+hello:[(shell -oe)]: _program($(objects))
 	./hello

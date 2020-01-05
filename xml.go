@@ -71,7 +71,7 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                                 if s := a.Name.Space; s != "" {
                                         k = MakeGroup(pos, &String{trivial{pos},s}, k)
                                 }
-                                nn.Append(MakePair(k, v))
+                                nn.Append(MakePair(pos, k, v))
                         }
                         if x := len(stack); x > 0 {
                                 stack[x-1].Append(nn)

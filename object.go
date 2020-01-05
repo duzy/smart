@@ -36,29 +36,23 @@ type Object interface {
 	redecl(*Scope)
 }
 
-type unknownobject struct { // generally unnamed objects
-        position Position
+type trivialobject struct { // generally unnamed objects
+        trivial
         scope *Scope
         owner *Project
 }
-func (p *unknownobject) refs(_ Value) bool { return false }
-func (p *unknownobject) closured() bool { return false }
-func (p *unknownobject) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *unknownobject) Position() Position { return p.position }
-func (p *unknownobject) True() bool { return false }
-func (p *unknownobject) Name() string { panic("inquiring name of an unknown object") }
-func (p *unknownobject) DeclScope() *Scope { return p.scope }
-func (p *unknownobject) OwnerProject() *Project { return p.owner }
-func (p *unknownobject) Strval() (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
-func (p *unknownobject) String() string { return fmt.Sprintf("{unknown %p}", p) }
-func (p *unknownobject) Integer() (int64, error) { return 0, nil }
-func (p *unknownobject) Float() (float64, error) { return 0, nil }
-func (p *unknownobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
-func (p *unknownobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
-func (p *unknownobject) after(v Value) (after bool, err error) { return }
-func (p *unknownobject) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*unknownobject); ok {
-                assert(ok, "value is not unknownobject")
+func (p *trivialobject) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *trivialobject) Name() string { panic("inquiring name of an unknown object") }
+func (p *trivialobject) DeclScope() *Scope { return p.scope }
+func (p *trivialobject) OwnerProject() *Project { return p.owner }
+func (p *trivialobject) Strval() (string, error) { return fmt.Sprintf("{unknown %p}", p), nil }
+func (p *trivialobject) String() string { return fmt.Sprintf("{unknown %p}", p) }
+func (p *trivialobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
+func (p *trivialobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
+func (p *trivialobject) exists() existence { return existenceMatterless }
+func (p *trivialobject) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*trivialobject); ok {
+                assert(ok, "value is not trivialobject")
                 if p.owner == a.owner && p.scope == a.scope {
                         res = cmpEqual
                 }
@@ -67,7 +61,7 @@ func (p *unknownobject) cmp(v Value) (res cmpres) {
 }
 
 type knownobject struct { // generally named objects
-        unknownobject
+        trivialobject
         name string
 }
 func (p *knownobject) expand(_ expandwhat) (Value, error) { return p, nil }
@@ -97,9 +91,10 @@ func (p *knownobject) cmp(v Value) (res cmpres) {
 }
 
 type unresolvedobject struct { // named callable/executable objects
-        unknownobject
+        trivialobject
         name Value // name could be closured
 }
+func (p *unresolvedobject) traverse(pc *traversal) (err error) { return }
 func (p *unresolvedobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unresolvedobject) True() bool { return false }
 func (p *unresolvedobject) Name() string {
@@ -141,7 +136,7 @@ func (p *unresolvedobject) cmp(v Value) (res cmpres) {
 }
 
 func unresolved(p *Project, v Value) *unresolvedobject {
-        return &unresolvedobject{unknownobject{ scope: p.scope, owner: p }, v}
+        return &unresolvedobject{trivialobject{ scope: p.scope, owner: p }, v}
 }
 
 type ProjectName struct {
@@ -254,46 +249,44 @@ const (
 type Def struct {
         knownobject
         origin DefOrigin
-        Value Value
+        value Value
 }
 
-func (d *Def) refs(v Value) bool { return d == v || (d.Value != nil && d.Value.refs(v)) }
-func (d *Def) closured() bool { return d.Value.closured() }
+func (d *Def) refs(v Value) bool { return d == v || (d.value != nil && d.value.refs(v)) }
+func (d *Def) closured() bool { return d.value.closured() }
 func (d *Def) expand(w expandwhat) (res Value, err error) {
-        if res = d; d.Value != nil {
+        if res = d; d.value != nil {
                 var value Value
-                if value, err = d.Value.expand(w); err != nil {
+                if value, err = d.value.expand(w); err != nil {
                         res = nil ; return
-                } else if value != d.Value {
+                } else if value != d.value {
                         if w&expandCaller != 0 {
                                 res = value
                         } else {
                                 res = &Def{ d.knownobject, d.origin, value }
                         }
                 } else if w&expandCaller != 0 {
-                        res = d.Value
+                        res = d.value
                 }
         } else if w&expandCaller != 0 {
                 res = nil
         }
         return
 }
-
-func (p *Def) after(v Value) (after bool, err error) { return }
-
+func (d *Def) exists() existence { return d.value.exists() }
 func (d *Def) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*Def); ok && d.Value != nil {
+        if a, ok := v.(*Def); ok && d.value != nil {
                 assert(ok, "value is not Def")
-                if a.Value != nil {
-                        res = d.Value.cmp(a.Value)
+                if a.value != nil {
+                        res = d.value.cmp(a.value)
                 }
         }
         return
 }
 
 func (d *Def) True() (res bool) {
-        if d.Value != nil {
-                res = d.Value.True()
+        if d.value != nil {
+                res = d.value.True()
         }
         return
 }
@@ -314,16 +307,16 @@ func (d *Def) String() (s string) {
         case DefExecute: s += "!="
         default: s += " = "
         }
-        if d.Value != nil {
-                s += elementString(d, d.Value, 0)
+        if d.value != nil {
+                s += elementString(d, d.value, 0)
         } else {
                 s += "<nil>"
         }
         return
 }
 func (d *Def) Strval() (s string, e error) {
-        if d.Value != nil {
-                s, e = d.Value.Strval()
+        if d.value != nil {
+                s, e = d.value.Strval()
         }
         return
 }
@@ -342,28 +335,28 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
 
         switch d.origin = origin; origin {
         case DefDefault: // Keeps delegates and closures.
-                d.Value = value
+                d.value = value
         case DefSimple: // Eval expands delegates in the value.
-                if d.Value, err = value.expand(expandDelegate); err != nil { return }
+                if d.value, err = value.expand(expandDelegate); err != nil { return }
         case DefExpand:
-                if d.Value, err = value.expand(expandAll); err != nil { return }
+                if d.value, err = value.expand(expandAll); err != nil { return }
         case DefExecute:
                 var ( stdout, stderr bytes.Buffer; s string )
                 if value == nil {
-                        d.Value = nil // undef
+                        d.value = nil // undef
                 } else if _, ok := value.(*None); ok {
-                        d.Value = nil // undef
+                        d.value = nil // undef
                 } else if s, err = value.Strval(); err == nil {
                         sh := exec.Command("sh", "-c", s)
                         sh.Stdout, sh.Stderr = &stdout, &stderr
                         if err = sh.Run(); err != nil { value = &None{} } else {
-                                value = &String{trivial{d.Value.Position()},strings.TrimSpace(stdout.String())}
+                                value = &String{trivial{d.value.Position()},strings.TrimSpace(stdout.String())}
                         }
                         stdout.Reset()
                         stderr.Reset()
-                        d.Value = value
+                        d.value = value
                 } else {
-                        d.Value = &None{}
+                        d.value = &None{}
                 }
         default:
                 unreachable()
@@ -386,14 +379,14 @@ func (d *Def) append(va... Value) (err error) {
         var list *List
         if num := len(va); num == 0 {
                 // Does nothing...
-        } else if d.Value == nil {
+        } else if d.value == nil {
                 list = &List{elements{ merge(va...) }}
-        } else if _, okay := d.Value.(*None); okay {
+        } else if _, okay := d.value.(*None); okay {
                 list = &List{elements{ merge(va...) }}
-        } else if list, _ = d.Value.(*List); list != nil {
+        } else if list, _ = d.value.(*List); list != nil {
                 list.Append(merge(va...)...)
         } else {
-                elems := []Value{ d.Value }
+                elems := []Value{ d.value }
                 elems = append(elems, merge(va...)...)
                 list = &List{elements{ elems }}
         }
@@ -408,15 +401,15 @@ func (d *Def) append(va... Value) (err error) {
 func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
         switch d.origin {
         case DefSimple, DefExpand, DefExecute:
-                res = d.Value
+                res = d.value
         case DefDefault:
                 // TODO: parameterization, e.g. $1, $2, $3, $4, $5 (see foreach)
                 for i := 0; i < len(a) && i < maxNumVarVal; i += 1 {
                         var def = context.globe.scope.Lookup(strconv.Itoa(i)).(*Def)
-                        defer func(v Value) { def.Value = v } (def.Value)
-                        def.Value = a[i]
+                        defer func(v Value) { def.value = v } (def.value)
+                        def.value = a[i]
                 }
-                res, err = d.Value.expand(expandClosure|expandDelegate)
+                res, err = d.value.expand(expandClosure|expandDelegate)
         default:
                 unreachable()
         }
@@ -433,9 +426,9 @@ func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
 }
 
 func (d *Def) DiscloseValue() (res Value, err error) {
-        if d.Value != nil {
-                if res, err = d.Value.expand(expandClosure); err != nil { return }
-                if res == nil { res = d.Value }
+        if d.value != nil {
+                if res, err = d.value.expand(expandClosure); err != nil { return }
+                if res == nil { res = d.value }
         }
         return
 }
@@ -443,18 +436,14 @@ func (d *Def) DiscloseValue() (res Value, err error) {
 func (d *Def) Get(name string) (Value, error) {
         switch name {
         case "name": return &String{trivial{d.Position()},d.name}, nil
-        case "value": return d.Value, nil
+        case "value": return d.value, nil
         }
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
 }
 
 func (d *Def) traverse(pc *traversal) (err error) {
-        if d.Value == nil {
-                // does nothing
-        } else if p, ok := d.Value.(prerequisite); ok {
-                err = p.traverse(pc)
-        } else {
-                err = fmt.Errorf("%s: %T '%s' is not prerequisite", d.name, d.Value, d.Value)
+        if d.value != nil {
+                err = d.value.traverse(pc)
         }
         return
 }
@@ -486,9 +475,10 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         return
 }
 
+func (p *undetermined) traverse(pc *traversal) (err error) { return }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
+func (p *undetermined) exists() existence { return p.value.exists() }
 func (p *undetermined) True() bool { return p.value.True() }
-
 func (p *undetermined) String() (s string) {
         s = p.identifier.String()
         s += p.tok.String()
@@ -576,6 +566,7 @@ type RuleEntry struct {
 }
 
 func (entry *RuleEntry) Position() Position { return entry.position/*entry.target.Position()*/ }
+func (entry *RuleEntry) exists() existence { return entry.target.exists() }
 func (entry *RuleEntry) True() bool { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
 func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }

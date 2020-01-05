@@ -32,7 +32,7 @@ type Position token.Position
 type BuiltinFunc func(pos Position, args... Value) (Value, error)
 
 var builtins = map[string]BuiltinFunc {
-        //`typeof`:       builtinTypeOf,
+        `typeof`:       builtinTypeOf,
 
         `position`:     builtinPosition,
 
@@ -265,7 +265,6 @@ ForArgs:
         return
 }
 
-/*
 func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
@@ -279,27 +278,28 @@ func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
                                 switch v := a.Elems[0].(type) {
                                 case *delegate: // FIXME: recursively undelegate types
                                         if d, _ := v.o.(*Def); d != nil {
-                                                s = d.Value.Type().String()
+                                                s = fmt.Sprintf("%T", d.value) //s = d.value.Type().String()
+                                                s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), "smart.")
                                         } else {
                                                 s = "unknown"
                                         }
                                 default:
-                                        s = v.Type().String()
+                                        s = fmt.Sprintf("%T", v) //s = v.Type().String()
                                 }
                         } else if n > 1 {
-                                s = ListType.name
+                                s = "List" //ListType.name
                         } else {
-                                s = NoneType.name
+                                s = "None" //NoneType.name
                         }
                 default:
                         // FIXME: this should be an exception (panic).
-                        s = a.Type().String()
+                        s = fmt.Sprintf("%T", a) //s = a.Type().String()
+                        s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), "smart.")
                 }
-                elems = append(elems, &String{s})
+                elems = append(elems, &String{trivial{pos},s})
         }
-        return MakeListOrScalar(elems), nil
+        return MakeListOrScalar(pos, elems), nil
 }
-*/
 
 func builtinPosition(pos Position, args... Value) (res Value, err error) {
         var vals []Value
@@ -325,7 +325,7 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
                 }
         }); err != nil { return }
         if len(vals) > 0 {
-                res = MakeListOrScalar(vals)
+                res = MakeListOrScalar(pos, vals)
         } else {
                 res = &String{trivial{pos},pos.String()}
         }
@@ -424,7 +424,9 @@ ForMatchValues:
                 if r, err = regexp.Compile(s); err != nil { return }
                 for _, valSrc := range srcList {
                         var src string
-                        if src, err = valSrc.Strval(); err != nil {
+                        if valSrc == nil {
+                                break ForMatchValues
+                        } else if src, err = valSrc.Strval(); err != nil {
                                 break ForMatchValues
                         } else if r.MatchString(src) {
                                 res = &boolean{trivial{pos},true}
@@ -442,7 +444,7 @@ func builtinBranchIf(pos Position, args... Value) (res Value, err error) {
                 if cond.True() { 
                         res = args[1]
                 } else if n > 1 {
-                        res = MakeListOrScalar(args[2:])
+                        res = MakeListOrScalar(pos, args[2:])
                 }
         }
         return
@@ -461,7 +463,7 @@ func builtinBranchIfEq(pos Position, args... Value) (res Value, err error) {
                 if s1 == s2 { 
                         res = args[2]
                 } else if n > 3 {
-                        res = MakeListOrScalar(args[3:])
+                        res = MakeListOrScalar(pos, args[3:])
                 }
         }
         return
@@ -480,7 +482,7 @@ func builtinBranchIfNE(pos Position, args... Value) (res Value, err error) {
                 if s1 != s2 { 
                         res = args[2]
                 } else if n > 3 {
-                        res = MakeListOrScalar(args[3:])
+                        res = MakeListOrScalar(pos, args[3:])
                 }
         }
         return
@@ -497,14 +499,14 @@ func builtinFor(pos Position, args... Value) (res Value, err error) {
                 for i := 1; i <= maxNumVarVal; i += 1 {
                         def := scope.Lookup(strconv.Itoa(i)).(*Def)
                         defs = append(defs, def)
-                        vals = append(vals, def.Value)
+                        vals = append(vals, def.value)
                         if i-1 < len(values) {
-                                def.Value = values[i-1]
+                                def.value = values[i-1]
                         }
                 }
                 defer func() {
                         for i, def := range defs {
-                                def.Value = vals[i]
+                                def.value = vals[i]
                         }
                 } ()
 
@@ -519,7 +521,7 @@ func builtinFor(pos Position, args... Value) (res Value, err error) {
                                 list = append(list, &List{elements{values}})
                         }
                 }
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -529,7 +531,7 @@ func builtinForEach(pos Position, args... Value) (res Value, err error) {
                 err = scanner.Errorf(token.Position(pos), "not enough arguments ($(foreach <list>,<template>))", n)
         } else {
                 def := context.globe.scope.Lookup("_").(*Def)
-                defer func(v Value) { def.Value = v } (def.Value)
+                defer func(v Value) { def.value = v } (def.value)
 
                 var values Value
                 if values, err = args[0].expand(expandAll); err != nil { return }
@@ -545,7 +547,7 @@ func builtinForEach(pos Position, args... Value) (res Value, err error) {
                                 continue // ignore
                         }
 
-                        def.Value = val // set "$_" value
+                        def.value = val // set "$_" value
 
                         var list []Value
                         for _, a := range args[1:] {
@@ -567,7 +569,7 @@ func builtinForEach(pos Position, args... Value) (res Value, err error) {
                                 resList = append(resList, &List{elements{list}})
                         }
                 }
-                res = MakeListOrScalar(resList)
+                res = MakeListOrScalar(pos, resList)
         }
         return
 }
@@ -590,7 +592,7 @@ func builtinEnv(pos Position, args... Value) (res Value, err error) {
                         return
                 }
         }
-        return MakeListOrScalar(vals), nil
+        return MakeListOrScalar(pos, vals), nil
 }
 
 func builtinValue(pos Position, args... Value) (res Value, err error) {
@@ -604,12 +606,12 @@ func builtinValue(pos Position, args... Value) (res Value, err error) {
                 var s string
                 if s, err = a.Strval(); err != nil { return }
                 if def := scope.FindDef(s); def != nil {
-                        vals = append(vals, def.Value)
+                        vals = append(vals, def.value)
                 } else {
                         vals = append(vals, &None{trivial{pos}})
                 }
         }
-        return MakeListOrScalar(vals), nil
+        return MakeListOrScalar(pos, vals), nil
 }
 
 func builtinShell(pos Position, args... Value) (res Value, err error) {
@@ -630,7 +632,7 @@ func builtinShell(pos Position, args... Value) (res Value, err error) {
                 bufout.Reset()
                 buferr.Reset()
         }
-        return MakeListOrScalar(vals), nil
+        return MakeListOrScalar(pos, vals), nil
 }
 
 func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
@@ -794,7 +796,7 @@ ForArgs:
 
                 list = append(list, a)
         }
-        res = MakeListOrScalar(list)
+        res = MakeListOrScalar(pos, list)
         return
 }
 
@@ -994,7 +996,7 @@ func builtinUsee(pos Position, args... Value) (result Value, err error) {
                 }
         }
         if err == nil {
-                result = MakeListOrScalar(list)
+                result = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1006,7 +1008,7 @@ func builtinPath(pos Position, args... Value) (result Value, err error) {
                 if s, err = a.Strval(); err != nil { return }
                 list = append(list, MakePathStr(pos,s))
         }
-        result = MakeListOrScalar(list)
+        result = MakeListOrScalar(pos, list)
         return
 }
 
@@ -1070,7 +1072,7 @@ func builtinFilterValues(pos Position, neg bool, args... Value) (res Value, err 
                 }
                 var elems []Value
                 if elems, err = filterValues(pats, neg, args[1:]...); err == nil {
-                        res = MakeListOrScalar(elems)
+                        res = MakeListOrScalar(pos, elems)
                 }
         }
         if res == nil && err == nil {
@@ -1129,7 +1131,7 @@ func builtinSubstring(pos Position, args... Value) (res Value, err error) {
                         list = append(list, &String{trivial{pos},s})
                 }
         }
-        res = MakeListOrScalar(list)
+        res = MakeListOrScalar(pos, list)
         return
 }
 
@@ -1147,7 +1149,7 @@ func builtinSubst(pos Position, args... Value) (res Value, err error) {
                         list = append(list, &String{trivial{pos},strings.Replace(s, s1, s2, -1)})
                 }
         }
-        res = MakeListOrScalar(list)
+        res = MakeListOrScalar(pos, list)
         return
 }
 
@@ -1263,7 +1265,7 @@ ForSources:
                 }
         }
 
-        res = MakeListOrScalar(list)
+        res = MakeListOrScalar(pos, list)
         return
 }
 
@@ -1290,7 +1292,7 @@ func builtinTitle(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1316,7 +1318,7 @@ func builtinTrim(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1342,7 +1344,7 @@ func builtinTrimLeft(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1368,7 +1370,7 @@ func builtinTrimRight(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1423,7 +1425,7 @@ func builtinTrimPrefix(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1449,7 +1451,7 @@ func builtinTrimSuffix(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1477,7 +1479,7 @@ func builtinTrimExt(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1511,7 +1513,7 @@ func builtinIndent(pos Position, args... Value) (res Value, err error) {
                 }
                 l = append(l, &String{trivial{a.Position()},strings.Join(lines, "\n")})
         }
-        res = MakeListOrScalar(l)
+        res = MakeListOrScalar(pos, l)
         return
 }
 
@@ -1639,7 +1641,7 @@ func builtinDecodeBase64(pos Position, args... Value) (res Value, err error) {
                                 return
                         }
                 }
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -1659,7 +1661,7 @@ func builtinBase(pos Position, args... Value) (res Value, err error) {
                 s = filepath.Base(s) // the last element of path
                 l = append(l, &String{trivial{a.Position()},s})
         }
-        res = MakeListOrScalar(l)
+        res = MakeListOrScalar(pos, l)
         return
 }
 
@@ -1678,7 +1680,7 @@ func dirx(pos Position, n int, args... Value) (res Value, err error) {
                 }
                 l = append(l, MakePathStr(pos,s))
         }
-        res = MakeListOrScalar(l)
+        res = MakeListOrScalar(pos, l)
         return
 }
 
@@ -1701,7 +1703,7 @@ func undirx(pos Position, n int, args... Value) (res Value, err error) {
                 }
                 l = append(l, MakePathStr(pos,filepath.Join(v...)))
         }
-        res = MakeListOrScalar(l)
+        res = MakeListOrScalar(pos, l)
         return
 }
 
@@ -1717,7 +1719,7 @@ func builtinDir(pos Position, args... Value) (res Value, err error) {
                 s = filepath.Dir(s)
                 l = append(l, MakePathStr(pos,s))
         }
-        res = MakeListOrScalar(l)
+        res = MakeListOrScalar(pos, l)
         return
 }
 
@@ -1876,7 +1878,7 @@ func builtinDirChop(pos Position, args... Value) (res Value, err error) {
                 }
                 l = append(l, &String{trivial{a.Position()},filepath.Join(v...)})
         }
-        res = MakeListOrScalar(l)
+        res = MakeListOrScalar(pos, l)
         return
 }
 
@@ -1897,7 +1899,7 @@ func builtinRelativeDir(pos Position, args... Value) (res Value, err error) {
                         return
                 }
         }
-        res = MakeListOrScalar(l)
+        res = MakeListOrScalar(pos, l)
         return
 }
 
@@ -2148,6 +2150,15 @@ func builtinTruncate(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinLink(pos Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                // TODO: ...
+        }, func(ru rune, v Value) {
+                /*switch ru {
+                // TODO: ...
+                }*/
+        }); err != nil { return }
         for i, nargs := 0, len(args); i < nargs; i += 1 {
                 var (
                         a = args[i]
@@ -2191,21 +2202,20 @@ func builtinLink(pos Position, args... Value) (res Value, err error) {
 }
 
 /* Example:
-foo:[(compare -v)]: foobar
+foo: foobar
 	symlink -pluv $< $@
 */
 func builtinSymlink(pos Position, args... Value) (res Value, err error) {
-        var opts = []string{
+        var optForce, optUpdate, optVerbose, optRel, optPath bool
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
                 "f,force",
                 "u,update",
                 "v,verbose",
                 "l,rel", // relative
                 "p,path",
-        }
-        var optForce, optUpdate, optVerbose, optRel, optPath bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, opts, func(ru rune, v Value) {
+        }, func(ru rune, v Value) {
                 switch ru {
                 case 'l': optRel = trueVal(v, true)
                 case 'p': optPath = trueVal(v, false)
@@ -2292,17 +2302,14 @@ ForArgs:
 }
 
 func builtinFileExists(pos Position, args... Value) (res Value, err error) {
-        var va []Value
         var optKind rune
-        var opts = []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
                 "d,dir", // check for directory
                 "f,file", // check for regular file
                 "s,symbol", // check for symbolic link
-        }
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        }
-        if va, err = parseFlags(args, opts, func(ru rune, v Value) {
+        }, func(ru rune, v Value) {
                 switch ru {
                 case 'f', 'd', 's':
                         if v.True() { optKind = ru }
@@ -2353,7 +2360,7 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
                 if file != nil { check(file) }
         }
 
-        for _, a := range va {
+        for _, a := range args {
                 switch t := a.(type) {
                 case *File: check(t)
                 case *Path:
@@ -2368,8 +2375,9 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
                 }
                 //fmt.Printf("file-exists: %T %v %v\n", a, a, reses)
         }
+
         if err == nil {
-                res = MakeListOrScalar(reses)
+                res = MakeListOrScalar(pos, reses)
         }
         return
 }
@@ -2392,7 +2400,7 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(l)
+                res = MakeListOrScalar(pos, l)
         }
         return
 }
@@ -2431,7 +2439,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                 var str string
                 if file, ok := a.(*File); ok {
                         list = append(list, file)
-                        if file.exists() { continue }
+                        if exists(file) { continue }
                         if optReportMissing {
                                 fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
                         }
@@ -2449,7 +2457,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                         err = scanner.Errorf(token.Position(pos), "`%v` is not a file", a)
                 }
         }
-        res = MakeListOrScalar(list)
+        res = MakeListOrScalar(pos, list)
         return
 }
 
@@ -2483,7 +2491,7 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
                 for _, f := range files {
                         list = append(list, f)
                 }
-                res = MakeListOrScalar(list)
+                res = MakeListOrScalar(pos, list)
         }
         return
 }
@@ -2507,7 +2515,7 @@ func builtinReadDir(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(l)
+                res = MakeListOrScalar(pos, l)
         }
         return
 }
@@ -2531,7 +2539,7 @@ func builtinReadFile(pos Position, args... Value) (res Value, err error) {
                 }
         }
         if err == nil {
-                res = MakeListOrScalar(l)
+                res = MakeListOrScalar(pos, l)
         }
         return
 }
@@ -2706,14 +2714,14 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                 var hasv = m[6] > m[0] && m[7] > m[6]
                 switch def := scope.FindDef(name); verb {
                 case "define":
-                        if hasv && !(def == nil || def.Value == nil) {
+                        if hasv && !(def == nil || def.value == nil) {
                                 v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
                                 s = fmt.Sprintf("#define %s %s", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine", "cmakedefine":
-                        if def == nil || def.Value == nil || !def.Value.True() {
+                        if def == nil || def.value == nil || !def.value.True() {
                                 s = fmt.Sprintf("/* #undef %s */", name)
                         } else if hasv {
                                 v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
@@ -2722,7 +2730,7 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine01", "cmakedefine01":
-                        if def == nil || def.Value == nil || !def.Value.True() {
+                        if def == nil || def.value == nil || !def.value.True() {
                                 s = fmt.Sprintf("#define %s 0", name)
                         } else if hasv {
                                 v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])

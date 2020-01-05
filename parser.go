@@ -506,8 +506,14 @@ func (p *parser) isEndOfDotConcat(lhs bool) bool {
 func (p *parser) parseDependList() (list []ast.Expr) {
 	if p.tracing.enabled { defer un(trace(p, "Depends")) }
         for p.tok != token.SEMICOLON && p.tok != token.BAR && !p.isEndOfLine() {
-                x := p.checkExpr(p.parseExpr(false))
-                list = append(list, x)
+                if p.tok == token.COLON { // FIXME: this check is not working!
+                        // FIXME: detects unexpected colon ':'
+                        p.error(p.pos, "unexpected colon")
+                        p.next() // just ignore this colon
+                } else {
+                        x := p.checkExpr(p.parseExpr(false))
+                        list = append(list, x)
+                }
         }
 	return
 }
@@ -2029,14 +2035,12 @@ var automatics = []string{
 }
 
 func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, targets []ast.Expr) *ast.RuleClause {
-        if p.ruleParseFunc == nil || p.project.keyword == token.PACKAGE {
+        if p.project.keyword == token.PACKAGE {
                 p.error(p.pos, "rules forbidden: %v", targets)
                 return nil
+        } else if p.tracing.enabled {
+                defer un(trace(p, "Rule"))
         }
-        return p.ruleParseFunc(p, tok, special, options, targets)
-}
-func parseRuleClause(p *parser, tok token.Token, special specialRule, options, targets []ast.Expr) *ast.RuleClause {
-	if p.tracing.enabled { defer un(trace(p, "Rule")) }
 
         var (
                 doc = p.leadComment
@@ -2113,9 +2117,9 @@ func parseRuleClause(p *parser, tok token.Token, special specialRule, options, t
                 Doc: doc,
                 TokPos: pos,
                 Tok: tok,
-                Targets: targets,
-                Depends: depends,
-                Ordered: ordered,
+                Targets: p.convertBarefiles(targets),
+                Depends: p.convertBarefiles(depends),
+                Ordered: p.convertBarefiles(ordered),
                 Program: &ast.ProgramExpr{
                         Lang: 0, // FIXME: language definition
                         Params: p.params,

@@ -322,15 +322,12 @@ func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, dock *Project, sh *
 }
 
 type ExecResult struct {
-        position Position
+        trivial
         Stdout ExecBuffer
         Stderr ExecBuffer
         Status int
 }
-func (p *ExecResult) refs(_ Value) bool { return false }
-func (p *ExecResult) closured() bool { return false }
 func (p *ExecResult) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *ExecResult) after(v Value) (after bool, err error) { return }
 func (p *ExecResult) cmp(v Value) (res cmpres) {
         if a, ok := v.(*ExecResult); ok {
                 assert(ok, "value is not ExecResult")
@@ -338,7 +335,6 @@ func (p *ExecResult) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *ExecResult) Position() Position { return p.position }
 func (p *ExecResult) True() bool { return p.Status == 0 && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */ }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
@@ -607,7 +603,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         }
 
         var targetName string
-        var target = prog.pc.targetDef.Value
+        var target = prog.pc.targetDef.value
         if targetName, err = target.Strval(); err != nil {
                 return
         }
@@ -616,7 +612,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         var sources []string
         var envars []*Pair // disclosed values
         if def, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
-                if l, _ := def.Value.(*List); l != nil {
+                if l, _ := def.value.(*List); l != nil {
                         for _, v := range l.Elems {
                                 if v, err = v.expand(expandClosure); err != nil {
                                         return

@@ -127,7 +127,7 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
 }
 
 type modifier struct {
-        position Position
+        trivial
         name Value
         args []Value
 }
@@ -138,17 +138,19 @@ func (m *modifier) refs(v Value) bool {
         }
         return false
 }
-func (_ *modifier) closured() bool { return false }
+func (m *modifier) closured() (res bool) {
+        if res = m.name.closured(); !res {
+                for _, a := range m.args {
+                        if res = a.closured(); res { break }
+                }
+        }
+        return
+}
 func (m *modifier) expand(_ expandwhat) (Value, error) { return m, nil }
-func (_ *modifier) after(v Value) (after bool, err error) { return }
 func (_ *modifier) cmp(v Value) (res cmpres) { 
         if _, ok := v.(*modifier); ok { res = cmpEqual }
         return
 }
-func (m *modifier) Position() Position { return m.position }
-func (m *modifier) True() bool { return false }
-func (m *modifier) Integer() (int64, error) { return 0, nil }
-func (m *modifier) Float() (float64, error) { return 0, nil }
 func (m *modifier) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, m)) }
         err = pc.program.modify(pc, m)
@@ -168,7 +170,7 @@ func (m *modifier) String() (s string) {
 }
 
 type modifiergroup struct {
-        position Position
+        trivial
         modifiers []*modifier
 }
 func (g *modifiergroup) refs(v Value) bool {
@@ -177,7 +179,27 @@ func (g *modifiergroup) refs(v Value) bool {
         }
         return false
 }
-func (_ *modifiergroup) closured() bool { return false }
+func (g *modifiergroup) closured() bool {
+        for _, m := range g.modifiers {
+                if m.closured() { return true }
+        }
+        return false
+}
+func (g *modifiergroup) exists() (res existence) {
+        res = existenceMatterless
+ForElems:
+        for _, elem := range g.modifiers {
+                switch elem.exists() {
+                case existenceMatterless:
+                case existenceConfirmed:
+                        res = existenceConfirmed
+                case existenceNegated:
+                        res = existenceNegated
+                        break ForElems
+                }
+        }
+        return
+}
 func (g *modifiergroup) expand(_ expandwhat) (Value, error) { return g, nil }
 func (_ *modifiergroup) after(v Value) (after bool, err error) { return }
 func (_ *modifiergroup) cmp(v Value) (res cmpres) { 
@@ -190,8 +212,17 @@ func (g *modifiergroup) Integer() (int64, error) { return 0, nil }
 func (g *modifiergroup) Float() (float64, error) { return 0, nil }
 func (g *modifiergroup) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, g)) }
+ForModifiers:
         for _, m := range g.modifiers {
                 if err = m.traverse(pc); err != nil {
+                        switch t := err.(type) {
+                        case *breaker:
+                                if t.what == breakDone {
+                                        // Stop traversing this group and
+                                        // return the breaker to the caller.
+                                        break ForModifiers
+                                }
+                        }
                         break
                 }
         }
@@ -233,15 +264,17 @@ var (
                 //`grep-compare`:      modifierGrepCompare,
                 //`grep-dependencies`: modifierGrepDependencies,
 
+                `path`:         modifierPath,
+
                 `copy-file`:      modifierCopyFile,
                 `write-file`:     modifierWriteFile,
                 `update-file`:    modifierUpdateFile,
                 `configure-file`: modifierConfigureFile,
 
                 `configure`:             modifierConfigure,
-                `extract-configuration`: modifierExtractConfiguration,
+                //`extract-configuration`: modifierExtractConfiguration,
 
-                `parallel`:     modifierParallel,
+                //`parallel`:     modifierParallel,
 
                 `check`:        modifierCheck,
                 `assert`:       modifierAssert,
@@ -706,7 +739,7 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                                                 }
                                                 //unique[file.filebase] += 1
                                         }
-                                } else if t.exists() {
+                                } else if exists(t) {
                                         var list []Value
                                         list, err = prog.pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
                                         if err != nil { return }
@@ -992,7 +1025,7 @@ var uniqueCompareGood = make(map[string]*breaker)
                 }
         }
         return
-}*/
+}
 
 // grep-dependencies - grep dependencies from target, example usage:
 //
@@ -1010,6 +1043,7 @@ func modifierGrepDependencies(pos Position, prog *Program, args... Value) (resul
         }
         return
 }
+*/
 
 type greprex struct{ string ; bool ; *regexp.Regexp }
 var grepcache = make(map[string][]Value)
@@ -1101,7 +1135,7 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
                         file = stat(name, "", "", nil)
                 } else if isRel = isRelPath(name); isRel { // relative to target dir
                         file = stat(name, "", targetDir, nil)
-                        if !file.exists() {
+                        if !exists(file) {
                                 var f = p.matchFile(name)
                                 if f != nil {
                                         file = f
@@ -1124,7 +1158,7 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
                 // for further updating, just discard them immediately.
                 if sys { return }
 
-                if !isAbs && !isRel && (file == nil || !file.exists()) {
+                if !isAbs && !isRel && (file == nil || !exists(file)) {
                         // relative to target directory
                         var alt = stat(name, "", targetDir)
                         if alt != nil { file = alt }
@@ -1167,7 +1201,7 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
                         // FIXME: missing-file error
                 } else if isSameAsTarget(file) {
                         return
-                } else if !file.exists() && discard {
+                } else if !exists(file) && discard {
                         return
                 } else {
                         result = append(result, file)
@@ -1178,7 +1212,7 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
                 if report {
                         if file == nil {
                                 fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", targetFileName, linum, colnum, p.name, name)
-                        } else if !file.exists() {
+                        } else if !exists(file) {
                                 fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", targetFileName, linum, colnum, p.name, name)
                         }
                 }
@@ -1358,15 +1392,14 @@ func modifierGrepFiles(pos Position, prog *Program, args... Value) (result Value
         var list []Value
         var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
         list, err = prog.pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
-        result = MakeListOrScalar(list)
+        result = MakeListOrScalar(pos, list)
         return
 }
 
-// grep - grep  from target file, flags:
+// grep - grep from target file, flags:
 //
 //    -files            grep files with stats, set $-
 //    -dependencies     grep dependencies values (or files), set $^, $<, etc.
-//    -compare          grep values and compare target with them
 //
 // Example usage:
 //
@@ -1374,7 +1407,7 @@ func modifierGrepFiles(pos Position, prog *Program, args... Value) (result Value
 //      
 // https://github.com/google/re2/wiki/Syntax
 func modifierGrep(pos Position, prog *Program, args... Value) (result Value, err error) {
-        panic("TODO: grep values from target file")
+        err = scanner.Errorf(token.Position(pos), "unimplemented grep %v", args)
         return
 }
 
@@ -1470,7 +1503,7 @@ ForPairs:
                         var file *File
                         var project = prog.pc.derived //mostDerived() // prog.project
                         if str, err = t.Value.Strval(); err != nil { return }
-                        if file := project.searchFile(str); file == nil || !file.exists() {
+                        if file := project.searchFile(str); !exists(file) {
                                 err = break_with(pos, optBreak, "`%v` no such file or directory", t.Value)
                                 break ForPairs
                         }
@@ -1505,7 +1538,7 @@ ForPairs:
                                         var def = prog.project.scope.FindDef(k)
                                         if def != nil {
                                                 if a, err = p.Value.Strval(); err != nil { break ForPairs }
-                                                if b, err = def.Value.Strval(); err != nil { break ForPairs }
+                                                if b, err = def.value.Strval(); err != nil { break ForPairs }
                                                 if res := a != b; makeResult != nil {
                                                         values = append(values, makeResult(pos, res))
                                                 } else if !res {
@@ -1529,7 +1562,7 @@ ForPairs:
                 }
         }
         if err == nil && values != nil {
-                result = MakeListOrScalar(values)
+                result = MakeListOrScalar(pos, values)
         }
         return
 }
@@ -1622,6 +1655,39 @@ func copyFile(srcFi os.FileInfo, src, dst string, opts *copyopts) (err error) {
                 err = copyRegular(src, dst, opts)
         } else {
                 err = fmt.Errorf("copying non-regular files/dirs (%s)", src)
+        }
+        return
+}
+
+// (path $(dir $@))
+// (path /example/path)
+func modifierPath(pos Position, prog *Program, args... Value) (result Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                // ...
+        }, func(ru rune, v Value) {
+                // ...
+        }); err != nil { return }
+        if len(args) == 0 {
+                var target Value
+                if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+                        return
+                }
+                var s string
+                if s, err = target.Strval(); err != nil { return }
+                if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
+                        err = os.MkdirAll(s, os.FileMode(0755))
+                }
+                return
+        }
+        for _, arg := range args {
+                var s string
+                if s, err = arg.Strval(); err != nil { return }
+                fmt.Printf("path: %v\n", s)
+                if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+                        return
+                }
         }
         return
 }
@@ -1945,12 +2011,12 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         return
 }
 
-func modifierParallel(pos Position, prog *Program, args... Value) (result Value, err error) {
+/*func modifierParallel(pos Position, prog *Program, args... Value) (result Value, err error) {
         // TODO: specify parallel options, e.g.:
         //   (parallel -n=0) # turn off
         //   (parallel -n=5) # five workers
         return
-}
+}*/
 
 // (assert condition,'error message...')
 func modifierAssert(pos Position, prog *Program, args... Value) (result Value, err error) {

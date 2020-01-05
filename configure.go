@@ -73,7 +73,6 @@ func init_configuration(paths searchlist) (err error) {
                 fset:     configuration.fset,
                 paths:    configuration.paths,
                 loaded:   make(map[string]*Project),
-                ruleParseFunc: parseRuleClause,
         }
         var filename = filepath.Join(context.workdir, "~.smart")
         if err = l.loadFile(filename, configurationInitFile); err != nil {
@@ -158,15 +157,15 @@ func do_configuration() (err error) {
                                 // already defined
                                 continue
                         }
-                        if def.Value == nil {
+                        if def.value == nil {
                                 // Set <nil> value with exec-assigning ('!=')
                                 // to a None value.
                                 fmt.Fprintf(writer, "%v !=\n", def.name)
                         } else {
-                                vs := elementString(def, def.Value, elemNoBrace)
+                                vs := elementString(def, def.value, elemNoBrace)
                                 fmt.Fprintf(writer, "%v = %v\n", def.name, vs)
                         }
-                        defs[s] = def.Value
+                        defs[s] = def.value
                         num += 1
                 } else {
                         e := fmt.Errorf("`%s` unconfigured", s)
@@ -476,7 +475,7 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
 }
 
 func configureDump(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
-        result = def.Value
+        result = def.value
         return
 }
 
@@ -655,7 +654,7 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
                         err = scanner.WrapErrors(token.Position(pos), err)
                 }
         } else {
-                if res != nil { result = MakeListOrScalar(res) }
+                if res != nil { result = MakeListOrScalar(pos, res) }
                 configured = true
         }
         return
@@ -703,7 +702,7 @@ ForArgs:
 
         defer func() {
                 if configured && err == nil && result != nil && result.True() && strName != "compiles" {
-                        if v := pipe.Value; v != nil {
+                        if v := pipe.value; v != nil {
                                 if _, ok := v.(*None); !ok {
                                         result = v
                                 }
@@ -760,9 +759,9 @@ ForArgs:
 
         var value = configuration.project.scope.Lookup("_VALUE_").(*Def)
         if err = value.set(DefSimple, &None{trivial{pos}}); err != nil { return }
-        if pipe.Value != nil {
-                if _, ok := pipe.Value.(*None); !ok {
-                        value.Value = pipe.Value
+        if pipe.value != nil {
+                if _, ok := pipe.value.(*None); !ok {
+                        value.value = pipe.value
                 }
         }
 
@@ -1184,7 +1183,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
 
         result = def // Set result above all.
 
-        if def.Value != nil { // if it's already configured
+        if def.value != nil { // if it's already configured
                 // reconfigure the def or return it
                 if !optionReconfig { return }
                 if done, found := configuration.done[def]; done && found {
@@ -1235,7 +1234,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
 ForConfig:
         for i, a := range args {
                 var ( name Value ; para []Value )
-                if def.Value == nil && i > 0 { break ForConfig }
+                if def.value == nil && i > 0 { break ForConfig }
                 switch arg := a.(type) {
                 case *Pair: // Set def
                         /*switch k := arg.Key.(type) {

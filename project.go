@@ -427,13 +427,13 @@ func (p *Project) searchFile(name string) (file *File) {
                         if file.match == nil { file.match = filemap }
                         if pre != "" { /* FIXME: file.change(...pre) */ }
                         if enable_assertions {
-                                assert(file.exists(), "`%s` file not existed", file)
+                                assert(exists(file), "`%s` file not existed", file)
                         }
                         break
                 }
         }
         if file != nil && enable_assertions {
-                assert(file.exists(), "`%s` file not existed", file)
+                assert(exists(file), "`%s` file not existed", file)
                 assert(file.match != nil, "`%s` not matched file", name)
                 assert(file.info != nil, "`%v` found nil file info", name)
                 if filepath.IsAbs(name) {
@@ -476,7 +476,7 @@ ForFilemaps:
                 if file != nil {
                         if file.match == nil { file.match = filemap }
                         if pre != "" { /* FIXME: file.change(...pre) */ }
-                        if file.exists() { break ForFilemaps }
+                        if exists(file) { break ForFilemaps }
                         if first == nil { first = file }
                 }
                 // If the filemap entry is defined by the project itself,
@@ -491,7 +491,7 @@ ForFilemaps:
                         }
                 }
         }
-        if first != file && (file == nil || !file.exists()) {
+        if first != file && !exists(file) {
                 file = first
         }
         if isNameMatched && enable_assertions {
@@ -585,7 +585,7 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
         return
 }
 
-func (p *Project) tarverseTarget(pc *traversal, target string) (err error) {
+func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (err error) {
         if obj := p.scope.Lookup(target); obj != nil {
                 if pn, ok := obj.(*ProjectName); ok {
                         var entry = pn.project.DefaultEntry()
@@ -606,21 +606,21 @@ func (p *Project) tarverseTarget(pc *traversal, target string) (err error) {
                 if okay, err = p.updateFile(pc, file); err != nil || okay {
                         if optionTraceTraversal {
                                 if okay {
-                                        pc.tracef("%s: tarverseTarget(file{%s}) (okay)", p.name, file)
+                                        pc.tracef("%s: traverseTarget(file{%s}) (okay)", p.name, file)
                                 } else {
-                                        pc.tracef("%s: tarverseTarget(file{%s}): %v", p.name, file, err)
+                                        pc.tracef("%s: traverseTarget(file{%s}): %v", p.name, file, err)
                                 }
                         }
                         return
                 } else if enable_assertions {
                         assert(err == nil, "got error: %v", err)
-                        assert(!file.exists(), "`%s` file exists", file)
+                        assert(!exists(file), "`%s` file exists", file)
                 }
 
                 err = fileNotFoundError{p, file}
                 if false { debug.PrintStack() }
                 if optionTraceTraversal {
-                        pc.tracef("%s: `tarverseTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
+                        pc.tracef("%s: `traverseTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
                 }
                 return
         }
@@ -641,25 +641,23 @@ func (p *Project) tarverseTarget(pc *traversal, target string) (err error) {
                         for _, prog := range se.programs {
                                 var ok bool
                                 ok, err = checkPatternDepends(pc, p, se, prog)
+                                if err != nil { break ForPatterns }
                                 if !ok { continue ForPatterns }
                         }
                         se.target = target // Bounds StemmedEntry with the source.
                         if err = se.traverse(pc); err == nil {
                                 return // Updated successfully!
-                        } else if _, ok := err.(patternPrepareError); ok {
-                                // Discard pattern unfit errors and caller stack.
-                                err = nil
                         } else if e, ok := err.(*breaker); ok {
                                 switch e.what {
                                 case breakGood, breakModified, breakUpdates:
-                                        //err = nil
+                                        // just relax
                                 default:
-                                        fmt.Fprintf(stderr, "smart: error: %v\n", err)
+                                        fmt.Fprintf(stderr, "%v\n", err)
                                         return
                                 }
                         } else {
-                                fmt.Fprintf(stderr, "smart: update pattern %v failed\n", se)
-                                fmt.Fprintf(stderr, "smart: error: %v\n", err)
+                                fmt.Fprintf(stderr, "%v\n", err)
+                                fmt.Fprintf(stderr, "%v: traverse pattern %v failed\n", pos, se)
                                 return // Update failed!
                         }
                 }
@@ -669,7 +667,7 @@ func (p *Project) tarverseTarget(pc *traversal, target string) (err error) {
 
         var current = execstack[0].project
         if current != p /*&& current.name == "~"*/ {
-                err = current.tarverseTarget(pc, target)
+                err = current.traverseTarget(pos, pc, target)
                 if err != nil {
                         if e, ok := err.(*breaker); ok && current.name == "~" {
                                 switch e.what {
@@ -682,7 +680,7 @@ func (p *Project) tarverseTarget(pc *traversal, target string) (err error) {
                 err = targetNotFoundError{ p, target }
                 if false { debug.PrintStack() }
                 if optionTraceTraversal {
-                        pc.tracef("%s: `tarverseTarget(%s)` not found", p.name, target)
+                        pc.tracef("%s: `traverseTarget(%s)` not found", p.name, target)
                 }
         }
         return
@@ -726,11 +724,11 @@ func (p *Project) updateFile(pc *traversal, file *File) (okay bool, err error) {
         }
         names = nil // clean names cache
 
-        if file.exists() {
+        if exists(file) {
                 pc.addNotExistedTarget1(file)
                 okay = true
                 return
-        } else if file.match != nil {
+        } else if file != nil && file.match != nil {
                 if file.searchInMatchedPaths(p) {
                         pc.addNotExistedTarget1(file)
                         okay = true
@@ -796,20 +794,13 @@ ForPatterns:
                 for _, prog := range se.programs {
                         var ok bool
                         ok, err = checkPatternDepends(pc, p, se, prog)
+                        if err != nil { break ForPatterns }
                         if !ok { continue ForPatterns }
                 }
                 se.stub = stub // Bounds StemmedEntry with the File.
                 if err = se.traverse(pc); err == nil {
                         okay = true
                         return // Updated successfully!
-                } else if e, ok := err.(patternPrepareError); ok {
-                        if _, ok = e.error.(*breaker); ok {
-                                okay = true
-                                return // Breaked!
-                        }
-                } else {
-                        okay = true
-                        return // Update failed!
                 }
         }
         return

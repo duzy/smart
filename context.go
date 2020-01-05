@@ -113,7 +113,7 @@ func (ctx *Context) run() (result []Value, err error) {
         }
 
         var goals []Value
-        for _, goal := range merge(ctx.goals.Value) {
+        for _, goal := range merge(ctx.goals.value) {
                 switch t := goal.(type) {
                 case *None: // just ignore
                 case *Bareword:
@@ -301,13 +301,11 @@ func (ctx *Context) loadwork() (err error) {
                 fset:     token.NewFileSet(), 
                 paths:    []string(globalPaths),
                 loaded:   make(map[string]*Project),
-                ruleParseFunc: parseRuleClause,
-                includeFunc: includespec,
                 scope:    ctx.globe.scope,
         }
         ctx.goals = &Def{
                 knownobject{
-                        unknownobject{
+                        trivialobject{
                                 scope: ctx.globe.scope,
                                 owner: nil,
                         }, ":goals:",

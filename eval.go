@@ -86,6 +86,6 @@ ForRecipes:
                         unreachable()
                 }
         }
-        result = MakeListOrScalar(list)
+        result = MakeListOrScalar(prog.position, list)
         return
 }
