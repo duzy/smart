@@ -320,7 +320,7 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
                 case 'c': vals = append(vals, &Int{integer{trivial{pos},int64(pos.Column)}})
                 case 'a':
                         if len(vals) == 0 { break }
-                        var last, okay = vals[len(vals)-1].(*Int)
+                        var last, okay = Scalar(vals[len(vals)-1]).(*Int)
                         if okay { last.int64 += int64(intVal(val, 0)) }
                 }
         }); err != nil { return }
@@ -1087,16 +1087,13 @@ func builtinSubstring(pos Position, args... Value) (res Value, err error) {
                 var ( v Value ; i1, i2 int64 )
 
                 if v, err = args[0].expand(expandAll); err != nil { return }
-                if t := Scalar(v/*, IntType*/); t != nil {
-                        args = args[1:] // remove the first element
-                        if i1, err = t.Integer(); err != nil { return }
-                        if l, ok := t.(*List); ok && len(l.Elems) > 1 {
-                                if _, ok := l.Elems[1].(*Int); ok {
-                                        if i2, err = l.Elems[1].Integer(); err != nil {
-                                                return
-                                        } else {
-                                                goto CheckRange
-                                        }
+                if t, ok := Scalar(v).(*Int); ok {
+                        // remove the first element
+                        args, i1 = args[1:], t.int64
+                        if l, ok := v.(*List); ok && len(l.Elems) > 1 {
+                                if t, ok := Scalar(l.Elems[1]).(*Int); ok {
+                                        i2 = t.int64
+                                        goto CheckRange
                                 }
                         }
                 } else {
@@ -1105,9 +1102,9 @@ func builtinSubstring(pos Position, args... Value) (res Value, err error) {
                 }
 
                 if v, err = args[0].expand(expandAll); err != nil { return }
-                if v = Scalar(v/*, IntType*/); v != nil {
-                        args = args[1:] // remove the first element again
-                        if i2, err = v.Integer(); err != nil { return }
+                if t, ok := Scalar(v).(*Int); ok {
+                        // remove the first element again
+                        args, i2 = args[1:], t.int64
                 } else {
                         i2 = i1; i1 = 0 // [:i2]
                 }
@@ -1490,12 +1487,8 @@ func builtinIndent(pos Position, args... Value) (res Value, err error) {
                 s string // indent
         )
         if x := len(args); x > 0 {
-                if v := Scalar(args[0]/*, IntType*/); v != nil {
-                        var i int64
-                        if i, err = v.Integer(); err != nil {
-                                return
-                        }
-                        args, s = args[1:], strings.Repeat(" ", int(i))
+                if v, ok := Scalar(args[0]).(*Int); ok {
+                        args, s = args[1:], strings.Repeat(" ", int(v.int64))
                 } else {
                         return nil, errors.New("requires integer argument (first|last)")
                 }
@@ -1756,21 +1749,12 @@ func builtinDir9(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinDirs(pos Position, args... Value) (res Value, err error) {
-        var (
-                i int64
-                n = 0
-        )
+        var n int
         if x := len(args); x > 0 {
-                if v := Scalar(args[0]/*, IntType*/); v != nil {
-                        if i, err = v.Integer(); err != nil {
-                                return
-                        }
-                        args, n = args[1:], int(i)
-                } else if v := Scalar(args[x-1]/*, IntType*/); v != nil {
-                        if i, err = v.Integer(); err != nil {
-                                return
-                        }
-                        args, n = args[:x-1], int(i)
+                if v, ok := Scalar(args[0]).(*Int); ok {
+                        args, n = args[1:], int(v.int64)
+                } else if v, ok := Scalar(args[x-1]).(*Int); ok {
+                        args, n = args[:x-1], int(v.int64)
                 } else {
                         return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
                 }
@@ -1816,21 +1800,12 @@ func builtinUndir9(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinUndirs(pos Position, args... Value) (res Value, err error) {
-        var (
-                i int64
-                n = 0
-        )
+        var n = 0
         if x := len(args); x > 0 {
-                if v := Scalar(args[0]/*, IntType*/); v != nil {
-                        if i, err = v.Integer(); err != nil {
-                                return
-                        }
-                        args, n = args[1:], int(i)
-                } else if v := Scalar(args[x-1]/*, IntType*/); v != nil {
-                        if i, err = v.Integer(); err != nil {
-                                return
-                        }
-                        args, n = args[:x-1], int(i)
+                if v, ok := Scalar(args[0]).(*Int); ok {
+                        args, n = args[1:], int(v.int64)
+                } else if v, ok := Scalar(args[x-1]).(*Int); ok {
+                        args, n = args[:x-1], int(v.int64)
                 } else {
                         return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
                 }
@@ -1844,17 +1819,10 @@ func builtinDirChop(pos Position, args... Value) (res Value, err error) {
                 n = 0
         )
         if x := len(args); x > 0 {
-                var i int64
-                if v := Scalar(args[0]/*, IntType*/); v != nil {
-                        if i, err = v.Integer(); err != nil {
-                                return
-                        }
-                        args, n = args[1:], int(i)
-                } else if v := Scalar(args[x-1]/*, IntType*/); v != nil {
-                        if i, err = v.Integer(); err != nil {
-                                return
-                        }
-                        args, n = args[:x-1], int(i)
+                if v, ok := Scalar(args[0]).(*Int); ok {
+                        args, n = args[1:], int(v.int64)
+                } else if v, ok := Scalar(args[x-1]).(*Int); ok {
+                        args, n = args[:x-1], int(v.int64)
                 } else {
                         return nil, fmt.Errorf("require (first/last) integer argument (first=%T, last=%T)", args[0], args[x-1])
                 }

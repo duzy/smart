@@ -27,5 +27,5 @@ objects := main.o other.o \
   src/baz3.o \
   src/baz4.o \
 
-hello:[(shell -oe)]: _program($(objects))
+hello:[(shell -oe)]: program($(objects))
 	./hello

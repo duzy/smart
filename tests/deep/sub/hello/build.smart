@@ -11,7 +11,7 @@ GREETING := 'Hello World!'
 run:[(shell -oe)]: hello
 	./hello
 
-hello: c++->_program($@.o)
+hello: c++->program($@.o)
 
 hello.cpp:[(plain c++) (update-file)]
 	#include <iostream>
