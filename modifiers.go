@@ -252,7 +252,8 @@ var (
                 `env`:          modifierSetEnv,  // interpreter environments
                 `set`:          modifierSetVar,
 
-                `unclose`:      modifierUnclose,
+                `closure`:      modifierClosure,
+                `unclose`:      modifierUnclose, // deprecated by (closure)
                 `un`:           modifierUnclose, // shortcut
 
                 `cd`:           modifierCD,
@@ -403,7 +404,48 @@ ForArgs:
         return
 }
 
+// create closure context of caller
+func modifierClosure(pos Position, prog *Program, args... Value) (result Value, err error) {
+        // Set caller context before parsing arguments (pop the top one).
+        // The context will be restored when execution is finished.
+        if len(cloctx) > 0 { cloctx = cloctx[1:] }
+
+        var dir string // closure work directory
+        var optPrintEnter bool
+        var optPrintLeave bool
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                "i,print-enter",
+                "o,print-leave",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'i': optPrintEnter = trueVal(v, false)
+                case 'o': optPrintLeave = trueVal(v, false)
+                }
+        }); err != nil { return }
+
+        if optPrintEnter { printEnteringDirectory() }
+        if optPrintLeave { printLeavingDirectory() }
+        if len(cloctx) == 0 {
+                err = scanner.Errorf(token.Position(pos), "empty closure context")
+        } else if def := cloctx[0].FindDef("/"); def == nil {
+                err = scanner.Errorf(token.Position(pos), "&/ is undefined (%s)", cloctx[0].comment)
+        } else if dir, err = def.value.Strval(); err != nil {
+                // oops
+        } else if dir == "" {
+                err = scanner.Errorf(token.Position(pos), "&/ is empty (%s)", cloctx[0].comment)
+        } else if !filepath.IsAbs(dir) {
+                err = scanner.Errorf(token.Position(pos), "&/ is relative (%s)", cloctx[0].comment)
+        } else if err = enter(prog, dir); err == nil {
+                prog.project.changedWD = dir
+                prog.changedWD = dir
+        }
+        return
+}
+
 func modifierUnclose(pos Position, prog *Program, args... Value) (result Value, err error) {
+        fmt.Fprintf(stderr, "%v: (unclose) is deprecated by (closure)\n", pos)
         if len(cloctx) > 0 {
                 cloctx = cloctx[1:]
         }
