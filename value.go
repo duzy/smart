@@ -416,7 +416,7 @@ func (pc *traversal) checkBreakers(pos Position, err error) (scanner.Errors, err
                 }*/
                 return nil, err, done
         } else {
-                switch e := scanner.WrapErrors(token.Position(pos), err).(type) {
+                switch e := wrap(pos, err).(type) {
                 case *scanner.Error: errs = append(errs, e)
                 case scanner.Errors: errs = append(errs, e...)
                 }
@@ -648,7 +648,15 @@ func (p *Nil) cmp(v Value) (res cmpres) {
 }
 
 func isNone(v Value) (t bool) { _, t = v.(*None); return }
-func isNil(v Value) (t bool) { _, t = v.(*Nil); return }
+func isNil(v Value) (t bool) {
+        if _, t = v.(*Nil); !t {
+                var vv = reflect.ValueOf(v)
+                if v == nil || (vv.Kind() == reflect.Ptr && vv.IsNil()) {
+                        t = true
+                }
+        }
+        return
+}
 
 // Any is used to box an arbitrary value
 type Any struct { value interface{} }
@@ -2826,7 +2834,7 @@ func (p *delegate) reveal() (res Value, err error) {
         case Caller:
                 if res, err = o.Call(p.Position(), args...); err != nil {
                         if p.o.Name() != "error" {
-                                err = scanner.WrapErrors(token.Position(p.Position()), err)
+                                err = wrap(p.Position(), err)
                         } else {
                                 return
                         }
@@ -2834,7 +2842,7 @@ func (p *delegate) reveal() (res Value, err error) {
         case Executer:
                 if args, err = o.Execute(p.Position(), args...); err != nil {
                         if p.o.Name() != "error" {
-                                err = scanner.WrapErrors(token.Position(p.Position()), err)
+                                err = wrap(p.Position(), err)
                         } else {
                                 return
                         }
@@ -3042,9 +3050,8 @@ func (p *closure) disclose() (res Value, err error) {
                                 if p.l == token.LBRACE {
                                         changed = true; break SeeL
                                 } else {
-                                        // &'xxx' and &"xxx" are not disclosed into
-                                        // the resolved objects instead of converting
-                                        // into delegates.
+                                        // &'xxx' and &"xxx" are resolving
+                                        // objects in the closure context.
                                         res = o; return
                                 }
                         }
@@ -3053,8 +3060,7 @@ func (p *closure) disclose() (res Value, err error) {
                 err = errorf(p.position, "unknown closure `&%+v%+v`", p.l, name)
                 return
         }
-
-        if o == nil { o = p.o } // assert changed == false
+        if isNil(o) { o = p.o } // assert changed == false
 
         // Disclose the object, which may contain closures.
         if v, err = o.expand(expandClosure); err != nil {
@@ -3096,7 +3102,6 @@ func (p *closure) refs(v Value) bool {
 func (p *closure) closured() bool { return true }
 func (p *closure) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-
         if v, e := p.expand(expandClosure); e != nil {
                 err = e
         } else if v == nil {

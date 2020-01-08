@@ -7,8 +7,6 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
-        "extbit.io/smart/token"
         "time"
         "fmt"
 )
@@ -66,7 +64,7 @@ func (p *using) traverse(pc *traversal) (err error) {
                                         return nil
                                 }
                         }
-                        err = scanner.WrapErrors(token.Position(entry.position), err)
+                        err = wrap(entry.position, err)
                 } else {
                         usingPrepared[p.project] += 1
                 }

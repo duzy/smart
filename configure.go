@@ -120,22 +120,21 @@ func do_configuration() (err error) {
 
         var defs = make(map[string]Value)
         for _, entry := range configuration.entries {
-                var pos = token.Position(entry.position)
                 if p := entry.OwnerProject(); p != project && p != nil {
                         var f, e = openConfigurationFile(p)
                         if e != nil {
-                                err = scanner.WrapErrors(pos, e, err)
+                                err = wrap(entry.position, e, err)
                                 return
                         } else if f != nil {
                                 if writer != nil {
                                         if e = writer.Flush(); e != nil {
-                                                err = scanner.WrapErrors(pos, e, err)
+                                                err = wrap(entry.position, e, err)
                                                 return
                                         }
                                 }
                                 if file != nil {
                                         if e = file.Close(); e != nil {
-                                                err = scanner.WrapErrors(pos, e, err)
+                                                err = wrap(entry.position, e, err)
                                                 return
                                         }
                                 }
@@ -149,9 +148,9 @@ func do_configuration() (err error) {
                         project, num = p, 0
                 }
                 if _, e := entry.Execute(entry.position); e != nil {
-                        err = scanner.WrapErrors(pos, e, err)
+                        err = wrap(entry.position, e, err)
                 } else if s, e := entry.target.Strval(); e != nil {
-                        err = scanner.WrapErrors(pos, e, err)
+                        err = wrap(entry.position, e, err)
                 } else if def := project.scope.FindDef(s); def != nil {
                         if _, ok := defs[s]; ok {
                                 // already defined
@@ -169,7 +168,7 @@ func do_configuration() (err error) {
                         num += 1
                 } else {
                         e := fmt.Errorf("`%s` unconfigured", s)
-                        err = scanner.WrapErrors(pos, e, err)
+                        err = wrap(entry.position, e, err)
                 }
         }
         if err != nil { return }
@@ -182,8 +181,7 @@ func do_configuration() (err error) {
                         executed[entry] = true
                 }
                 if _, e := entry.Execute(entry.position); e != nil {
-                        pos := token.Position(entry.position)
-                        err = scanner.WrapErrors(pos, e, err)
+                        err = wrap(entry.position, e, err)
                 }
         }
         executed = nil
@@ -647,15 +645,15 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
         var res []Value
         var entry *RuleEntry
         if entry, err = configuration.project.resolveEntry("-"+s); err != nil {
-                err = scanner.Errorf(token.Position(pos), "resolve %v: %v", s, err)
+                err = errorf(pos, "resolve %v: %v", s, err)
         } else if entry == nil {
-                err = scanner.Errorf(token.Position(pos), "unknown configuration `%v` (no such entry)", s)
+                err = errorf(pos, "unknown configuration `%v` (no such entry)", s)
         } else if res, err = prog.passExecution(pos, entry, params...); err != nil {
                 n, _, _ := scanCommandFailedError(err)
                 if n == 2 {
                         configured, err = true, nil
                 } else {
-                        err = scanner.WrapErrors(token.Position(pos), err)
+                        err = wrap(pos, err)
                 }
         } else {
                 if res != nil { result = MakeListOrScalar(pos, res) }
@@ -1204,12 +1202,12 @@ func modifierConfigure(pos Position, pc *traversal, args... Value) (result Value
         var pipe = pc.program.scope.Lookup("-").(*Def)
         if len(args) == 0 { // zero configuration: (configure)
                 if value, err = pipe.Call(pos); err != nil {
-                        err = scanner.WrapErrors(token.Position(pos), err)
+                        err = wrap(pos, err)
                         return
                 }
                 if value == nil {
                         err = fmt.Errorf("`%v` not configured (%v)", target, value)
-                        err = scanner.WrapErrors(token.Position(pos), err)
+                        err = wrap(pos, err)
                         return
                 }
                 switch v := value.(type) {
@@ -1228,14 +1226,14 @@ func modifierConfigure(pos Position, pc *traversal, args... Value) (result Value
                 // TODO: case *XML
                 }
                 if err != nil {
-                        err = scanner.WrapErrors(token.Position(pos), err)
+                        err = wrap(pos, err)
                 }
                 return
         }
 
         // Reset configuration value to nil
         if err = def.set(DefExecute, nil); err != nil {
-                err = scanner.WrapErrors(token.Position(pos), err)
+                err = wrap(pos, err)
                 return
         }
 
@@ -1269,11 +1267,9 @@ ForConfig:
                 }
                 if err == nil && name != nil {
                         configured, value, err = configureAction(pos, pc.program, target, def, pipe, name, para)
-                        if err != nil {
-                                err = scanner.WrapErrors(token.Position(pos), err)
-                        }
+                        if err != nil { err = wrap(pos, err) }
                 } else if err == nil {
-                        err = scanner.Errorf(token.Position(pos), ") unknown configure action `%v` (%T)\n", a, a)
+                        err = errorf(pos, ") unknown configure action `%v` (%T)\n", a, a)
                 }
                 if err != nil { break ForConfig }
                 if configured {
@@ -1284,7 +1280,7 @@ ForConfig:
                                 err = def.set(DefSimple, value)
                         }
                         if err != nil {
-                                err = scanner.WrapErrors(token.Position(pos), err)
+                                err = wrap(pos, err)
                                 return
                         }
                         // marking it done (needed for reconfiguring)
@@ -1295,7 +1291,7 @@ ForConfig:
                 if err == nil {
                         err = fmt.Errorf("`%v` not configured", target)
                 }
-                err = scanner.WrapErrors(token.Position(pos), err)
+                err = wrap(pos, err)
         }
         return
 }

@@ -7,7 +7,6 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "runtime/debug"
         "os/exec"
@@ -631,8 +630,7 @@ ForPrograms:
                 } else if br, ok := e.(*breaker); ok {
                         switch br.what {
                         case breakFail: // (assert) failure
-                                failed = token.Position(br.pos)//program.position
-                                err = scanner.WrapErrors(failed, e, err)
+                                err = wrap(br.pos, e, err)
                                 continue ForPrograms // break ForPrograms
                         case breakNext: // continue with the next (case)
                                 continue ForPrograms
@@ -641,11 +639,10 @@ ForPrograms:
                                 break ForPrograms
                         }
                 }
-                var pp = program.position
-                err = scanner.WrapErrors(token.Position(pp), e, err)
+                err = wrap(program.position, e, err)
         }
         if err != nil {
-                err = scanner.WrapErrors(token.Position(pos), err)
+                err = wrap(pos, err)
         } else if failed.IsValid() {
                 //err = scanner.Errorf(failed, "assertion failed")
         }

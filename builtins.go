@@ -645,8 +645,7 @@ func builtinShell(pos Position, args... Value) (res Value, err error) {
                 sh.Stdout, sh.Stderr = &bufout, &buferr
                 if err = sh.Run(); err != nil {
                         s = strings.TrimSpace(buferr.String())
-                        err = scanner.WrapErrors(token.Position(pos),
-                                fmt.Errorf("%s", s), err)
+                        err = wrap(pos, fmt.Errorf("%s", s), err)
                         return
                 }
                 val := &String{trivial{pos},strings.TrimSpace(bufout.String())}
@@ -696,7 +695,7 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
         if err = server.ListenAndServe(); err == http.ErrServerClosed {
                 // Requested /quit
         } else if err != nil {
-                err = scanner.WrapErrors(token.Position(pos), err)
+                err = wrap(pos, err)
         }
         return
 }
@@ -716,7 +715,7 @@ func builtinPrint(pos Position, args... Value) (res Value, err error) {
                 } else if s, err = EscapedString(a); err == nil {
                         if s != "" { fmt.Printf("%s", s) }
                 } else {
-                        err = scanner.WrapErrors(token.Position(pos), err)
+                        err = wrap(pos, err)
                         break
                 }
         }
@@ -2272,7 +2271,7 @@ ForArgs:
                                 if optVerbose {
                                         fmt.Fprintf(stderr, "symlink: %s\n", err)
                                 }
-                                err = scanner.WrapErrors(token.Position(pos), err)
+                                err = wrap(pos, err)
                                 return
                         }
                 }
@@ -2435,7 +2434,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                         }
                 } else if str, err = a.Strval(); err != nil {
                         //fmt.Fprintf(stderr, "%s: %v", pos, err)
-                        err = scanner.WrapErrors(token.Position(pos), err)
+                        err = wrap(pos, err)
                         return
                 } else if file = proj.matchFile(str); file != nil {
                         list = append(list, file)
@@ -2444,7 +2443,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                         }
                 } else {
                         //fmt.Fprintf(stderr, "%s: `%v` is not a file (%v)\n", pos, a, proj)
-                        err = scanner.Errorf(token.Position(pos), "`%v` is not a file", a)
+                        err = errorf(pos, "`%v` is not a file", a)
                 }
         }
         res = MakeListOrScalar(pos, list)

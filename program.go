@@ -202,7 +202,7 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                         var s string
                         var rest []string
                         if s, rest, err = a.stencil(prog.pc.stems); err != nil {
-                                err = scanner.WrapErrors(token.Position(prog.position), err)
+                                err = wrap(prog.position, err)
                                 return
                         }
                         if len(rest) > 0 {
@@ -235,7 +235,7 @@ func (prog *Program) setParams(args []Value) (err error, restore func()) {
         for i, param := range prog.params {
                 var def *Def
                 if def, err = prog.auto(param, &None{}); err != nil {
-                        err = scanner.WrapErrors(token.Position(prog.position), err)
+                        err = wrap(prog.position, err)
                         return
                 }
                 prog.scope.replace(strconv.Itoa(i+1), def)
@@ -270,7 +270,7 @@ func (prog *Program) setParams(args []Value) (err error, restore func()) {
                         argnum += 1
                 }
                 if err != nil {
-                        err = scanner.WrapErrors(token.Position(prog.position), err)
+                        err = wrap(prog.position, err)
                         return
                 }
         }
@@ -343,7 +343,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         var enterStop *enterec
         if len(cd.stack) > 0 { enterStop = cd.stack[0] }
         if err = enter(prog, prog.project.absPath); err != nil {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
+                err = wrap(prog.position, err)
                 return
         }
         cd.stack[0].silent = !prog.pc.print
@@ -382,7 +382,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 var name string
                 var target = prog.pc.entry.target
                 if name, err = target.Strval(); err != nil {
-                        err = scanner.WrapErrors(token.Position(prog.position), err)
+                        err = wrap(prog.position, err)
                         return
                 }
                 if file := prog.project.searchFile(name); file != nil {
@@ -404,11 +404,11 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         // Expanding all dependencies after pre-modifiers.
         var depends, ordered []Value
         if depends, err = prog.prerequisites(prog.depends); err != nil {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
+                err = wrap(prog.position, err)
                 return
         }
         if ordered, err = prog.prerequisites(prog.ordered); err != nil {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
+                err = wrap(prog.position, err)
                 return
         }
 
@@ -442,7 +442,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 result, err = prog.pc.modifyBuf.Call(prog.position)
                 if err != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
-                        err = scanner.WrapErrors(token.Position(prog.position), err)
+                        err = wrap(prog.position, err)
                 }
         } ()
         return prog.pc.exec(prog, nestedExecution)
@@ -492,7 +492,7 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
                         if err = prog.interpret(pc, i, nil); err != nil {
-                                err = scanner.WrapErrors(token.Position(prog.position), err)
+                                err = wrap(prog.position, err)
                         }
                 } else {
                         err = errorf(prog.position, "no default dialect")
@@ -500,78 +500,6 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
         }
         return
 }
-
-/*func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error) {
-        var none = &None{trivial{prog.position}}
-
-        // Updating $^
-        pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.dependsDef, nested); err == nil {
-                // Good!
-        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
-                pc.modified = append(pc.modified, br.modified...)
-                err = nil // reset error
-        } else {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
-                return
-        }
-        if n := len(pc.targets); n == 0 {
-                //if optionTraceTraversal { pc.tracef("%v:$^: <none>", pc.entry) }
-                pc.dependsDef.set(DefDefault, none)
-                pc.depend0Def.set(DefDefault, none)
-        } else if n == 1 {
-                //if optionTraceTraversal { pc.tracef("%v:$^: %v", pc.entry, pc.targets[0]) }
-                pc.dependsDef.set(DefDefault, pc.targets[0])
-                pc.depend0Def.set(DefDefault, pc.targets[0])
-        } else if n > 1 {
-                //if optionTraceTraversal { pc.tracef("%v:$^: (%d) %v", pc.entry, n, pc.targets) }
-                pc.dependsDef.set(DefDefault, MakeList(prog.position, pc.targets...))
-                pc.depend0Def.set(DefDefault, pc.targets[0])
-        }
-
-        // Updating $|
-        pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.orderedDef, nested); err == nil {
-                // Good!
-        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
-                pc.modified = append(pc.modified, br.modified...)
-                err = nil // reset error
-        } else {
-                err = scanner.WrapErrors(token.Position(prog.position), err)
-                return
-        }
-        if n := len(pc.targets); n == 0 {
-                pc.orderedDef.set(DefDefault, none)
-        } else {
-                if optionTraceTraversal {
-                        pc.tracef("$|: (%d) %v", n, pc.targets)
-                }
-                pc.orderedDef.set(DefDefault, MakeList(prog.position, pc.targets...))
-        }
-
-        // Updating $~
-        pc.targets = nil // clear the target list
-        if err = pc.traverseAll(pc.greppedDef, nested); err == nil {
-                // Good!
-        } else if br, ok := err.(*breaker); ok && br.what == breakModified {
-                pc.modified = append(pc.modified, br.modified...)
-                err = nil // reset error
-        } else {                
-                err = scanner.WrapErrors(token.Position(prog.position), err)
-                return
-        }
-        if n := len(pc.targets); n == 0 {
-                pc.greppedDef.set(DefDefault, none)
-        } else {
-                if optionTraceTraversal {
-                        pc.tracef("$~: (%d) %v", n, pc.targets)
-                }
-                pc.greppedDef.set(DefDefault, MakeList(prog.position, pc.targets...))
-        }
-
-        pc.targets = nil // clear the target list
-        return
-}*/
 
 func (prog *Program) passExecution(position Position, entry *RuleEntry, args... Value) (result []Value, err error) {
         result, err = Executer(entry).Execute(position, args...)

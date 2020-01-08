@@ -1841,19 +1841,19 @@ func modifierCopyFile(pos Position, pc *traversal, args... Value) (result Value,
         var copyOpts = &copyopts{ optPath, optMode, optHead, optFoot }
         var fi os.FileInfo
         if fi, err = os.Stat(srcname); err != nil {
-                err = scanner.WrapErrors(token.Position(pos), err)
+                err = wrap(pos, err)
         } else if !fi.IsDir() {
                 if optMode == 0 { optMode = fi.Mode() }
                 if err = copyFile(fi, srcname, filename, copyOpts); err != nil {
-                        err = scanner.WrapErrors(token.Position(pos), err)
+                        err = wrap(pos, err)
                 }
         } else if optRecursive {
                 if err = copyDir(srcname, filename, copyOpts); err != nil {
-                        err = scanner.WrapErrors(token.Position(pos), err)
+                        err = wrap(pos, err)
                 }
         } else {
                 err = fmt.Errorf("`%v` is a directory (use -r to solve it)", source)
-                err = scanner.WrapErrors(token.Position(pos), err)
+                err = wrap(pos, err)
         }
 
         if optVerbose {
