@@ -2089,19 +2089,35 @@ func modifierCase(pos Position, pc *traversal, args... Value) (result Value, err
 
 func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err error) {
         for _, arg := range args {
-                for _, a := range merge(arg) {
-                        var t = true
-                        if f, ok := a.(*Flag); ok && f.String() == "-dirty" {
-                                t = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
-                                if optionTraceTraversal {
-                                        pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", t, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
-                                        if len(pc.updated) > 0 {
-                                                pc.tracef("updated: %v", pc.updated)
-                                        }
-                                }
-                        } else if t, err = a.True(); err != nil {
-                                break
+                var (
+                        optDirty, optVerbose bool
+                        va = merge(arg)
+                )
+                if va, err = parseFlags(va, []string{
+                        "d,dirty",
+                        "v,verbose",
+                }, func(ru rune, v Value) {
+                        switch ru {
+                        case 'd': optDirty = trueVal(v, true)
+                        case 'v': optVerbose = trueVal(v, true)
                         }
+                }); err != nil { return }
+                if optDirty {
+                        var t = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
+                        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v … (dirty=%v)", pc.targetDef.value, t) }
+                        if optionTraceTraversal {
+                                pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", t, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
+                                if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }
+                        }
+                        if !t {
+                                err = &breaker{ pos:pos, what:breakDone }
+                                return
+                        }
+                }
+                for _, a := range va {
+                        var t = true
+                        if t, err = a.True(); err != nil { break }
+                        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v … (good=%v)", a, t) }
                         if !t {
                                 err = &breaker{ pos:pos, what:breakDone }
                                 return
