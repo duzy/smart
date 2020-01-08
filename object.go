@@ -441,11 +441,12 @@ func (d *Def) Get(name string) (Value, error) {
         }
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
 }
-
 func (d *Def) traverse(pc *traversal) (err error) {
-        if d.value != nil {
-                err = d.value.traverse(pc)
-        }
+        if d.value != nil { err = d.value.traverse(pc) }
+        return
+}
+func (d *Def) mod(pc *traversal) (t time.Time) {
+        if d.value != nil { t = d.value.mod(pc) }
         return
 }
 

@@ -1698,6 +1698,7 @@ func (p *Path) mod(pc *traversal) (t time.Time) {
         } else if file := stat(fullname, "", "", nil); file != nil && file.info != nil {
                 t = file.info.ModTime()
         }
+        if optionTraceTraversal { pc.tracef("Path.mod: %v (%v)", t, p) }
         return
 }
 func (p *Path) isPattern() (result bool) {
@@ -2171,16 +2172,42 @@ func (p *File) exists() existence {
 func (p *File) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
         //if p.cmp(pc.targetDef.value) == cmpEqual { ... }
-        if project := mostDerived(); project != nil {
+
+        var project = mostDerived()
+        if project != nil {
                 _, err = project.traverseFile(pc, p)
                 if err != nil { return }
         }
 
+        // FIXES: checks none-File file target
+        switch t := pc.targetDef.value.(type) {
+        case *Barecomp: // convert barecomp path into a real Path
+                var v = t.Elems[0]
+                if p, ok := v.(*Path); ok {
+                        t.Elems = append(p.Elems[len(p.Elems)-1:], t.Elems[1:]...)
+                        p.Elems[len(p.Elems)-1] = t
+                        pc.targetDef.value = p
+                        if optionTraceTraversal {
+                                pc.tracef("FIX: barecomp path: %v", p)
+                        }
+                } else {
+                        var s string
+                        if s, err = t.Strval(); err != nil { return }
+                        if file := project.matchFile(s); file != nil {
+                                pc.targetDef.value = file
+                                if optionTraceTraversal {
+                                        pc.tracef("FIX: barecomp file: %v", p)
+                                }
+                        }
+                }
+        }
+
         if p.info == nil {
                 err = errorf(p.position, "file not existed: %v", p)
-        } else if p.info.ModTime().After(pc.targetDef.mod(pc)) {
+        } else if p.info.ModTime().After(pc.targetDef.value.mod(pc)) {
                 pc.updated = append(pc.updated, newUpdatedTarget(p, nil))
-                if optionTraceTraversal { pc.tracef("updated: %v", p) }
+                if optionTraceTraversal { pc.tracef("updated: %v (after %v, %s)",
+                        p, pc.targetDef.mod(pc), typeof(pc.targetDef.value)) }
         }
         return
 }
@@ -2284,6 +2311,7 @@ func checkPatternDepend(pc *traversal, project *Project, se *StemmedEntry, prog 
 }
 func (p *File) mod(pc *traversal) (t time.Time) {
         if p.info != nil { t = p.info.ModTime() }
+        if optionTraceTraversal { pc.tracef("File.mod: %v (%v)", t, p) }
         return
 }
 func (p *File) cmp(v Value) (res cmpres) {

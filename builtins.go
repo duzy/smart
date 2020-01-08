@@ -265,6 +265,34 @@ ForArgs:
         return
 }
 
+func typeof(arg Value) (s string) {
+        switch a := arg.(type) {
+        case *List:
+                if n := len(a.Elems); n == 1 {
+                        switch v := a.Elems[0].(type) {
+                        case *delegate: // FIXME: recursively undelegate types
+                                if d, _ := v.o.(*Def); d != nil {
+                                        s = fmt.Sprintf("%T", d.value) //s = d.value.Type().String()
+                                        s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), "smart.")
+                                } else {
+                                        s = "unknown"
+                                }
+                        default:
+                                s = fmt.Sprintf("%T", v) //s = v.Type().String()
+                        }
+                } else if n > 1 {
+                        s = "List" //ListType.name
+                } else {
+                        s = "None" //NoneType.name
+                }
+        default:
+                // FIXME: this should be an exception (panic).
+                s = fmt.Sprintf("%T", a) //s = a.Type().String()
+                s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), "smart.")
+        }
+        return
+}
+
 func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
         var ( elems []Value; s string )
         for _, arg := range args {
@@ -272,30 +300,7 @@ func builtinTypeOf(pos Position, args... Value) (res Value, err error) {
                 //   $(fun abc)                 args: (abc)
                 //   $(fun a,b,c)               args: (a),(b),(c)
                 //   $(fun a b c,1 2 3)         args: (a b c),(1 2 3)
-                switch a := arg.(type) {
-                case *List:
-                        if n := len(a.Elems); n == 1 {
-                                switch v := a.Elems[0].(type) {
-                                case *delegate: // FIXME: recursively undelegate types
-                                        if d, _ := v.o.(*Def); d != nil {
-                                                s = fmt.Sprintf("%T", d.value) //s = d.value.Type().String()
-                                                s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), "smart.")
-                                        } else {
-                                                s = "unknown"
-                                        }
-                                default:
-                                        s = fmt.Sprintf("%T", v) //s = v.Type().String()
-                                }
-                        } else if n > 1 {
-                                s = "List" //ListType.name
-                        } else {
-                                s = "None" //NoneType.name
-                        }
-                default:
-                        // FIXME: this should be an exception (panic).
-                        s = fmt.Sprintf("%T", a) //s = a.Type().String()
-                        s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), "smart.")
-                }
+                s = typeof(arg)
                 elems = append(elems, &String{trivial{pos},s})
         }
         return MakeListOrScalar(pos, elems), nil
