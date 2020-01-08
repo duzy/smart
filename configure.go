@@ -218,7 +218,9 @@ func configurationFileName(p *Project) (s string, err error) {
 
 func configPrintf(pos Position, str string, args... interface{}) {
         var debug bool
-        if o := configuration.scope.Lookup("DEBUG"); o != nil { debug = o.True() }
+        if o := configuration.scope.Lookup("DEBUG"); o != nil {
+                debug, _ = o.True()
+        }
         if debug { str = fmt.Sprintf("%v:info: %s", pos, str) }
         fmt.Fprintf(stderr, str, args...)
 }
@@ -495,11 +497,13 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
         }
 
         for i, v := range merge(previous) {
+                var t bool
                 if v == nil { continue }
+                if t, err = v.True(); err != nil { return }
                 if i == 0 {
-                        positive = v.True()
+                        positive = t
                 } else {
-                        positive = positive && v.True()
+                        positive = positive && t
                 }
                 if !positive { break }
         }
@@ -553,7 +557,7 @@ func loadPackageSmartInfo(pos Position, name string) (info *packageinfo, err err
                 loaded:   make(map[string]*Project),
         }
 
-        var filename = file.FullName()
+        var filename = file.fullname()
         if err = l.loadFile(filename, nil); err != nil { return }
         if project, _ := l.loaded[filename]; project == nil {
                 err = scanner.Errorf(token.Position(pos), "unloaded package %v (%v)\n", name, file)
@@ -701,7 +705,11 @@ ForArgs:
         }
 
         defer func() {
-                if configured && err == nil && result != nil && result.True() && strName != "compiles" {
+                var t bool
+                if err == nil && result != nil {
+                        t, err = result.True()
+                }
+                if configured && err == nil && t && strName != "compiles" {
                         if v := pipe.value; v != nil {
                                 if _, ok := v.(*None); !ok {
                                         result = v
@@ -929,9 +937,9 @@ func walkFiles(root string, pats []Value, fn filewalkFunc) error {
 // 
 //     config.h:[(compare) (configure-file)]: config.h.in
 //     
-func modifierConfigureFile(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierConfigureFile(pos Position, pc *traversal, args... Value) (result Value, err error) {
         // Only configure file in update mode.
-        /*if prog.pc.mode != updateMode {
+        /*if pc.program.pc.mode != updateMode {
                 // Return to not overriding the configured file. 
                 return
         }*/
@@ -952,7 +960,7 @@ func modifierConfigureFile(pos Position, prog *Program, args... Value) (result V
         }
 
         if target == nil {
-                if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+                if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil {
                         return
                 } else if target == nil {
                         err = fmt.Errorf("unknown configure file")
@@ -963,7 +971,7 @@ func modifierConfigureFile(pos Position, prog *Program, args... Value) (result V
         }
 
         var value Value
-        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil {
+        if value, err = pc.program.scope.Lookup("-").(*Def).Call(pos); err != nil {
                 return
         }
 
@@ -976,18 +984,18 @@ func modifierConfigureFile(pos Position, prog *Program, args... Value) (result V
 //
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
-func modifierExtractConfiguration(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierExtractConfiguration(pos Position, pc *traversal, args... Value) (result Value, err error) {
         // Only generate configure file in update mode
-        /*if m := prog.pc.mode; m != updateMode {
+        /*if m := pc.program.pc.mode; m != updateMode {
                 return
         }*/
 
         var target Value
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
+        if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
 
         var (depends []Value; val Value)
-        if val, err = prog.scope.Lookup("^").(*Def).Call(pos); err != nil { return }
+        if val, err = pc.program.scope.Lookup("^").(*Def).Call(pos); err != nil { return }
         if depends, err = mergeresult(ExpandAll(val)); err != nil { return }
 
         val = nil // clear
@@ -1111,7 +1119,7 @@ ForSources:
         for _, source := range sources {
                 var (s string; f *os.File)
                 switch t := source.(type) {
-                case *File: s = t.FullName()
+                case *File: s = t.fullname()
                 default:
                         if s, err = t.Strval(); err != nil {
                                 break ForSources
@@ -1155,9 +1163,9 @@ ForSources:
 }
 
 // configure - configures a variable, example usage:
-func modifierConfigure(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierConfigure(pos Position, pc *traversal, args... Value) (result Value, err error) {
         // don't configure in compare mode
-        //if m := prog.pc.mode; m == compareMode { return }
+        //if m := pc.program.pc.mode; m == compareMode { return }
 
         var optAccumulate bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
@@ -1171,10 +1179,10 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
         }); err != nil { return }
 
         var ( target Value; name string )
-        if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
+        if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
         if name, err = target.Strval(); err != nil { return }
 
-        var def, alt = prog.project.scope.define(prog.project, name, nil)
+        var def, alt = pc.program.project.scope.define(pc.program.project, name, nil)
         if alt != nil { def, _ = alt.(*Def) }
         if def == nil {
                 err = scanner.Errorf(token.Position(pos), "cannot define configuration `%s`", name)
@@ -1193,7 +1201,7 @@ func modifierConfigure(pos Position, prog *Program, args... Value) (result Value
 
         var value Value
         var configured bool
-        var pipe = prog.scope.Lookup("-").(*Def)
+        var pipe = pc.program.scope.Lookup("-").(*Def)
         if len(args) == 0 { // zero configuration: (configure)
                 if value, err = pipe.Call(pos); err != nil {
                         err = scanner.WrapErrors(token.Position(pos), err)
@@ -1239,7 +1247,7 @@ ForConfig:
                 case *Pair: // Set def
                         /*switch k := arg.Key.(type) {
                         case *Bareword:
-                                def, alt := prog.project.scope.define(prog.project, k.string, &None{trivial{pos}})
+                                def, alt := pc.program.project.scope.define(pc.program.project, k.string, &None{trivial{pos}})
                                 if alt != nil {
                                         if p, _ := alt.(*Def); p != nil && p != def { def = p }
                                 }
@@ -1260,7 +1268,7 @@ ForConfig:
                         }
                 }
                 if err == nil && name != nil {
-                        configured, value, err = configureAction(pos, prog, target, def, pipe, name, para)
+                        configured, value, err = configureAction(pos, pc.program, target, def, pipe, name, para)
                         if err != nil {
                                 err = scanner.WrapErrors(token.Position(pos), err)
                         }

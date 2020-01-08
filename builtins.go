@@ -381,15 +381,28 @@ func builtinAssertValid(pos Position, args... Value) (Value, error) {
 }
 
 func builtinOr(pos Position, args... Value) (res Value, err error) {
+        var t bool
         for _, a := range args {
-                if a.True() { res = a; break }
+                if t, err = a.True(); err != nil {
+                        break
+                } else if t {
+                        res = a
+                        break
+                }
         }
         return
 }
 
 func builtinAnd(pos Position, args... Value) (res Value, err error) {
+        var t bool
         for _, a := range args {
-                if a.True() { res = a } else { res = nil; break }
+                if t, err = a.True(); err != nil {
+                        res = nil; break
+                } else if t {
+                        res = a
+                } else {
+                        res = nil; break
+                }
         }
         return
 }
@@ -397,13 +410,16 @@ func builtinAnd(pos Position, args... Value) (res Value, err error) {
 // $(not x y z) -> (not (or x y z))
 // $(not x,y,z) -> (and (not x) (not y) (not z))
 func builtinNot(pos Position, args... Value) (res Value, err error) {
+        var t bool
         for _, a := range args {
-                if a.True() {
+                if t, err = a.True(); err != nil {
+                        break
+                } else if t {
                         res = &boolean{trivial{pos},false}
                         break
                 }
         }
-        if res == nil {
+        if res == nil && err == nil {
                 res = &boolean{trivial{pos},true}
         }
         return
@@ -439,9 +455,10 @@ ForMatchValues:
 
 func builtinBranchIf(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n > 1 {
-                var cond Value
-                if cond, err = args[0].expand(expandAll); err != nil { return }
-                if cond.True() { 
+                var t bool
+                if t, err = args[0].True(); err != nil {
+                        // oops
+                } else if t { 
                         res = args[1]
                 } else if n > 1 {
                         res = MakeListOrScalar(pos, args[2:])
@@ -764,7 +781,7 @@ func builtinUnique(pos Position, args... Value) (res Value, err error) {
                         switch ru {
                         case 'r':
                                 if val != nil { 
-                                        optReverse = val.True()
+                                        optReverse, _ = val.True()
                                 } else {
                                         optReverse = true
                                 }
@@ -2280,7 +2297,7 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'f', 'd', 's':
-                        if v.True() { optKind = ru }
+                        if t, _ := v.True(); t { optKind = ru }
                 }
         }); err != nil { return }
 
@@ -2676,6 +2693,7 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                 if _, err = out.WriteString(str[index:m[0]]); err != nil { return }
                 index = m[1] // reset index immediately to keep forward
 
+                var t bool
                 var s string
                 var verb = str[m[2]:m[3]]
                 var name = str[m[4]:m[5]]
@@ -2689,7 +2707,12 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine", "cmakedefine":
-                        if def == nil || def.value == nil || !def.value.True() {
+                        if def != nil {
+                                if t, err = def.True(); err != nil {
+                                        return
+                                }
+                        }
+                        if !t {
                                 s = fmt.Sprintf("/* #undef %s */", name)
                         } else if hasv {
                                 v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
@@ -2698,7 +2721,12 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                                 s = fmt.Sprintf("#define %s", name)
                         }
                 case "smartdefine01", "cmakedefine01":
-                        if def == nil || def.value == nil || !def.value.True() {
+                        if def != nil {
+                                if t, err = def.True(); err != nil {
+                                        return
+                                }
+                        }
+                        if !t {
                                 s = fmt.Sprintf("#define %s 0", name)
                         } else if hasv {
                                 v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])

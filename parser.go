@@ -1546,7 +1546,9 @@ func (p *parser) parseGenericClause(keyword token.Token, pos token.Pos, f parseS
                         continue
                 }
                 for _, cond := range conds {
-                        if !cond.True() {
+                        if t, e := cond.True(); e != nil {
+                                p.error(x.Pos(), "%v", e)
+                        } else if !t {
                                 generic.dontOperate = true
                                 break
                         }

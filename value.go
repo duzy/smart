@@ -51,12 +51,18 @@ const (
         expandAll = expandDelegate | expandClosure | expandCaller | expandPath
 )
 
+func (v existence) String() (s string) {
+        switch v {
+        case existenceMatterless: s = "matterless"
+        case existenceConfirmed:  s = "confirmed"
+        case existenceNegated:    s = "negated"
+        }
+        return
+}
+
 // Value represents a value of a type.
 type Value interface {
         Positioner // The position where the value appears (or NoPos).
-
-        // Returns true if the value can be evaluated as 'true', 'yes', etc.
-        True() bool
 
         // Lit returns the literal representations of the value.
         String() string
@@ -70,14 +76,20 @@ type Value interface {
         // Float returns the float form of the value.
         Float() (float64, error)
 
+        // Returns true if the value can be evaluated as 'true', 'yes', etc.
+        True() (bool, error)
+
         // Equality compare.
         cmp(v Value) cmpres
 
-        // Returns true if value modification is after the other.
-        after(v Value) (bool, error)
+        // Returns the modification time.
+        mod(pc *traversal) time.Time // FIXME: (time.Time, error)
 
         // Returns value existence (as a target)
         exists() existence
+
+        // Stamp the value if it's file (update FileInfo).
+        stamp() ([]*File, error)
 
         // Recursively detecting whether this value references
         // the object (to avoid loop-delegation).
@@ -168,7 +180,7 @@ func compun(c *comparer) {
 func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err error) {
         var tt, dt time.Time
         if f, ok := d.(*File); ok && f.info != nil {
-                d, ds, dt = f, f.FullName(), f.info.ModTime()
+                d, ds, dt = f, f.fullname(), f.info.ModTime()
         } else if ds == "" {
                 err = break_bad(c.program.position, "'%v' unknown depend", d)
                 return
@@ -180,7 +192,7 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 //for _, project := range c.program.pc.related {
                 if project := mostDerived(); project != nil {
                         if t := project.searchFile(ds); t != nil {
-                                d, ds, dt = t, t.FullName(), t.info.ModTime()
+                                d, ds, dt = t, t.fullname(), t.info.ModTime()
                                 if f != nil { *f = *t } // replace the file 
                                 //break
                         }
@@ -189,7 +201,7 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
 
         var ts string
         if f, ok := c.target.(*File); ok && f.info != nil {
-                ts, tt = f.FullName(), f.info.ModTime()
+                ts, tt = f.fullname(), f.info.ModTime()
         } else if ts, err = c.target.Strval(); err != nil {
                 return
         } else if ts == "" {
@@ -201,7 +213,7 @@ func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err er
                 //for _, project := range c.program.pc.related {
                 if project := mostDerived(); project != nil {
                         if t := project.searchFile(ts); t != nil {
-                                ts, tt = t.FullName(), t.info.ModTime()
+                                ts, tt = t.fullname(), t.info.ModTime()
                                 if f != nil { *f = *t } // replace the file
                                 //break
                         }
@@ -290,7 +302,7 @@ type traversal struct {
         stemDef    *Def // $*
         params   []*Def
 
-        preModifiers, postModifiers []*modifier // deprecated
+        breaker *breaker
         interpreted []interpreter
 
         debug bool
@@ -334,8 +346,10 @@ func (pc *traversal) addNotExistedTarget1(target Value) {
                 }
         }
         if target == nil {
-                // ...
+                // ignore
         } else if _, ok := target.(*None); ok {
+                // ignore
+        } else {
                 for _, t := range pc.targets {
                         if t == target { return }
                         if t.cmp(target) == cmpEqual { return }
@@ -370,23 +384,15 @@ func (pc *traversal) traverseAll(value interface{}, nested bool) (err error) {
 }
 
 func (pc *traversal) traverse(i interface{}) (err error) {
-        var pos = token.Position(pc.entry.position)
+        var pos = pc.targetDef.position //pc.entry.position
         if i == nil {
-                err = scanner.Errorf(pos, "updating nil prerequisite")
+                err = errorf(pos, "updating nil prerequisite")
         } else if value, ok := i.(Value); !ok {
-                err = scanner.Errorf(pos, "'%v' is invalid", value)
+                err = errorf(pos, "'%v' is invalid", value)
         } else if value == nil { // this could happen
-                err = scanner.Errorf(pos, "updating nil prerequisite")
+                err = errorf(pos, "updating nil prerequisite")
         } else if err = value.traverse(pc); err == nil {
                 // alright!
-        } else if br, ok := err.(*breaker); ok && br.what == breakUpdates {
-                pc.updated = append(pc.updated, br.updated...)
-                for _, updated := range br.updated {
-                        pc.updatedDef.append(updated.target)
-                }
-                if len(pc.updated) == 0 {
-                        err = pc.checkTargetMode()
-                }
         }
         return
 }
@@ -421,19 +427,6 @@ func (pc *traversal) checkBreakers(pos Position, err error) (scanner.Errors, err
                 }
                 return errs, err, done
         }
-}
-
-func (pc *traversal) updateFile(file *File) (err error) {
-        if project := mostDerived(); project != nil {
-                if _, err = project.updateFile(pc, file); err == nil {
-                        return
-                } else if es, e, _ := pc.checkBreakers(file.position, err); e != nil {
-                        err = e
-                } else if es != nil {
-                        err = es
-                }
-        }
-        return
 }
 
 func (pc *traversal) traverseTargetCheckBreakers(pos Position, target string) (errs scanner.Errors) {
@@ -508,10 +501,11 @@ func (_ *trivial) refs(_ Value) (res bool) { return }
 func (_ *trivial) closured() (res bool) { return }
 func (_ *trivial) expand(_ expandwhat) (v Value, err error) { return }
 func (_ *trivial) cmp(_ Value) (res cmpres) { return }
-func (_ *trivial) after(_ Value) (after bool, err error) { return }
+func (_ *trivial) mod(pc *traversal) (t time.Time) { return }
 func (_ *trivial) exists() existence { return existenceMatterless }
+func (_ *trivial) stamp() (file []*File, err error) { return }
 func (p *trivial) Position() (res Position) { return p.position }
-func (_ *trivial) True() (res bool) { return }
+func (_ *trivial) True() (res bool, err error) { return }
 func (_ *trivial) Integer() (i int64, err error) { return }
 func (_ *trivial) Float() (f float64, err error) { return }
 func (_ *trivial) String() (s string) { return }
@@ -566,13 +560,15 @@ func (p *Argumented) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *Argumented) stamp() ([]*File, error) { return p.value.stamp() }
 func (p *Argumented) exists() existence { return p.value.exists() }
-func (p *Argumented) after(v Value) (bool, error) { return p.value.after(v) }
+func (p *Argumented) mod(pc *traversal) time.Time {
+        // FIXME: p.value maybe not the real target
+        return p.value.mod(pc)
+}
 func (p *Argumented) Position() Position { return p.value.Position() }
-func (p *Argumented) True() (res bool) {
-        if p.value != nil {
-                res = p.value.True()
-        }
+func (p *Argumented) True() (res bool, err error) {
+        if p.value != nil { res, err = p.value.True() }
         return
 }
 func (p *Argumented) Integer() (i int64, err error) {
@@ -669,15 +665,21 @@ func (p *Any) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *Any) stamp() (files []*File, err error) {
+        if a, ok := p.value.(Value); ok {
+                files, err = a.stamp()
+        }
+        return
+}
 func (p *Any) exists() existence {
         if a, ok := p.value.(Value); ok {
                 return a.exists()
         }
         return existenceMatterless
 }
-func (p *Any) after(v Value) (after bool, err error) {
+func (p *Any) mod(pc *traversal) (t time.Time) {
         if a, ok := p.value.(Value); ok {
-                after, err = a.after(v)
+                t = a.mod(pc)
         }
         return
 }
@@ -707,14 +709,14 @@ func (p *Any) Position() (res Position) {
         }
         return
 }
-func (p *Any) True() (t bool) {
+func (p *Any) True() (t bool, err error) {
         switch v := p.value.(type) {
-        case Value: t = v.True()
-        case float32: t = math.Abs(float64(v))-0 >= FloatEpsilon
-        case float64: t = math.Abs(v)-0 >= FloatEpsilon
-        case int: t = v != 0
-        case int64: t = v != 0
-        case bool: t = v
+        case Value:     t, err = v.True()
+        case float32:   t = math.Abs(float64(v))-0 >= FloatEpsilon
+        case float64:   t = math.Abs(v)-0 >= FloatEpsilon
+        case int64:     t = v != 0
+        case int:       t = v != 0
+        case bool:      t = v
         }
         return
 }
@@ -778,23 +780,32 @@ func (p *negative) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *negative) True() (res bool) {
-        if p.x == nil {
-                res = true
-        } else {
-                res = !p.x.True()
-        }
+func (p *negative) True() (res bool, err error) {
+        if p.x != nil { res, err = p.x.True() }
+        if err == nil { res = !res }
         return
 }
 func (p *negative) elemstr(o Object, k elemkind) string { return `!`+elementString(o, p.x, k) }
 func (p *negative) String() (s string) { return p.elemstr(nil, 0) }
-func (p *negative) Strval() (string, error) { return fmt.Sprintf("%v", !p.x.True()), nil }
+func (p *negative) Strval() (s string, err error) {
+        var t bool
+        if t, err = p.x.True(); err == nil {
+                s = fmt.Sprintf("%v", !t)
+        }
+        return
+}
 func (p *negative) Float() (res float64, err error) {
-        if !p.x.True() { res = FloatEpsilon }
+        var t bool
+        if t, err = p.x.True(); err == nil && !t {
+                res = FloatEpsilon
+        }
         return
 }
 func (p *negative) Integer() (res int64, err error) {
-        if !p.x.True() { res = 1 }
+        var t bool
+        if t, err = p.x.True(); err == nil && !t {
+                res = 1
+        }
         return
 }
 func (p *negative) traverse(pc *traversal) (err error) {
@@ -812,7 +823,7 @@ type boolean struct {
         bool
 }
 func (p *boolean) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *boolean) True() bool { return p.bool }
+func (p *boolean) True() (bool, error) { return p.bool, nil }
 func (p *boolean) String() (s string) {
         if p.bool { s = "true" } else { s = "false" }
         return
@@ -854,7 +865,7 @@ type answer struct {
         bool
 }
 func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *answer) True() bool { return p.bool }
+func (p *answer) True() (bool, error) { return p.bool, nil }
 func (p *answer) String() (s string) {
         if p.bool { s = "yes" } else { s = "no" }
         return
@@ -895,7 +906,7 @@ type integer struct {
         trivial
         int64
 }
-func (p *integer) True() bool { return p.int64 != 0 }
+func (p *integer) True() (bool, error) { return p.int64 != 0, nil }
 func (p *integer) Integer() (int64, error) { return p.int64, nil }
 func (p *integer) Float() (float64, error) { return float64(p.int64), nil }
 func (p *integer) cmp(v Value) (res cmpres) {
@@ -937,7 +948,7 @@ type Float struct {
         float64
 } // IEEE-754 64-bit binary floating-point
 func (p *Float) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Float) True() bool { return math.Abs(p.float64)-0 > FloatEpsilon }
+func (p *Float) True() (bool, error) { return math.Abs(p.float64)-0 > FloatEpsilon, nil }
 func (p *Float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 func (p *Float) Strval() (string, error) { return strconv.FormatFloat(float64(p.float64),'g', -1, 64), nil }
 func (p *Float) Integer() (int64, error) { return int64(p.float64), nil }
@@ -962,7 +973,7 @@ type DateTime struct {
         t time.Time
 }
 func (p *DateTime) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *DateTime) True() bool { return !p.t.IsZero() }
+func (p *DateTime) True() (bool, error) { return !p.t.IsZero(), nil }
 func (p *DateTime) String() string {
         if s, e := p.Strval(); e == nil {
                 return s
@@ -973,14 +984,7 @@ func (p *DateTime) String() string {
 func (p *DateTime) Strval() (string, error) { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
 func (p *DateTime) Integer() (int64, error) { return p.t.Unix(), nil }
 func (p *DateTime) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-func (p *DateTime) after(v Value) (after bool, err error) {
-        switch t := v.(type) {
-        case *DateTime: after = p.t.After(t.t)
-        case *Date: after = p.t.After(t.t)
-        case *Time: after = p.t.After(t.t)
-        } 
-        return
-}
+//func (p *DateTime) mod(pc *traversal) (t time.Time) { return }
 func (p *DateTime) cmp(v Value) (res cmpres) {
         var vt time.Time
         switch a := v.(type) {
@@ -1052,7 +1056,7 @@ type URL struct {
         Fragment Value
 }
 func (p *URL) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *URL) True() bool { return p.String() != "" }
+func (p *URL) True() (bool, error) { return p.String() != "", nil }
 func (p *URL) elemstr(o Object, k elemkind) (s string) {
         if s = elementString(o, p.Scheme, k); s == "" { return }
         if s += ":"; p.Host == nil {
@@ -1205,7 +1209,7 @@ type Raw struct {
         string
 }
 func (p *Raw) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Raw) True() bool { return p.string != "" }
+func (p *Raw) True() (bool, error) { return p.string != "", nil }
 func (p *Raw) String() string { return p.string }
 func (p *Raw) Strval() (string, error) { return p.string, nil }
 func (p *Raw) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
@@ -1225,7 +1229,7 @@ type String struct {
         string
 }
 func (p *String) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *String) True() bool { return p.string != "" }
+func (p *String) True() (bool, error) { return p.string != "", nil }
 func (p *String) elemstr(o Object, k elemkind) (s string) {
         if k&elemNoQuote == 0 { s = `'`+p.string+`'` } else { s = p.string }
         return
@@ -1253,19 +1257,21 @@ func (p *String) cmp(v Value) (res cmpres) {
         return
 }
 
-type Bareword struct {
-        trivial
-        string
-}
-func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Bareword) True() (t bool) {
-        switch p.string {
+func isTrueString(s string) (t bool) {
+        switch s {
         case "", "false", "no", "off", "0": t = false
         case "true", "yes", "on", "1": t = true
         default: t = true
         }
         return
 }
+
+type Bareword struct {
+        trivial
+        string
+}
+func (p *Bareword) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *Bareword) True() (bool, error) { return isTrueString(p.string), nil }
 func (p *Bareword) String() string { return p.string }
 func (p *Bareword) Strval() (string, error) { return p.string, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
@@ -1309,12 +1315,11 @@ func (p *elements) Take(n int) (v Value) {
 func (p *elements) ToBarecomp() *Barecomp { return &Barecomp{trivial{},*p} }
 func (p *elements) ToCompound() *Compound { return &Compound{trivial{},*p} }
 func (p *elements) ToList() *List { return &List{*p} }
-func (p *elements) True() (t bool) { // (or elems...)
+func (p *elements) True() (t bool, err error) { // (or elems...)
         for _, elem := range p.Elems {
-                if elem != nil {
-                        if t = elem.True(); t {
-                                break
-                        }
+                if elem == nil { continue }
+                if t, err = elem.True(); t || err != nil {
+                        break
                 }
         }
         return
@@ -1370,16 +1375,7 @@ func (p *Barecomp) elemstr(o Object, k elemkind) (s string) {
         }
         return
 }
-func (p *Barecomp) True() (t bool) {
-        if s, e := p.Strval(); e == nil {
-                switch s {
-                case "", "false", "no", "off", "0": t = false
-                case "true", "yes", "on", "1": t = true
-                default: t = true
-                }
-        }
-        return
-}
+func (p *Barecomp) True() (bool, error) { return p.elements.True() }
 func (p *Barecomp) String() (s string) { return p.elemstr(nil, 0) }
 func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
@@ -1424,7 +1420,10 @@ func (p *Barefile) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *Barefile) True() bool { return p.File != nil }
+func (p *Barefile) True() (t bool, err error) {
+        if p.File != nil { t, err = p.File.True() }
+        return
+}
 func (p *Barefile) elemstr(o Object, k elemkind) (s string) { return elementString(o, p.Name, k) }
 func (p *Barefile) String() string { return p.elemstr(nil, 0) }
 func (p *Barefile) Strval() (string, error) {
@@ -1446,25 +1445,14 @@ func (p *Barefile) Float() (float64, error) {
 }
 func (p *Barefile) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-        /*switch pc.mode {
-        case compareMode: err = p.traverseCompare(pc)
-        case updateMode: err = p.traverseUpdate(pc)
-        }*/
         if p.File != nil {
-                /*// Fixes the case that '$@.o' is parsed and become '.o'.
-                var s string
-                if s, err = p.Name.Strval(); err != nil {
-                        return
-                } else if s != p.File.name {
-                        p.File.name = s
-                }*/
                 err = p.File.traverse(pc)
         } else {
                 err = pc.traverseTargetValue(p)
         }
         return
 }
-func (p *Barefile) traverseCompare(pc *traversal) (err error) {
+/*func (p *Barefile) traverseCompare(pc *traversal) (err error) {
         if p.File != nil {
                 var after bool
                 after, err = pc.targetDef.value.after(p.File)
@@ -1490,6 +1478,10 @@ func (p *Barefile) traverseUpdate(pc *traversal) (err error) {
                 err = pc.traverseTargetValue(p)
         }
         return
+}*/
+func (p *Barefile) stamp() (files []*File, err error) {
+        if p.File != nil { files, err = p.File.stamp() }
+        return
 }
 func (p *Barefile) exists() (res existence) {
         if p.File != nil {
@@ -1499,10 +1491,8 @@ func (p *Barefile) exists() (res existence) {
         }
         return
 }
-func (p *Barefile) after(v Value) (after bool, err error) {
-        if p.File != nil {
-                after, err = p.File.after(v)
-        }
+func (p *Barefile) mod(pc *traversal) (t time.Time) {
+        if p.File != nil { t = p.File.mod(pc) }
         return
 }
 func (p *Barefile) cmp(v Value) (res cmpres) {
@@ -1603,9 +1593,16 @@ func (p *Path) Strval() (s string, e error) {
         }
         return
 }
-func (p *Path) True() (t bool) {
-        for _, elem := range p.Elems {
-                t = elem.True(); break
+func (p *Path) True() (t bool, err error) {
+        // FIXME: return p.exists() ??
+        if false {
+                t = p.exists() == existenceConfirmed
+        } else {
+                for _, elem := range p.Elems {
+                        if t, err = elem.True(); err != nil || !t {
+                                break
+                        }
+                }
         }
         return
 }
@@ -1634,64 +1631,73 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
+func (p *Path) fullname(stems []string) (fullname string, err error) {// the addressed file target
+        var rest []string // unmatched path segmants
+        if len(stems) == 0 {
+                fullname, err = p.Strval()
+        } else if fullname, rest, err = p.stencil(stems); err != nil {
+                // ...
+        } else if len(rest) > 0 {
+                //err = errorf(p.position, "partial match: %v", rest)
+        }
+        return
+}
+func (p *Path) stamp() (files []*File, err error) {
+        var fullname string
+        if fullname, err = p.Strval(); err == nil {
+                if fullname == "" {
+                        err = errorf(p.position, "no fullname for `%s`", p)
+                } else if file := stat(fullname,"","",nil); file != nil {
+                        context.globe.stamp(fullname, file.info.ModTime())
+                        files = append(files, file)
+                }
+        }
+        return
+}
+func (p *Path) exists() existence {
+        if fullname, err := p.Strval(); err == nil {
+                if file := stat(fullname,"","",nil); file != nil {
+                        return existenceConfirmed
+                }
+        }
+        return existenceNegated
+}
 func (p *Path) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
 
-        var target string // the addressed file target
-        var rest []string // unmatched path segmants
-        if target, rest, err = p.stencil(pc.stems); err != nil {
-                return
-        } else if len(rest) > 0 {
-                err = scanner.Errorf(token.Position(p.position), "partial match: %v", rest)
-                return
+        // Path fullname.
+        var fullname string // the addressed file target
+        if fullname, err = p.fullname(pc.stems); err == nil && fullname == "" {
+                err = errorf(p.position, "path matches no target: %v", p)
+        }
+        if err != nil { return }
+
+        // Stat the file by fullname.
+        var file = stat(fullname, "", "", nil)
+        if optionTraceTraversal {
+                pc.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
         }
 
-        if true {
-                var project = pc.program.project
-                if project.isFileName(filepath.Base(target)) || project.isFileName(target) {
-                        if file := project.searchFile(target); file != nil {
-                                pc.addNotExistedTarget1(file)
-                                return
-                        }
-                }
+        file.position = p.position
+        if err = file.traverse(pc); err != nil {
+                // oops, file not existed or other errors
         }
 
-        var errs scanner.Errors
-        var checked = make(map[string]bool)
-        for _, err := range pc.traverseTargetCheckBreakers(p.Position(), target) {
-                e, isTargetNotFound := err.Err.(targetNotFoundError)
-                if !isTargetNotFound {
-                        errs = append(errs, err)
-                        continue
-                } else if b1, b2 := checked[e.target]; b1 && b2 {
-                        continue
-                } else {
-                        checked[e.target] = true
-                }
-                if file := stat(e.target, "", ""); file == nil {
-                        pc.addNotExistedTarget1(&String{trivial{p.position},e.target}) // Append unknown path anyway.
-                        err.Err = pathNotFoundError{e.project, p}
-                        errs = append(errs, err)
-                } else if file.info != nil {
-                        /*if file.info.IsDir() {
-                                pc.addNotExistedTarget1(p)
-                        } else {
-                                pc.addNotExistedTarget1(p)
-                        }*/
-                        pc.addNotExistedTarget1(file)
-                } else {
-                        // Search this path target as a file.
-                        file = e.project.searchFile(e.target)
-                        if file != nil {
-                                pc.addNotExistedTarget1(file)
-                        } else {
-                                errs = append(errs, err)
-                        }
-                }
+        if optionTraceTraversal {
+                pc.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
         }
-        checked = nil
-
-        if len(errs) > 0 { err = errs } else { err = nil }
+        return
+}
+func (p *Path) mod(pc *traversal) (t time.Time) {
+        var err error
+        var fullname string // the addressed file target
+        if fullname, err = p.fullname(pc.stems); err != nil {
+                // oops
+        } else if fullname == "" {
+                err = errorf(p.position, "path matches no target: %v", p)
+        } else if file := stat(fullname, "", "", nil); file != nil && file.info != nil {
+                t = file.info.ModTime()
+        }
         return
 }
 func (p *Path) isPattern() (result bool) {
@@ -1699,10 +1705,6 @@ func (p *Path) isPattern() (result bool) {
                 _, result = seg.(Pattern)
                 if result { return }
         }
-        return
-}
-func (p *Path) after(v Value) (after bool, err error) {
-        // TODO: ...
         return
 }
 func (p *Path) cmp(v Value) (res cmpres) {
@@ -1723,26 +1725,10 @@ func (p *Path) match(i interface{}) (result string, stems []string, err error) {
 }
 func (p *Path) partialMatch(i interface{}) (result string, retained, stems []string, err error) {
         switch t := i.(type) {
-        case *File:
-                result, retained, stems, err = p.match1(t.name)
-                if err != nil {
-                        return
-                } else if /*result == "" &&*/ stems == nil {
-                        s := filepath.Join(t.dir, t.sub, t.name)
-                        result, retained, stems, err = p.match1(s)
-                }
-        case *filestub:
-                result, retained, stems, err = p.match1(t.name)
-                if err != nil {
-                        return
-                } else if /*result == "" &&*/ stems == nil {
-                        s := filepath.Join(t.dir, t.sub, t.name)
-                        result, retained, stems, err = p.match1(s)
-                }
-        default:
-                result, retained, stems, err = p.match1(i)
+        case *filestub: i = filepath.Join(t.dir, t.sub, t.name)
+        case *File:     i = filepath.Join(t.dir, t.sub, t.name)
         }
-        return
+        return p.match1(i)
 }
 func (p *Path) match1(i interface{}) (result string, retained, stems []string, err error) {
         var (
@@ -1750,25 +1736,18 @@ func (p *Path) match1(i interface{}) (result string, retained, stems []string, e
                 segs []Value
                 idx = 0
         )
-        switch t := i.(type) {
-        case []string: srcs = t
-        case string: srcs = strings.Split(t, PathSep)
-        /*case *File: srcs = strings.Split(t.FullName(), PathSep)
-        case *filestub:
-                s := filepath.Join(t.dir, t.sub, t.name)
-                srcs = strings.Split(s, PathSep)*/
-        case Value:
-                var s string
-                if s, err = t.Strval(); err != nil { return }
-                srcs = strings.Split(s, PathSep)
-        default:
-                unreachable("path.match: %T %v", i, i)
+        if segs, err = ExpandAll(p.Elems...); err != nil { return } else {
+                switch t := i.(type) {
+                case []string: srcs = t
+                case   string: srcs = strings.Split(t, PathSep)
+                case Value:
+                        var s string
+                        if s, err = t.Strval(); err == nil {
+                                srcs = strings.Split(s, PathSep)
+                        } else { return }
+                default: unreachable("path.match1: %T %v", i, i)
+                }
         }
-
-        if segs, err = ExpandAll(p.Elems...); err != nil {
-                return
-        }
-
 ForPathSegs:
         for n, seg := range segs {
                 if len(srcs) <= idx { break ForPathSegs }
@@ -1789,51 +1768,53 @@ ForPathSegs:
                 case Pattern:// Note that Path is also a Pattern!
                         var ss []string
 
-                        // Special case of "%%" to match many segs at once.
-                        if pp, ok := seg.(*PercPattern); ok {
-                                if ps, ok := pp.Suffix.(*PercPattern); ok {
-                                        if isNone(ps.Prefix) && isNone(ps.Suffix) {
-                                                // for all /%%/ segs
-                                                if n+1 < len(segs) && idx+1 < len(srcs) {
-                                                        // Find 'next' matched seg, aka. %%/next/xxx
-                                                        var next = segs[n+1] // e.g. '.smart' like in '%%/.smart/modules'
-                                                        switch t := next.(type) {
-                                                        case Pattern:
-                                                                for x, src := range srcs[idx+1:] {
-                                                                        var res string
-                                                                        res, ss, err = t.match(src)
-                                                                        if err != nil { return }
-                                                                        if res != "" && len(ss) > 0 {
-                                                                                end := idx + 1 + x
-                                                                                stem := strings.Join(srcs[idx:end], PathSep)
-                                                                                stems = append(stems, stem)
-                                                                                idx = end
-                                                                                continue ForPathSegs //break //
-                                                                        }
-                                                                }
-                                                        default:
-                                                                for x, src := range srcs[idx+1:] {
-                                                                        var res string
-                                                                        if res, err = t.Strval(); err != nil {
-                                                                                return
-                                                                        }
-                                                                        if res == src {
-                                                                                end := idx + 1 + x
-                                                                                stem := strings.Join(srcs[idx:end], PathSep)
-                                                                                stems = append(stems, stem)
-                                                                                idx = end
-                                                                                continue ForPathSegs //break //
-                                                                        }
-                                                                }
+                        // Special case for "/%%/" to match many segs at once.
+                        if ok, prefix, suffix := percperc(t); ok && isNone(prefix) && isNone(suffix) {
+                                if n+1 < len(segs) && idx+1 < len(srcs) {
+                                        // Find 'next' matched seg, ie. %%/next/xxx
+                                        var next = segs[n+1] // e.g. '.smart' like in '%%/.smart/modules'
+                                        switch t := next.(type) {
+                                        case Pattern:
+                                                for x, src := range srcs[idx+1:] {
+                                                        var res string
+                                                        res, ss, err = t.match(src)
+                                                        if err != nil { return }
+                                                        if res != "" && len(ss) > 0 {
+                                                                end := idx + 1 + x
+                                                                stem := strings.Join(srcs[idx:end], PathSep)
+                                                                stems = append(stems, stem)
+                                                                idx = end
+                                                                continue ForPathSegs //break //
                                                         }
-                                                        //continue ForPathSegs
-                                                } else {
-                                                        stem := strings.Join(srcs[idx:], PathSep)
-                                                        stems = append(stems, stem)
-                                                        idx = len(srcs)
-                                                        break ForPathSegs
+                                                }
+                                        default:
+                                                for x, src := range srcs[idx+1:] {
+                                                        var res string
+                                                        if res, err = t.Strval(); err != nil {
+                                                                return
+                                                        }
+                                                        if res == src {
+                                                                end := idx + 1 + x
+                                                                stem := strings.Join(srcs[idx:end], PathSep)
+                                                                stems = append(stems, stem)
+                                                                idx = end
+                                                                continue ForPathSegs //break //
+                                                        }
                                                 }
                                         }
+                                } else if len(srcs) < len(segs) {
+                                        // No matches, e.g.
+                                        //   '%%/xxx.txt' <-> 'xxx.txt'
+                                        break ForPathSegs
+                                } else if false && len(srcs) > 1 { // FIXME: this matches '%%/xxx.txt' to 'xxx.txt'
+                                        stem := strings.Join(srcs[idx:], PathSep) // WRONG!
+                                        stems = append(stems, stem)
+                                        idx = len(srcs)
+                                        break ForPathSegs
+                                } else {
+                                        // FIXME: this matches '%%/xxx.txt' to 'xxx.txt'
+                                        fmt.Fprintf(stderr, "FIXME: %v !> %v (n=%v, idx=%v)\n", p, srcs, n, idx)
+                                        break ForPathSegs
                                 }
                         }
                         
@@ -1940,7 +1921,7 @@ type filebase struct {
         updated bool // true if this file has been updated by a program
 }
 
-var filecache = make(map[string]*filebase) // File.FullName() -> File
+var filecache = make(map[string]*filebase) // File.fullname() -> File
 var statmutex = new(sync.Mutex)
 
 func (p *filestub) subname() (s string) {
@@ -2122,7 +2103,7 @@ GotFile:
                         assert(file.info != nil, "(%s %s %s) info is nil", file.name, file.sub, file.dir)
                         assert(file.info.Name() == filepath.Base(file.name), "(%s %s %s) name conflicted", file.name, file.sub, file.dir)
                         s := filepath.Join(file.dir, file.sub, file.name)
-                        assert(file.FullName() == s, "(%s %s %s) fullname conflicted (%s)", file.dir, file.sub, file.name, s)
+                        assert(file.fullname() == s, "(%s %s %s) fullname conflicted (%s)", file.dir, file.sub, file.name, s)
                 }
         }
         return
@@ -2134,9 +2115,14 @@ type File struct {
         *filestub
 }
 func (p *File) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *File) True() bool { return p.name != "" }
+func (p *File) True() (t bool, err error) {
+        if p.name != "" {
+                t = true // p.exists() == existenceConfirmed
+        }
+        return
+}
 func (p *File) String() string { return p.name }
-func (p *File) Strval() (s string, err error) { s = p.FullName(); return }
+func (p *File) Strval() (s string, err error) { s = p.fullname(); return }
 func (p *File) BaseName() (s string) {
         if p.info != nil {
                 s = p.info.Name()
@@ -2145,7 +2131,7 @@ func (p *File) BaseName() (s string) {
         }
         return
 }
-func (p *File) FullName() (s string) {
+func (p *File) fullname() (s string) {
         return filepath.Join(p.dir, p.sub, p.name)
 }
 func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
@@ -2158,6 +2144,23 @@ func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
         }
         return
 }
+func (p *File) stamp() (files []*File, err error) {
+        var fullname string
+        if p.info == nil {
+                if fullname = p.fullname(); fullname == "" {
+                        err = errorf(p.position, "no fullname for `%s`", p)
+                        return
+                }
+                if p.info, err = os.Stat(fullname); err != nil { return }
+                p.updated = true
+        }
+        if p.info != nil && err == nil {
+                if fullname == "" { fullname = p.fullname() }
+                context.globe.stamp(fullname, p.info.ModTime())
+                files = append(files, p)
+        }
+        return
+}
 func (p *File) exists() existence {
         if p != nil && p.filebase != nil {
                 return p.filebase.exists()
@@ -2166,23 +2169,18 @@ func (p *File) exists() existence {
         }
 }
 func (p *File) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal {
-                defer un(tt(pc, p))
-                pc.tracef("existence: %v (%s)", p.exists(), p)
+        if optionTraceTraversal { defer un(tt(pc, p)) }
+        //if p.cmp(pc.targetDef.value) == cmpEqual { ... }
+        if project := mostDerived(); project != nil {
+                _, err = project.traverseFile(pc, p)
+                if err != nil { return }
         }
 
-        var after bool
-        if pc.entry.target == p {
-                pc.tracef("error: target depends on itself")
-                unreachable(p, "target depends on itself")
-        } else if !exists(p) {
-                if optionTraceTraversal { pc.tracef("update: %v", p) }
-                if err = pc.updateFile(p); err == nil {
-                        pc.updated = append(pc.updated, newUpdatedTarget(p, nil))
-                }
-        } else if after, err = p.after(pc.entry.target); after && err == nil {
-                if optionTraceTraversal { pc.tracef("after: %v", p) }
+        if p.info == nil {
+                err = errorf(p.position, "file not existed: %v", p)
+        } else if p.info.ModTime().After(pc.targetDef.mod(pc)) {
                 pc.updated = append(pc.updated, newUpdatedTarget(p, nil))
+                if optionTraceTraversal { pc.tracef("updated: %v", p) }
         }
         return
 }
@@ -2284,15 +2282,8 @@ func checkPatternDepend(pc *traversal, project *Project, se *StemmedEntry, prog 
         // TODO: check filepath.Join(project.absPath, name)
         return
 }
-func (p *File) after(v Value) (after bool, err error) {
-        if p.info != nil {
-                switch t := v.(type) {
-                case *File:
-                        if t.info != nil {
-                                after = p.info.ModTime().After(t.info.ModTime())
-                        }
-                }
-        }
+func (p *File) mod(pc *traversal) (t time.Time) {
+        if p.info != nil { t = p.info.ModTime() }
         return
 }
 func (p *File) cmp(v Value) (res cmpres) {
@@ -2304,9 +2295,9 @@ func (p *File) cmp(v Value) (res cmpres) {
                         //assert(a != nil, "nil file")
                 } else if p.filebase == a.filebase {
                         res = cmpEqual
-                } else if p.FullName() == a.FullName() {
-                        s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.FullName())
-                        s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.FullName())
+                } else if p.fullname() == a.fullname() {
+                        s := fmt.Sprintf("\na: %s %s %s (%s)", p.dir, p.sub, p.name, p.fullname())
+                        s += fmt.Sprintf("\nb: %s %s %s (%s)", a.dir, a.sub, a.name, a.fullname())
                         unreachable("same files differed: ", p.name, " != ", a.name, s)
                 } else if false /*p.dir != a.dir && p.sub == a.sub && p.name == a.name*/ {
                         s := fmt.Sprintf("\n      a: %s: %s %s", p.name, p.dir, p.sub)
@@ -2319,7 +2310,7 @@ func (p *File) cmp(v Value) (res cmpres) {
 
 func (p *File) change(dir, sub, name string) (okay bool) {
         var fullname = filepath.Join(dir, sub, name)
-        if p.FullName() == fullname {
+        if p.fullname() == fullname {
                 var head = &p.filebase.stub
                 for stub := p.filestub; stub != nil; stub = stub.other {
                         if stub.dir == dir && stub.sub == sub && stub.name == name {
@@ -2333,7 +2324,7 @@ func (p *File) change(dir, sub, name string) (okay bool) {
                 head.other, okay = p.filestub, true
                 
                 if enable_assertions {
-                        assert(p.FullName() == fullname, "Changed invalid File")
+                        assert(p.fullname() == fullname, "Changed invalid File")
                 }
         }
         return
@@ -2358,7 +2349,7 @@ func (p *Flag) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *Flag) True() bool { return p.name.True() }
+func (p *Flag) True() (t bool, err error) { return p.name.True() }
 func (p *Flag) elemstr(o Object, k elemkind) (s string) {
         return "-" + elementString(o, p.name, k)
 }
@@ -2462,12 +2453,7 @@ func (p *Compound) Integer() (i int64, err error) {
         }
         return
 }
-func (p *Compound) True() (res bool) {
-        if s, err := p.Strval(); err == nil {
-                res = s != ""
-        }
-        return
-}
+func (p *Compound) True() (bool, error) { return p.elements.True() }
 func (p *Compound) refs(v Value) bool { return p.elements.refs(v) }
 func (p *Compound) closured() bool { return p.elements.closured() }
 func (p *Compound) cmp(v Value) (res cmpres) {
@@ -2540,11 +2526,11 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
 func (p *List) traverse(pc *traversal) (err error) {
         if len(p.Elems) == 0 { return } 
         if optionTraceTraversal { defer un(tt(pc, p)) }
-        var modified, updates, good *breaker
+        //var modified, updates, good *breaker
         for _, v := range p.Elems {
                 if err = v.traverse(pc); err == nil {
                         continue // The element target is good!
-                } else if br, ok := err.(*breaker); ok {
+                /*} else if br, ok := err.(*breaker); ok {
                         switch br.what {
                         case breakModified:
                                 if modified == nil { modified = br } else {
@@ -2561,12 +2547,12 @@ func (p *List) traverse(pc *traversal) (err error) {
                                 err = nil
                         default:
                                 fmt.Fprintf(stderr, "%s: list: %v: %v (%v)\n", pc.program.position, pc.entry, v, br.what)
-                        }
+                        }*/
                 } else {
                         break
                 }
         }
-        if err != nil {
+        /*if err != nil {
                 //fmt.Printf("%s: %v: prepare list error\n", pc.program.position, pc.entry)
         } else if modified != nil && err != modified {
                 err = modified
@@ -2574,7 +2560,7 @@ func (p *List) traverse(pc *traversal) (err error) {
                 err = updates
         } else if err == nil && good != nil {
                 err = good
-        }
+        }*/
         return
 }
 
@@ -2594,9 +2580,20 @@ ForElems:
         return
 }
 
-func (p *List) after(v Value) (after bool, err error) {
+func (p *List) stamp() (files []*File, err error) {
         for _, elem := range p.Elems {
-                if after, err = elem.after(v); err != nil && after { break }
+                var a []*File
+                if a, err = elem.stamp(); err != nil { break }
+                files = append(files, a...)
+        }
+        return
+}
+
+func (p *List) mod(pc *traversal) (res time.Time) {
+        for _, elem := range p.Elems {
+                if t := elem.mod(pc); t.After(res) {
+                        res = t
+                }
         }
         return
 }
@@ -2617,7 +2614,7 @@ func (p *Group) elemstr(o Object, k elemkind) string {
         }
         return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
-func (p *Group) after(v Value) (bool, error) { return p.trivial.after(v) }
+func (p *Group) mod(pc *traversal) time.Time { return p.trivial.mod(pc) }
 func (p *Group) Position() Position { return p.trivial.Position() }
 func (p *Group) Float() (float64, error) { return p.trivial.Float() }
 func (p *Group) Integer() (int64, error) { return p.trivial.Integer() }
@@ -2629,6 +2626,7 @@ func (p *Group) Strval() (s string, err error) {
         return
 }
 func (p *Group) traverse(pc *traversal) (err error) { return }
+func (p *Group) stamp() (files []*File, err error) { return }
 func (p *Group) exists() existence { return p.List.exists() }
 func (p *Group) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
@@ -2650,6 +2648,7 @@ func (p *Group) cmp(v Value) (res cmpres) {
 }
 
 type Pair struct { // key=value
+        trivial
         Key Value
         Value Value
 }
@@ -2663,15 +2662,18 @@ func (p *Pair) expand(x expandwhat) (res Value, err error) {
                         if k != p.Key || v != p.Value {
                                 if k == nil { k = p.Key }
                                 if v == nil { v = p.Value }
-                                res = &Pair{ k, v }
+                                res = &Pair{p.trivial,k,v}
                         }
                 }
         }
         return
 }
-func (p *Pair) traverse(pc *traversal) (err error) { return }
-func (p *Pair) Position() Position { return p.Key.Position() }
-func (p *Pair) True() bool { return p.Value.True() || p.Key.True() }
+func (p *Pair) True() (t bool, err error) {
+        if t, err = p.Value.True(); err == nil && !t {
+                t, err = p.Key.True()
+        }
+        return
+}
 func (p *Pair) elemstr(o Object, k elemkind) string {
         return elementString(o, p.Key, k)+`=`+elementString(o, p.Value, k)
 }
@@ -2694,8 +2696,6 @@ func (p *Pair) SetKey(k Value) {
         }
         p.Key = k
 }
-func (p *Pair) exists() existence { return existenceMatterless }
-func (p *Pair) after(v Value) (after bool, err error) { return }
 func (p *Pair) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Pair); ok {
                 assert(ok, "value is not Pair")
@@ -2748,9 +2748,10 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
 
 // Delegate wraps '$(foo a,b,c)' into Valuer
 type delegate struct { trivial ; closuredelegate }
-func (p *delegate) True() (t bool) {
-        if v, err := p.expand(expandAll); err == nil {
-                t = v.True()
+func (p *delegate) True() (t bool, err error) {
+        var v Value
+        if v, err = p.expand(expandAll); err == nil {
+                t, err = v.True()
         }
         return
 }
@@ -2868,14 +2869,18 @@ func (p *delegate) closured() bool {
 }
 func (p *delegate) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-
         var val Value
-        if val, err = p.expand(expandDelegate); err != nil { return }
-        err = pc.traverse(val) //err = pc.traverseAll(merge(val))
+        if val, err = p.expand(expandAll); err == nil {
+                err = pc.traverse(val)
+        }
         return
 }
-func (p *delegate) after(v Value) (after bool, err error) {
-        // TODO: ...
+func (p *delegate) mod(pc *traversal) (t time.Time) {
+        var err error
+        var val Value
+        if val, err = p.expand(expandAll); err == nil {
+                t = val.mod(pc)
+        }
         return
 }
 func (p *delegate) cmp(v Value) (res cmpres) {
@@ -2895,10 +2900,11 @@ func (p *delegate) cmp(v Value) (res cmpres) {
 }
 
 type closure struct { trivial ; closuredelegate }
-func (p *closure) True() (t bool) {
-        if s, err := p.Strval(); err == nil {
-                t = s != ""
-        }        
+func (p *closure) True() (t bool, err error) {
+        var v Value
+        if v, err = p.expand(expandAll); err == nil {
+                t, err = v.True()
+        }
         return
 }
 func (p *closure) elemstr(o Object, k elemkind) (s string) {
@@ -3072,8 +3078,12 @@ func (p *closure) traverse(pc *traversal) (err error) {
         }
         return
 }
-func (p *closure) after(v Value) (after bool, err error) {
-        // TODO: ...
+func (p *closure) mod(pc *traversal) (t time.Time) {
+        var err error
+        var val Value
+        if val, err = p.expand(expandAll); err == nil {
+                t = val.mod(pc)
+        }
         return
 }
 func (p *closure) cmp(v Value) (res cmpres) {
@@ -3098,9 +3108,10 @@ type selection struct {
         o Value // Object or selection
         s Value
 }
-func (p *selection) True() (t bool) {
-        if s, err := p.Strval(); err == nil {
-                t = s != ""
+func (p *selection) True() (t bool, err error) {
+        var v Value
+        if v, err = p.value(); err == nil {
+                t, err = v.True()
         }
         return
 }
@@ -3211,7 +3222,6 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
 }
 func (p *selection) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-
         var v Value
         if v, err = p.value(); err != nil {
                 // sth's wrong
@@ -3222,8 +3232,16 @@ func (p *selection) traverse(pc *traversal) (err error) {
         }
         return
 }
-func (p *selection) after(v Value) (after bool, err error) {
-        // TODO: ...
+func (p *selection) mod(pc *traversal) (t time.Time) {
+        var err error
+        var v Value
+        if v, err = p.value(); err != nil {
+                // sth's wrong
+        } else if v == nil {
+                err = fmt.Errorf("`%v` is nil", p)
+        } else {
+                t = v.mod(pc)
+        }
         return
 }
 func (p *selection) cmp(v Value) (res cmpres) {
@@ -3410,6 +3428,19 @@ func (p *PercPattern) cmp(v Value) (res cmpres) {
                         if p.Suffix.cmp(a.Suffix) == cmpEqual {
                                 res = cmpEqual
                         }
+                }
+        }
+        return
+}
+
+// Check for patterns like foo%%bar
+func percperc(p Pattern) (t bool, prefix, suffix Value) {
+        if p1, ok := p.(*PercPattern); ok {
+                if p2, ok := p1.Suffix.(*PercPattern); ok {
+                        // assert(isNone(p2.Prefix))
+                        prefix = p1.Prefix
+                        suffix = p2.Suffix
+                        t = true
                 }
         }
         return
@@ -3643,7 +3674,7 @@ func mergeresult(res []Value, err error) ([]Value, error) {
 }
 
 func trueVal(v Value, res bool) bool {
-        if v != nil { res = v.True() }
+        if v != nil { res, _ = v.True() }
         return res
 }
 
@@ -3773,7 +3804,7 @@ func MakePathStr(pos Position, str string) (v *Path) {
         return MakePath(pos, segments...)
 }
 func MakePair(pos Position, k, v Value) (p *Pair) {
-        p = &Pair{nil, nil}
+        p = &Pair{trivial{pos},nil,nil}
         p.SetKey(k)
         p.SetValue(v)
         return

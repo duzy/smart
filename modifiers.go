@@ -33,14 +33,14 @@ type breakind int
 
 func (k breakind) String() (s string) {
         switch k {
-        case breakBad:  s = "break.bad"
-        case breakGood: s = "break.good"
-        case breakModified: s = "break.modified"
-        case breakUpdates: s = "break.updates"
-        case breakDone: s = "break.done"
-        case breakNext: s = "break.next"
-        case breakCase: s = "break.case"
-        case breakFail: s = "break.fail"
+        case breakBad:          s = "break.bad"
+        case breakGood:         s = "break.good"
+        case breakModified:     s = "break.modified"
+        case breakUpdates:      s = "break.updates"
+        case breakDone:         s = "break.done"
+        case breakNext:         s = "break.next"
+        case breakCase:         s = "break.case"
+        case breakFail:         s = "break.fail"
         }
         return
 }
@@ -153,8 +153,7 @@ func (_ *modifier) cmp(v Value) (res cmpres) {
 }
 func (m *modifier) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, m)) }
-        err = pc.program.modify(pc, m)
-        return
+        return pc.program.modify(pc, m)
 }
 func (m *modifier) Strval() (s string, err error) {
         s = m.String()
@@ -201,15 +200,10 @@ ForElems:
         return
 }
 func (g *modifiergroup) expand(_ expandwhat) (Value, error) { return g, nil }
-func (_ *modifiergroup) after(v Value) (after bool, err error) { return }
 func (_ *modifiergroup) cmp(v Value) (res cmpres) { 
         if _, ok := v.(*modifiergroup); ok { res = cmpEqual }
         return
 }
-func (g *modifiergroup) Position() Position { return g.position }
-func (g *modifiergroup) True() bool { return false }
-func (g *modifiergroup) Integer() (int64, error) { return 0, nil }
-func (g *modifiergroup) Float() (float64, error) { return 0, nil }
 func (g *modifiergroup) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, g)) }
 ForModifiers:
@@ -217,7 +211,8 @@ ForModifiers:
                 if err = m.traverse(pc); err != nil {
                         switch t := err.(type) {
                         case *breaker:
-                                if t.what == breakDone {
+                                switch pc.breaker = t; t.what {
+                                case breakDone:
                                         // Stop traversing this group and
                                         // return the breaker to the caller.
                                         break ForModifiers
@@ -242,7 +237,7 @@ func (g *modifiergroup) String() (s string) {
         return
 }
 
-type ModifierFunc func(pos Position, prog *Program, args... Value) (Value, error)
+type ModifierFunc func(pos Position, pc *traversal, args... Value) (Value, error)
 
 var (
         modifiers = map[string]ModifierFunc{
@@ -328,11 +323,11 @@ func promptShellResult(value Value, n int) (err error) {
 }
 
 // select element by index from group result: (select 0)
-func modifierSelect(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierSelect(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var value Value
-        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
+        if value, err = pc.program.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
         if g, ok := value.(*Group); ok && len(args) > 0 {
                 var num int64
                 if num, err = args[0].Integer(); err == nil {
@@ -344,17 +339,17 @@ func modifierSelect(pos Position, prog *Program, args... Value) (result Value, e
         return
 }
 
-func modifierSetArgs(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierSetArgs(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         // TODO: preserve args for interpreter
         return
 }
 
-func modifierSetEnv(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierSetEnv(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var envars = new(List)
-        if _, err = prog.auto(TheShellEnvarsDef, envars); err != nil { return }
+        if _, err = pc.program.auto(TheShellEnvarsDef, envars); err != nil { return }
         for _, a := range args {
                 if _, ok := a.(*Pair); ok {
                         envars.Append(a)
@@ -371,7 +366,7 @@ func modifierSetEnv(pos Position, prog *Program, args... Value) (result Value, e
 //     [(set name=value)]    set $(name) to 'value'
 //     [(set name)]          clear $(name)
 //     [(set -)]             clear $-
-func modifierSetVar(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierSetVar(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 ForArgs:
         for _, arg := range args {
@@ -393,7 +388,7 @@ ForArgs:
                         err = scanner.Errorf(token.Position(pos), "%T `%s` is unsupported (try: foo=value)", arg, arg)
                         break ForArgs
                 }
-                if def := prog.scope.FindDef(name); def == nil {
+                if def := pc.program.scope.FindDef(name); def == nil {
                         err = scanner.Errorf(token.Position(pos), "`%s` no such def", name)
                         break ForArgs
                 } else {
@@ -405,7 +400,7 @@ ForArgs:
 }
 
 // create closure context of caller
-func modifierClosure(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierClosure(pos Position, pc *traversal, args... Value) (result Value, err error) {
         // Set caller context before parsing arguments (pop the top one).
         // The context will be restored when execution is finished.
         if len(cloctx) > 0 { cloctx = cloctx[1:] }
@@ -437,14 +432,14 @@ func modifierClosure(pos Position, prog *Program, args... Value) (result Value, 
                 err = scanner.Errorf(token.Position(pos), "&/ is empty (%s)", cloctx[0].comment)
         } else if !filepath.IsAbs(dir) {
                 err = scanner.Errorf(token.Position(pos), "&/ is relative (%s)", cloctx[0].comment)
-        } else if err = enter(prog, dir); err == nil {
-                prog.project.changedWD = dir
-                prog.changedWD = dir
+        } else if err = enter(pc.program, dir); err == nil {
+                pc.program.project.changedWD = dir
+                pc.program.changedWD = dir
         }
         return
 }
 
-func modifierUnclose(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierUnclose(pos Position, pc *traversal, args... Value) (result Value, err error) {
         fmt.Fprintf(stderr, "%v: (unclose) is deprecated by (closure)\n", pos)
         if len(cloctx) > 0 {
                 cloctx = cloctx[1:]
@@ -466,13 +461,13 @@ func findBacktrackDir() (dir string) {
         return
 }
 
-func modifierCD(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierCD(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var optPath bool
         var optPrintEnter bool
         var optPrintLeave bool
-        //var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
+        //var target, _ = pc.program.scope.Lookup("@").(*Def).Call(pos)
         //if _, ok := target.(*Flag); ok { optPrint = false }
         if args, err = parseFlags(args, []string{
                 "p,path",
@@ -508,14 +503,14 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
                         return
                 }
                 if !filepath.IsAbs(dir) {
-                        dir = filepath.Join(prog.project.absPath, dir)
+                        dir = filepath.Join(pc.program.project.absPath, dir)
                 }
                 if optPath && dir != "." && dir != ".." && dir != PathSep {// mkdir -p
                         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
                 }
-                if err = enter(prog, dir); err == nil {
-                        prog.project.changedWD = dir
-                        prog.changedWD = dir
+                if err = enter(pc.program, dir); err == nil {
+                        pc.program.project.changedWD = dir
+                        pc.program.changedWD = dir
                 }
         } else {
                 err = scanner.Errorf(token.Position(pos), "cd: wrong number of args (%v)", args)
@@ -523,17 +518,17 @@ func modifierCD(pos Position, prog *Program, args... Value) (result Value, err e
         return
 }
 
-func modifierSudo(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierSudo(pos Position, pc *traversal, args... Value) (result Value, err error) {
         panic("todo: sudo modifier is not implemented yet")
         return
 }
 
-func parseDependList(pos Position, prog *Program, dependList *List) (depends *List, err error) {
+func parseDependList(pos Position, pc *traversal, dependList *List) (depends *List, err error) {
         depends = new(List)
         for _, depend := range dependList.Elems {
                 switch d := depend.(type) {
                 case *List:
-                        if dl, e := parseDependList(pos, prog, d); e != nil {
+                        if dl, e := parseDependList(pos, pc, d); e != nil {
                                 err = e; return
                         } else {
                                 depends.Elems = append(depends.Elems, dl.Elems...)
@@ -553,7 +548,7 @@ func parseDependList(pos Position, prog *Program, dependList *List) (depends *Li
                                 err = scanner.Errorf(token.Position(pos), "unsupported entry depend `%v' (%v)", d, d.Class())
                         }
                 case *String:
-                        /*if prog.project.IsFile(d.Strval()) {
+                        /*if pc.program.project.IsFile(d.Strval()) {
                                 Fail("compare: discarded file depend %v (%T)", depend, depend)
                         } else*/ {
                                 depends.Append(d)
@@ -561,13 +556,13 @@ func parseDependList(pos Position, prog *Program, dependList *List) (depends *Li
                 case *File:
                         depends.Append(d)
                 default:
-                        err = scanner.Errorf(token.Position(pos), "unsupported entry depend `%v' (%v)", depend, prog.depends)
+                        err = scanner.Errorf(token.Position(pos), "unsupported entry depend `%v' (%v)", depend, pc.program.depends)
                 }
         }
         return
 }
 
-func compareTargetDepend(pos Position, prog *Program, target, depend Value, tt time.Time) (outdated bool, err error) {
+func compareTargetDepend(pos Position, pc *traversal, target, depend Value, tt time.Time) (outdated bool, err error) {
         if dependFile, okay := depend.(*File); okay && dependFile != nil {
                 var str string
                 if str, err = dependFile.Strval(); err != nil { return }
@@ -589,18 +584,18 @@ func compareTargetDepend(pos Position, prog *Program, target, depend Value, tt t
                                 recipes []Value
                                 strings []string
                         )
-                        if recipes, err = Disclose(prog.recipes...); err != nil {
+                        if recipes, err = Disclose(pc.program.recipes...); err != nil {
                                 return
                         }
                         for _, recipe := range recipes {
                                 strings = append(strings, recipe.String())
                         }
-                        if same, e := prog.project.CheckCmdHash(target, strings); e == nil {
+                        if same, e := pc.program.project.CheckCmdHash(target, strings); e == nil {
                                 outdated = !same
                         }
                 }
                 if !outdated {
-                        //ent, _ := prog.project.Entry(depend.Strval())
+                        //ent, _ := pc.program.project.Entry(depend.Strval())
                         //fmt.Fprintf(stderr, "compare: %v\n", ent)
                 }
         } else {
@@ -662,7 +657,7 @@ var grepCacheFilebase = make(map[*filebase]*grepCacheFiles)
 //   (regexp=(sys='...' '...') $^)
 //   (regexp='...' sys='...' $^)
 //   (regexp='...' s='~' $^)
-func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value, err error) {
+func parseGrepOption(pos Position, pc *traversal, optGrep Value) (result []Value, err error) {
         var (
                 optReportMissing bool = true
                 optDiscardMissing bool
@@ -695,19 +690,19 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                         if v == nil {
                                 optReportMissing = true
                         } else {
-                                optReportMissing = v.True()
+                                optReportMissing, _ = v.True()
                         }
                 case 'i':
                         if v == nil {
                                 optDiscardMissing = true
                         } else {
-                                optDiscardMissing = v.True()
+                                optDiscardMissing, _ = v.True()
                         }
                 case 'r':
                         if v == nil {
                                 optRecursive = true
                         } else {
-                                optRecursive = v.True()
+                                optRecursive, _ = v.True()
                         }
                 case 'x':
                         // regexp=(top=(foo,bar,baz) sys='^\s*#\s*include\s*<(.*)>' '^\s*#\s*include\s*"(.*)"')
@@ -783,7 +778,7 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                                         }
                                 } else if exists(t) {
                                         var list []Value
-                                        list, err = prog.pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
+                                        list, err = pc.program.pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
                                         if err != nil { return }
                                         info = &grepCacheFiles{ file:t }
                                         grepCacheFilebase[t.filebase] = info
@@ -818,7 +813,7 @@ func parseGrepOption(pos Position, prog *Program, optGrep Value) (result []Value
                 if s, err = store.Strval(); err != nil { return }
         }
         if s == "" { s = "~" } // append to $~ by default
-        if def := prog.scope.FindDef(s); def != nil {
+        if def := pc.program.scope.FindDef(s); def != nil {
                 def.append(result...)
                 result = nil
         } else {
@@ -833,7 +828,7 @@ var uniqueCompareGood = make(map[string]*breaker)
 // grepcmps := '^\s*#\s*include\s*"(.*)"'
 // (compare -pg=(regexp=(top=(llvm,llvm-c,clang,clang-c) sys=$(sysgrcmp) $(grepcmps)) -re $<))
 // (compare -pg=(lang=c++) -re $<)
-/*func modifierCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
+/*func modifierCompare(pos Position, pc *traversal, args... Value) (result Value, err error) {
         var (
                 optDiscardMissing, optVerbose bool
                 optPath, optNoUpdate, optMulti bool
@@ -866,14 +861,14 @@ var uniqueCompareGood = make(map[string]*breaker)
 
         // No need to do further comparation if any prerequisites
         // already modified. We have to update the target if so.
-        if len(prog.pc.modified) > 0 {
+        if len(pc.program.pc.modified) > 0 {
                 // Just return to continue with the rest modifiers.
                 return
         }
         
         var target Value
         var targetStr string
-        var targetDef = prog.pc.targetDef // $@
+        var targetDef = pc.program.pc.targetDef // $@
         if n := len(args); n == 1 {
                 // Change $@ to args[0]
                 targetDef.set(DefDefault, args[0])
@@ -909,7 +904,7 @@ var uniqueCompareGood = make(map[string]*breaker)
         }
 
         // Block until all prerequisites are good.
-        if err = prog.waitForPrerequisites(); err != nil {
+        if err = pc.program.waitForPrerequisites(); err != nil {
                 return
         }
 
@@ -935,9 +930,9 @@ var uniqueCompareGood = make(map[string]*breaker)
         }
 
         var depends []Value
-        depends = append(depends, prog.pc.dependsDef.Value) // $^
-        depends = append(depends, prog.pc.orderedDef.Value) // $|
-        depends = append(depends, prog.pc.greppedDef.Value) // $~
+        depends = append(depends, pc.program.pc.dependsDef.Value) // $^
+        depends = append(depends, pc.program.pc.orderedDef.Value) // $|
+        depends = append(depends, pc.program.pc.greppedDef.Value) // $~
         if grepped != nil { depends = append(depends, grepped) }
 
         if true { // 'false' is okay here
@@ -947,7 +942,7 @@ var uniqueCompareGood = make(map[string]*breaker)
 
         // Change into compare mode to avoid interpretion if there're
         // no targets are updated
-        //prog.pc.mode = compareMode
+        //pc.program.pc.mode = compareMode
 
         var c *comparer
         if c, err = newcompariation(prog, target); err != nil {
@@ -958,7 +953,7 @@ var uniqueCompareGood = make(map[string]*breaker)
                 if true {
                         fmt.Fprintf(stderr, "smart: Checking %s …", target)
                 } else {
-                        tar, _ := filepath.Rel(prog.project.absPath, targetStr)
+                        tar, _ := filepath.Rel(pc.program.project.absPath, targetStr)
                         fmt.Fprintf(stderr, "smart: Checking %s …", tar)
                 }
         }
@@ -1017,7 +1012,7 @@ var uniqueCompareGood = make(map[string]*breaker)
 //
 //      (grep-compare '\s*#\s*include\s*<(.*)>')
 //      
-/*func modifierGrepCompare(pos Position, prog *Program, args... Value) (result Value, err error) {
+/*func modifierGrepCompare(pos Position, pc *traversal, args... Value) (result Value, err error) {
         var (
                 optPath, optNoUpdate, optDisMiss bool
                 optTarget Value
@@ -1038,7 +1033,7 @@ var uniqueCompareGood = make(map[string]*breaker)
                 }
         }); err != nil { return }
 
-        var target = prog.scope.Lookup("@").(*Def)
+        var target = pc.program.scope.Lookup("@").(*Def)
         if optTarget != nil {
                 defer func(v Value) { target.set(DefDefault, v) } (target.Value)
                 target.set(DefDefault, optTarget)
@@ -1073,14 +1068,14 @@ var uniqueCompareGood = make(map[string]*breaker)
 //
 //      (grep-dependencies '\s*#\s*include\s*<(.*)>')
 //      
-func modifierGrepDependencies(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierGrepDependencies(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if v, e := modifierGrepFiles(pos, prog, args...); e != nil {
                 err = e
         } else if v != nil {
                 if false {
-                        err = prog.scope.Lookup("^").(*Def).append(v)
+                        err = pc.program.scope.Lookup("^").(*Def).append(v)
                 } else {
-                        err = prog.scope.Lookup("|").(*Def).append(v)
+                        err = pc.program.scope.Lookup("|").(*Def).append(v)
                 }
         }
         return
@@ -1138,7 +1133,7 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
         switch t := target.(type) {
         case *File:
                 targetName = t.name
-                targetFileName = t.FullName()
+                targetFileName = t.fullname()
                 targetDir = filepath.Dir(targetFileName)
         default:
                 targetDir = p.absPath
@@ -1381,7 +1376,7 @@ ForScan:
 //      (grep-files '\s*#\s*include\s*<(.*)>')
 //      
 // https://github.com/google/re2/wiki/Syntax
-func modifierGrepFiles(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierGrepFiles(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var top []Value
@@ -1432,8 +1427,8 @@ func modifierGrepFiles(pos Position, prog *Program, args... Value) (result Value
         }
 
         var list []Value
-        var target, _ = prog.scope.Lookup("@").(*Def).Call(pos)
-        list, err = prog.pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
+        var target, _ = pc.program.scope.Lookup("@").(*Def).Call(pos)
+        list, err = pc.program.pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
         result = MakeListOrScalar(pos, list)
         return
 }
@@ -1448,7 +1443,7 @@ func modifierGrepFiles(pos Position, prog *Program, args... Value) (result Value
 //      (grep -files '\s*#\s*include\s*<(.*)>')
 //      
 // https://github.com/google/re2/wiki/Syntax
-func modifierGrep(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierGrep(pos Position, pc *traversal, args... Value) (result Value, err error) {
         err = scanner.Errorf(token.Position(pos), "unimplemented grep %v", args)
         return
 }
@@ -1457,11 +1452,11 @@ func modifierGrep(pos Position, prog *Program, args... Value) (result Value, err
 // (check file=filename.txt)
 // (check dir=directory)
 // (check var=(NAME,VALUE))
-func modifierCheck(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierCheck(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var value Value
-        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
+        if value, err = pc.program.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
 
         var optBreak breakind // breaking with good results
         var optSilent bool // don't break on failures
@@ -1543,7 +1538,7 @@ ForPairs:
                         }
                 case "file", "dir":
                         var file *File
-                        var project = prog.pc.derived //mostDerived() // prog.project
+                        var project = pc.program.pc.derived //mostDerived() // pc.program.project
                         if str, err = t.Value.Strval(); err != nil { return }
                         if file := project.searchFile(str); !exists(file) {
                                 err = break_with(pos, optBreak, "`%v` no such file or directory", t.Value)
@@ -1577,7 +1572,7 @@ ForPairs:
                                 case *Pair:
                                         var k, a, b string
                                         if k, err = p.Key.Strval(); err != nil { break ForPairs }
-                                        var def = prog.project.scope.FindDef(k)
+                                        var def = pc.program.project.scope.FindDef(k)
                                         if def != nil {
                                                 if a, err = p.Value.Strval(); err != nil { break ForPairs }
                                                 if b, err = def.value.Strval(); err != nil { break ForPairs }
@@ -1703,7 +1698,7 @@ func copyFile(srcFi os.FileInfo, src, dst string, opts *copyopts) (err error) {
 
 // (path $(dir $@))
 // (path /example/path)
-func modifierPath(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierPath(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else if args, err = parseFlags(args, []string{
@@ -1713,7 +1708,7 @@ func modifierPath(pos Position, prog *Program, args... Value) (result Value, err
         }); err != nil { return }
         if len(args) == 0 {
                 var target Value
-                if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+                if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil {
                         return
                 }
                 var s string
@@ -1737,7 +1732,7 @@ func modifierPath(pos Position, prog *Program, args... Value) (result Value, err
 // (copy-file -vp)
 // (copy-file -p,filename)
 // (copy-file -p,filename,source)
-func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierCopyFile(pos Position, pc *traversal, args... Value) (result Value, err error) {
         var (
                 optPath bool
                 optRecursive bool
@@ -1778,18 +1773,18 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         var source Value
         if len(args) > 0 {
                 target = args[0]
-        } else if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+        } else if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil {
                 return
         }
         if len(args) > 1 {
                 source = args[1]
-        } else if source, err = prog.scope.Lookup("<").(*Def).Call(pos); err != nil {
+        } else if source, err = pc.program.scope.Lookup("<").(*Def).Call(pos); err != nil {
                 return
         }
 
         // Get target filename
         var (
-                project = prog.pc.derived //mostDerived() // prog.project
+                project = pc.program.pc.derived //mostDerived() // pc.program.project
                 filename, srcname string
                 filetime, srctime time.Time
         )
@@ -1837,8 +1832,8 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         }
 
         if filepath.Base(srcname) != filepath.Base(filename) {
-                t, _ := prog.scope.Lookup("@").(*Def)
-                a, _ := prog.scope.Lookup("^").(*Def)
+                t, _ := pc.program.scope.Lookup("@").(*Def)
+                a, _ := pc.program.scope.Lookup("^").(*Def)
                 fmt.Printf("warning: %v, %v (%v) (%v)\n", target, source, t, a)
         }
 
@@ -1879,7 +1874,7 @@ func modifierCopyFile(pos Position, prog *Program, args... Value) (result Value,
         return
 }
 
-func modifierWriteFile(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierWriteFile(pos Position, pc *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var (
@@ -1887,7 +1882,7 @@ func modifierWriteFile(pos Position, prog *Program, args... Value) (result Value
                 target Value
                 f *os.File
         )
-        if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+        if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil {
                 return
         } else if filename, err = target.Strval(); err != nil {
                 return
@@ -1896,7 +1891,7 @@ func modifierWriteFile(pos Position, prog *Program, args... Value) (result Value
                 defer f.Close()
 
                 var value Value
-                if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil {
+                if value, err = pc.program.scope.Lookup("-").(*Def).Call(pos); err != nil {
                         return
                 } else if str, err = value.Strval(); err != nil {
                         return
@@ -1911,11 +1906,11 @@ func modifierWriteFile(pos Position, prog *Program, args... Value) (result Value
         return
 }
 
-func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Value, err error) {
-        //if m := prog.pc.mode; m == compareMode {
+func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        //if m := pc.program.pc.mode; m == compareMode {
         //        return /* not working in compare mode */
         //}
-        //if m := prog.pc.mode; m != updateMode {
+        //if m := pc.program.pc.mode; m != updateMode {
         //        //return /* only configure in update mode */
         //}
 
@@ -1950,7 +1945,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         }); err != nil { return }
 
         var target Value
-        if target, err = prog.scope.Lookup("@").(*Def).Call(pos); err != nil {
+        if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil {
                 return
         }
         
@@ -1962,7 +1957,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         }
 
         // Get target filename
-        var project = prog.pc.derived //mostDerived() // prog.project
+        var project = pc.program.pc.derived //mostDerived() // pc.program.project
         switch t := target.(type) {
         case *File:
                 if filename, err = t.Strval(); err != nil {
@@ -1984,6 +1979,9 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         if optPath {
                 if p := filepath.Dir(filename); p != "." && p != "/" {
                         if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
+                                fmt.Printf("update-file: -p: %v\n", filename)
+                                fmt.Printf("update-file: -p: %v\n", p)
+                                fmt.Printf("update-file: %v\n", err)
                                 return
                         }
                 }
@@ -1991,7 +1989,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
 
         // Check existed file content checksum
         var value Value
-        if value, err = prog.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
+        if value, err = pc.program.scope.Lookup("-").(*Def).Call(pos); err != nil { return }
         if content, err = value.Strval(); err != nil { return }
 
         var f *os.File
@@ -2025,9 +2023,9 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         if optVerbose {
                 printEnteringDirectory()
                 if false {
-                        fmt.Fprintf(stderr, "smart: Updating '%v' …", filename)
+                        fmt.Fprintf(stderr, "smart: Update %v …", filename)
                 } else {
-                        fmt.Fprintf(stderr, "smart: Updating '%v' …", target)
+                        fmt.Fprintf(stderr, "smart: Update %v …", target)
                 }
         }
 
@@ -2053,7 +2051,7 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
         return
 }
 
-/*func modifierParallel(pos Position, prog *Program, args... Value) (result Value, err error) {
+/*func modifierParallel(pos Position, pc *traversal, args... Value) (result Value, err error) {
         // TODO: specify parallel options, e.g.:
         //   (parallel -n=0) # turn off
         //   (parallel -n=5) # five workers
@@ -2061,13 +2059,14 @@ func modifierUpdateFile(pos Position, prog *Program, args... Value) (result Valu
 }*/
 
 // (assert condition,'error message...')
-func modifierAssert(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierAssert(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        var t bool
         if len(args) == 0 {
                 err = &breaker{
                         pos:pos, what:breakFail,
                         message: "zero-args assertion",
                 }
-        } else if !args[0].True() {
+        } else if t, err = args[0].True(); err == nil && !t {
                 var br = &breaker{
                         pos:pos, what:breakFail,
                         message: "assertion failed",
@@ -2080,12 +2079,13 @@ func modifierAssert(pos Position, prog *Program, args... Value) (result Value, e
         return
 }
 
-func modifierCase(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierCase(pos Position, pc *traversal, args... Value) (result Value, err error) {
         for _, arg := range args {
                 for _, a := range merge(arg) {
-                        var cond Value
-                        if cond, err = a.expand(expandAll); err != nil { return }
-                        if !cond.True() {
+                        var t bool
+                        if t, err = a.True(); err != nil {
+                                break
+                        } else if !t {
                                 err = &breaker{ pos:pos, what:breakNext }
                                 return
                         }
@@ -2095,12 +2095,16 @@ func modifierCase(pos Position, prog *Program, args... Value) (result Value, err
         return
 }
 
-func modifierCond(pos Position, prog *Program, args... Value) (result Value, err error) {
+func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err error) {
         for _, arg := range args {
                 for _, a := range merge(arg) {
-                        var cond Value
-                        if cond, err = a.expand(expandAll); err != nil { return }
-                        if !cond.True() {
+                        var t = true
+                        if f, ok := a.(*Flag); ok && f.String() == "-dirty" {
+                                t = pc.breaker != nil || (exists(pc.targetDef.value) && len(pc.updated) == 0)
+                        } else if t, err = a.True(); err != nil {
+                                break
+                        }
+                        if !t {
                                 err = &breaker{ pos:pos, what:breakDone }
                                 return
                         }

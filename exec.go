@@ -8,7 +8,6 @@ package smart
 
 import (
         "extbit.io/smart/scanner"
-        "extbit.io/smart/token"
         "path/filepath"
         "sync/atomic"
         "os/exec"
@@ -266,12 +265,12 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.C
                         case rxFileNotFound_i:
                                 if p.report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4]) }
                                 if err == nil {
-                                        err = scanner.Errorf(token.Position(pos), "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
+                                        err = errorf(pos, "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
                                 }
                         case rxArNoSuchFile_i:
                                 if p.report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1]) }
                                 if err == nil {
-                                        err = scanner.Errorf(token.Position(pos), "`%v` file not found", filepath.Base(string(v[1])))
+                                        err = errorf(pos, "`%v` file not found", filepath.Base(string(v[1])))
                                 }
                         }
                 }
@@ -298,7 +297,7 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.C
                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                         p.runAndProcessKnownErrors(prog, dock, c, x, num+1) // retry
                 } else {
-                        //err = scanner.Errorf(token.Position(prog.position), "`%s` no such container", tag)
+                        //err = errorf(prog.position, "`%s` no such container", tag)
                 }
         }
         return
@@ -335,7 +334,7 @@ func (p *ExecResult) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *ExecResult) True() bool { return p.Status == 0 && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */ }
+func (p *ExecResult) True() (bool, error) { return p.Status == 0 && p.Stderr.Buf.Len() == 0 /* && p.Stdout.Buf.Len() > 0 */, nil }
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
 func (p *ExecResult) Strval() (s string, err error) {
@@ -671,10 +670,10 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         if logFileName == "" {
                 // no log required
         } else if err = os.MkdirAll(filepath.Dir(logFileName), os.FileMode(0755)); err != nil {
-                fmt.Printf("MkdirAll: %v\n", err)
+                errorf(prog.position, "%v", err)
                 return // FIXME: err for outer func
         } else if logfile, err = os.Create(logFileName); err != nil {
-                fmt.Printf("Create: %v\n", err)
+                errorf(prog.position, "%v", err)
                 return // FIXME: err for outer func
         } else {
                 cmdline := strings.Join(sources, "\n")
@@ -833,11 +832,11 @@ func stamp(target Value, start time.Time, verb bool) (err error) {
         if t, err = target.expand(expandAll); err != nil {
                 return
         }
-        switch t := t.(type) {
+        /*switch t := t.(type) {
         case *Bareword, *Flag:
                 // does nothing...
         case *File:
-                fullname := t.FullName()
+                fullname := t.fullname()
                 if t.info, err = os.Stat(fullname); err != nil { break }
                 t.updated = true
                 context.globe.stamp(fullname, t.info.ModTime())
@@ -847,7 +846,7 @@ func stamp(target Value, start time.Time, verb bool) (err error) {
                 }
         case *Path:
                 //if t.File == nil { break }
-                //fullname := t.File.FullName()
+                //fullname := t.File.fullname()
                 //t.File.info, err = os.Stat(fullname)
                 //context.globe.stamp(fullname, t.File.info.ModTime())
                 var fullname string
@@ -868,6 +867,13 @@ func stamp(target Value, start time.Time, verb bool) (err error) {
         default:
                 if verb {
                         fmt.Printf("smart: Updated %v (stamp %T)\n", target, target)
+                }
+        }*/
+        var files []*File
+        if files, err = t.stamp(); err == nil && verb {
+                for _, file := range files {
+                        d := file.info.ModTime().Sub(start);
+                        fmt.Printf("smart: Updated %v (%v)\n", file, d)
                 }
         }
         return

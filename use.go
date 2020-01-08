@@ -9,6 +9,7 @@ package smart
 import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
+        "time"
         "fmt"
 )
 
@@ -42,6 +43,13 @@ func (p *using) expand(w expandwhat) (Value, error) {
         }
         return p, nil
 }
+func (p *using) mod(pc *traversal) (res time.Time) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                // FIXME: entry maybe not pointing to the real target
+                res = entry.mod(pc)
+        }
+        return
+}
 func (p *using) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
         if _, done := usingPrepared[p.project]; done {
@@ -65,6 +73,12 @@ func (p *using) traverse(pc *traversal) (err error) {
         }
         return
 }
+func (p *using) stamp() (files []*File, err error) {
+        if entry := p.project.DefaultEntry(); entry != nil {
+                files, err = entry.stamp()
+        }
+        return
+}
 func (p *using) exists() (res existence) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 res = entry.exists()
@@ -82,7 +96,7 @@ func (p *using) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *using) True() bool { return p.project != nil }
+func (p *using) True() (bool, error) { return p.project != nil, nil }
 func (p *using) String() string {
         if len(p.params) > 0 {
                 return fmt.Sprintf("%s(%v)", p.project.name, p.params)
@@ -147,7 +161,15 @@ func (p *usinglist) Position() (pos Position) {
         }
         return
 }
-func (p *usinglist) True() bool { return len(p.list) > 0 }
+func (p *usinglist) True() (bool, error) { return len(p.list) > 0, nil }
+func (p *usinglist) stamp() (files []*File, err error) {
+        for _, elem := range p.list {
+                var a []*File
+                if a, err = elem.stamp(); err != nil { break }
+                files = append(files, a...)
+        }
+        return
+}
 func (p *usinglist) exists() (res existence) {
         res = existenceMatterless
 ForElems:
@@ -166,7 +188,14 @@ ForElems:
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }
 func (p *usinglist) Float() (float64, error) { return 0, nil }
-func (p *usinglist) after(v Value) (after bool, err error) { return }
+func (p *usinglist) mod(pc *traversal) (res time.Time) {
+        for _, elem := range p.list {
+                if t := elem.mod(pc); t.After(res) {
+                        res = t
+                }
+        }
+        return
+}
 func (p *usinglist) cmp(v Value) (res cmpres) {
         if a, ok := v.(*usinglist); ok {
                 assert(ok, "value is not usinglist")

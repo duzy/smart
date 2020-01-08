@@ -18,7 +18,7 @@ type Plain struct {
         Name, Value string
 }
 func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *Plain) True() bool { return strings.TrimSpace(p.Value) != "" }
+func (p *Plain) True() (bool, error) { return strings.TrimSpace(p.Value) != "", nil }
 func (p *Plain) String() (s string) {
         if p.Name == "" {
                 s = fmt.Sprintf("((plain) %s)", p.Value)
@@ -40,9 +40,9 @@ func (p *Plain) cmp(v Value) (res cmpres) {
         return
 }
 
-type _plain struct {}
+type plain struct {}
 
-func (t *_plain) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *plain) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var str, name string
         if len(args) > 0 {
                 if name, err = args[0].Strval(); err != nil { return }

@@ -36,8 +36,8 @@ var (
 )
 const (
         optionTraceParsing = false
-        optionTraceTraversal = false
-        optionTraceTraversalNestIndent = false
+        optionTraceTraversal = true
+        optionTraceTraversalNestIndent = true
         optionTraceCompare = false
         optionTraceCompareOutdated = false
         optionTraceEntering = optionTraceTraversal && false

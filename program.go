@@ -115,11 +115,10 @@ func (prog *Program) waitForPrerequisites() (err error) {
 }
 
 func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (err error) {
-        var target = pc.targetDef.value // pc.entry.target
-        if exists(target) && len(pc.updated) == 0 {
-                return
-        }
-
+        //if pc.breaker != nil || (exists(pc.targetDef.value) && len(pc.updated) == 0) {
+        //        return
+        //}
+        if pc.breaker != nil { return }
         if err = prog.waitForPrerequisites(); err != nil {
                 return
         }
@@ -166,7 +165,7 @@ func (prog *Program) modify(pc *traversal, m *modifier) (err error) {
                 }
                 if err == nil {
                         var value Value
-                        if value, err = f(m.position, prog, v...); err == nil && value != nil {
+                        if value, err = f(m.position, pc, v...); err == nil && value != nil {
                                 pc.modifyBuf.set(DefDefault, value)
                         }
                 }
@@ -467,18 +466,17 @@ func (pc *traversal) checkTargetMode() (err error) {
 
 func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) {
         var (
-                target = pc.entry.target
+                none = &None{trivial{prog.position}}
                 depends = pc.dependsDef.value
                 ordered = pc.orderedDef.value
                 grepped = pc.greppedDef.value
-                none = &None{trivial{prog.position}}
         )
 
         pc.updatedDef.set(DefDefault, none)
 
-        err = pc.traverseAll([]Value{depends,ordered,grepped}, nested)
-        if err != nil { return }
-        if optionTraceTraversal && false {
+        if err = pc.traverseAll([]Value{depends,ordered,grepped}, nested); err != nil {
+                return
+        } else if optionTraceTraversal && false {
                 pc.tracef("%v", pc.targets)
                 pc.tracef("%v", pc.targetDef)
                 pc.tracef("%v", pc.depend0Def)
@@ -490,16 +488,14 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
                 pc.tracef("%v", pc.modifyBuf)
         }
 
-        if exists(target) && len(pc.updated) == 0 {
-                return
-        } else if len(pc.interpreted) == 0 {
+        if len(pc.interpreted) == 0 {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
                         if err = prog.interpret(pc, i, nil); err != nil {
                                 err = scanner.WrapErrors(token.Position(prog.position), err)
                         }
                 } else {
-                        err = scanner.Errorf(token.Position(prog.position), "no default dialect")
+                        err = errorf(prog.position, "no default dialect")
                 }
         }
         return

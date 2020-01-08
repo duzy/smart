@@ -7,7 +7,7 @@
 package smart
 
 import (
-        "encoding/json"
+        json_enc "encoding/json"
         "strings"
         "bytes"
         "fmt"
@@ -41,7 +41,7 @@ func joinRecipesString(recipes... Value) (res string, err error) {
 }
 
 type jsonDecodeState struct {
-        dec *json.Decoder
+        dec *json_enc.Decoder
         stack []*Group
         nodes []*Group
 }
@@ -61,18 +61,18 @@ func DecodeJSON(source string) (result Value, err error) {
                 nodes []Value
                 node *Group
                 value Value
-                t, v json.Token
+                t, v json_enc.Token
                 s string
                 pos Position // TODO: compute positions
         )
-        jd := json.NewDecoder(strings.NewReader(source))
+        jd := json_enc.NewDecoder(strings.NewReader(source))
         LoopJSON: for {
                 if t, err = jd.Token(); err != nil { break }
                 x := len(stack)
                 //fmt.Fprintf(stderr, "%T: %v\n", t, t)
         SwitchNodeType:
                 switch node, value = nil, nil; d := t.(type) {
-                case json.Delim:
+                case json_enc.Delim:
                         switch d {
                         case '[':
                                 nn := &Group{trivial{pos},List{elements{[]Value{&Bareword{trivial{pos},JsonArray}}}}}
@@ -142,7 +142,7 @@ func DecodeJSON(source string) (result Value, err error) {
                         }
                         
                         switch vd := v.(type) {
-                        case json.Delim:
+                        case json_enc.Delim:
                                 var vn *Group
                                 switch vd {
                                 case '[': vn = &Group{trivial{pos},List{elements{[]Value{&Bareword{trivial{pos},JsonArray}}}}}
@@ -150,13 +150,13 @@ func DecodeJSON(source string) (result Value, err error) {
                                 default: err = ErrorIllJson; break LoopJSON
                                 }
                                 stack = append(stack, vn)
-                                node.Append(&Pair{sv, vn})
+                                node.Append(&Pair{trivial{pos},sv,vn})
                         case string:
-                                node.Append(&Pair{sv, &String{trivial{pos},vd}})
+                                node.Append(&Pair{trivial{pos},sv,&String{trivial{pos},vd}})
                         case float64:
-                                node.Append(&Pair{sv, &Float{trivial{pos},vd}})
+                                node.Append(&Pair{trivial{pos},sv,&Float{trivial{pos},vd}})
                         case nil: // null
-                                node.Append(&Pair{sv, &Bareword{trivial{pos},"null"}})
+                                node.Append(&Pair{trivial{pos},sv,&Bareword{trivial{pos},"null"}})
                         default:
                                 err = ErrorIllJson; break LoopJSON
                         }
@@ -201,9 +201,9 @@ func DecodeJSON(source string) (result Value, err error) {
         return
 }
 
-type _json struct {}
+type json struct {}
 
-func (t *_json) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *json) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(prog.recipes...); err != nil { return }
         if result, err = DecodeJSON(source); err == nil {

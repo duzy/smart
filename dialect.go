@@ -18,10 +18,10 @@ var dialects = map[string]interpreter{
         "python": &executor{ "python", "-c", true }, //&executor_{ "python", "-c" },
         "perl":   &executor{ "perl", "-e", true },   //&executor_{ "perl", "-e" },
         "dock":   &executor{ "sh", "-c", false },
-        "plain":  &_plain{},
-        "json":   &_json{},
-        "xml":    &_xml{ whitespace:false },
-        "yaml":   &_yaml{ whitespace:false },
+        "plain":  &plain{},
+        "json":   &json{},
+        "xml":    &xml{ whitespace:false },
+        "yaml":   &yaml{ whitespace:false },
 }
 
 func intername(i interpreter) (s string) {

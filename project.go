@@ -444,9 +444,9 @@ func (p *Project) searchFile(name string) (file *File) {
                         } else {
                                 assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
                                 assert(file.dir == "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
-                                assert(file.FullName() == file.name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
+                                assert(file.fullname() == file.name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
                         }
-                        assert(file.FullName() == name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
+                        assert(file.fullname() == name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
                 } else {
                         assert(file.dir != "", "`%v` found empty file dir", name)
                         assert(filepath.IsAbs(file.dir), "not abs file{%s %s %s}", file.dir, file.sub, file.name)
@@ -603,7 +603,7 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
 
                 // Invoke file rules no matter if it existed or not.
                 var okay bool // true if doing good
-                if okay, err = p.updateFile(pc, file); err != nil || okay {
+                if okay, err = p.traverseFile(pc, file); err != nil || okay {
                         if optionTraceTraversal {
                                 if okay {
                                         pc.tracef("%s: traverseTarget(file{%s}) (okay)", p.name, file)
@@ -686,11 +686,11 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
         return
 }
 
-func (p *Project) updateFile(pc *traversal, file *File) (okay bool, err error) {
+func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error) {
         var names = make(map[string]bool)
         for stub := file.filestub; true; stub = stub.other {
-                names[stub.name] = true // mark to avoid retrying later
-                okay, err = p.updateFileStub(pc, stub)
+                names[stub.name] = true // mark to avoid trying many times
+                okay, err = p.traverseFileStub(pc, stub)
                 if err != nil || okay { file.filestub = stub; return }
                 if stub.other == file.filestub { break }
         }
@@ -699,7 +699,7 @@ func (p *Project) updateFile(pc *traversal, file *File) (okay bool, err error) {
         var name string
         for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i >= 0; {
                 if i == 0 {
-                        name = file.FullName()
+                        name = file.fullname()
                 } else {
                         name = filepath.Join(s[i+1:], name)
                 }
@@ -714,7 +714,7 @@ func (p *Project) updateFile(pc *traversal, file *File) (okay bool, err error) {
                         }
                         file.filestub.other = stub
 
-                        okay, err = p.updateFileStub(pc, stub)
+                        okay, err = p.traverseFileStub(pc, stub)
                         if err != nil || okay {
                                 file.filestub = stub
                                 return
@@ -754,7 +754,7 @@ func (p *Project) updateFile(pc *traversal, file *File) (okay bool, err error) {
 
         var current = execstack[0].project
         if current != p {
-                okay, err = current.updateFile(pc, file)
+                okay, err = current.traverseFile(pc, file)
                 if okay {
                         //err = nil
                 } else if err != nil {
@@ -764,13 +764,13 @@ func (p *Project) updateFile(pc *traversal, file *File) (okay bool, err error) {
                 err = fileNotFoundError{p, file}
                 if false { debug.PrintStack() }
                 if optionTraceTraversal {
-                        pc.tracef("%s: updateFile({%s,%s,%s}): not found", p.name, file.dir, file.sub, file.name)
+                        pc.tracef("%s: traverseFile({%s,%s,%s}): not found", p.name, file.dir, file.sub, file.name)
                 }
         }
         return
 }
 
-func (p *Project) updateFileStub(pc *traversal, stub *filestub) (okay bool, err error) {
+func (p *Project) traverseFileStub(pc *traversal, stub *filestub) (okay bool, err error) {
         /// Searching entries from the most derived project.
         var entry *RuleEntry
         if entry, err = p.resolveEntry(stub.name); err != nil {
@@ -782,10 +782,7 @@ func (p *Project) updateFileStub(pc *traversal, stub *filestub) (okay bool, err 
 
         /// Searching patterns from the most derived project.
         var ses []*StemmedEntry
-        ses, err = p.resolvePatterns(stub)
-        if err != nil {
-                return
-        } else if len(ses) == 0 {
+        if ses, err = p.resolvePatterns(stub); err != nil {
                 return
         }
 

@@ -227,10 +227,14 @@ func (s *Scanner) skipUselessWhitespace(lf bool) {
                                 if i := s.offset+1; i < len(s.src) && s.src[i] == '\n' {
                                         break loopSkip // Avoid skipping \\\n\n 
                                 }
-                                s.next() // Eat the '\n'
-                                if s.context&isCompoundLine != 0 {
-                                        // Eat tabs afert a continual
+                                //fmt.Printf("\\: %v %s\n", (s.context&isCompoundLine), string(s.src[s.offset:s.offset+20]))
+                                if s.context&isCompoundLine == 0 {
+                                        s.next() // Eat the '\n'
+                                        // Eat tabs after a continual
                                         for s.ch == '\t' { s.next() }
+                                } else {
+                                        // preserves the '\n'
+                                        break loopSkip
                                 }
                         } else {
                                 // TODO: escape character

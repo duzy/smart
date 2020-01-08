@@ -7,7 +7,7 @@
 package smart
 
 import (
-        //"encoding/yaml"
+        //yaml_enc "encoding/yaml"
         //"strings"
         //"io"
         "fmt"
@@ -28,11 +28,11 @@ func DecodeYAML(source string, ws bool) (result Value, err error) {
         return 
 }
 
-type _yaml struct {
+type yaml struct {
         whitespace bool
 }
 
-func (t *_yaml) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *yaml) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(prog.recipes...); err != nil { return }
         if result, err = DecodeYAML(source, t.whitespace); err == nil {

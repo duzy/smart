@@ -6,10 +6,6 @@
 
 package smart
 
-import (
-        "fmt"
-)
-
 // evaluer evaluates smart statements
 type evaluer struct {
         accumulation bool
@@ -82,8 +78,8 @@ ForRecipes:
                         }
 
                 default:
-                        fmt.Fprintf(stderr, "fatal: unsupported recipe: %v (%T)\n", recipe, recipe)
-                        unreachable()
+                        err = errorf(recipe.Position(), "unsupported recipe: %T", recipe)
+                        return
                 }
         }
         result = MakeListOrScalar(prog.position, list)

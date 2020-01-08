@@ -7,7 +7,7 @@
 package smart
 
 import (
-        "encoding/xml"
+        xml_enc "encoding/xml"
         "strings"
         "io"
 )
@@ -56,13 +56,13 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                 nodes []*Group
                 pos Position // FIXME: calculate the position
         )
-        xd := xml.NewDecoder(strings.NewReader(source))
-        var tok xml.Token
+        xd := xml_enc.NewDecoder(strings.NewReader(source))
+        var tok xml_enc.Token
         for tok, err = xd.Token(); err == nil; tok, err = xd.Token() {
                 switch elem := tok.(type) {
-                case xml.ProcInst:
+                case xml_enc.ProcInst:
                         // TODO: ...
-                case xml.StartElement:
+                case xml_enc.StartElement:
                         nn := MakeGroup(pos, &Bareword{trivial{pos},elem.Name.Local})
                         for _, a := range elem.Attr {
                                 var k, v Value
@@ -79,13 +79,13 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                                 nodes = append(nodes, nn)
                         }
                         stack = append(stack, nn)
-                case xml.EndElement:
+                case xml_enc.EndElement:
                         if x := len(stack); x > 0 {
                                 stack = stack[0:x-1]
                         } else {
                                 // FIXME: report illegal xml
                         }
-                case xml.CharData:
+                case xml_enc.CharData:
                         if x := len(stack); x > 0 {
                                 node, s := stack[x-1], string(elem)
                                 if ws {
@@ -96,9 +96,9 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
                                         }
                                 }
                         }
-                case xml.Directive:
+                case xml_enc.Directive:
                         // TODO: ...
-                case xml.Comment:
+                case xml_enc.Comment:
                         // TODO: ...
                 }
         }
@@ -117,11 +117,11 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
         return
 }
 
-type _xml struct {
+type xml struct {
         whitespace bool
 }
 
-func (t *_xml) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *xml) Evaluate(prog *Program, args []Value) (result Value, err error) {
         var source string
         if source, err = joinRecipesString(prog.recipes...); err != nil { return }
         if result, err = DecodeXML(source, t.whitespace); err == nil {

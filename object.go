@@ -14,6 +14,7 @@ import (
         "strings"
         "strconv"
         "bytes"
+        "time"
         "fmt"
 )
 
@@ -65,7 +66,7 @@ type knownobject struct { // generally named objects
         name string
 }
 func (p *knownobject) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *knownobject) True() bool { return true }
+func (p *knownobject) True() (bool, error) { return true, nil }
 func (p *knownobject) Name() string { return p.name }
 func (p *knownobject) Strval() (string, error) { return fmt.Sprintf("{object %s}", p.name), nil }
 func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
@@ -79,7 +80,6 @@ func (p *knownobject) redecl(scope *Scope) {
                 }
         }
 }
-func (p *knownobject) after(v Value) (after bool, err error) { return }
 func (p *knownobject) cmp(v Value) (res cmpres) {
         if a, ok := v.(*knownobject); ok {
                 assert(ok, "value is not knownobject")
@@ -96,7 +96,7 @@ type unresolvedobject struct { // named callable/executable objects
 }
 func (p *unresolvedobject) traverse(pc *traversal) (err error) { return }
 func (p *unresolvedobject) expand(_ expandwhat) (Value, error) { return p, nil }
-func (p *unresolvedobject) True() bool { return false }
+func (p *unresolvedobject) True() (bool, error) { return false, nil }
 func (p *unresolvedobject) Name() string {
         if p.name == nil {
                 panic("unresolved object name is nil")
@@ -124,7 +124,6 @@ func (p *unresolvedobject) redecl(scope *Scope) {
                 }
         }
 }
-func (p *unresolvedobject) after(v Value) (after bool, err error) { return }
 func (p *unresolvedobject) cmp(v Value) (res cmpres) {
         if a, ok := v.(*unresolvedobject); ok {
                 assert(ok, "value is not unresolvedobject")
@@ -149,7 +148,7 @@ func (p *ProjectName) expand(_ expandwhat) (Value, error) { return p, nil }
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
-func (p *ProjectName) True() bool { return p.project != nil }
+func (p *ProjectName) True() (bool, error) { return p.project != nil, nil }
 func (p *ProjectName) NamedProject() *Project { return p.project }
 func (p *ProjectName) Strval() (string, error) { return p.name, nil }
 func (p *ProjectName) String() string {
@@ -184,8 +183,15 @@ func (p *ProjectName) traverse(pc *traversal) (err error) {
         }
         return
 }
-
-func (p *ProjectName) after(v Value) (after bool, err error) { return }
+func (p *ProjectName) mod(pc *traversal) (t time.Time) {
+        if p.project != nil {
+                var defent = p.project.DefaultEntry()
+                if defent != nil && defent.class != UseRuleEntry {
+                        t = defent.mod(pc)
+                }
+        }
+        return
+}
 func (p *ProjectName) cmp(v Value) (res cmpres) {
         if a, ok := v.(*ProjectName); ok {
                 assert(ok, "value is not ProjectName")
@@ -200,17 +206,14 @@ type ScopeName struct {
         knownobject
         scope *Scope
 }
-
 func (p *ScopeName) expand(_ expandwhat) (Value, error) { return p, nil }
-
 // Imported returns the project that was imported.
 // It is distinct from Project(), which is the project
 // containing the import statement.
-func (n *ScopeName) True() bool { return n.scope != nil }
+func (n *ScopeName) True() (bool, error) { return n.scope != nil, nil }
 func (n *ScopeName) NamedScope() *Scope { return n.scope }
 func (n *ScopeName) String() string  { return fmt.Sprintf("{scope %s}", n.name) }
 func (n *ScopeName) Strval() (string, error) { return fmt.Sprintf("scope %s", n.name), nil }
-
 func (n *ScopeName) Get(name string) (Value, error) {
         if sym := n.scope.Resolve(name); sym != nil {
                 value, _ := sym.(Value)
@@ -218,8 +221,6 @@ func (n *ScopeName) Get(name string) (Value, error) {
         }
         return nil, fmt.Errorf("Undefined `%s' in scope `%s'.", name, n.Name())
 }
-
-func (p *ScopeName) after(v Value) (after bool, err error) { return }
 func (p *ScopeName) cmp(v Value) (res cmpres) {
         if a, ok := v.(*ScopeName); ok {
                 assert(ok, "value is not ScopeName")
@@ -284,9 +285,9 @@ func (d *Def) cmp(v Value) (res cmpres) {
         return
 }
 
-func (d *Def) True() (res bool) {
+func (d *Def) True() (res bool, err error) {
         if d.value != nil {
-                res = d.value.True()
+                res, err = d.value.True()
         }
         return
 }
@@ -453,15 +454,12 @@ type undetermined struct {
         identifier Value
         value Value
 }
-
 func (p *undetermined) refs(v Value) bool {
         return p.identifier.refs(v) || p.value.refs(v)
 }
-
 func (p *undetermined) closured() bool {
         return p.identifier.closured() || p.value.closured()
 }
-
 func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         var i, v Value
         res = p // set the original value
@@ -474,28 +472,21 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-
 func (p *undetermined) traverse(pc *traversal) (err error) { return }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
-func (p *undetermined) exists() existence { return p.value.exists() }
-func (p *undetermined) True() bool { return p.value.True() }
+func (p *undetermined) stamp() (files []*File, err error) { return }
+func (p *undetermined) exists() existence { return existenceMatterless }
+func (p *undetermined) True() (bool, error) { return false, nil }
 func (p *undetermined) String() (s string) {
         s = p.identifier.String()
         s += p.tok.String()
         s += p.value.String()
         return
 }
-
-func (p *undetermined) Strval() (s string, err error) {
-        s, err = p.value.Strval()
-        return
-}
-
+func (p *undetermined) Strval() (string, error) { return p.value.Strval() }
 func (p *undetermined) Float() (float64, error) { return 0, nil }
 func (p *undetermined) Integer() (int64, error) { return 0, nil }
-
-func (p *undetermined) after(v Value) (after bool, err error) { return }
-
+func (p *undetermined) mod(pc *traversal) (t time.Time) { return }
 func (p *undetermined) cmp(v Value) (res cmpres) {
         if a, ok := v.(*undetermined); ok {
                 assert(ok, "value is not undetermined")
@@ -514,11 +505,10 @@ type Builtin struct {
         knownobject
         f BuiltinFunc
 }
-func (p *Builtin) True() bool { return p.f != nil }
+func (p *Builtin) True() (bool, error) { return p.f != nil, nil }
 func (p *Builtin) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Builtin) String() string { return fmt.Sprintf("%s", p.name) }
 func (p *Builtin) Call(pos Position, a... Value) (Value, error) { return p.f(pos, a...) }
-func (p *Builtin) after(v Value) (after bool, err error) { return }
 func (p *Builtin) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Builtin); ok {
                 assert(ok, "value is not Builtin")
@@ -566,8 +556,9 @@ type RuleEntry struct {
 }
 
 func (entry *RuleEntry) Position() Position { return entry.position/*entry.target.Position()*/ }
+func (entry *RuleEntry) stamp() (files []*File, err error) { return entry.target.stamp() }
 func (entry *RuleEntry) exists() existence { return entry.target.exists() }
-func (entry *RuleEntry) True() bool { return entry.target.True() }
+func (entry *RuleEntry) True() (bool, error) { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
 func (entry *RuleEntry) Integer() (int64, error) { return 0, nil }
 func (entry *RuleEntry) OwnerProject() *Project { return entry.programs[0].project }
@@ -594,7 +585,6 @@ func (entry *RuleEntry) Depends() (depends []Value) {
         }
         return
 }
-
 func (entry *RuleEntry) IsFile() bool {
         if p, ok := entry.target.(*File); ok && p != nil { return true }
         if p, ok := entry.target.(*Path); ok && p != nil /*&& p.File != nil*/ {
@@ -602,7 +592,6 @@ func (entry *RuleEntry) IsFile() bool {
         }
         return false
 }
-
 func (entry *RuleEntry) SetExplicitFile(file *File) {
         if file.dir == "" {
                 file.dir = entry.OwnerProject().absPath
@@ -612,7 +601,6 @@ func (entry *RuleEntry) SetExplicitFile(file *File) {
         }
         return
 }
-
 func (entry *RuleEntry) SetExplicitPath(path *Path) {
         /*if path.File != nil && path.File.dir == "" {
                 path.File.dir = entry.OwnerProject().absPath
@@ -622,7 +610,6 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) {
         //}
         return
 }
-
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err error) {
         switch entry.class {
@@ -663,7 +650,6 @@ ForPrograms:
         }
         return
 }
-
 func (entry *RuleEntry) Get(name string) (Value, error) {
         switch name {
         case "class": return &String{trivial{entry.position},entry.class.String()}, nil
@@ -672,11 +658,9 @@ func (entry *RuleEntry) Get(name string) (Value, error) {
         }
         return nil, fmt.Errorf("no such entry property (%s)", name)
 }
-
 func (entry *RuleEntry) redecl(scope *Scope) {
         panic("RuleEntry.redecl not supported")
 }
-
 func (entry *RuleEntry) recipes() (recipes []Value) {
         for _, prog := range entry.programs {
                 for _, recipe := range prog.recipes {
@@ -685,7 +669,6 @@ func (entry *RuleEntry) recipes() (recipes []Value) {
         }
         return
 }
-
 func (entry *RuleEntry) refs(v Value) bool {
         if entry.target.refs(v) { return true }
         
@@ -707,7 +690,6 @@ func (entry *RuleEntry) refs(v Value) bool {
         }
         return false
 }
-
 func (entry *RuleEntry) closured() bool {
         if entry.target.closured() { return true }
         
@@ -745,15 +727,14 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-
 func (entry *RuleEntry) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, entry.target)) }
         var failed bool
-ForPrograms:
+//ForPrograms:
         for _, prog := range entry.programs {
                 if err = pc.execute(entry, prog); err == nil {
                         // continue with the next program
-                } else if _, ok := err.(targetNotFoundError); ok {
+                } /*else if _, ok := err.(targetNotFoundError); ok {
                         break ForPrograms // Don't try other programs if it's undefined.
                 } else if br, ok := err.(*breaker); ok {
                         switch br.what {
@@ -764,16 +745,17 @@ ForPrograms:
                         case breakCase, breakDone:
                                 break ForPrograms
                         }
-                }
+                }*/
         }
         if err == nil && failed {
-                err = scanner.Errorf(token.Position(entry.position), "assertion failed")
+                err = errorf(entry.position, "assertion failed")
         }
         return
 }
-
-func (entry *RuleEntry) after(v Value) (after bool, err error) { return }
-
+func (entry *RuleEntry) mod(pc *traversal) time.Time {
+        // FIXME: entry.target maybe not the real target
+        return entry.target.mod(pc)
+}
 func (entry *RuleEntry) cmp(v Value) (res cmpres) {
         if a, ok := v.(*RuleEntry); ok {
                 assert(ok, "value is not RuleEntry")
@@ -790,7 +772,6 @@ type PatternEntry struct {
         Pattern Pattern
         *RuleEntry
 }
-
 func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.RuleEntry.expand(w); err != nil {
@@ -800,7 +781,6 @@ func (p *PatternEntry) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *PatternEntry) after(v Value) (after bool, err error) { return }
 func (p *PatternEntry) cmp(v Value) (res cmpres) {
         if a, ok := v.(*PatternEntry); ok {
                 assert(ok, "value is not PatternEntry")
@@ -818,7 +798,6 @@ type StemmedEntry struct {
         target string // source target matching the pattern
         stub *filestub // source file matching the pattern
 }
-
 func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.PatternEntry.expand(w); err != nil {
@@ -828,7 +807,6 @@ func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *StemmedEntry) after(v Value) (after bool, err error) { return }
 func (p *StemmedEntry) cmp(v Value) (res cmpres) {
         if a, ok := v.(*StemmedEntry); ok {
                 assert(ok, "value is not StemmedEntry")
@@ -840,11 +818,9 @@ func (p *StemmedEntry) cmp(v Value) (res cmpres) {
         }
         return
 }
-
 func (p *StemmedEntry) String() (s string) {
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
-
 func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry, err error) {
         entry = new(RuleEntry)
         *entry = *p.RuleEntry // copy RuleEntry bits
@@ -884,17 +860,15 @@ func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry
         }
         return
 }
-
 func (p *StemmedEntry) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
 
+        /*var stemsList = [][]string{ p.Stems }
+        // Find all useful stems.
         var names = []string{ p.target }
         if p.stub != nil {
-                names = append(names, p.stub.name)
+                //names = append(names, p.stub.name)
         }
-
-        // Find all useful stems.
-        var stemsList = [][]string{ p.Stems }
 ForNames:
         for _, source := range names {
                 var ( s string ; ss []string )
@@ -926,6 +900,7 @@ ForStems:
                 var entry *RuleEntry
                 entry, err = p.concrete(pc, stems)
                 if err != nil { return }
+                if entry == nil { continue }
 
                 pc.stems = stems // set current stem string
                 if err = entry.traverse(pc); err == nil {
@@ -935,6 +910,17 @@ ForStems:
                 } else if ufe, ok := err.(fileNotFoundError); ok {
                         if optionTraceTraversal { pc.trace("stemmed: unknown file:", ufe.file) }
                 }
+
+                break // only traverse the first one
+        }*/
+
+        pc.stems = p.Stems // set stems for the traversal
+
+        var entry *RuleEntry
+        if entry, err = p.concrete(pc, pc.stems); err != nil {
+                // oops
+        } else if err = entry.traverse(pc); err == nil {
+                // oops
         }
         return
 }

@@ -967,11 +967,11 @@ func (l *loader) exprList(x *ast.ListExpr) (v Value) {
 }
 
 func (l *loader) exprKeyValue(x *ast.KeyValueExpr) (res Value) {
+        var pos = Position(l.parser.file.Position(x.Pos()))
         if k := l.expr(x.Key); l.parser.bits&parsingFilesSpec != 0 {
-                res = &Pair{k, l.expr(x.Value)}
+                res = &Pair{trivial{pos},k,l.expr(x.Value)}
         } else {
-                var pos = Position(l.parser.file.Position(x.Pos()))
-                res = MakePair(pos, k, l.expr(x.Value))
+                res = MakePair(pos,k,l.expr(x.Value))
         }
         return
 }
@@ -1472,7 +1472,7 @@ func (l *loader) includeFile(pos token.Pos, spec Value) {
                         l.parser.error(pos, "`%v` no source file", t)
                         return
                 }
-                fullname = t.FullName() //filepath.Join(t.dir, t.Name)
+                fullname = t.fullname() //filepath.Join(t.dir, t.Name)
                 specName = t.name
         default:
                 if specName, err = spec.Strval(); err != nil {
@@ -1586,14 +1586,14 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 
 func (l *loader) loadDotDock(ident *ast.Bareword, file *File) (err error) {
         var hasConfDir bool
-        if hasConfDir, err = l.loadDir(".dock", file.FullName(), nil); err != nil {
+        if hasConfDir, err = l.loadDir(".dock", file.fullname(), nil); err != nil {
                 if !hasConfDir { l.parser.error(ident.Pos(), "dock: %v", err) }
-        } else if loaded, yes := l.loaded[file.FullName()]; yes && loaded != nil {
+        } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
                 name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
                 if name == nil {
                         l.parser.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
                 } else {
-                        fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.FullName())
+                        fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname())
 
                         var opts useoptions
                         // TODO: parse the useoptions

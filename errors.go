@@ -8,6 +8,7 @@ package smart
 
 import (
         "extbit.io/smart/scanner"
+        "extbit.io/smart/token"
         "runtime/debug"
         "runtime"
         "errors"
@@ -98,7 +99,7 @@ func (e pathNotFoundError) Error() string {
 
 func (e fileNotFoundError) Error() string {
         if false { debug.PrintStack() }
-        return fmt.Sprintf("%s: `%v` file not found (as `%s`)", e.project.name, e.file.name, e.file.FullName())
+        return fmt.Sprintf("%s: `%v` file not found (as `%s`)", e.project.name, e.file.name, e.file.fullname())
 }
 
 func report(err error) error {
@@ -107,4 +108,8 @@ func report(err error) error {
                 scanner.PrintError(stderr, err)
         }
         return err
+}
+
+func errorf(pos Position, s string, args... interface{}) (err error) {
+        return scanner.Errorf(token.Position(pos), s, args...)
 }
