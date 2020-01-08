@@ -35,7 +35,7 @@ func (k breakind) String() (s string) {
         switch k {
         case breakBad:          s = "break.bad"
         case breakGood:         s = "break.good"
-        case breakModified:     s = "break.modified"
+        //case breakModified:     s = "break.modified"
         case breakUpdates:      s = "break.updates"
         case breakDone:         s = "break.done"
         case breakNext:         s = "break.next"
@@ -48,7 +48,7 @@ func (k breakind) String() (s string) {
 const (
         breakBad breakind = iota
         breakGood // good to continue
-        breakModified // target modified
+        //breakModified // target modified
         breakUpdates // needs to update (updated depends)
         breakDone // (cond ...) and (case ...)
         breakNext // (cond ...) and (case ...)
@@ -82,7 +82,7 @@ func (p *breaker) Error() (s string) {
         case breakNext: s = "break for next case"
         case breakCase: s = "break with cases done"
         case breakFail: s = "assert" // "break with failure"
-        case breakModified: s = "break with modification"
+        //case breakModified: s = "break with modification"
         case breakUpdates: s = "break with updates"
                 p.message = fmt.Sprintf("%v", p.updated)
         }
@@ -117,10 +117,10 @@ func break_updates(pos Position, v ...*updatedtarget) *breaker {
 }
 
 // break with modified target
-func break_modified(pos Position, old, new Value) *breaker {
+/*func break_modified(pos Position, old, new Value) *breaker {
         var m = []*modification{&modification{ old, new }}
         return &breaker{ pos, breakModified, "", nil, nil, m }
-}
+}*/
 
 func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
         return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil, nil }
@@ -154,10 +154,6 @@ func (_ *modifier) cmp(v Value) (res cmpres) {
 func (m *modifier) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, m)) }
         return pc.program.modify(pc, m)
-}
-func (m *modifier) Strval() (s string, err error) {
-        s = m.String()
-        return
 }
 func (m *modifier) String() (s string) {
         s = "(" + m.name.String()
@@ -221,10 +217,6 @@ ForModifiers:
                         break
                 }
         }
-        return
-}
-func (g *modifiergroup) Strval() (s string, err error) {
-        // TODO: modifier strval
         return
 }
 func (g *modifiergroup) String() (s string) {
@@ -2037,7 +2029,7 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
                 if _, err = f.WriteString(content); err == nil {
                         var file = stat(filename, "", "")
                         context.globe.stamp(filename, file.info.ModTime())
-                        err = break_modified(pos, target, file)
+                        //err = break_modified(pos, target, file)
                         result = file // resulting the updated file
                         if optVerbose { fmt.Fprintf(stderr, "… (ok)\n") }
                 } else {
@@ -2100,7 +2092,13 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                 for _, a := range merge(arg) {
                         var t = true
                         if f, ok := a.(*Flag); ok && f.String() == "-dirty" {
-                                t = pc.breaker != nil || (exists(pc.targetDef.value) && len(pc.updated) == 0)
+                                t = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
+                                if optionTraceTraversal {
+                                        pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", t, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
+                                        if len(pc.updated) > 0 {
+                                                pc.tracef("updated: %v", pc.updated)
+                                        }
+                                }
                         } else if t, err = a.True(); err != nil {
                                 break
                         }

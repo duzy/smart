@@ -649,7 +649,7 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
                                 return // Updated successfully!
                         } else if e, ok := err.(*breaker); ok {
                                 switch e.what {
-                                case breakGood, breakModified, breakUpdates:
+                                case breakGood, /*breakModified,*/ breakUpdates:
                                         // just relax
                                 default:
                                         fmt.Fprintf(stderr, "%v\n", err)
@@ -671,7 +671,7 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
                 if err != nil {
                         if e, ok := err.(*breaker); ok && current.name == "~" {
                                 switch e.what {
-                                case breakGood, breakModified, breakUpdates:
+                                case breakGood, /*breakModified,*/ breakUpdates:
                                         err = nil
                                 }
                         }

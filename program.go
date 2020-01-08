@@ -501,7 +501,7 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
         return
 }
 
-func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error) {
+/*func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error) {
         var none = &None{trivial{prog.position}}
 
         // Updating $^
@@ -571,7 +571,7 @@ func (pc *traversal) traversePrerequites(prog *Program, nested bool) (err error)
 
         pc.targets = nil // clear the target list
         return
-}
+}*/
 
 func (prog *Program) passExecution(position Position, entry *RuleEntry, args... Value) (result []Value, err error) {
         result, err = Executer(entry).Execute(position, args...)

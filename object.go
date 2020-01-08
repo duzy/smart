@@ -919,8 +919,8 @@ ForStems:
         var entry *RuleEntry
         if entry, err = p.concrete(pc, pc.stems); err != nil {
                 // oops
-        } else if err = entry.traverse(pc); err == nil {
-                // oops
+        } else if err = entry.traverse(pc); err != nil {
+                err = errorf(p.position, "%v: %v", p.Pattern, err)
         }
         return
 }
