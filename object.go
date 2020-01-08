@@ -863,57 +863,6 @@ func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry
 func (p *StemmedEntry) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
 
-        /*var stemsList = [][]string{ p.Stems }
-        // Find all useful stems.
-        var names = []string{ p.target }
-        if p.stub != nil {
-                //names = append(names, p.stub.name)
-        }
-ForNames:
-        for _, source := range names {
-                var ( s string ; ss []string )
-                if source == "" { continue }
-                s, ss, err = p.Pattern.match(source)
-                if s != "" && ss != nil {
-                ForStemsList:
-                        for _, s := range stemsList {
-                                if len(s) != len(ss) {
-                                        continue ForStemsList
-                                }
-                                for i, t := range s {
-                                        if ss[i] != t {
-                                                continue ForStemsList
-                                        }
-                                }
-                                continue ForNames
-                        }
-                        stemsList = append(stemsList, ss)
-                }
-        }
-
-        // Recover pc.stem when done.
-        defer func(ss []string) { pc.stems = ss } (pc.stems)
-
-ForStems:
-        // Try preparing target with all stems.
-        for _, stems := range stemsList {
-                var entry *RuleEntry
-                entry, err = p.concrete(pc, stems)
-                if err != nil { return }
-                if entry == nil { continue }
-
-                pc.stems = stems // set current stem string
-                if err = entry.traverse(pc); err == nil {
-                        break ForStems // Good!
-                } else if ute, ok := err.(targetNotFoundError); ok {
-                        if optionTraceTraversal { pc.trace("stemmed: unknown target:", ute.target) }
-                } else if ufe, ok := err.(fileNotFoundError); ok {
-                        if optionTraceTraversal { pc.trace("stemmed: unknown file:", ufe.file) }
-                }
-
-                break // only traverse the first one
-        }*/
-
         pc.stems = p.Stems // set stems for the traversal
 
         var entry *RuleEntry
