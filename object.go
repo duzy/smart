@@ -713,6 +713,12 @@ func (entry *RuleEntry) closured() bool {
         return false
 }
 func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
+        if entry == nil {
+                // happens from some &{xxx} exprs
+                err = fmt.Errorf("entry is nil")
+                return
+        }
+
         var target Value
         if target, err = entry.target.expand(w); err != nil { return }
         if target != entry.target {
@@ -870,7 +876,7 @@ func (p *StemmedEntry) traverse(pc *traversal) (err error) {
         if entry, err = p.concrete(pc, pc.stems); err != nil {
                 // oops
         } else if err = entry.traverse(pc); err != nil {
-                err = errorf(p.position, "%v: %v", p.Pattern, err)
+                err = wrap(p.position, err)
         }
         return
 }

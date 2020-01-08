@@ -113,3 +113,7 @@ func report(err error) error {
 func errorf(pos Position, s string, args... interface{}) (err error) {
         return scanner.Errorf(token.Position(pos), s, args...)
 }
+
+func wrap(pos Position, errs ...error) (err error) {
+        return scanner.WrapErrors(token.Position(pos), errs...)
+}

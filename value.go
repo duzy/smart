@@ -3050,7 +3050,7 @@ func (p *closure) disclose() (res Value, err error) {
                         }
                 }
         default:
-                err = fmt.Errorf("unknown closure `&%+v%+v`", p.l, name)
+                err = errorf(p.position, "unknown closure `&%+v%+v`", p.l, name)
                 return
         }
 
@@ -3058,6 +3058,7 @@ func (p *closure) disclose() (res Value, err error) {
 
         // Disclose the object, which may contain closures.
         if v, err = o.expand(expandClosure); err != nil {
+                err = wrap(p.position, err)
                 return
         } else if v != nil {
                 var ok bool

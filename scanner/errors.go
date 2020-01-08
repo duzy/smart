@@ -150,8 +150,8 @@ func PrintError(w io.Writer, err error) {
 func Errorf(pos token.Position, s string, args... interface{}) (err error) {
         for _, a := range args {
                 switch e := a.(type) {
-                case *Error: panic(e)
-                case Errors: panic(e)
+                case *Error: panic(e) // use WrapErrors instead!
+                case Errors: panic(e) // use WrapErrors instead!
                 }
         }
         err = &Error{pos, fmt.Errorf(s, args...)}
