@@ -2088,23 +2088,25 @@ func modifierCase(pos Position, pc *traversal, args... Value) (result Value, err
 }
 
 func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        var optDirty, optVerbose bool
         for _, arg := range args {
-                var (
-                        optDirty, optVerbose bool
-                        va = merge(arg)
-                )
+                var va = merge(arg)
                 if va, err = parseFlags(va, []string{
                         "d,dirty",
                         "v,verbose",
                 }, func(ru rune, v Value) {
                         switch ru {
-                        case 'd': optDirty = trueVal(v, true)
-                        case 'v': optVerbose = trueVal(v, true)
+                        case 'd': optDirty = trueVal(v, false)
+                        case 'v': optVerbose = trueVal(v, optVerbose)
                         }
                 }); err != nil { return }
                 if optDirty {
                         var t = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
-                        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v … (dirty=%v)", pc.targetDef.value, t) }
+                        if optVerbose {
+                                v := "Good"; if t { v = "Dirty" }
+                                s, _ := pc.targetDef.value.Strval()
+                                fmt.Fprintf(stderr, "smart: Checking %v …… %s\n", s, v)
+                        }
                         if optionTraceTraversal {
                                 pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", t, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
                                 if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }
@@ -2117,7 +2119,10 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                 for _, a := range va {
                         var t = true
                         if t, err = a.True(); err != nil { break }
-                        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v … (good=%v)", a, t) }
+                        if optVerbose {
+                                v := "Good"; if t { v = "Bad" }
+                                fmt.Fprintf(stderr, "smart: Checking %v …… %s\n", a, v)
+                        }
                         if !t {
                                 err = &breaker{ pos:pos, what:breakDone }
                                 return
