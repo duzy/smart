@@ -7,7 +7,7 @@
 package smart
 
 type interpreter interface {
-        Evaluate(prog *Program, args []Value) (Value, error)
+        Evaluate(pc *traversal, args []Value) (Value, error)
 }
 
 var dialects = map[string]interpreter{

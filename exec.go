@@ -244,8 +244,8 @@ func (p *ExecBuffer) skips(tag string) (result bool) {
         return
 }
 
-func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
-        var pos = prog.position
+func (p *ExecBuffer) processKnownErrors(pc *traversal, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
+        var pos = pc.program.position
         var retry bool
         var tag string
 
@@ -284,26 +284,26 @@ func (p *ExecBuffer) processKnownErrors(prog *Program, dock *Project, sh *exec.C
                 if p.report { fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num) }
                 c := exec.Command(sh.Path, sh.Args...)
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                p.runAndProcessKnownErrors(prog, dock, c, x, num+1) // retry
+                p.runAndProcessKnownErrors(pc, dock, c, x, num+1) // retry
         } else if err != nil {
                 // ends with error
         } else if tag == "" {
                 err = fmt.Errorf(errCommandFailedFmt, status) //, targetName
         } else if skip := p.skips(tag); !skip && dock != nil && num < maxRetries {
                 p.retried[tag] = true // save it to skip next time
-                if err = x.runContainer(prog, dock); err == nil {
+                if err = x.runContainer(pc, dock); err == nil {
                         if p.report { fmt.Fprintf(stderr, "smart: started %s\n", tag) }
                         c := exec.Command(sh.Path, sh.Args...)
                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                        p.runAndProcessKnownErrors(prog, dock, c, x, num+1) // retry
+                        p.runAndProcessKnownErrors(pc, dock, c, x, num+1) // retry
                 } else {
-                        //err = errorf(prog.position, "`%s` no such container", tag)
+                        //err = errorf(pc.program.position, "`%s` no such container", tag)
                 }
         }
         return
 }
 
-func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
+func (p *ExecBuffer) runAndProcessKnownErrors(pc *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
         p.matches = nil
         if err = sh.Run(); err == nil {
                 // It's good!
@@ -312,7 +312,7 @@ func (p *ExecBuffer) runAndProcessKnownErrors(prog *Program, dock *Project, sh *
                         fmt.Fprintf(p.log, "\n"+errCommandFailedFmt+"\n", status)
                         if p.report { fmt.Fprintf(stderr, "%s:%d: %v\n", p.log.filename, p.log.lines, err) }
                 }
-                err = p.processKnownErrors(prog, dock, sh, x, status, num)
+                err = p.processKnownErrors(pc, dock, sh, x, status, num)
         } else {
                 if status == 0 { status = -1 }
                 if e != nil { err = e }
@@ -361,16 +361,16 @@ type executor struct {
         bare bool
 }
 
-func (p *executor) runContainer(prog *Program, dock *Project) (err error) {
+func (p *executor) runContainer(pc *traversal, dock *Project) (err error) {
         if run, _ := dock.resolveEntry("run"); run != nil {
                 if run.OwnerProject() != dock {
                         err = fmt.Errorf("'%v' must have 'run' rule", dock)
                         fmt.Fprintf(stderr, "%v: %v\n", dock.absPath, err)
                 } else {
-                        _, err = run.Execute(prog.position)
+                        _, err = run.Execute(pc.program.position)
                 }
                 if err != nil {
-                        fmt.Fprintf(stderr, "%v: %v\n", prog.position, err)
+                        fmt.Fprintf(stderr, "%v: %v\n", pc.program.position, err)
                 }
 
         } else {
@@ -379,7 +379,7 @@ func (p *executor) runContainer(prog *Program, dock *Project) (err error) {
         return
 }
 
-func (p *executor) ensureContainerRunning(prog *Program, dock *Project, container string) (err error) {
+func (p *executor) ensureContainerRunning(pc *traversal, dock *Project, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -423,14 +423,14 @@ func (p *executor) ensureContainerRunning(prog *Program, dock *Project, containe
         } (stderrR)
 
         if err = cmd.Run(); err == nil && foundID == "" {
-                if err = p.runContainer(prog, dock); err == nil {
+                if err = p.runContainer(pc, dock); err == nil {
                         time.Sleep(time.Second)
                 }
         }
         return
 }
 
-func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
         var cmd, promStr, logFileName = p.cmd, "", ""
@@ -489,6 +489,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                         nocd = true
                 }
         }); err != nil { return }
+
         for i, v := range args {
                 var s string
                 if !p.bare && i == 0 {
@@ -503,8 +504,8 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
 
         var dock *Project
         if !p.bare {
-                if prog.project.name == ".dock" {
-                        dock = prog.project
+                if pc.program.project.name == ".dock" {
+                        dock = pc.program.project
                 } else if false {
                         for _, scope := range cloctx {
                                 if _, sym := scope.Find(".dock"); sym != nil {
@@ -515,14 +516,14 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                                 }
                         }
                         if dock == nil {
-                                if _, dockSym := prog.project.scope.Find(".dock"); dockSym != nil {
+                                if _, dockSym := pc.program.project.scope.Find(".dock"); dockSym != nil {
                                         if pn, _ := dockSym.(*ProjectName); pn != nil {
                                                 dock = pn.NamedProject()
                                         }
                                 }
                         }
                 } else {
-                        if _, dockSym := prog.project.scope.Find(".dock"); dockSym != nil {
+                        if _, dockSym := pc.program.project.scope.Find(".dock"); dockSym != nil {
                                 if pn, _ := dockSym.(*ProjectName); pn != nil {
                                         dock = pn.NamedProject()
                                 }
@@ -532,7 +533,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                 // fmt.Fprintf(stderr, "%v: %v\n", dock, dock.absPath)
 
                 if dock == nil {
-                        err = fmt.Errorf("docking unavailable (in %s)", prog.Project().Name())
+                        err = fmt.Errorf("docking unavailable (in %s)", pc.program.Project().Name())
                         return
                 }
 
@@ -571,18 +572,18 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                 cmd = "docker"
 
                 if false {
-                        if err = p.ensureContainerRunning(prog, dock, container); err != nil {
+                        if err = p.ensureContainerRunning(pc, dock, container); err != nil {
                                 return
                         }
                 }
         }
 
         var cwd string
-        if v, e := prog.scope.Lookup("CWD").(*Def).Call(prog.position); e != nil {
+        if v, e := pc.program.scope.Lookup("CWD").(*Def).Call(pc.program.position); e != nil {
                 err = e; return
         } else if v != nil {
                 if cwd, err = v.Strval(); err != nil { return }
-        } else if v, e := prog.scope.Lookup("/").(*Def).Call(prog.position); e != nil {
+        } else if v, e := pc.program.scope.Lookup("/").(*Def).Call(pc.program.position); e != nil {
                 err = e; return
         } else if v != nil {
                 if cwd, err = v.Strval(); err != nil { return }
@@ -593,16 +594,16 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         // Because the current work directory is not
         // thread safe.
         var dir = cwd
-        if prog.changedWD != "" {
-                if filepath.IsAbs(prog.changedWD) {
-                        dir = prog.changedWD
+        if pc.program.changedWD != "" {
+                if filepath.IsAbs(pc.program.changedWD) {
+                        dir = pc.program.changedWD
                 } else {
-                        dir = filepath.Join(prog.project.absPath, prog.changedWD)
+                        dir = filepath.Join(pc.program.project.absPath, pc.program.changedWD)
                 }
         }
 
         var targetName string
-        var target = prog.pc.targetDef.value
+        var target = pc.targetDef.value
         if targetName, err = target.Strval(); err != nil {
                 return
         }
@@ -610,7 +611,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         var source, str string
         var sources []string
         var envars []*Pair // disclosed values
-        if def, _ := prog.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
+        if def, _ := pc.program.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
                 if l, _ := def.value.(*List); l != nil {
                         for _, v := range l.Elems {
                                 if v, err = v.expand(expandClosure); err != nil {
@@ -626,7 +627,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         }
 
         var recipes []Value
-        if recipes, err = mergeresult(ExpandAll(prog.recipes...)); err != nil { return }
+        if recipes, err = mergeresult(ExpandAll(pc.program.recipes...)); err != nil { return }
         for _, recipe := range recipes {
                 if str, err = recipe.Strval(); err != nil { return }
                 if source += str; strings.HasSuffix(source, "\\") {
@@ -661,7 +662,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         var log ExecLog
         var logfile *os.File
         var exeres = new(ExecResult)
-        exeres.position = prog.position
+        exeres.position = pc.program.position
 
         if buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
         if bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
@@ -670,10 +671,10 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         if logFileName == "" {
                 // no log required
         } else if err = os.MkdirAll(filepath.Dir(logFileName), os.FileMode(0755)); err != nil {
-                errorf(prog.position, "%v", err)
+                errorf(pc.program.position, "%v", err)
                 return // FIXME: err for outer func
         } else if logfile, err = os.Create(logFileName); err != nil {
-                errorf(prog.position, "%v", err)
+                errorf(pc.program.position, "%v", err)
                 return // FIXME: err for outer func
         } else {
                 cmdline := strings.Join(sources, "\n")
@@ -686,12 +687,11 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         exeres.Stderr.scanerr = true
         log.filename = logFileName
 
-        var caller *traversecontext
         var run = func() {
                 var targetStr string
                 defer func(start time.Time) {
                         if err == nil {
-                                err = stamp(target, start, /*!prompt*/true)
+                                err = stamp(pc, target, start, /*!prompt*/true)
                         }
                         if log.writer != nil {
                                 if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
@@ -703,15 +703,15 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                                         logfile.Close()
                                 }
                         }
-                        if caller != nil {
-                                caller.group.Done()
-                                //caller.calleeReses = append(caller.calleeReses, exeres)
+                        if pc.caller != nil {
+                                pc.caller.group.Done()
+                                //pc.caller.calleeReses = append(pc.caller.calleeReses, exeres)
                                 if err != nil {
-                                        caller.calleeErrors = append(caller.calleeErrors, err)
+                                        pc.caller.calleeErrors = append(pc.caller.calleeErrors, err)
                                 }
                         }
                         if prompt {
-                                if caller == nil {
+                                if pc.caller == nil {
                                         if err == nil {
                                                 fmt.Fprintf(stderr, "… ok\n")
                                         } else if _, ok := err.(*scanner.Error); ok {
@@ -746,7 +746,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                         } else {
                                 promStr += ": "
                         }
-                        if caller == nil {
+                        if pc.caller == nil {
                                 fmt.Fprintf(stderr, "%s%s …\n", promStr, targetStr)
                         } else {
                                 fmt.Fprintf(stderr, "%s%s ……\n", promStr, targetStr)
@@ -763,7 +763,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                         }
                         if src = strings.TrimSpace(src); src == "" {
                                 continue
-                        } else if dir != "" && !nocd /*&& prog.changedWD == ""*/ {
+                        } else if dir != "" && !nocd /*&& pc.program.changedWD == ""*/ {
                                 if strings.HasPrefix(src, "#") {
                                         src = fmt.Sprintf("cd '%s' %s", dir, src)
                                 } else {
@@ -783,7 +783,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                         if s, _ := os.Getwd(); s != dir {
                                 assert(s == dir, "wrong work directory (%s != %s)", s, dir)
                                 if false {
-                                        fmt.Printf("exec: %v %v (%v %v)\n", dir, s, cwd, prog.changedWD)
+                                        fmt.Printf("exec: %v %v (%v %v)\n", dir, s, cwd, pc.program.changedWD)
                                 }
                         }
 
@@ -799,7 +799,7 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
                         sh.Args = append(sh.Args, p.opt, src)
 
                         exeres.Stderr.report = !silent
-                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(prog, dock, sh, p, 1)
+                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pc, dock, sh, p, 1)
                         if err == nil {
                                 // good
                         } else {
@@ -813,9 +813,8 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
 
         printEnteringDirectory()
 
-        if len(prog.callers) > 0 {
-                caller = prog.callers[0]
-                caller.group.Add(1)
+        if pc.caller != nil {
+                pc.caller.group.Add(1)
                 go run()
         } else {
                 run()
@@ -827,50 +826,14 @@ func (p *executor) Evaluate(prog *Program, args []Value) (result Value, err erro
         return
 }
 
-func stamp(target Value, start time.Time, verb bool) (err error) {
+func stamp(pc *traversal, target Value, start time.Time, verb bool) (err error) {
         var t Value
         if t, err = target.expand(expandAll); err != nil {
                 return
         }
-        /*switch t := t.(type) {
-        case *Bareword, *Flag:
-                // does nothing...
-        case *File:
-                fullname := t.fullname()
-                if t.info, err = os.Stat(fullname); err != nil { break }
-                t.updated = true
-                context.globe.stamp(fullname, t.info.ModTime())
-                if verb {
-                        d := t.info.ModTime().Sub(start);
-                        fmt.Printf("smart: Updated %v (%v)\n", target, d)
-                }
-        case *Path:
-                //if t.File == nil { break }
-                //fullname := t.File.fullname()
-                //t.File.info, err = os.Stat(fullname)
-                //context.globe.stamp(fullname, t.File.info.ModTime())
-                var fullname string
-                if fullname, err = t.Strval(); err != nil { break }
-                var info os.FileInfo
-                if info, err = os.Stat(fullname); err != nil { break }
-                context.globe.stamp(fullname, info.ModTime())
-                if verb {
-                        d := info.ModTime().Sub(start);
-                        fmt.Printf("smart: Updated %v (%v)\n", target, d)
-                }
-        case *List:
-                for _, elem := range t.Elems {
-                        if err = stamp(elem, start, verb); err != nil {
-                                return
-                        }
-                }
-        default:
-                if verb {
-                        fmt.Printf("smart: Updated %v (stamp %T)\n", target, target)
-                }
-        }*/
+
         var files []*File
-        if files, err = t.stamp(); err == nil && verb {
+        if files, err = t.stamp(pc); err == nil && verb {
                 for _, file := range files {
                         d := file.info.ModTime().Sub(start);
                         fmt.Printf("smart: Updated %v (%v)\n", file, d)

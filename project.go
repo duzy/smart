@@ -644,22 +644,28 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
                                 if err != nil { break ForPatterns }
                                 if !ok { continue ForPatterns }
                         }
-                        se.target = target // Bounds StemmedEntry with the source.
+
+                        // Bounds StemmedEntry with the source.
+                        se.target = target
+
+                        // Updated successfully!
                         if err = se.traverse(pc); err == nil {
-                                return // Updated successfully!
-                        } else if e, ok := err.(*breaker); ok {
+                                return
+                        }
+
+                        for _, e := range breakers(err) {
                                 switch e.what {
-                                case breakGood, /*breakModified,*/ breakUpdates:
-                                        // just relax
+                                case breakGood:
+                                        continue ForPatterns // just relax
                                 default:
                                         fmt.Fprintf(stderr, "%v\n", err)
                                         return
                                 }
-                        } else {
-                                fmt.Fprintf(stderr, "%v\n", err)
-                                fmt.Fprintf(stderr, "%v: traverse pattern %v failed\n", pos, se)
-                                return // Update failed!
                         }
+
+                        fmt.Fprintf(stderr, "%v\n", err)
+                        fmt.Fprintf(stderr, "%v: traverse pattern %v failed\n", pos, se)
+                        return // Update failed!
                 }
         }
 
@@ -667,14 +673,15 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
 
         var current = execstack[0].project
         if current != p /*&& current.name == "~"*/ {
-                err = current.traverseTarget(pos, pc, target)
-                if err != nil {
-                        if e, ok := err.(*breaker); ok && current.name == "~" {
-                                switch e.what {
-                                case breakGood, /*breakModified,*/ breakUpdates:
+                if err = current.traverseTarget(pos, pc, target); err == nil {
+                        return
+                }
+                if a := breakers(err); a != nil && current.name == "~" {
+                        /*for _, b := range a {
+                                if e.what != breakGood {
                                         err = nil
                                 }
-                        }
+                        }*/
                 }
         } else {
                 err = targetNotFoundError{ p, target }

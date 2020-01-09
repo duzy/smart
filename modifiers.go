@@ -35,8 +35,6 @@ func (k breakind) String() (s string) {
         switch k {
         case breakBad:          s = "break.bad"
         case breakGood:         s = "break.good"
-        //case breakModified:     s = "break.modified"
-        case breakUpdates:      s = "break.updates"
         case breakDone:         s = "break.done"
         case breakNext:         s = "break.next"
         case breakCase:         s = "break.case"
@@ -48,8 +46,6 @@ func (k breakind) String() (s string) {
 const (
         breakBad breakind = iota
         breakGood // good to continue
-        //breakModified // target modified
-        breakUpdates // needs to update (updated depends)
         breakDone // (cond ...) and (case ...)
         breakNext // (cond ...) and (case ...)
         breakCase // (case ...)
@@ -71,20 +67,16 @@ type breaker struct {
         message string
         misstar *updatedtarget
         updated []*updatedtarget
-        modified []*modification
 }
 
 func (p *breaker) Error() (s string) {
         switch p.what {
         case breakBad: s = "break baddly"
         case breakGood: s = "break normally"
-        case breakDone: s = "break conditional" // ineligible (cond) is ignored
+        case breakDone: s = "break done" // ineligible (cond) is ignored
         case breakNext: s = "break for next case"
         case breakCase: s = "break with cases done"
         case breakFail: s = "assert" // "break with failure"
-        //case breakModified: s = "break with modification"
-        case breakUpdates: s = "break with updates"
-                p.message = fmt.Sprintf("%v", p.updated)
         }
         if p.message != "" {
                 if s == "" {
@@ -104,26 +96,29 @@ func (p *breaker) prerequisites() (res []*updatedtarget) {
 }
 
 func break_bad(pos Position, s string, a... interface{}) *breaker {
-        return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil, nil, nil }
+        return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil, nil }
 }
 
 func break_good(pos Position, s string, a... interface{}) *breaker {
-        return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil, nil, nil }
+        return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil, nil }
 }
-
-// break with prerequisite updates
-func break_updates(pos Position, v ...*updatedtarget) *breaker {
-        return &breaker{ pos, breakUpdates, "", nil, v, nil }
-}
-
-// break with modified target
-/*func break_modified(pos Position, old, new Value) *breaker {
-        var m = []*modification{&modification{ old, new }}
-        return &breaker{ pos, breakModified, "", nil, nil, m }
-}*/
 
 func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
-        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil, nil }
+        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil }
+}
+
+func breakers(err error) (res []*breaker) {
+        switch t := err.(type) {
+        case *scanner.Error:
+                res = append(res, breakers(t.Err)...)
+        case scanner.Errors:
+                for _, e := range t {
+                        res = append(res, breakers(e.Err)...)
+                }
+        case *breaker:
+                res = append(res, t)
+        }
+        return
 }
 
 type modifier struct {
@@ -204,17 +199,14 @@ func (g *modifiergroup) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, g)) }
 ForModifiers:
         for _, m := range g.modifiers {
-                if err = m.traverse(pc); err != nil {
-                        switch t := err.(type) {
-                        case *breaker:
-                                switch pc.breaker = t; t.what {
-                                case breakDone:
-                                        // Stop traversing this group and
-                                        // return the breaker to the caller.
-                                        break ForModifiers
-                                }
+                if err = m.traverse(pc); err == nil { continue }
+                for _, b := range breakers(err) {
+                        switch pc.breaker = b; b.what {
+                        case breakDone:
+                                // Stop traversing this group and
+                                // return the breaker to the caller.
+                                break ForModifiers
                         }
-                        break
                 }
         }
         return
@@ -770,7 +762,7 @@ func parseGrepOption(pos Position, pc *traversal, optGrep Value) (result []Value
                                         }
                                 } else if exists(t) {
                                         var list []Value
-                                        list, err = pc.program.pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
+                                        list, err = pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
                                         if err != nil { return }
                                         info = &grepCacheFiles{ file:t }
                                         grepCacheFilebase[t.filebase] = info
@@ -814,8 +806,7 @@ func parseGrepOption(pos Position, pc *traversal, optGrep Value) (result []Value
         return
 }
 
-var uniqueCompareGood = make(map[string]*breaker)
-
+//var uniqueCompareGood = make(map[string]*breaker)
 // sysgrcmp := '^\s*#\s*include\s*<(.*)>'
 // grepcmps := '^\s*#\s*include\s*"(.*)"'
 // (compare -pg=(regexp=(top=(llvm,llvm-c,clang,clang-c) sys=$(sysgrcmp) $(grepcmps)) -re $<))
@@ -853,14 +844,14 @@ var uniqueCompareGood = make(map[string]*breaker)
 
         // No need to do further comparation if any prerequisites
         // already modified. We have to update the target if so.
-        if len(pc.program.pc.modified) > 0 {
+        if len(pc.modified) > 0 {
                 // Just return to continue with the rest modifiers.
                 return
         }
         
         var target Value
         var targetStr string
-        var targetDef = pc.program.pc.targetDef // $@
+        var targetDef = pc.targetDef // $@
         if n := len(args); n == 1 {
                 // Change $@ to args[0]
                 targetDef.set(DefDefault, args[0])
@@ -922,9 +913,9 @@ var uniqueCompareGood = make(map[string]*breaker)
         }
 
         var depends []Value
-        depends = append(depends, pc.program.pc.dependsDef.Value) // $^
-        depends = append(depends, pc.program.pc.orderedDef.Value) // $|
-        depends = append(depends, pc.program.pc.greppedDef.Value) // $~
+        depends = append(depends, pc.dependsDef.Value) // $^
+        depends = append(depends, pc.orderedDef.Value) // $|
+        depends = append(depends, pc.greppedDef.Value) // $~
         if grepped != nil { depends = append(depends, grepped) }
 
         if true { // 'false' is okay here
@@ -934,7 +925,7 @@ var uniqueCompareGood = make(map[string]*breaker)
 
         // Change into compare mode to avoid interpretion if there're
         // no targets are updated
-        //pc.program.pc.mode = compareMode
+        //pc.mode = compareMode
 
         var c *comparer
         if c, err = newcompariation(prog, target); err != nil {
@@ -1420,7 +1411,7 @@ func modifierGrepFiles(pos Position, pc *traversal, args... Value) (result Value
 
         var list []Value
         var target, _ = pc.program.scope.Lookup("@").(*Def).Call(pos)
-        list, err = pc.program.pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
+        list, err = pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
         result = MakeListOrScalar(pos, list)
         return
 }
@@ -1530,7 +1521,7 @@ ForPairs:
                         }
                 case "file", "dir":
                         var file *File
-                        var project = pc.program.pc.derived //mostDerived() // pc.program.project
+                        var project = pc.derived //mostDerived() // pc.program.project
                         if str, err = t.Value.Strval(); err != nil { return }
                         if file := project.searchFile(str); !exists(file) {
                                 err = break_with(pos, optBreak, "`%v` no such file or directory", t.Value)
@@ -1776,7 +1767,7 @@ func modifierCopyFile(pos Position, pc *traversal, args... Value) (result Value,
 
         // Get target filename
         var (
-                project = pc.program.pc.derived //mostDerived() // pc.program.project
+                project = pc.derived //mostDerived() // pc.program.project
                 filename, srcname string
                 filetime, srctime time.Time
         )
@@ -1899,10 +1890,10 @@ func modifierWriteFile(pos Position, pc *traversal, args... Value) (result Value
 }
 
 func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        //if m := pc.program.pc.mode; m == compareMode {
+        //if m := pc.mode; m == compareMode {
         //        return /* not working in compare mode */
         //}
-        //if m := pc.program.pc.mode; m != updateMode {
+        //if m := pc.mode; m != updateMode {
         //        //return /* only configure in update mode */
         //}
 
@@ -1949,7 +1940,7 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
         }
 
         // Get target filename
-        var project = pc.program.pc.derived //mostDerived() // pc.program.project
+        var project = pc.derived //mostDerived() // pc.program.project
         switch t := target.(type) {
         case *File:
                 if filename, err = t.Strval(); err != nil {
@@ -1971,9 +1962,6 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
         if optPath {
                 if p := filepath.Dir(filename); p != "." && p != "/" {
                         if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
-                                fmt.Printf("update-file: -p: %v\n", filename)
-                                fmt.Printf("update-file: -p: %v\n", p)
-                                fmt.Printf("update-file: %v\n", err)
                                 return
                         }
                 }
@@ -2028,8 +2016,7 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
                         var file = stat(filename, "", "")
-                        context.globe.stamp(filename, file.info.ModTime())
-                        //err = break_modified(pos, target, file)
+                        file.stamp(pc)
                         result = file // resulting the updated file
                         if optVerbose { fmt.Fprintf(stderr, "… (ok)\n") }
                 } else {

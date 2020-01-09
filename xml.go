@@ -121,13 +121,13 @@ type xml struct {
         whitespace bool
 }
 
-func (t *xml) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *xml) Evaluate(pc *traversal, args []Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(prog.recipes...); err != nil { return }
+        if source, err = joinRecipesString(pc.program.recipes...); err != nil { return }
         if result, err = DecodeXML(source, t.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ &None{trivial{prog.position}} }
+                result = &XML{ &None{trivial{pc.program.position}} }
         }
         return
 }

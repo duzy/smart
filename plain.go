@@ -42,13 +42,13 @@ func (p *Plain) cmp(v Value) (res cmpres) {
 
 type plain struct {}
 
-func (t *plain) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *plain) Evaluate(pc *traversal, args []Value) (result Value, err error) {
         var str, name string
         if len(args) > 0 {
                 if name, err = args[0].Strval(); err != nil { return }
         }
-        if str, err = joinRecipesString(prog.recipes...); err != nil { return }
+        if str, err = joinRecipesString(pc.program.recipes...); err != nil { return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{trivial{prog.position},name,str}
+        result = &Plain{trivial{pc.program.position},name,str}
         return
 }

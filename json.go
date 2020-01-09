@@ -203,13 +203,13 @@ func DecodeJSON(source string) (result Value, err error) {
 
 type json struct {}
 
-func (t *json) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *json) Evaluate(pc *traversal, args []Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(prog.recipes...); err != nil { return }
+        if source, err = joinRecipesString(pc.program.recipes...); err != nil { return }
         if result, err = DecodeJSON(source); err == nil {
                 result = &JSON{ result }
         } else {
-                result = &JSON{ &None{trivial{prog.position}} }
+                result = &JSON{ &None{trivial{pc.program.position}} }
         }
         return
 }

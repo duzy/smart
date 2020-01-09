@@ -57,23 +57,16 @@ func (p *using) traverse(pc *traversal) (err error) {
         }
         if entry := p.project.DefaultEntry(); entry != nil {
                 if err = entry.traverse(pc); err != nil {
-                        //fmt.Fprintf(os.Stderr, "%s: `%s` using error: %s (default entry '%s')\n", entry.Position, p.project.name, err, entry.target)
-                        if br, ok := err.(*breaker); ok {
-                                switch br.what {
-                                case breakGood, breakUpdates:
-                                        return nil
-                                }
-                        }
-                        err = wrap(entry.position, err)
+                        err = wrap(p.position, err)
                 } else {
                         usingPrepared[p.project] += 1
                 }
         }
         return
 }
-func (p *using) stamp() (files []*File, err error) {
+func (p *using) stamp(pc *traversal) (files []*File, err error) {
         if entry := p.project.DefaultEntry(); entry != nil {
-                files, err = entry.stamp()
+                files, err = entry.stamp(pc)
         }
         return
 }
@@ -160,10 +153,10 @@ func (p *usinglist) Position() (pos Position) {
         return
 }
 func (p *usinglist) True() (bool, error) { return len(p.list) > 0, nil }
-func (p *usinglist) stamp() (files []*File, err error) {
+func (p *usinglist) stamp(pc *traversal) (files []*File, err error) {
         for _, elem := range p.list {
                 var a []*File
-                if a, err = elem.stamp(); err != nil { break }
+                if a, err = elem.stamp(pc); err != nil { break }
                 files = append(files, a...)
         }
         return

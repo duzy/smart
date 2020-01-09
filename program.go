@@ -63,14 +63,12 @@ func (xs executestack) String() (s string) {
 
 type Program struct {
         mutex *sync.Mutex // execution mutex
-        pc *traversal // current prepare context
         project *Project
         scope   *Scope
         params  []string
         depends []Value
         ordered []Value
         recipes []Value
-        callers []*traversecontext
         position Position
         changedWD string
 }
@@ -105,11 +103,11 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
         return
 }
 
-func (prog *Program) waitForPrerequisites() (err error) {
-        prog.pc.group.Wait()
-        if prog.pc.calleeErrors != nil {
+func (prog *Program) waitForPrerequisites(pc *traversal) (err error) {
+        pc.group.Wait()
+        if pc.calleeErrors != nil {
                 // TODO: combine the callee errors
-                err = prog.pc.calleeErrors[0]
+                err = pc.calleeErrors[0]
         }
         return
 }
@@ -119,14 +117,14 @@ func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (er
         //        return
         //}
         if pc.breaker != nil { return }
-        if err = prog.waitForPrerequisites(); err != nil {
+        if err = prog.waitForPrerequisites(pc); err != nil {
                 return
         }
 
         var value Value
-        if value, err = i.Evaluate(prog, params); err == nil {
+        if value, err = i.Evaluate(pc, params); err == nil {
                 if value != nil { pc.modifyBuf.set(DefDefault, value) }
-                if value, err = prog.pc.targetDef.Call(prog.position); err == nil {
+                if value, err = pc.targetDef.Call(prog.position); err == nil {
                         var strings []string
                         for _, recipe := range prog.recipes {
                                 // Avoids calling recipe.Strval() twice, so that it won't be
@@ -192,7 +190,7 @@ func (prog *Program) getModifier(name string) (res *modifier) {
         return
 }
 
-func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
+func (prog *Program) prerequisites(pc *traversal, args []Value) (result []Value, err error) {
         // IMPORTANT: don't expand the args here. The prerequisites like
         // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
         //      xxx: mergeresult(ExpandAll(args...))
@@ -201,16 +199,16 @@ func (prog *Program) prerequisites(args []Value) (result []Value, err error) {
                 case Pattern: //*PercPattern:
                         var s string
                         var rest []string
-                        if s, rest, err = a.stencil(prog.pc.stems); err != nil {
+                        if s, rest, err = a.stencil(pc.stems); err != nil {
                                 err = wrap(prog.position, err)
                                 return
                         }
                         if len(rest) > 0 {
-                                panic(fmt.Sprintf("FIXME: unhandled stems: %v (%v, %v) (%v)", arg, s, rest, prog.pc.stems))
+                                panic(fmt.Sprintf("FIXME: unhandled stems: %v (%v, %v) (%v)", arg, s, rest, pc.stems))
                         }
-                        if prog.pc.derived == nil {
+                        if pc.derived == nil {
                                 // FIXME: prog.project.matchFile(s) ???
-                        } else if file := prog.pc.derived.matchFile(s); file != nil {
+                        } else if file := pc.derived.matchFile(s); file != nil {
                                 result = append(result, file)
                                 break
                         }
@@ -282,7 +280,7 @@ func (prog *Program) setParams(args []Value) (err error, restore func()) {
         return
 }
 
-func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err error) {
+func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, err error) {
         if false {
                 // Execution can be nested, a program.mutex.lock may
                 // cause dead-lock in such case.
@@ -295,23 +293,23 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         } (prog.project.changedWD)
 
         var none = &None{trivial{prog.position}}
-        var ctx = traversecontext{
+        var pc = &traversal{
+                program: prog,
                 derived: mostDerived(),
                 group: new(sync.WaitGroup),
                 entry: entry,
                 args: args,
+                caller: caller,
+                print: true,
         }
-        if len(prog.callers) > 0 {
-                var caller = prog.callers[0]
-                ctx.stems = caller.stems
+        if pc.caller != nil {
+                pc.stems = pc.caller.stems
                 if optionTraceTraversalNestIndent {
-                        ctx.traceLevel = caller.traceLevel
+                        pc.traceLevel = pc.caller.traceLevel
                 }
         }
-
-        var nestedExecution bool
-        if pc := prog.pc; pc != nil {
-                setVal := func(def *Def, val Value) { def.value = val }
+        defer func() {
+                set := func(def *Def, val Value) { def.value = val }
                 for _, def := range []*Def{
                         pc.targetDef,
                         pc.dependsDef,
@@ -321,22 +319,15 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         pc.updatedDef,
                         pc.stemDef,
                         pc.modifyBuf,
-                } { defer setVal(def, def.value) }
-                nestedExecution = true
-        }
-        defer func(pc *traversal) { prog.pc = pc } (prog.pc)
-        prog.pc = &traversal{
-                program: prog,
-                traversecontext: ctx,
-                print: true,
-        }
+                } { set(def, def.value) }
+        } ()
 
         // Flag targets (-foo) turn off printing
-        if _, ok := prog.pc.entry.target.(*Flag); ok { prog.pc.print = false }
-        if prog.pc.print && prog.pc.entry.class == UseRuleEntry {
-                prog.pc.print = false
+        if _, ok := pc.entry.target.(*Flag); ok { pc.print = false }
+        if pc.print && pc.entry.class == UseRuleEntry {
+                pc.print = false
         }
-        if prog.pc.print && prog.getModifier("configure") != nil { prog.pc.print = false }
+        if pc.print && prog.getModifier("configure") != nil { pc.print = false }
 
         // cd before setting execstack, because cd reads execstack
         // before changes.
@@ -346,7 +337,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 err = wrap(prog.position, err)
                 return
         }
-        cd.stack[0].silent = !prog.pc.print
+        cd.stack[0].silent = !pc.print
 
         // must set execstack after entering project
         defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
@@ -355,32 +346,32 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                 if e := leave(prog, enterStop); e != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
                         if err == nil { err = e } else {
-                                fmt.Fprintf(stderr, "%s: leaving: %s\n", prog.pc.entry.Position, e)
+                                fmt.Fprintf(stderr, "%s: leaving: %s\n", pc.entry.Position, e)
                         }
                 }
         } ()
 
         // set $@, $^, $<, $|, $~, $?, etc
-        if prog.pc.targetDef,  err = prog.auto("@", none); err != nil { return }
-        if prog.pc.depend0Def, err = prog.auto("<", none); err != nil { return }
-        if prog.pc.dependsDef, err = prog.auto("^", none); err != nil { return }
-        if prog.pc.orderedDef, err = prog.auto("|", none); err != nil { return }
-        if prog.pc.greppedDef, err = prog.auto("~", none); err != nil { return }
-        if prog.pc.updatedDef, err = prog.auto("?", none); err != nil { return }
-        if prog.pc.stemDef,    err = prog.auto("*", none); err != nil { return }
-        if prog.pc.modifyBuf,  err = prog.auto("-", none); err != nil { return }
+        if pc.targetDef,  err = prog.auto("@", none); err != nil { return }
+        if pc.depend0Def, err = prog.auto("<", none); err != nil { return }
+        if pc.dependsDef, err = prog.auto("^", none); err != nil { return }
+        if pc.orderedDef, err = prog.auto("|", none); err != nil { return }
+        if pc.greppedDef, err = prog.auto("~", none); err != nil { return }
+        if pc.updatedDef, err = prog.auto("?", none); err != nil { return }
+        if pc.stemDef,    err = prog.auto("*", none); err != nil { return }
+        if pc.modifyBuf,  err = prog.auto("-", none); err != nil { return }
 
         var fileTarget *File
 
         // Select the right target value before setting parameters,
         // because the target could be overrided by parameters.
-        switch t := prog.pc.entry.target.(type) {
+        switch t := pc.entry.target.(type) {
         case *File:
-                prog.pc.targetDef.set(DefDefault, t)
+                pc.targetDef.set(DefDefault, t)
                 fileTarget = t
         default:
                 var name string
-                var target = prog.pc.entry.target
+                var target = pc.entry.target
                 if name, err = target.Strval(); err != nil {
                         err = wrap(prog.position, err)
                         return
@@ -389,7 +380,7 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         fileTarget = file
                         target = file
                 }
-                prog.pc.targetDef.set(DefDefault, target)
+                pc.targetDef.set(DefDefault, target)
         }
 
         if e, clearParams := prog.setParams(args); e != nil {
@@ -397,31 +388,31 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
         } else {
                 defer func() {
                         clearParams()
-                        prog.pc.params = nil
+                        pc.params = nil
                 } ()
         }
 
         // Expanding all dependencies after pre-modifiers.
         var depends, ordered []Value
-        if depends, err = prog.prerequisites(prog.depends); err != nil {
+        if depends, err = prog.prerequisites(pc, prog.depends); err != nil {
                 err = wrap(prog.position, err)
                 return
         }
-        if ordered, err = prog.prerequisites(prog.ordered); err != nil {
+        if ordered, err = prog.prerequisites(pc, prog.ordered); err != nil {
                 err = wrap(prog.position, err)
                 return
         }
 
-        prog.pc.dependsDef.set(DefDefault, MakeList(prog.position, depends...))
+        pc.dependsDef.set(DefDefault, MakeList(prog.position, depends...))
         if len(depends) > 0 {
-                prog.pc.depend0Def.set(DefDefault, depends[0])
+                pc.depend0Def.set(DefDefault, depends[0])
         }
         if len(ordered) > 0 {
-                prog.pc.orderedDef.set(DefDefault, MakeList(prog.position, ordered...))
+                pc.orderedDef.set(DefDefault, MakeList(prog.position, ordered...))
         }
 
-        if prog.pc.stems != nil {
-                prog.pc.stemDef.set(DefDefault, &String{trivial{prog.position},prog.pc.stems[0]})
+        if pc.stems != nil {
+                pc.stemDef.set(DefDefault, &String{trivial{prog.position},pc.stems[0]})
         }
 
         if fileTarget != nil && fileTarget.info != nil && fileTarget.updated {
@@ -439,32 +430,16 @@ func (prog *Program) Execute(entry *RuleEntry, args []Value) (result Value, err 
                         fileTarget.updated = true
                 }
 
-                result, err = prog.pc.modifyBuf.Call(prog.position)
+                result, err = pc.modifyBuf.Call(prog.position)
                 if err != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
                         err = wrap(prog.position, err)
                 }
         } ()
-        return prog.pc.exec(prog, nestedExecution)
+        return pc.exec(prog)
 }
 
-func (pc *traversal) checkTargetMode() (err error) {
-        // Check (file) target existence
-        var s string
-        if file, ok := pc.targetDef.value.(*File); ok && !exists(file) {
-                //if len(prog.callers) > 0 {
-                //        var caller = prog.callers[0]
-                //        caller.updated = append(...)
-                //}
-        } else if s, err = pc.targetDef.value.Strval(); err != nil {
-                return
-        } else if file := pc.derived.matchFile(s); !exists(file) {
-                pc.targetDef.value = file
-        }
-        return
-}
-
-func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) {
+func (pc *traversal) exec(prog *Program) (result Value, err error) {
         var (
                 none = &None{trivial{prog.position}}
                 depends = pc.dependsDef.value
@@ -474,18 +449,10 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
 
         pc.updatedDef.set(DefDefault, none)
 
-        if err = pc.traverseAll([]Value{depends,ordered,grepped}, nested); err != nil {
+        // FIXME: handle 'ordered' and 'grepped' differently
+        if err = pc.traverseAll([]Value{depends,ordered,grepped}); err != nil {
+                err = wrap(prog.position, err)
                 return
-        } else if optionTraceTraversal && false {
-                pc.tracef("%v", pc.targets)
-                pc.tracef("%v", pc.targetDef)
-                pc.tracef("%v", pc.depend0Def)
-                pc.tracef("%v", pc.dependsDef)
-                pc.tracef("%v", pc.orderedDef)
-                pc.tracef("%v", pc.greppedDef)
-                pc.tracef("%v", pc.updatedDef)
-                pc.tracef("%v", pc.stemDef)
-                pc.tracef("%v", pc.modifyBuf)
         }
 
         if len(pc.interpreted) == 0 {
@@ -497,6 +464,18 @@ func (pc *traversal) exec(prog *Program, nested bool) (result Value, err error) 
                 } else {
                         err = errorf(prog.position, "no default dialect")
                 }
+        }
+
+        if optionTraceTraversal && false {
+                pc.tracef("%v", pc.targets)
+                pc.tracef("%v", pc.targetDef)
+                pc.tracef("%v", pc.depend0Def)
+                pc.tracef("%v", pc.dependsDef)
+                pc.tracef("%v", pc.orderedDef)
+                pc.tracef("%v", pc.greppedDef)
+                pc.tracef("%v", pc.updatedDef)
+                pc.tracef("%v", pc.stemDef)
+                pc.tracef("%v", pc.modifyBuf)
         }
         return
 }

@@ -7,7 +7,6 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
         "extbit.io/smart/token"
         "path/filepath"
         "runtime/debug"
@@ -34,7 +33,7 @@ type (
 )
 const (
         cmpUnknown cmpres = 0
-        cmpLess        = -1 // meaningless so far
+        cmpSmaller     = -1 // meaningless so far
         cmpGreater     = 1  // meaningless so far
         cmpEqual       = 2
 )
@@ -50,6 +49,16 @@ const (
         expandPath // $(...)/foo  ->  /path/to/foo
         expandAll = expandDelegate | expandClosure | expandCaller | expandPath
 )
+
+func (v cmpres) String() (s string) {
+        switch v {
+        case cmpUnknown: s = "unknown"
+        case cmpSmaller: s = "smaller"
+        case cmpGreater: s = "greater"
+        case cmpEqual:   s = "equal"
+        }
+        return
+}
 
 func (v existence) String() (s string) {
         switch v {
@@ -89,7 +98,7 @@ type Value interface {
         exists() existence
 
         // Stamp the value if it's file (update FileInfo).
-        stamp() ([]*File, error)
+        stamp(pc *traversal) ([]*File, error)
 
         // Recursively detecting whether this value references
         // the object (to avoid loop-delegation).
@@ -150,148 +159,26 @@ func (p *updatedtarget) String() string {
         return p.target.String()
 }
 
-func newUpdatedTarget(target Value, prerequisites []*updatedtarget) *updatedtarget {
+func newUpdatedTarget(target Value, prerequisites ...*updatedtarget) *updatedtarget {
         if def, ok := target.(*Def); ok { target = def.value }
-        for _, p := range prerequisites {
-                if p.target != nil {
-                        if def, ok := p.target.(*Def); ok {
-                                p.target = def.value
-                        }
-                }
-        }
         return &updatedtarget{target, prerequisites}
-}
-
-/*
-func comptrace(c *comparer, v Value) *comparer {
-        t := c.target
-        a := fmt.Sprintf("%T{%v}", t, t)
-        b := fmt.Sprintf("%T{%v}", v, v)
-        c.trace(a, ":", b, "(")
-        c.level += 1
-        return c
-}
-
-func compun(c *comparer) {
-        c.level -= 1
-        c.trace(")")
-}
-
-func (c *comparer) compareStatDepend(d Value, ds string, di os.FileInfo) (err error) {
-        var tt, dt time.Time
-        if f, ok := d.(*File); ok && f.info != nil {
-                d, ds, dt = f, f.fullname(), f.info.ModTime()
-        } else if ds == "" {
-                err = break_bad(c.program.position, "'%v' unknown depend", d)
-                return
-        } else if t := context.globe.timestamp(ds); !t.IsZero() {
-                dt = t
-        } else if di != nil {
-                dt = di.ModTime()
-        } else {
-                //for _, project := range c.program.pc.related {
-                if project := mostDerived(); project != nil {
-                        if t := project.searchFile(ds); t != nil {
-                                d, ds, dt = t, t.fullname(), t.info.ModTime()
-                                if f != nil { *f = *t } // replace the file 
-                                //break
-                        }
-                }
-        }
-
-        var ts string
-        if f, ok := c.target.(*File); ok && f.info != nil {
-                ts, tt = f.fullname(), f.info.ModTime()
-        } else if ts, err = c.target.Strval(); err != nil {
-                return
-        } else if ts == "" {
-                err = break_bad(c.program.position, "'%v' unknown target", c.target)
-                return
-        } else if t := context.globe.timestamp(ts); !t.IsZero() {
-                tt = t
-        } else {
-                //for _, project := range c.program.pc.related {
-                if project := mostDerived(); project != nil {
-                        if t := project.searchFile(ts); t != nil {
-                                ts, tt = t.fullname(), t.info.ModTime()
-                                if f != nil { *f = *t } // replace the file
-                                //break
-                        }
-                }
-        }
-
-        if optionTraceCompare {
-                if false {
-                        c.trace("compare:", tt, ";", c.target, "("+ts+")")
-                        c.trace("compare:", dt, ";", d, "("+ds+")")
-                } else if false {
-                        c.trace("compare:", tt, dt, ";", c.target, d, ";", ts, ds)
-                } else {
-                        c.trace("compare:", c.target, d, '\t', '\t', tt, ":", dt, "; ", dt.After(tt))
-                }
-        } else if optionTraceCompareOutdated && dt.After(tt) {
-                c.trace("outdate:", c.target, d, '\t', '\t', tt, ":", dt)
-        }
-
-        if tt.IsZero() {
-                if optionTraceCompare { c.trace("compare: misstar:", c.target) }
-                if false {
-                        br := break_bad(c.program.position, "%T '%v' is missing", c.target, c.target)
-                        br.misstar = newUpdatedTarget(c.target, nil)
-                        err = br
-                } else {
-                        // Treat all dependency as updated when the target is not existed.
-                        c.updated = append(c.updated, newUpdatedTarget(d, nil))
-                        if optionTraceCompare || optionTraceCompareOutdated {
-                                c.trace("compare: missing", c.target)
-                        }
-                        if !dt.IsZero() {
-                                context.globe.stamp(ds, dt)
-                        }
-                }
-        } else if dt.IsZero() || dt.After(tt) {
-                c.updated = append(c.updated, newUpdatedTarget(d, nil))
-                if optionTraceCompare { c.trace("compare: updated", d) }
-
-                // Update timestamps to depended file, so that
-                // further updates can happen.
-                if !dt.IsZero() {
-                        // FIXME: set file ModTime instead of using the
-                        //        timestamps, it may cause some targets
-                        //        updated multiple times if target is
-                        //        compared with different deps.
-                        context.globe.stamp(ts, dt)
-                        context.globe.stamp(ds, dt)
-                }
-        } else if true {
-                // Just save the timestamps to optimize further stats.
-                if !tt.IsZero() { context.globe.stamp(ts, tt) }
-                if !dt.IsZero() { context.globe.stamp(ds, dt) }
-        }
-        return
-}
-*/
-
-type traversecontext struct {
-        group *sync.WaitGroup
-        calleeErrors []error
-        entry *RuleEntry // caller entry (target)
-        //visitInsteadUpdate bool // target don't really need to update
-        args, arguments []Value // target and argumented prerequisite args
-        targets []Value // prerequisite targets ($^ $<)
-        modified []*modification // modified prerequisite targets
-        updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
-        derived *Project // the most derived project
-        //related []*Project // the related projects in the context
-        stems []string // set by StemmedEntry
-        traceLevel int
 }
 
 // traversal prepares prerequisites of targets.
 type traversal struct {
         program *Program
-        traversecontext
-        print bool // printing work directories (Entering/Leaving)
+
+        group *sync.WaitGroup
+        caller *traversal
+        calleeErrors []error
+        entry *RuleEntry // caller entry (target)
+        args, arguments []Value // target and argumented prerequisite args
+        targets []Value // prerequisite targets ($^ $<)
+        updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
+        derived *Project // the most derived project
+        stems []string // set by StemmedEntry
+        traceLevel int
+
         targetDef  *Def // $@
         dependsDef *Def // $^
         depend0Def *Def // $<
@@ -305,10 +192,8 @@ type traversal struct {
         breaker *breaker
         interpreted []interpreter
 
+        print bool // printing work directories (Entering/Leaving)
         debug bool
-}
-
-type prerequisite interface {
 }
 
 // Usage pattern: defer un(tt(pc, "..."))
@@ -372,7 +257,7 @@ func (pc *traversal) addNotExistedTargets(targets ...Value) {
         }
 }
 
-func (pc *traversal) traverseAll(value interface{}, nested bool) (err error) {
+func (pc *traversal) traverseAll(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; err == nil && i < v.Len(); i++ {
                         err = pc.traverse(v.Index(i).Interface())
@@ -397,51 +282,9 @@ func (pc *traversal) traverse(i interface{}) (err error) {
         return
 }
 
-func (pc *traversal) checkBreakers(pos Position, err error) (scanner.Errors, error, bool) {
-        var errs scanner.Errors
-        if br, done := err.(*breaker); done {
-                if n := len(errs); n == 0 {
-                        return nil, err, done
-                } else if n == 1 {
-                        if false {
-                                fmt.Fprintf(stderr, "%s: break with error (reason=%d):\n", pos, br.what)
-                        }
-                } else {
-                        if false {
-                                fmt.Fprintf(stderr, "%s: break with %d errors (reason=%d):\n", pos, n, br.what)
-                        }
-                }
-                /*for _, e := range errs {
-                        fmt.Fprintf(stderr, "%s\n", e.Error())
-                }*/
-                return nil, err, done
-        } else {
-                switch e := wrap(pos, err).(type) {
-                case *scanner.Error: errs = append(errs, e)
-                case scanner.Errors: errs = append(errs, e...)
-                }
-                switch err.(type) {
-                case fileNotFoundError: // will retry
-                case targetNotFoundError: // will retry
-                default: done = true
-                }
-                return errs, err, done
-        }
-}
-
-func (pc *traversal) traverseTargetCheckBreakers(pos Position, target string) (errs scanner.Errors) {
-        if project := mostDerived(); project != nil {
-                var err = project.traverseTarget(pos, pc, target)
-                if err != nil {
-                        errs, err, _ = pc.checkBreakers(pos, err)
-                }
-        }
-        return
-}
-
 func (pc *traversal) traverseTarget(pos Position, target string) (err error) {
-        if errs := pc.traverseTargetCheckBreakers(pos, target); len(errs) > 0 {
-                err = errs
+        if project := mostDerived(); project != nil {
+                err = project.traverseTarget(pos, pc, target)
         }
         return
 }
@@ -456,12 +299,12 @@ func (pc *traversal) traverseTargetValue(value Value) (err error) {
 
 func (pc *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
         // Push the context to the program, so that patterns will work.
-        defer func(a []*traversecontext) { prog.callers = a } (prog.callers)
-        prog.callers = append([]*traversecontext{&pc.traversecontext}, prog.callers...)
+        //defer func(a []*traversecontext) { prog.callers = a } (prog.callers)
+        //prog.callers = append([]*traversecontext{&pc.traversecontext}, prog.callers...)
 
         // Execute the updating program.
         var res Value
-        if res, err = prog.Execute(entry, pc.arguments); err != nil {
+        if res, err = prog.execute(pc, entry, pc.arguments); err != nil {
                 //if optionTraceTraversal { pc.tracef("%s: %s", entry, err) }
                 if br, ok := err.(*breaker); ok {
                         switch br.what {
@@ -474,6 +317,14 @@ func (pc *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
         target, _ := prog.scope.Lookup("@").(*Def).Call(entry.position)
         pc.addNotExistedTargets(target, res)
         return
+}
+
+func (pc *traversal) appendUpdated(target *updatedtarget) {
+        pc.updated = append(pc.updated, target)
+        if pc.caller != nil {
+                var t = newUpdatedTarget(pc.targetDef.value, target)
+                pc.caller.appendUpdated(t)
+        }
 }
 
 type elemkind int
@@ -503,7 +354,7 @@ func (_ *trivial) expand(_ expandwhat) (v Value, err error) { return }
 func (_ *trivial) cmp(_ Value) (res cmpres) { return }
 func (_ *trivial) mod(pc *traversal) (t time.Time) { return }
 func (_ *trivial) exists() existence { return existenceMatterless }
-func (_ *trivial) stamp() (file []*File, err error) { return }
+func (_ *trivial) stamp(pc *traversal) (file []*File, err error) { return }
 func (p *trivial) Position() (res Position) { return p.position }
 func (_ *trivial) True() (res bool, err error) { return }
 func (_ *trivial) Integer() (i int64, err error) { return }
@@ -560,7 +411,7 @@ func (p *Argumented) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *Argumented) stamp() ([]*File, error) { return p.value.stamp() }
+func (p *Argumented) stamp(pc *traversal) ([]*File, error) { return p.value.stamp(pc) }
 func (p *Argumented) exists() existence { return p.value.exists() }
 func (p *Argumented) mod(pc *traversal) time.Time {
         // FIXME: p.value maybe not the real target
@@ -615,9 +466,10 @@ func (p *Argumented) Strval() (s string, err error) {
 }
 func (p *Argumented) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-        //<!IMPORTANT! - Don't merge-expand arguments here!
-        // Arguments should be passed to Execute as it's
-        // represented.
+        //!< IMPORTANT! - Don't merge-expand arguments here!
+        //!< Arguments should be passed to Execute as it's
+        //!< represented.
+        defer func(a []Value) { pc.arguments = a } (pc.arguments)
         pc.arguments = p.args
         err = pc.traverse(p.value)
         return
@@ -673,9 +525,9 @@ func (p *Any) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *Any) stamp() (files []*File, err error) {
+func (p *Any) stamp(pc *traversal) (files []*File, err error) {
         if a, ok := p.value.(Value); ok {
-                files, err = a.stamp()
+                files, err = a.stamp(pc)
         }
         return
 }
@@ -851,7 +703,7 @@ func (p *boolean) cmp(v Value) (res cmpres) {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
@@ -860,7 +712,7 @@ func (p *boolean) cmp(v Value) (res cmpres) {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
@@ -893,7 +745,7 @@ func (p *answer) cmp(v Value) (res cmpres) {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
@@ -902,7 +754,7 @@ func (p *answer) cmp(v Value) (res cmpres) {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
@@ -923,7 +775,7 @@ func (p *integer) cmp(v Value) (res cmpres) {
         if p.int64 == i {
                 res = cmpEqual
         } else if p.int64 < i {
-                res = cmpLess
+                res = cmpSmaller
         } else if p.int64 > i {
                 res = cmpGreater
         }
@@ -968,7 +820,7 @@ func (p *Float) cmp(v Value) (res cmpres) {
                 if p.float64 == f {
                         res = cmpEqual
                 } else if p.float64 < f {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.float64 > f {
                         res = cmpGreater
                 }
@@ -1008,7 +860,7 @@ func (p *DateTime) cmp(v Value) (res cmpres) {
         if p.t.Equal(vt) {
                 res = cmpEqual
         } else if p.t.Before(vt) {
-                res = cmpLess
+                res = cmpSmaller
         } else /*if p.t.After(vt)*/ {
                 res = cmpGreater
         }
@@ -1257,7 +1109,7 @@ func (p *String) cmp(v Value) (res cmpres) {
                 if p.string == a.string {
                         res = cmpEqual
                 } else if p.string < a.string {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else /*if p.string > a.string*/ {
                         res = cmpGreater
                 }
@@ -1295,7 +1147,7 @@ func (p *Bareword) cmp(v Value) (res cmpres) {
                 if p.string == a.string {
                         res = cmpEqual
                 } else if p.string > a.string {
-                        res = cmpLess
+                        res = cmpSmaller
                 } else if p.string < a.string {
                         res = cmpGreater
                 }
@@ -1460,35 +1312,8 @@ func (p *Barefile) traverse(pc *traversal) (err error) {
         }
         return
 }
-/*func (p *Barefile) traverseCompare(pc *traversal) (err error) {
-        if p.File != nil {
-                var after bool
-                after, err = pc.targetDef.value.after(p.File)
-                if !after {
-                        pc.updated = append(pc.updated, newUpdatedTarget(p, nil))
-                }
-        } else {
-                pc.updated = append(pc.updated, newUpdatedTarget(p, nil))
-        }
-        return
-}
-func (p *Barefile) traverseUpdate(pc *traversal) (err error) {
-        if p.File != nil {
-                var s string
-                if s, err = p.Name.Strval(); err != nil {
-                        return
-                } else if s != p.File.name {
-                        // Fixes the case that '$@.o' is parsed and become '.o'.
-                        p.File.name = s
-                }
-                err = p.File.traverse(pc)
-        } else {
-                err = pc.traverseTargetValue(p)
-        }
-        return
-}*/
-func (p *Barefile) stamp() (files []*File, err error) {
-        if p.File != nil { files, err = p.File.stamp() }
+func (p *Barefile) stamp(pc *traversal) (files []*File, err error) {
+        if p.File != nil { files, err = p.File.stamp(pc) }
         return
 }
 func (p *Barefile) exists() (res existence) {
@@ -1650,14 +1475,13 @@ func (p *Path) fullname(stems []string) (fullname string, err error) {// the add
         }
         return
 }
-func (p *Path) stamp() (files []*File, err error) {
+func (p *Path) stamp(pc *traversal) (files []*File, err error) {
         var fullname string
         if fullname, err = p.Strval(); err == nil {
                 if fullname == "" {
                         err = errorf(p.position, "no fullname for `%s`", p)
                 } else if file := stat(fullname,"","",nil); file != nil {
-                        context.globe.stamp(fullname, file.info.ModTime())
-                        files = append(files, file)
+                        files, err = file.stamp(pc)
                 }
         }
         return
@@ -1706,7 +1530,7 @@ func (p *Path) mod(pc *traversal) (t time.Time) {
         } else if file := stat(fullname, "", "", nil); file != nil && file.info != nil {
                 t = file.info.ModTime()
         }
-        if optionTraceTraversal { pc.tracef("Path.mod: %v (%v)", t, p) }
+        //if optionTraceTraversal { pc.tracef("Path.mod: %v (%v)", t, p) }
         return
 }
 func (p *Path) isPattern() (result bool) {
@@ -2153,20 +1977,35 @@ func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
         }
         return
 }
-func (p *File) stamp() (files []*File, err error) {
+func (p *File) stamp(pc *traversal) (files []*File, err error) {
         var fullname string
-        if p.info == nil {
-                if fullname = p.fullname(); fullname == "" {
-                        err = errorf(p.position, "no fullname for `%s`", p)
-                        return
-                }
-                if p.info, err = os.Stat(fullname); err != nil { return }
-                p.updated = true
+        if fullname = p.fullname(); fullname == "" {
+                err = errorf(p.position, "no fullname for `%s`", p)
+                return
         }
+
+        var ot time.Time
+        if p.info != nil { ot = p.info.ModTime() }
+        if p.info, err = os.Stat(fullname); err != nil { return }
         if p.info != nil && err == nil {
-                if fullname == "" { fullname = p.fullname() }
-                context.globe.stamp(fullname, p.info.ModTime())
+                var nt = p.info.ModTime()
+                context.globe.stamp(fullname, nt)
+                p.updated = nt.After(ot)
                 files = append(files, p)
+
+                var target = pc.targetDef.value
+                var cmp = target.cmp(p)
+                if cmp == cmpEqual {
+                        // Add to caller context
+                        pc.caller.appendUpdated(newUpdatedTarget(p))
+                        target = pc.caller.targetDef.value
+                } else {
+                        pc.appendUpdated(newUpdatedTarget(p))
+                }
+                if optionTraceTraversal {
+                        pc.tracef("stamp: %v (%v, %v, %v)", p, nt.Sub(ot),
+                                target, cmp)
+                }
         }
         return
 }
@@ -2179,13 +2018,8 @@ func (p *File) exists() existence {
 }
 func (p *File) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-        //if p.cmp(pc.targetDef.value) == cmpEqual { ... }
 
         var project = mostDerived()
-        if project != nil {
-                _, err = project.traverseFile(pc, p)
-                if err != nil { return }
-        }
 
         // FIXES: checks none-File file target
         switch t := pc.targetDef.value.(type) {
@@ -2210,13 +2044,25 @@ func (p *File) traverse(pc *traversal) (err error) {
                 }
         }
 
+        if project != nil {
+                _, err = project.traverseFile(pc, p)
+                if err != nil { return }
+        }
+
+        if optionTraceTraversal {
+                pc.tracef("file: %v (after %v, %s)",
+                        p, pc.targetDef.value.mod(pc),
+                        typeof(pc.targetDef.value))
+        }
+
+        // Note that the file maybe not updated yet at this point.
         if p.info == nil {
                 err = errorf(p.position, "file not existed: %v", p)
-        } else if p.info.ModTime().After(pc.targetDef.value.mod(pc)) {
-                pc.updated = append(pc.updated, newUpdatedTarget(p, nil))
+        } /*else if p.info.ModTime().After(pc.targetDef.value.mod(pc)) {
+                pc.appendUpdated(newUpdatedTarget(p))
                 if optionTraceTraversal { pc.tracef("updated: %v (after %v, %s)",
                         p, pc.targetDef.mod(pc), typeof(pc.targetDef.value)) }
-        }
+        }*/
         return
 }
 
@@ -2319,7 +2165,7 @@ func checkPatternDepend(pc *traversal, project *Project, se *StemmedEntry, prog 
 }
 func (p *File) mod(pc *traversal) (t time.Time) {
         if p.info != nil { t = p.info.ModTime() }
-        if optionTraceTraversal { pc.tracef("File.mod: %v (%v)", t, p) }
+        //if optionTraceTraversal { pc.tracef("File.mod: %v (%v)", t, p) }
         return
 }
 func (p *File) cmp(v Value) (res cmpres) {
@@ -2560,43 +2406,13 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
 }
 
 func (p *List) traverse(pc *traversal) (err error) {
-        if len(p.Elems) == 0 { return } 
+        if len(p.Elems) == 0 { return }
         if optionTraceTraversal { defer un(tt(pc, p)) }
-        //var modified, updates, good *breaker
         for _, v := range p.Elems {
-                if err = v.traverse(pc); err == nil {
-                        continue // The element target is good!
-                /*} else if br, ok := err.(*breaker); ok {
-                        switch br.what {
-                        case breakModified:
-                                if modified == nil { modified = br } else {
-                                        modified.modified = append(modified.modified, br.modified...)
-                                }
-                        case breakUpdates:
-                                if updates == nil { updates = br } else {
-                                        updates.updated = append(updates.updated, br.updated...)
-                                }
-                                err = nil
-                        case breakGood:
-                                err, good = nil, br
-                        case breakDone, breakNext, breakCase:
-                                err = nil
-                        default:
-                                fmt.Fprintf(stderr, "%s: list: %v: %v (%v)\n", pc.program.position, pc.entry, v, br.what)
-                        }*/
-                } else {
+                if err = v.traverse(pc); err != nil {
                         break
                 }
         }
-        /*if err != nil {
-                //fmt.Printf("%s: %v: prepare list error\n", pc.program.position, pc.entry)
-        } else if modified != nil && err != modified {
-                err = modified
-        } else if updates != nil && err != updates {
-                err = updates
-        } else if err == nil && good != nil {
-                err = good
-        }*/
         return
 }
 
@@ -2616,10 +2432,10 @@ ForElems:
         return
 }
 
-func (p *List) stamp() (files []*File, err error) {
+func (p *List) stamp(pc *traversal) (files []*File, err error) {
         for _, elem := range p.Elems {
                 var a []*File
-                if a, err = elem.stamp(); err != nil { break }
+                if a, err = elem.stamp(pc); err != nil { break }
                 files = append(files, a...)
         }
         return
@@ -2662,7 +2478,7 @@ func (p *Group) Strval() (s string, err error) {
         return
 }
 func (p *Group) traverse(pc *traversal) (err error) { return }
-func (p *Group) stamp() (files []*File, err error) { return }
+func (p *Group) stamp(pc *traversal) (files []*File, err error) { return }
 func (p *Group) exists() existence { return p.List.exists() }
 func (p *Group) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )

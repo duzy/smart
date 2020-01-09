@@ -521,10 +521,9 @@ func CommandLine() {
                 report(do_configuration())
         } else if result, err := context.run(); err != nil {
                 defer printLeavingDirectory()
-                if b, ok := err.(*breaker); ok {
-                        switch b.what {
-                        case breakUpdates:
-                                fmt.Fprintf(stderr, "updated %s", b.updated)
+                for _, e := range breakers(err) {
+                        // FIXME: just return if good breaker
+                        if e.what == breakDone {
                                 return
                         }
                 }

@@ -474,7 +474,7 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
 }
 func (p *undetermined) traverse(pc *traversal) (err error) { return }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
-func (p *undetermined) stamp() (files []*File, err error) { return }
+func (p *undetermined) stamp(pc *traversal) (files []*File, err error) { return }
 func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) True() (bool, error) { return false, nil }
 func (p *undetermined) String() (s string) {
@@ -556,7 +556,7 @@ type RuleEntry struct {
 }
 
 func (entry *RuleEntry) Position() Position { return entry.position/*entry.target.Position()*/ }
-func (entry *RuleEntry) stamp() (files []*File, err error) { return entry.target.stamp() }
+func (entry *RuleEntry) stamp(pc *traversal) (files []*File, err error) { return entry.target.stamp(pc) }
 func (entry *RuleEntry) exists() existence { return entry.target.exists() }
 func (entry *RuleEntry) True() (bool, error) { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
@@ -614,23 +614,22 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) {
 func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err error) {
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
-                err = fmt.Errorf("%s: executing pattern entry '%s'.", pos, entry.Name())
+                err = errorf(pos, "executing pattern entry '%s'", entry.Name())
                 return
         }
 
-        // The position where (assert) failed.
-        var failed token.Position
-
+        var caller *traversal
 ForPrograms:
         for _, program := range entry.programs {
                 var ( val Value ; e error )
-                if val, e = program.Execute(entry, a); e == nil {
+                if val, e = program.execute(caller, entry, a); e == nil {
                         result = append(result, val)
                         continue ForPrograms
-                } else if br, ok := e.(*breaker); ok {
-                        switch br.what {
+                }
+                for _, b := range breakers(e) {
+                        switch b.what {
                         case breakFail: // (assert) failure
-                                err = wrap(br.pos, e, err)
+                                err = wrap(b.pos, e, err)
                                 continue ForPrograms // break ForPrograms
                         case breakNext: // continue with the next (case)
                                 continue ForPrograms
@@ -641,11 +640,7 @@ ForPrograms:
                 }
                 err = wrap(program.position, e, err)
         }
-        if err != nil {
-                err = wrap(pos, err)
-        } else if failed.IsValid() {
-                //err = scanner.Errorf(failed, "assertion failed")
-        }
+        if err != nil { err = wrap(pos, err) }
         return
 }
 func (entry *RuleEntry) Get(name string) (Value, error) {
@@ -734,22 +729,25 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
 func (entry *RuleEntry) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, entry.target)) }
         var failed bool
-//ForPrograms:
+ForPrograms:
         for _, prog := range entry.programs {
                 if err = pc.execute(entry, prog); err == nil {
-                        // continue with the next program
+                        continue // with the next program
                 } /*else if _, ok := err.(targetNotFoundError); ok {
                         break ForPrograms // Don't try other programs if it's undefined.
-                } else if br, ok := err.(*breaker); ok {
-                        switch br.what {
+                }*/
+                for _, b := range breakers(err) {
+                        switch b.what {
                         case breakFail:
-                                fmt.Fprintf(stderr, "%s: entry.prepare: %s\n", br.pos, br.message)
+                                fmt.Fprintf(stderr, "%s: entry.prepare: %s\n", b.pos, b.message)
                                 failed, err = true, nil
-                        case breakNext: continue ForPrograms
+                                continue ForPrograms
+                        case breakNext:
+                                continue ForPrograms
                         case breakCase, breakDone:
                                 break ForPrograms
                         }
-                }*/
+                }
         }
         if err == nil && failed {
                 err = errorf(entry.position, "assertion failed")

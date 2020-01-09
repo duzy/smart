@@ -11,10 +11,10 @@ type evaluer struct {
         accumulation bool
 }
 
-func (t *evaluer) Evaluate(prog *Program, args []Value) (result Value, err error) {
+func (t *evaluer) Evaluate(pc *traversal, args []Value) (result Value, err error) {
         var list []Value
 ForRecipes:
-        for _, recipe := range prog.recipes {
+        for _, recipe := range pc.program.recipes {
                 if t.accumulation {
                         var v Value
                         // Expand both closures and delegates to ensure that
@@ -36,11 +36,11 @@ ForRecipes:
                                 // Noop, just return v to the caller.
 
                         case Caller:
-                                v, err = t.Call(prog.position, stmt.Slice(1)...)
+                                v, err = t.Call(pc.program.position, stmt.Slice(1)...)
 
                         case Executer:
                                 var a []Value
-                                if a, err = t.Execute(prog.Position(), stmt.Slice(1)...); err == nil {
+                                if a, err = t.Execute(pc.program.Position(), stmt.Slice(1)...); err == nil {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
@@ -82,6 +82,6 @@ ForRecipes:
                         return
                 }
         }
-        result = MakeListOrScalar(prog.position, list)
+        result = MakeListOrScalar(pc.program.position, list)
         return
 }
