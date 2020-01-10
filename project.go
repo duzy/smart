@@ -964,7 +964,6 @@ func (p *Project) CheckCmdHash(target Value, recipes []string) (same bool, err e
                         err = e; return
                 } else if n == 1 {
                         same = bytes.Equal(v[:], h)
-                        //fmt.Fprintf(stderr, "CheckCmdHash: %x -> %x (%x)\n", k, v, h)
                 }
                 err = f.Close()
         } else {

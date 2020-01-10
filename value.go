@@ -1987,7 +1987,7 @@ func (p *File) stamp(pc *traversal) (files []*File, err error) {
         var ot time.Time
         if p.info != nil { ot = p.info.ModTime() }
         if p.info, err = os.Stat(fullname); err != nil { return }
-        if p.info != nil && err == nil {
+        if p.info != nil {
                 var nt = p.info.ModTime()
                 context.globe.stamp(fullname, nt)
                 p.updated = nt.After(ot)
@@ -2056,9 +2056,9 @@ func (p *File) traverse(pc *traversal) (err error) {
         }
 
         // Note that the file maybe not updated yet at this point.
-        if p.info == nil {
+        /*if p.info == nil {
                 err = errorf(p.position, "file not existed: %v", p)
-        } /*else if p.info.ModTime().After(pc.targetDef.value.mod(pc)) {
+        } else if p.info.ModTime().After(pc.targetDef.value.mod(pc)) {
                 pc.appendUpdated(newUpdatedTarget(p))
                 if optionTraceTraversal { pc.tracef("updated: %v (after %v, %s)",
                         p, pc.targetDef.mod(pc), typeof(pc.targetDef.value)) }

@@ -2092,6 +2092,7 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                         if optVerbose {
                                 v := "Good"; if t { v = "Dirty" }
                                 s, _ := pc.targetDef.value.Strval()
+                                s = filepath.Base(s)
                                 fmt.Fprintf(stderr, "smart: Checking %v …… %s\n", s, v)
                         }
                         if optionTraceTraversal {
