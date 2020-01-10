@@ -546,6 +546,7 @@ func parseDependList(pos Position, pc *traversal, dependList *List) (depends *Li
         return
 }
 
+/*
 func compareTargetDepend(pos Position, pc *traversal, target, depend Value, tt time.Time) (outdated bool, err error) {
         if dependFile, okay := depend.(*File); okay && dependFile != nil {
                 var str string
@@ -587,6 +588,7 @@ func compareTargetDepend(pos Position, pc *traversal, target, depend Value, tt t
         }
         return
 }
+*/
 
 type langInfoT struct {
         rxs []string
@@ -2088,18 +2090,22 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                         }
                 }); err != nil { return }
                 if optDirty {
-                        var t = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
+                        var dirty = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
+                        if !dirty {
+                                dirty, err = pc.isRecipesDirty()
+                                if err != nil { return }
+                        }
                         if optVerbose {
-                                v := "Good"; if t { v = "Dirty" }
+                                v := "Good"; if dirty { v = "Dirty" }
                                 s, _ := pc.targetDef.value.Strval()
                                 s = filepath.Base(s)
                                 fmt.Fprintf(stderr, "smart: Checking %v …… %s\n", s, v)
                         }
                         if optionTraceTraversal {
-                                pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", t, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
+                                pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", dirty, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
                                 if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }
                         }
-                        if !t {
+                        if !dirty {
                                 err = &breaker{ pos:pos, what:breakDone }
                                 return
                         }

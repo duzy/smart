@@ -113,9 +113,6 @@ func (prog *Program) waitForPrerequisites(pc *traversal) (err error) {
 }
 
 func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (err error) {
-        //if pc.breaker != nil || (exists(pc.targetDef.value) && len(pc.updated) == 0) {
-        //        return
-        //}
         if pc.breaker != nil { return }
         if err = prog.waitForPrerequisites(pc); err != nil {
                 return
@@ -124,15 +121,7 @@ func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (er
         var value Value
         if value, err = i.Evaluate(pc, params); err == nil {
                 if value != nil { pc.modifyBuf.set(DefDefault, value) }
-                if value, err = pc.targetDef.Call(prog.position); err == nil {
-                        var strings []string
-                        for _, recipe := range prog.recipes {
-                                // Avoids calling recipe.Strval() twice, so that it won't be
-                                // evaluated more than once.
-                                strings = append(strings, recipe.String())
-                        }
-                        _, _, err = prog.project.UpdateCmdHash(value, strings)
-                }
+                _, _, err = pc.updateRecipesHash()
         }
 
         pc.interpreted = append(pc.interpreted, i)

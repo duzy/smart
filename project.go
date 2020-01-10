@@ -8,23 +8,18 @@ package smart
 
 import (
         "extbit.io/smart/token"
-        "crypto/sha256"
         "path/filepath"
         "runtime/debug"
         "runtime"
         "strings"
         "plugin"
-        "bytes"
         "sync"
-        //"sync/atomic"
         "time"
         "fmt"
         "os"
 )
 
 const PathSep = string(filepath.Separator)
-
-type HashBytes [sha256.Size]byte
 
 type FileMap struct {
         Pattern Value
@@ -915,77 +910,6 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
                         target: target,
                 }
                 p.concrete = append(p.concrete, entry)
-        }
-        return
-}
-
-func (p *Project) CmdHash(target Value, recipes []string) (k, v HashBytes, err error) {
-        var (
-                key = sha256.New()
-                val = sha256.New()
-                str string
-        )
-        fmt.Fprintf(key, "%s", p.AbsPath())
-        if str, err = target.Strval(); err == nil {
-                fmt.Fprintf(key, "%s", str)
-        } else {
-                return
-        }
-        /* if str, err = depend.Strval(); err == nil {
-                fmt.Fprintf(key, "%s", str)
-        } else {
-                return
-        } */
-        for _, recipe := range recipes {
-                /* if recipe, err = Reveal(recipe); err != nil { return }
-                if str, err = recipe.Strval(); err != nil { return }
-                fmt.Fprintf(val, "%v", str) */
-                fmt.Fprintf(val, "%v", recipe)
-        }
-        copy(k[:], key.Sum(nil))
-        copy(v[:], val.Sum(nil))
-        return
-}
-
-func (p *Project) hashDir(k []byte) string {
-        h := fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
-        return filepath.Join(p.tmpPath, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
-}
-
-func (p *Project) CheckCmdHash(target Value, recipes []string) (same bool, err error) {
-        var (
-                k, v HashBytes
-                dir = p.hashDir(k[:])
-        )
-        if k, v, err = p.CmdHash(target, recipes); err != nil { return }
-        if f, e := os.Open(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
-                var h []byte
-                if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
-                        err = e; return
-                } else if n == 1 {
-                        same = bytes.Equal(v[:], h)
-                }
-                err = f.Close()
-        } else {
-                err = e
-        }
-        return
-}
-
-func (p *Project) UpdateCmdHash(target Value, recipes []string) (k, v HashBytes, err error) {
-        if k, v, err = p.CmdHash(target, recipes); err != nil {
-                return
-        }
-        dir := p.hashDir(k[:])
-        if err = os.MkdirAll(dir, 0700); err != nil {
-                return
-        }
-        if f, e := os.Create(filepath.Join(dir, fmt.Sprintf("%x", k))); e == nil {
-                //fmt.Fprintf(stderr, "UpdateCmdHash: %x -> %x (%s)\n", k, v, target.Strval())
-                fmt.Fprintf(f, "%x", v)
-                err = f.Close()
-        } else {
-                err = e
         }
         return
 }

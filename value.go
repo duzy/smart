@@ -8,12 +8,14 @@ package smart
 
 import (
         "extbit.io/smart/token"
+        "crypto/sha256"
         "path/filepath"
         "runtime/debug"
         "net/url"
         "reflect"
         "strconv"
         "strings"
+        "bytes"
         "sync"
         "time"
         "math"
@@ -25,6 +27,8 @@ const (
         enable_assertions = true
         enable_grep_bench = true
 )
+
+type HashBytes [sha256.Size]byte
 
 type (
         cmpres int
@@ -325,6 +329,85 @@ func (pc *traversal) appendUpdated(target *updatedtarget) {
                 var t = newUpdatedTarget(pc.targetDef.value, target)
                 pc.caller.appendUpdated(t)
         }
+}
+
+func (pc *traversal) hashDir(k []byte) string {
+        dir := pc.program.project.tmpPath
+        h := fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
+        return filepath.Join(dir, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
+}
+
+func (pc *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
+        var (
+                key = sha256.New()
+                val = sha256.New()
+                str string
+        )
+        if str, err = pc.targetDef.value.Strval(); err != nil { return }
+        fmt.Fprintf(key, "%s", pc.program.project.absPath)
+        fmt.Fprintf(key, "%v", str)
+
+        for _, value := range values {
+                if true {
+                        if str, err = value.Strval(); err != nil { return }
+                        fmt.Fprintf(val, "%v", str)
+                } else {
+                        fmt.Fprintf(val, "%v", value)
+                }
+        }
+        copy(k[:], key.Sum(nil))
+        copy(v[:], val.Sum(nil))
+        return
+}
+
+func (pc *traversal) updateRecipesHash() (k, v HashBytes, err error) {
+        if k, v, err = pc.cmdHash(pc.program.recipes...); err != nil {
+                return
+        }
+
+        var dir = pc.hashDir(k[:])
+        var name = filepath.Join(dir, fmt.Sprintf("%x", k))
+        if f, e := os.Open(name); e == nil {
+                defer f.Close()
+
+                var h []byte
+                if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
+                        err = e; return
+                } else if n == 1 && bytes.Equal(v[:], h) {
+                        return
+                }
+        }
+
+        if err = os.MkdirAll(dir, 0700); err != nil {
+                return
+        } else if f, e := os.Create(name); e == nil {
+                defer f.Close()
+                _, err = fmt.Fprintf(f, "%x", v)
+        } else {
+                err = e
+        }
+        return
+}
+
+func (pc *traversal) isRecipesDirty() (dirty bool, err error) {
+        var k, v HashBytes
+        if k, v, err = pc.cmdHash(pc.program.recipes...); err != nil {
+                return
+        }
+
+        var dir = pc.hashDir(k[:])
+        var name = filepath.Join(dir, fmt.Sprintf("%x", k))
+        if f, e := os.Open(name); e == nil {
+                defer f.Close()
+
+                var h []byte
+                if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
+                        err = e
+                } else if n == 1 {
+                        dirty = !bytes.Equal(v[:], h)
+                }
+        }
+        return
 }
 
 type elemkind int
