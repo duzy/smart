@@ -2150,7 +2150,7 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                         }
                         for i, a := range va {
                                 var t = true
-                                if t, err = a.True(); err != nil { break }
+                                if t, err = a.True(); err != nil { return }
                                 if t { reasons = append(reasons, fmt.Sprintf("#%v", i+1)) }
                                 if optAnd {
                                         done = done && !t
@@ -2162,6 +2162,6 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                         }
                 }
         }
-        if done { err = &breaker{ pos:pos, what:breakDone }}
+        if done && err == nil { err = &breaker{ pos:pos, what:breakDone }}
         return
 }

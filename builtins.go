@@ -1121,7 +1121,7 @@ func builtinSubstring(pos Position, args... Value) (res Value, err error) {
                                 }
                         }
                 } else {
-                        err = scanner.Errorf(token.Position(pos), "'%v' is not integer", args[0])
+                        err = errorf(pos, "'%v' is not integer", args[0])
                         return
                 }
 
