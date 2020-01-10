@@ -648,18 +648,22 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
                                 return
                         }
 
-                        for _, e := range breakers(err) {
+                        var brks, errs = breakers(err)
+                        for _, e := range brks {
                                 switch e.what {
                                 case breakGood:
                                         continue ForPatterns // just relax
                                 default:
-                                        fmt.Fprintf(stderr, "%v\n", err)
-                                        return
+                                        //fmt.Fprintf(stderr, "%v\n", err)
+                                        //return
+                                        err = wrap(pos, e, err)
                                 }
                         }
 
-                        fmt.Fprintf(stderr, "%v\n", err)
-                        fmt.Fprintf(stderr, "%v: traverse pattern %v failed\n", pos, se)
+                        //fmt.Fprintf(stderr, "%v\n", err)
+                        //fmt.Fprintf(stderr, "%v: traverse pattern %v failed\n", pos, se)
+                        if err != nil { errs = append(errs, err) }
+                        if errs != nil { err = wrap(pos, errs...) }
                         return // Update failed!
                 }
         }
@@ -671,13 +675,13 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
                 if err = current.traverseTarget(pos, pc, target); err == nil {
                         return
                 }
-                if a := breakers(err); a != nil && current.name == "~" {
-                        /*for _, b := range a {
+                /*if a := breakers(err); a != nil && current.name == "~" {
+                        for _, b := range a {
                                 if e.what != breakGood {
                                         err = nil
                                 }
-                        }*/
-                }
+                        }
+                }*/
         } else {
                 err = targetNotFoundError{ p, target }
                 if false { debug.PrintStack() }

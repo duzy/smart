@@ -521,13 +521,15 @@ func CommandLine() {
                 report(do_configuration())
         } else if result, err := context.run(); err != nil {
                 defer printLeavingDirectory()
-                for _, e := range breakers(err) {
-                        // FIXME: just return if good breaker
-                        if e.what == breakDone {
-                                return
+                var brks, errs = breakers(err)
+                for _, e := range brks {
+                        switch e.what {
+                        default: report(e)
+                        case breakDone, breakCase:
+                                // just relax
                         }
                 }
-                report(err)
+                for _, e := range errs { report(e) }
         } else if result != nil {
                 for _, v := range result {
                         var s string

@@ -107,16 +107,24 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
         return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil }
 }
 
-func breakers(err error) (res []*breaker) {
+func breakers(err error) (res []*breaker, rest []error) {
         switch t := err.(type) {
         case *scanner.Error:
-                res = append(res, breakers(t.Err)...)
+                pos := Position(t.Pos)
+                brks, errs := breakers(t.Err)
+                res = append(res, brks...)
+                rest = append(rest, wrap(pos, errs...))
         case scanner.Errors:
                 for _, e := range t {
-                        res = append(res, breakers(e.Err)...)
+                        pos := Position(e.Pos)
+                        brks, errs := breakers(e.Err)
+                        res = append(res, brks...)
+                        rest = append(rest, wrap(pos, errs...))
                 }
         case *breaker:
                 res = append(res, t)
+        default:
+                rest = append(rest, err)
         }
         return
 }
@@ -200,11 +208,17 @@ func (g *modifiergroup) traverse(pc *traversal) (err error) {
 ForModifiers:
         for _, m := range g.modifiers {
                 if err = m.traverse(pc); err == nil { continue }
-                for _, b := range breakers(err) {
+                var brks, errs = breakers(err)
+                for _, b := range brks {
                         switch pc.breaker = b; b.what {
                         case breakDone:
                                 // Stop traversing this group and
                                 // return the breaker to the caller.
+                                if errs == nil {
+                                        err = nil
+                                } else {
+                                        err = wrap(g.position, errs...)
+                                }
                                 break ForModifiers
                         }
                 }

@@ -626,7 +626,8 @@ ForPrograms:
                         result = append(result, val)
                         continue ForPrograms
                 }
-                for _, b := range breakers(e) {
+                var brks, errs = breakers(e)
+                for _, b := range brks {
                         switch b.what {
                         case breakFail: // (assert) failure
                                 err = wrap(b.pos, e, err)
@@ -638,7 +639,8 @@ ForPrograms:
                                 break ForPrograms
                         }
                 }
-                err = wrap(program.position, e, err)
+                if err != nil { errs = append(errs, err) }
+                if errs != nil { err = wrap(program.position, errs...) }
         }
         if err != nil { err = wrap(pos, err) }
         return
@@ -736,7 +738,8 @@ ForPrograms:
                 } /*else if _, ok := err.(targetNotFoundError); ok {
                         break ForPrograms // Don't try other programs if it's undefined.
                 }*/
-                for _, b := range breakers(err) {
+                brks, errs := breakers(err)
+                for _, b := range brks {
                         switch b.what {
                         case breakFail:
                                 fmt.Fprintf(stderr, "%s: entry.prepare: %s\n", b.pos, b.message)
@@ -748,6 +751,8 @@ ForPrograms:
                                 break ForPrograms
                         }
                 }
+                if err != nil { errs = append(errs, err) }
+                if errs != nil { err = wrap(prog.position, errs...) }
         }
         if err == nil && failed {
                 err = errorf(entry.position, "assertion failed")
