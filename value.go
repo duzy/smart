@@ -2329,10 +2329,10 @@ func (p *Flag) Strval() (s string, e error) {
         }
         return
 }
-func (p *Flag) _opts(opts ...string) (runes []rune, names []string, err error) {
+func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
         switch t := p.name.(type) {
         case *Flag:
-                runes, names, err = t._opts(opts...)
+                runes, names, err = t.opts(opts...)
         case *String:
                 for _, opt := range opts {
                         if t.string == opt {
@@ -2350,8 +2350,8 @@ func (p *Flag) _opts(opts ...string) (runes []rune, names []string, err error) {
                         } else if i > 0 {
                                 if t.string == opt[i+1:] {
                                         runes = append(runes, rune(opt[0]))
-                                        names = append(names, opt[1:])
-                                } else if strings.ContainsAny(t.string, opt[0:i]) {
+                                        names = append(names, opt[i+1:])
+                                } else if t.string ==  opt[0:i]/*strings.ContainsAny(t.string, opt[0:i])*/ {
                                         runes = append(runes, rune(opt[0]))
                                         names = append(names, opt[i+1:])
                                 }
@@ -2553,6 +2553,10 @@ func (p *Group) mod(pc *traversal) time.Time { return p.trivial.mod(pc) }
 func (p *Group) Position() Position { return p.trivial.Position() }
 func (p *Group) Float() (float64, error) { return p.trivial.Float() }
 func (p *Group) Integer() (int64, error) { return p.trivial.Integer() }
+func (p *Group) True() (t bool, err error) {
+        t = len(p.List.Elems) > 0
+        return
+}
 func (p *Group) String() string { return p.elemstr(nil, 0) }
 func (p *Group) Strval() (s string, err error) {
         if s, err = p.List.Strval(); err == nil {

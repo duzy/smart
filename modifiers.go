@@ -2077,51 +2077,77 @@ func modifierCase(pos Position, pc *traversal, args... Value) (result Value, err
 }
 
 func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        var optDirty, optVerbose bool
+        var target string
+        if target, err = pc.targetDef.value.Strval(); err != nil {
+                err = wrap(pos, err)
+                return
+        }
+
+        target = filepath.Base(target)
+
+        var reasons []string
+        var optVerbose, optAnd, verbose0, done bool
+        defer func() {
+                if optVerbose {
+                        var status = "Good"
+                        if reasons != nil {
+                                status = "Bad (" + strings.Join(reasons, ",") + ")"
+                        }
+                        fmt.Fprintf(stderr, "… %s\n", status)
+                }
+        } ()
+
         for _, arg := range args {
+                var optDirty bool
                 var va = merge(arg)
                 if va, err = parseFlags(va, []string{
+                        "a,and",
                         "d,dirty",
                         "v,verbose",
                 }, func(ru rune, v Value) {
                         switch ru {
+                        case 'a': optAnd = trueVal(v, false)
                         case 'd': optDirty = trueVal(v, false)
                         case 'v': optVerbose = trueVal(v, optVerbose)
+                                if optVerbose && !verbose0 {
+                                        fmt.Fprintf(stderr, "smart: Checking %v …", target)
+                                        verbose0 = true
+                                }
                         }
                 }); err != nil { return }
-                if optDirty {
-                        var dirty = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
-                        if !dirty {
-                                dirty, err = pc.isRecipesDirty()
-                                if err != nil { return }
+                if !optAnd || (optAnd && done) {
+                        if optDirty {
+                                var dirty = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
+                                if !dirty {
+                                        dirty, err = pc.isRecipesDirty()
+                                        if err != nil { return }
+                                }
+                                if dirty { reasons = append(reasons, "-dirty") }
+                                if optionTraceTraversal {
+                                        pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", dirty, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
+                                        if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }
+                                }
+                                if optAnd {
+                                        done = done && !dirty
+                                        optAnd = false // reset -and flag
+                                } else if !dirty {
+                                        done = true
+                                }
                         }
-                        if optVerbose {
-                                v := "Good"; if dirty { v = "Dirty" }
-                                s, _ := pc.targetDef.value.Strval()
-                                s = filepath.Base(s)
-                                fmt.Fprintf(stderr, "smart: Checking %v …… %s\n", s, v)
-                        }
-                        if optionTraceTraversal {
-                                pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", dirty, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
-                                if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }
-                        }
-                        if !dirty {
-                                err = &breaker{ pos:pos, what:breakDone }
-                                return
-                        }
-                }
-                for _, a := range va {
-                        var t = true
-                        if t, err = a.True(); err != nil { break }
-                        if optVerbose {
-                                v := "Good"; if t { v = "Bad" }
-                                fmt.Fprintf(stderr, "smart: Checking %v …… %s\n", a, v)
-                        }
-                        if !t {
-                                err = &breaker{ pos:pos, what:breakDone }
-                                return
+                        for i, a := range va {
+                                var t = true
+                                if t, err = a.True(); err != nil { break }
+                                if t { reasons = append(reasons, fmt.Sprintf("#%v", i+1)) }
+                                if optAnd {
+                                        done = done && !t
+                                        optAnd = false // reset -and flag
+                                } else if !t {
+                                        done = true
+                                        break
+                                }
                         }
                 }
         }
+        if done { err = &breaker{ pos:pos, what:breakDone }}
         return
 }
