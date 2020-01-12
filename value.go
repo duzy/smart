@@ -2078,7 +2078,7 @@ func (p *File) stamp(pc *traversal) (files []*File, err error) {
 
                 var target = pc.targetDef.value
                 var cmp = target.cmp(p)
-                if cmp == cmpEqual {
+                if cmp == cmpEqual && pc.caller != nil {
                         // Add to caller context
                         pc.caller.appendUpdated(newUpdatedTarget(p))
                         target = pc.caller.targetDef.value
