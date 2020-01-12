@@ -383,11 +383,11 @@ ForArgs:
                 case *Bareword:
                         name = a.string
                 default:
-                        err = scanner.Errorf(token.Position(pos), "%T `%s` is unsupported (try: foo=value)", arg, arg)
+                        err = errorf(pos, "%T `%s` is unsupported (try: foo=value)", arg, arg)
                         break ForArgs
                 }
                 if def := pc.program.scope.FindDef(name); def == nil {
-                        err = scanner.Errorf(token.Position(pos), "`%s` no such def", name)
+                        err = errorf(pos, "`%s` no such def", name)
                         break ForArgs
                 } else {
                         def.set(DefDefault, value)

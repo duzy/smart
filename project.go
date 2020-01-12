@@ -557,6 +557,12 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
                 entry, err = base.resolveEntry(s)
                 if err != nil || entry != nil { break }
         }
+        if err == nil && entry == nil {
+                /*for _, using := range p.using.list {
+                        entry, err = using.project.resolveEntry(s)
+                        if err != nil || entry != nil { break }
+                }*/
+        }
         return
 }
 
@@ -574,6 +580,12 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
         for _, base := range p.bases {
                 var ses []*StemmedEntry
                 ses, err = base.resolvePatterns(i)
+                if err != nil { return }
+                res = append(res, ses...)
+        }
+        for _, using := range p.using.list {
+                var ses []*StemmedEntry
+                ses, err = using.project.resolvePatterns(i)
                 if err != nil { return }
                 res = append(res, ses...)
         }
