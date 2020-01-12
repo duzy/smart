@@ -2133,19 +2133,17 @@ func (p *File) traverse(pc *traversal) (err error) {
         }
 
         if optionTraceTraversal {
-                pc.tracef("file: %v (after %v, %s)",
-                        p, pc.targetDef.value.mod(pc),
-                        typeof(pc.targetDef.value))
+                var t = pc.targetDef.value
+                pc.tracef("%s: %v (%v)", typeof(t), t, t.mod(pc))
+                pc.tracef("%s: %v (%v)", typeof(p), p, p.mod(pc))
         }
 
-        // Note that the file maybe not updated yet at this point.
-        /*if p.info == nil {
-                err = errorf(p.position, "file not existed: %v", p)
-        } else if p.info.ModTime().After(pc.targetDef.value.mod(pc)) {
+        // Note that the file maybe not traversed yet at this point. But we
+        // still have to check mod-time.
+        if p.info.ModTime().After(pc.targetDef.value.mod(pc)) {
+                if optionTraceTraversal { pc.tracef("updated: %v", p) }
                 pc.appendUpdated(newUpdatedTarget(p))
-                if optionTraceTraversal { pc.tracef("updated: %v (after %v, %s)",
-                        p, pc.targetDef.mod(pc), typeof(pc.targetDef.value)) }
-        }*/
+        }
         return
 }
 
