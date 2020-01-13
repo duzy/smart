@@ -269,6 +269,7 @@ var (
                 //`extract-configuration`: modifierExtractConfiguration,
 
                 //`parallel`:     modifierParallel,
+                `wait`:         modifierWait,
 
                 `check`:        modifierCheck,
                 `assert`:       modifierAssert,
@@ -2052,6 +2053,11 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
         //   (parallel -n=5) # five workers
         return
 }*/
+
+func modifierWait(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        pc.group.Wait()
+        return
+}
 
 // (assert condition,'error message...')
 func modifierAssert(pos Position, pc *traversal, args... Value) (result Value, err error) {
