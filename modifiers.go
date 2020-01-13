@@ -268,7 +268,6 @@ var (
                 `configure`:             modifierConfigure,
                 //`extract-configuration`: modifierExtractConfiguration,
 
-                //`parallel`:     modifierParallel,
                 `wait`:         modifierWait,
 
                 `check`:        modifierCheck,
@@ -2047,15 +2046,32 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
         return
 }
 
-/*func modifierParallel(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        // TODO: specify parallel options, e.g.:
-        //   (parallel -n=0) # turn off
-        //   (parallel -n=5) # five workers
-        return
-}*/
-
 func modifierWait(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        var optVerbose bool
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'v': optVerbose = trueVal(v, true)
+                }
+        }); err != nil { return }
+
+        if optVerbose {
+                fmt.Fprintf(stderr, "smart: Wait (%v) …\n", pc.targetDef.value)
+        }
+
         pc.group.Wait()
+        for _, e := range pc.calleeErrors {
+                err = wrap(pos, e, err)
+        }
+
+        if optVerbose {
+                var s = "Done"
+                if err != nil { s = "Fail" }
+                fmt.Fprintf(stderr, "smart: %s (%v), updated=%v\n", s, pc.targetDef.value, pc.updated)
+        }
         return
 }
 

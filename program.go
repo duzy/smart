@@ -105,9 +105,8 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
 
 func (prog *Program) waitForPrerequisites(pc *traversal) (err error) {
         pc.group.Wait()
-        if pc.calleeErrors != nil {
-                // TODO: combine the callee errors
-                err = pc.calleeErrors[0]
+        for _, e := range pc.calleeErrors {
+                err = wrap(prog.position, e, err)
         }
         return
 }

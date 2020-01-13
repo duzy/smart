@@ -705,7 +705,6 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         }
                         if pc.caller != nil {
                                 pc.caller.group.Done()
-                                //pc.caller.calleeReses = append(pc.caller.calleeReses, exeres)
                                 if err != nil {
                                         pc.caller.calleeErrors = append(pc.caller.calleeErrors, err)
                                 }
