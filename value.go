@@ -410,6 +410,14 @@ func (pc *traversal) isRecipesDirty() (dirty bool, err error) {
         return
 }
 
+func (pc *traversal) wait(pos Position) (err error) {
+        pc.group.Wait()
+        for _, e := range pc.calleeErrors {
+                err = wrap(pos, e, err)
+        }
+        return
+}
+
 type elemkind int
 const (
         elemNoQuote elemkind = 1<<iota

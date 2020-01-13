@@ -103,17 +103,9 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
         return
 }
 
-func (prog *Program) waitForPrerequisites(pc *traversal) (err error) {
-        pc.group.Wait()
-        for _, e := range pc.calleeErrors {
-                err = wrap(prog.position, e, err)
-        }
-        return
-}
-
 func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (err error) {
         if pc.breaker != nil { return }
-        if err = prog.waitForPrerequisites(pc); err != nil {
+        if err = pc.wait(prog.position); err != nil {
                 return
         }
 

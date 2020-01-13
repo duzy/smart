@@ -2062,10 +2062,7 @@ func modifierWait(pos Position, pc *traversal, args... Value) (result Value, err
                 fmt.Fprintf(stderr, "smart: Wait (%v) …\n", pc.targetDef.value)
         }
 
-        pc.group.Wait()
-        for _, e := range pc.calleeErrors {
-                err = wrap(pos, e, err)
-        }
+        err = pc.wait(pos)
 
         if optVerbose {
                 var s = "Done"
