@@ -252,7 +252,7 @@ type Project struct {
         pluginScope *Scope
 
         allowMultiImported bool // allow being imported multiple times
-        breakRecursiveUsing bool // don't recursively using this project
+        breakUseLoop bool // don't recursively use this project
 }
 
 func (p *Project) String() string {
@@ -1004,7 +1004,7 @@ func (p *Project) isUsingDirectly(proj *Project) (res bool) {
 }
 
 func (p *Project) usees(post bool) (res []*Project) {
-        if p.breakRecursiveUsing { return }
+        if p.breakUseLoop { return }
         for _, u := range p.using.list {
                 if !post { res = append(res, u.project) }
                 for _, u := range u.project.usees(post) {

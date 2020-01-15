@@ -117,6 +117,18 @@ func (li *loadinfo) absPath() string {
         return filepath.Join(li.absDir, li.baseName)
 }
 
+func (li *loadinfo) breakUseLoop() (result bool) {
+        var first bool = true
+        for _, decl := range li.declares {
+                if first || result {
+                        result = decl.project.breakUseLoop
+                }
+                if !result { break }
+                first = false
+        }
+        return
+}
+
 type loaderScope struct {
         cc closurecontext
         scope *Scope
@@ -369,13 +381,18 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
         // Checking circular import.
         for i, load := range l.loads {
                 if load.absDir == absPath {
+                        var breakUseLoop bool
                         var s string
                         for n := i; n < len(l.loads); n += 1 {
                                 var load = l.loads[n]
                                 s += load.specName + " → "
+                                breakUseLoop = load.breakUseLoop() 
+                                if breakUseLoop { break }
                         }
                         s += specName
-                        l.error(spec.Pos(), "circular import '%v'", s)
+                        if !breakUseLoop {
+                                l.error(spec.Pos(), "circular use '%v'", s)
+                        }
                         return
                 }
         }
@@ -1690,7 +1707,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 "m,multi",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'b': dec.project.breakRecursiveUsing = trueVal(v, false)
+                case 'b': dec.project.breakUseLoop = trueVal(v, false)
                 case 'm': dec.project.allowMultiImported = trueVal(v, false)
                 }
         }); err != nil { return }
@@ -2323,12 +2340,12 @@ func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) (err error
 
 func (l *loader) loadText(filename string, text string) []Value {
 	defer func(saved *parser) {
-		if e := recover(); e != nil {
+		/*if e := recover(); e != nil {
 			// resume same panic if it's not a bailout
 			if _, ok := e.(bailout); !ok {
 				panic(e)
 			}
-		}
+		}*/
 
                 // decouple
                 l.parser.loader = nil
