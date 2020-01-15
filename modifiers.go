@@ -2145,12 +2145,22 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                 }); err != nil { return }
                 if !optAnd || (optAnd && done) {
                         if optDirty {
-                                var dirty = pc.breaker != nil || !(exists(pc.targetDef.value) && len(pc.updated) == 0)
-                                if !dirty {
-                                        dirty, err = pc.isRecipesDirty()
-                                        if err != nil { return }
+                                // Wait for prerequisites!
+                                err = pc.wait(arg.Position())
+
+                                var dirty bool
+                                if dirty = pc.breaker != nil; dirty {
+                                        reasons = append(reasons, fmt.Sprintf("-dirty: %v", pc.breaker.what))
+                                } else if dirty = !exists(pc.targetDef.value); dirty {
+                                        reasons = append(reasons, fmt.Sprintf("-dirty: not exists %v", pc.targetDef.value))
+                                } else if dirty = len(pc.updated) > 0; dirty {
+                                        reasons = append(reasons, fmt.Sprintf("-dirty: updated %v", pc.updated))
+                                } else if dirty, err = pc.isRecipesDirty(); err != nil {
+                                        return
+                                } else if dirty {
+                                        reasons = append(reasons, "-dirty: recipes changed")
                                 }
-                                if dirty { reasons = append(reasons, "-dirty") }
+
                                 if optionTraceTraversal {
                                         pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", dirty, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
                                         if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }

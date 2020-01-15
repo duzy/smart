@@ -347,6 +347,10 @@ func (pc *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
         fmt.Fprintf(key, "%s", pc.program.project.absPath)
         fmt.Fprintf(key, "%v", str)
 
+        //fmt.Printf("\n")
+        //fmt.Printf("key: %v\n", pc.program.project.absPath)
+        //fmt.Printf("key: %v\n", str)
+
         for _, value := range values {
                 if true {
                         if str, err = value.Strval(); err != nil { return }
@@ -357,6 +361,8 @@ func (pc *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
         }
         copy(k[:], key.Sum(nil))
         copy(v[:], val.Sum(nil))
+
+        //fmt.Printf("key: %x\n", k)
         return
 }
 
@@ -383,6 +389,7 @@ func (pc *traversal) updateRecipesHash() (k, v HashBytes, err error) {
         } else if f, e := os.Create(name); e == nil {
                 defer f.Close()
                 _, err = fmt.Fprintf(f, "%x", v)
+                fmt.Printf("update: %s\n%x\n", name, v)
         } else {
                 err = e
         }
@@ -405,6 +412,9 @@ func (pc *traversal) isRecipesDirty() (dirty bool, err error) {
                         err = e
                 } else if n == 1 {
                         dirty = !bytes.Equal(v[:], h)
+                        if dirty {
+                                fmt.Printf("recipes: %s\n%x\n%x\n", name, v, h)
+                        }
                 }
         }
         return

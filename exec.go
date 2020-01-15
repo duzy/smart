@@ -434,18 +434,20 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
         var cmd, promStr, logFileName = p.cmd, "", ""
+        var optPath bool
         var aa []string
         if args, err = parseFlags(args, []string{
-                "o,stdout",
-                "e,stderr",
-                "v,verbout",
-                "w,verberr",
-                "p,prompt", // --verbose-shell
-                "i,stdin",
-                "s,silent",
+                "c,cmd", // replaces -p, -prompt
                 "d,dump", // verbout, verberr
+                "e,stderr",
+                "i,stdin",
                 "l,log",
                 "n,nocd",
+                "o,stdout",
+                "p,path",
+                "s,silent",
+                "v,verbout",
+                "w,verberr",
         }, func(ru rune, v Value) {
                 var s string
                 switch ru {
@@ -456,6 +458,12 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                 case 'w': verberr = true
                 case 's': silent  = true
                 case 'p':
+                        if v == nil {
+                                optPath = trueVal(v, false)
+                        } else {
+                                fmt.Printf("%s: -p=xxx has been replaced with -c (-cmd), -p is no -path", v.Position())
+                        }
+                case 'c':
                         if v == nil {
                                 prompt = true
                         } else if s, err = v.Strval(); err == nil {
@@ -606,6 +614,15 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
         var target = pc.targetDef.value
         if targetName, err = target.Strval(); err != nil {
                 return
+        }
+
+        if optPath {
+                var s string
+                if s, err = pc.targetDef.value.Strval(); err != nil { return }
+                if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
+                        err = os.MkdirAll(s, os.FileMode(0755))
+                        if err != nil { return }
+                }
         }
 
         var source, str string
