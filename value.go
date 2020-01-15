@@ -1737,7 +1737,7 @@ ForPathSegs:
                                         break ForPathSegs
                                 } else {
                                         // FIXME: this matches '%%/xxx.txt' to 'xxx.txt'
-                                        fmt.Fprintf(stderr, "FIXME: %v !> %v (n=%v, idx=%v)\n", p, srcs, n, idx)
+                                        fmt.Fprintf(stderr, "Path.match1.FIXME: %v !> %v (n=%v, idx=%v)\n", p, srcs, n, idx)
                                         break ForPathSegs
                                 }
                         }

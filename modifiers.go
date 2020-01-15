@@ -110,14 +110,9 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
 func breakers(err error) (res []*breaker, rest []error) {
         switch t := err.(type) {
         case *scanner.Error:
-                pos := Position(t.Pos)
-                brks, errs := breakers(t.Err)
-                res = append(res, brks...)
-                rest = append(rest, wrap(pos, errs...))
-        case scanner.Errors:
-                for _, e := range t {
-                        pos := Position(e.Pos)
-                        brks, errs := breakers(e.Err)
+                var pos = Position(t.Pos)
+                for _, e := range t.Errs {
+                        brks, errs := breakers(e)
                         res = append(res, brks...)
                         rest = append(rest, wrap(pos, errs...))
                 }

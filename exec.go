@@ -715,8 +715,6 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                                                 fmt.Fprintf(stderr, "… ok\n")
                                         } else if _, ok := err.(*scanner.Error); ok {
                                                 fmt.Fprintf(stderr, "\n%v\n", err)
-                                        } else if _, ok := err.(*scanner.Errors); ok {
-                                                fmt.Fprintf(stderr, "\n%v\n", err)
                                         } else {
                                                 fmt.Fprintf(stderr, "%v\n", err)
                                         }
@@ -724,8 +722,6 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                                         if err == nil {
                                                 //fmt.Fprintf(stderr, "%s%s …… ok\n", promStr, targetStr)
                                         } else if _, ok := err.(*scanner.Error); ok {
-                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
-                                        } else if _, ok := err.(*scanner.Errors); ok {
                                                 fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
                                         } else {
                                                 fmt.Fprintf(stderr, "%s%s …… %v\n", promStr, targetStr, err)

@@ -442,7 +442,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
         }
         if err != nil {
                 switch e := err.(type) {
-                case *scanner.Error, scanner.Errors:
+                case *scanner.Error:
                         // Report errors immediately, so that they could be
                         // discoverred asap.
                         fmt.Fprintf(stderr, "%v\n", e)
@@ -1150,7 +1150,7 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value, opts u
         }
         if err = l.useProject2(pos, usee, params, opts); err != nil {
                 if p, ok := err.(*scanner.Error); ok {
-                        l.parser.error(pos, "%v", p.Err)
+                        l.parser.error(pos, "%v", p.Brief())
                 } else {
                         l.parser.error(pos, "%v", err)
                 }
@@ -1575,9 +1575,6 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 
                 // check err after chainning
                 if err != nil {
-                        if _, ok := err.(scanner.Errors); ok {
-                                //fmt.Fprintf(stderr, "%v\n", err)
-                        }
                         break ParamsLoop
                 }
         }
@@ -2010,8 +2007,11 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                 l.parser.loader = nil
                 l.parser = saved
 
-                if optSortErrors { l.errors.Sort() }
-		err = l.errors.Err()
+                if len(l.errors) > 0 {
+                        var e = &scanner.Error{l.errors[0].Pos, nil}
+                        for _, p := range l.errors { e.Merge(p) }
+                        err = e
+                }
 	} (l.parser)
 
         // set the current parser

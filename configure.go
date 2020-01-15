@@ -627,13 +627,11 @@ func configurePackage(pos Position, prog *Program, def *Def, args... Value) (res
 
 func scanCommandFailedError(err error) (n, en int, tag string) {
         switch e := err.(type) {
-        case scanner.Errors:
-                for _, p := range e {
-                        n, en, tag = scanCommandFailedError(p.Err)
+        case *scanner.Error:
+                for _, t := range e.Errs {
+                        n, en, tag = scanCommandFailedError(t)
                         if n == 2 { return }
                 }
-        case *scanner.Error:
-                n, en, tag = scanCommandFailedError(e.Err)
         default:
                 var s = err.Error()
                 n, _ = fmt.Sscanf(s, errCommandFailedFmt, &tag, &en)
@@ -728,15 +726,7 @@ ForArgs:
                         return
                 }
                 switch e := err.(type) {
-                case scanner.Errors:
-                        if n := len(e); n == 1 {
-                                configMessageDone(pos, "… (%v, and %d errors)", e[0].Err, len(e))
-                        } else if n == 2 {
-                                configMessageDone(pos, "… (%v, and 1 more error)", e[0].Err)
-                        } else if n > 2 {
-                                configMessageDone(pos, "… (%v, and %d more errors)", e[0].Err, len(e)-1)
-                        }
-                case *scanner.Error: configMessageDone(pos, "… (%v)", e.Err)
+                case *scanner.Error: configMessageDone(pos, "… (%v)", e.Brief())
                 default: configMessageDone(pos, "… (%v).", err)
                 }
         } ()

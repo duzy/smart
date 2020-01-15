@@ -10,7 +10,7 @@ package scanner
 
 import (
         "extbit.io/smart/token"
-        "errors"
+        //"errors"
 	"sort"
 	"fmt"
 	"io"
@@ -23,23 +23,74 @@ import (
 //
 type Error struct {
 	Pos token.Position
-	Err error // Underlying error
+	Errs []error // Underlying errors
 }
 
 // Error implements the error interface.
 func (e *Error) Error() (s string) {
-	if e.Pos.Filename != "" || e.Pos.IsValid() {
-                switch t := e.Err.(type) {
-                case *Error:
-                        //s = fmt.Sprintf("%s: …\n%s", e.Pos, t)
-                        s = fmt.Sprintf("%s\n%s: …", t, e.Pos)
-                default:
-                        s = fmt.Sprintf("%s: %s", e.Pos, e.Err)
+        if len(e.Errs) == 1 {
+                if t, ok := e.Errs[0].(*Error); ok {
+                        s = fmt.Sprintf("%s\n%s: …from here", t, t.Pos)
+                } else {
+                        s = fmt.Sprintf("%s: %s", t.Pos, t)
                 }
-	} else {
-                s = e.Err.Error()
+                return
+        }
+        for _, err := range e.Errs {
+                if s == "" {
+                        s = fmt.Sprintf("error: %s", err)
+                } else {
+                        s = fmt.Sprintf("%s\n%s", s, err)
+                }
+        }
+        if e.Pos.Filename != "" || e.Pos.IsValid() {
+                s = fmt.Sprintf("%s\n%s: …from here", s, e.Pos)
         }
 	return
+}
+
+func (e *Error) Brief() (s string) {
+        if n := len(e.Errs); n == 0 {
+                s = "no errors"
+        } else {
+                if t, ok := e.Errs[0].(*Error); ok {
+                        s = t.Brief()
+                } else {
+                        s = t.Error()
+                }
+                if n > 1 {
+                        s = fmt.Sprintf("%s, and %v more", s, n-1)
+                }
+        }
+	return
+}
+
+func (e *Error) getErrorAt(pos token.Position) (res *Error) {
+        if pos.Equals(&e.Pos) { return e }
+        for _, err := range e.Errs {
+                if t, ok := err.(*Error); ok {
+                        if res = t.getErrorAt(pos); res != nil { return }
+                }
+        }
+        return
+}
+
+func (result *Error) Merge(errs ...error) {
+ForErrs:
+        for _, e := range errs {
+                if t, ok := e.(*Error); ok {
+                        if t := result.getErrorAt(t.Pos); t != nil {
+                                t.Errs = append(t.Errs, t.Errs...)
+                                continue ForErrs // FIXME: merge error at pos
+                        }
+                        continue ForErrs
+                }
+                if t := result.getErrorAt(result.Pos); t != nil {
+                        t.Errs = append(t.Errs, e)
+                        continue ForErrs // FIXME: merge error at pos
+                }
+                result.Errs = append(result.Errs, e)
+        }
 }
 
 // Errors is a list of *Errors.
@@ -49,17 +100,7 @@ type Errors []*Error
 
 // Add adds an Error with given position and error message to an Errors.
 func (p *Errors) Add(pos token.Position, err error) {
-        switch t := err.(type) {
-        case *Error:
-                *p = append(*p, t)
-                *p = append(*p, &Error{pos, errors.New("from here")})
-        case *Errors:
-                for _, e := range *t { *p = append(*p, e) }
-        case Errors:
-                for _, e := range t { *p = append(*p, e) }
-        default:
-                *p = append(*p, &Error{pos, err})
-        }
+        *p = append(*p, &Error{pos, []error{err}})
 }
 
 // Reset resets an Errors to no errors.
@@ -84,7 +125,7 @@ func (p Errors) Less(i, j int) bool {
 	if e.Column != f.Column {
 		return e.Column < f.Column
 	}
-	return p[i].Err.Error() < p[j].Err.Error()
+	return p[i].Errs[0].Error() < p[j].Errs[0].Error()
 }
 
 // Sort sorts an Errors. *Error entries are sorted by position,
@@ -108,106 +149,27 @@ func (p *Errors) RemoveMultiples() {
 	(*p) = (*p)[0:i]
 }
 
-// An Errors implements the error interface.
-func (p Errors) Error() (s string) {
-	switch len(p) {
-	case  0: s = "no errors"
-	case  1: s = p[0].Error()
-        case  2: s = fmt.Sprintf("%s (and one more error)", p[0])
-        default: s = fmt.Sprintf("%s (and %d more errors)", p[0], len(p)-1)
-	}
-        return
-}
-
-// Err returns an error equivalent to this error list.
-// If the list is empty, Err returns nil.
-func (p Errors) Err() error {
-	if len(p) == 0 {
-		return nil
-	}
-	return p
-}
-
 // PrintError is a utility function that prints a list of errors to w,
 // one error per line, if the err parameter is an Errors. Otherwise
 // it prints the err string.
 //
 func PrintError(w io.Writer, err error) {
-        switch e := err.(type) {
-        case Errors: for _, i := range e { PrintError(w, i) }
-        /*case *Error:
-                if _, ok := e.Err.(*Error); ok {
-                        fmt.Fprintf(w, "%s: …\n", e.Pos)
-                        PrintError(w, e.Err)
-                } else {
-                        fmt.Fprintf(w, "%s\n", err)
-                }*/
-        default:
-		fmt.Fprintf(w, "%s\n", err)
-	}
+        fmt.Fprintf(w, "%s\n", err)
 }
 
 func Errorf(pos token.Position, s string, args... interface{}) (err error) {
         for _, a := range args {
                 switch e := a.(type) {
                 case *Error: panic(e) // use WrapErrors instead!
-                case Errors: panic(e) // use WrapErrors instead!
                 }
         }
-        err = &Error{pos, fmt.Errorf(s, args...)}
+        err = &Error{pos, []error{fmt.Errorf(s, args...)}}
         return
 }
 
-func WrapErrors(pos token.Position, args ...error) (err error) {
-        var errs Errors
-        for _, a := range args {
-                var duplicated bool
-                if a == nil { continue }
-                switch e := a.(type) {
-                case *Error:
-                        if duplicated = pos.Equals(&e.Pos); !duplicated {
-                                for _, t := range errs {
-                                        if pos.Equals(&t.Pos) {
-                                                duplicated = true
-                                                break
-                                        }
-                                }
-                        }
-                        if duplicated {
-                                errs = append(Errors{e}, errs...)
-                        } else {
-                                var t = &Error{pos, fmt.Errorf("…from here")}
-                                errs = append(Errors{e, t}, errs...)
-                        }
-                case Errors:
-                        if len(e) == 0 { continue }
-                        for _, t := range e {
-                                duplicated = pos.Equals(&t.Pos)
-                                if !duplicated {
-                                        for _, t := range errs {
-                                                if pos.Equals(&t.Pos) {
-                                                        duplicated = true
-                                                        break
-                                                }
-                                        }
-                                }
-                                if duplicated { break }
-                        }
-                        if duplicated {
-                                errs = append(e, errs...)
-                        } else {
-                                var t = &Error{pos, fmt.Errorf("…from here")}
-                                errs = append(append(e, t), errs...)
-                        }
-                default:
-                        var t = &Error{pos, e}
-                        errs = append(Errors{t}, errs...)
-                }
-        }
-        if n := len(errs); n == 1 {
-                err = errs[0]
-        } else if n > 1 {
-                err = errs
-        }
+func WrapErrors(pos token.Position, errs ...error) (err error) {
+        var result = &Error{pos, nil}
+        result.Merge(errs...)
+        err = result
         return
 }
