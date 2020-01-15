@@ -1726,6 +1726,13 @@ ForPathSegs:
                                                         }
                                                 }
                                         }
+                                } else if n+1 == len(segs) && idx < len(srcs) {
+                                        // Matching the last seg, ie. /foo/bar/%% <-> /foo/bar/x/y/z,
+                                        // where 'segs[n] == %%' and 'srcs[idx] == x'
+                                        stem := strings.Join(srcs[idx:], PathSep)
+                                        stems = append(stems, stem)
+                                        idx = len(srcs)
+                                        break ForPathSegs
                                 } else if len(srcs) < len(segs) {
                                         // No matches, e.g.
                                         //   '%%/xxx.txt' <-> 'xxx.txt'
@@ -1737,7 +1744,7 @@ ForPathSegs:
                                         break ForPathSegs
                                 } else {
                                         // FIXME: this matches '%%/xxx.txt' to 'xxx.txt'
-                                        fmt.Fprintf(stderr, "Path.match1.FIXME: %v !> %v (n=%v, idx=%v)\n", p, srcs, n, idx)
+                                        fmt.Fprintf(stderr, "Path.match1.FIXME: %v !> %v (n=%v, idx=%v)\n", segs, srcs, n, idx)
                                         break ForPathSegs
                                 }
                         }
