@@ -1715,7 +1715,6 @@ func modifierPath(pos Position, pc *traversal, args... Value) (result Value, err
         for _, arg := range args {
                 var s string
                 if s, err = arg.Strval(); err != nil { return }
-                fmt.Printf("path: %v\n", s)
                 if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
                         return
                 }

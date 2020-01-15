@@ -457,11 +457,9 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                 case 'v': verbout = true
                 case 'w': verberr = true
                 case 's': silent  = true
-                case 'p':
-                        if v == nil {
-                                optPath = trueVal(v, false)
-                        } else {
-                                fmt.Printf("%s: -p=xxx has been replaced with -c (-cmd), -p is no -path", v.Position())
+                case 'p': optPath = trueVal(v, false)
+                        if p, ok := v.(*Pair); ok {
+                                fmt.Printf("%s: -p=xxx has been replaced with -c (-cmd), -p is no -path", p.Value.Position())
                         }
                 case 'c':
                         if v == nil {
