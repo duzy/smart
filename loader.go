@@ -2003,15 +2003,15 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
 			}
 		}
 
-                // decouple
-                l.parser.loader = nil
-                l.parser = saved
-
                 if len(l.errors) > 0 {
-                        var e = &scanner.Error{l.errors[0].Pos, nil}
+                        var e = new(scanner.Error)
+                        e.Pos = l.parser.file.Position(l.pos)
                         for _, p := range l.errors { e.Merge(p) }
                         err = e
                 }
+
+                l.parser.loader = nil
+                l.parser = saved
 	} (l.parser)
 
         // set the current parser

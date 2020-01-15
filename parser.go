@@ -138,7 +138,7 @@ func (p *parser) error(pos token.Pos, err interface{}, a... interface{}) {
         var position = p.file.Position(pos)
         if e, ok := err.(error); ok {
                 for _, t := range p.errors {
-                        if e.Error() == t.Error() { return }
+                        if e == t { return }
                 }
                 p.errors.Add(position, e)
         } else {

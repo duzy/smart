@@ -10,7 +10,7 @@ package scanner
 
 import (
         "extbit.io/smart/token"
-        //"errors"
+        "reflect"
 	"sort"
 	"fmt"
 	"io"
@@ -29,22 +29,32 @@ type Error struct {
 // Error implements the error interface.
 func (e *Error) Error() (s string) {
         if len(e.Errs) == 1 {
-                if t, ok := e.Errs[0].(*Error); ok {
+                switch t := e.Errs[0].(type) {
+                case *Error:
                         s = fmt.Sprintf("%s\n%s: …from here", t, t.Pos)
-                } else {
-                        s = fmt.Sprintf("%s: %s", t.Pos, t)
+                default:
+                        s = fmt.Sprintf("%s: %s", e.Pos, t)
                 }
                 return
         }
         for _, err := range e.Errs {
                 if s == "" {
-                        s = fmt.Sprintf("error: %s", err)
+                        switch t := e.Errs[0].(type) {
+                        case *Error:
+                                s = fmt.Sprintf("%s\n%s: …from here", t, t.Pos)
+                        default:
+                                s = fmt.Sprintf("error: %s", err)
+                        }
                 } else {
                         s = fmt.Sprintf("%s\n%s", s, err)
                 }
         }
-        if e.Pos.Filename != "" || e.Pos.IsValid() {
-                s = fmt.Sprintf("%s\n%s: …from here", s, e.Pos)
+        if e.Pos.Filename != "" && e.Pos.IsValid() {
+                if s == "" {
+                        s = fmt.Sprintf("%s: no errors", e.Pos)
+                } else {
+                        s = fmt.Sprintf("%s\n%s: …from here", s, e.Pos)
+                }
         }
 	return
 }
@@ -77,19 +87,17 @@ func (e *Error) getErrorAt(pos token.Position) (res *Error) {
 
 func (result *Error) Merge(errs ...error) {
 ForErrs:
-        for _, e := range errs {
-                if t, ok := e.(*Error); ok {
-                        if t := result.getErrorAt(t.Pos); t != nil {
-                                t.Errs = append(t.Errs, t.Errs...)
+        for _, err := range errs {
+                if v := reflect.ValueOf(err); err == nil || v.IsNil() {
+                        continue
+                }
+                if e, ok := err.(*Error); ok {
+                        if t := result.getErrorAt(e.Pos); t != nil {
+                                t.Merge(e.Errs...)
                                 continue ForErrs // FIXME: merge error at pos
                         }
-                        continue ForErrs
                 }
-                if t := result.getErrorAt(result.Pos); t != nil {
-                        t.Errs = append(t.Errs, e)
-                        continue ForErrs // FIXME: merge error at pos
-                }
-                result.Errs = append(result.Errs, e)
+                result.Errs = append(result.Errs, err)
         }
 }
 
@@ -168,8 +176,10 @@ func Errorf(pos token.Position, s string, args... interface{}) (err error) {
 }
 
 func WrapErrors(pos token.Position, errs ...error) (err error) {
-        var result = &Error{pos, nil}
+        if len(errs) == 0 { panic("no errors") }
+        var result = &Error{Pos:pos}
         result.Merge(errs...)
+        if len(result.Errs) == 0 { panic("no errors") }
         err = result
         return
 }
