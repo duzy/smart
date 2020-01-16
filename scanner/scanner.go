@@ -1085,7 +1085,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                 s.skipPostLineFeeds = false
                         }
                 case '.':
-                        if tok = token.PERIOD; s.ch == '.' {
+                        if tok = token.DOT; s.ch == '.' {
                                 tok = token.DOTDOT
                                 s.next()
                         } else if isDigit(s.ch) {

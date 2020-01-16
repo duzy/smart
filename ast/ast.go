@@ -133,6 +133,12 @@ type (
 		Value    string    // bareword value
 	}
 
+        // TODO: QualifiedExpr -> foo.$(example).*.?.aaa
+        Qualiword struct { // qualified word of names separated by "."
+                StartPos token.Pos
+                Words []string
+        }
+
 	// A Constant represents a word without decorations or an identifier.
 	Constant struct {
 		TokPos token.Pos // position
@@ -312,6 +318,7 @@ type (
 
 func (d *BadExpr) Pos() token.Pos         { return d.From }
 func (d *Bareword) Pos() token.Pos        { return d.ValuePos }
+func (d *Qualiword) Pos() token.Pos       { return d.StartPos }
 func (d *Constant) Pos() token.Pos        { return d.TokPos }
 func (d *BasicLit) Pos() token.Pos        { return d.ValuePos }
 func (d *FlagExpr) Pos() token.Pos        { return d.DashPos }
@@ -359,6 +366,11 @@ func (d *ProgramExpr) Pos() token.Pos     { return d.Recipes[0].Pos() }
 
 func (d *BadExpr) End() token.Pos         { return d.From }
 func (d *Bareword) End() token.Pos        { return token.Pos(int(d.ValuePos) + len(d.Value)) }
+func (d *Qualiword) End() token.Pos {
+        var pos = int(d.StartPos) + len(d.Words) - 1
+        for _, w := range d.Words { pos += len(w) }
+        return token.Pos(pos)
+}
 func (d *Constant) End() token.Pos        { return token.Pos(int(d.TokPos) + len(d.Tok.String())) }
 func (d *BasicLit) End() token.Pos        { return d.EndPos /*token.Pos(int(d.ValuePos) + len(d.Value))*/ }
 func (d *FlagExpr) End() (pos token.Pos) {
@@ -446,6 +458,7 @@ func joinx(sep string, exprs... Expr) (s string) {
 func (x *BadExpr) String() string         { return fmt.Sprintf("BadExpr{%v,%v}", x.From, x.To) }
 func (x *EvaluatedExpr) String() string   { return x.Expr.String() }
 func (x *Bareword) String() string        { return x.Value }
+func (x *Qualiword) String() string       { return strings.Join(x.Words,".") }
 func (x *Constant) String() string        { return x.Tok.String() }
 func (x *BasicLit) String() string        { return x.Value }
 func (x *FlagExpr) String() (s string) {
@@ -528,6 +541,7 @@ func (x *ProgramExpr) String() string     { return fmt.Sprintf("Program(%v){%v}"
 
 func (*BadExpr) expr()         {}
 func (*Bareword) expr()        {}
+func (*Qualiword) expr()       {}
 func (*Constant) expr()        {}
 func (*BasicLit) expr()        {}
 func (*FlagExpr) expr()        {}

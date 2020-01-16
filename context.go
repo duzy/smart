@@ -38,8 +38,6 @@ const (
         optionTraceParsing = false
         optionTraceTraversal = false
         optionTraceTraversalNestIndent = true
-        optionTraceCompare = false
-        optionTraceCompareOutdated = false
         optionTraceEntering = optionTraceTraversal && false
 
         optionExecuteUseRulesRecursively = false

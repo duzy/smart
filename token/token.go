@@ -47,7 +47,7 @@ const (
 	LBRACE    // {    left curly
         LCOLON    // :
 	COMMA     // ,
-	PERIOD    // .
+	DOT       // .    period
         DOTDOT    // ..
 	TILDE     // ~
         SELECT_PROP // -> 'foo→xxx' (different from ' → ')
@@ -194,7 +194,7 @@ var tokens = [...]string{
 	LBRACE: "{",
 	LCOLON: ":", // the left colon like in $:foo:
 	COMMA:  ",",
-	PERIOD: ".",
+	DOT:    ".",
         DOTDOT: "..",
         TILDE:  "~",
         SELECT_PROP: "→", // foo->bar

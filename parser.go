@@ -399,6 +399,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
         case *ast.ArgumentedExpr:
 	case *ast.BadExpr:
 	case *ast.Bareword:
+	case *ast.Qualiword:
         case *ast.Constant:
 	case *ast.BasicLit:
 	case *ast.ClosureExpr:
@@ -435,28 +436,56 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 // ----------------------------------------------------------------------------
 // Barewords & Identifiers
 
-func (p *parser) parseBarewordOrConstant(lhs bool) (x ast.Expr) {
-	var pos, value = p.pos, ""
-        switch p.tok {
+func (p *parser) parseBarewordConstant(lhs bool) (x ast.Expr) {
+	var pos, tok, value = p.pos, p.tok, ""
+        switch tok {
 	case token.BAREWORD:
                 value = p.lit
-        case token.AT, token.PERIOD, token.DOTDOT:
-                value = p.tok.String() // Special bareword.
+        case token.AT, token.DOT, token.DOTDOT:
+                value = tok.String() // Special bareword.
         default:
-                if p.tok.IsKeyword() {
-                        value = p.tok.String()
+                if tok.IsKeyword() {
+                        value = tok.String()
                 } else {
                         p.expect(token.BAREWORD)
                 }
 	}
 
-        if p.tok.IsConstant() {
-                x = &ast.Constant{ TokPos:pos, Tok:p.tok }
+        p.next() // consumes the word
+
+        /*if p.tok == token.DOT && int(p.pos) == int(pos)+len(value) {
+                quali := &ast.Qualiword{ pos, []string{value} }
+        ForDot:
+                for p.tok == token.DOT {
+                        pos = p.pos
+                        p.next() // skip DOT
+                        if p.pos != token.Pos(int(pos)+1) {
+                                p.error(p.pos, "expecting next qualidfied word")
+                                break
+                        }
+                        switch pos, tok = p.pos, p.tok; tok {
+                        case token.BAREWORD:
+                                value = p.lit
+                        case token.AT, token.DOT, token.DOTDOT:
+                                value = tok.String() // Special bareword.
+                        default:
+                                if tok.IsKeyword() {
+                                        value = tok.String()
+                                } else {
+                                        p.error(p.pos, "qualify unrecognized word (%v)", tok)
+                                        break ForDot
+                                }
+                        }
+                        quali.Words = append(quali.Words, value)
+                        p.next() // consume the 'word'
+                        if int(p.pos) != int(pos)+len(value) { break }
+                }
+                x = quali
+        } else*/ if tok.IsConstant() {
+                x = &ast.Constant{ TokPos:pos, Tok:tok }
         } else {
                 x = &ast.Bareword{ ValuePos:pos, Value:value }
         }
-
-        p.next() // skip bareword
         return
 }
 
@@ -640,7 +669,7 @@ func (p *parser) parseGlobExpr(x ast.Expr) ast.Expr {
                 switch p.tok {
                 case token.RPAREN, token.COMMA, token.LINEND, token.EOF:
                         break ForTok
-                case token.STAR, token.QUE:
+                case token.STAR, token.QUE: // * ?
                         x = p.parseGlobMeta()
                 case token.LBRACK:
                         // FIXME: '[...]' has been used for modifier expressions
@@ -819,7 +848,7 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) (res ast.Expr) {
                 
                 comp.Combine(x)
 
-                if p.tok == token.PERIOD && comp.End() == p.pos {
+                if p.tok == token.DOT && comp.End() == p.pos {
                         dot := &ast.Bareword{p.pos, p.tok.String()}
                         comp.Elems = append(comp.Elems, dot)
                         p.next() // '.'
@@ -1148,7 +1177,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
 
         switch p.tok {
         case token.BAREWORD, token.AT:
-                return p.parseBarewordOrConstant(lhs)
+                return p.parseBarewordConstant(lhs)
 
         case token.BIN, token.OCT, token.INT, token.HEX, token.FLOAT,
              token.DATETIME, token.DATE, token.TIME, token.URI,
@@ -1164,7 +1193,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
         case token.LPAREN:
                 return p.parseGroupExpr(lhs)
 
-        case token.TILDE, token.PERIOD, token.DOTDOT: // ~ . ..
+        case token.TILDE, token.DOT, token.DOTDOT: // ~ . ..
                 var str = p.tok.String()
                 tok, pos, end := p.tok, p.pos, p.pos+token.Pos(len(str))
                 if p.next(); end != p.pos { // FIXME: ~user
@@ -1172,7 +1201,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
                         return &ast.Bareword{ pos, str }
                 } else if p.tok == token.PCON { // check /
                         return p.parsePathExpr(lhs, &ast.PathSegExpr{ pos, tok })
-                } else if tok == token.PERIOD {
+                } else if tok == token.DOT {
                         var x = &ast.Bareword{ pos, str }
                         if p.bits&composingDOT == 0 {
                                 return p.parseDotExpr(lhs, x)
@@ -1210,7 +1239,7 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
                 if p.tok.IsClosure() || p.tok.IsDelegate() {
                         return p.parseSpecialClosureDelegate(lhs)
                 } else if p.tok.IsKeyword() { // keywords here are barewords
-                        return p.parseBarewordOrConstant(lhs)
+                        return p.parseBarewordConstant(lhs)
                 }
         }
 
@@ -1251,7 +1280,7 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
                 if p.bits&composingNoPerc == 0 && x.End() == p.pos {
                         x = p.parsePercExpr(lhs, x)
                 }
-        case token.PERIOD: // foo.bar.baz.o
+        case token.DOT: // foo.bar.baz.o
                 // FIXME: push bits when parsing $(...)
                 if p.bits&composingDOT == 0 && x.End() == p.pos {
                         x = p.parseDotExpr(lhs, x)
@@ -2302,7 +2331,7 @@ func (p *parser) parseFile() *ast.File {
         switch keyword {
         case token.CONFIGURE:
                 switch p.next(); p.tok {
-                case token.PERIOD:
+                case token.DOT:
                         if err := p.ParseConfigDir(abs, abs); err != nil {
                                 p.error(p.pos, "configure %v: %v", abs, err)
                         } else {
@@ -2348,7 +2377,7 @@ func (p *parser) parseFile() *ast.File {
                         }
                         p.next() // skip tilde
                 } else {
-                        x := p.parseBarewordOrConstant(false)
+                        x := p.parseBarewordConstant(false)
                         if ident, _ = x.(*ast.Bareword); ident == nil {
                                 p.error(p.pos, "invalid package name %T", x)
                         }
@@ -2391,7 +2420,7 @@ func (p *parser) parseFile() *ast.File {
                                         syncClause1(p)
                                 case token.LINEND:
                                         p.next() // skip empty lines
-                                case token.USE/*token.IMPORT*/:
+                                case token.USE:
                                         clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(p.tok), p.parseUseSpec))
                                 case token.EVAL:
                                         clauses = append(clauses, p.parseGenericClause(p.tok, p.expect(token.EVAL), p.parseEvalSpec))
@@ -2409,7 +2438,7 @@ func (p *parser) parseFile() *ast.File {
                                                 }
                                                 break ForInit
                                         } else {
-                                                p.error(p.pos, "`%v` unexpected here (%v)", p.tok, x)
+                                                p.error(p.pos, "unexpected %v (after %v)", p.tok, x)
                                                 syncClause1(p)
                                         }
                                 }

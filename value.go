@@ -347,12 +347,9 @@ func (pc *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
         fmt.Fprintf(key, "%s", pc.program.project.absPath)
         fmt.Fprintf(key, "%v", str)
 
-        //fmt.Printf("\n")
-        //fmt.Printf("key: %v\n", pc.program.project.absPath)
-        //fmt.Printf("key: %v\n", str)
-
         for _, value := range values {
-                if true {
+                if false {
+                        // FIXME: Strval() varies when &(var) is used
                         if str, err = value.Strval(); err != nil { return }
                         fmt.Fprintf(val, "%v", str)
                 } else {
@@ -361,8 +358,6 @@ func (pc *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
         }
         copy(k[:], key.Sum(nil))
         copy(v[:], val.Sum(nil))
-
-        //fmt.Printf("key: %x\n", k)
         return
 }
 
@@ -389,7 +384,11 @@ func (pc *traversal) updateRecipesHash() (k, v HashBytes, err error) {
         } else if f, e := os.Create(name); e == nil {
                 defer f.Close()
                 _, err = fmt.Fprintf(f, "%x", v)
-                fmt.Printf("update: %s\n%x\n", name, v)
+                /*fmt.Printf("update: %s\n%x\n", name, v)
+                for _, value := range pc.program.recipes {
+                        str, _ := value.Strval()
+                        fmt.Printf("recipe: %v\n", str)
+                }*/
         } else {
                 err = e
         }
@@ -412,9 +411,6 @@ func (pc *traversal) isRecipesDirty() (dirty bool, err error) {
                         err = e
                 } else if n == 1 {
                         dirty = !bytes.Equal(v[:], h)
-                        if dirty {
-                                fmt.Printf("recipes: %s\n%x\n%x\n", name, v, h)
-                        }
                 }
         }
         return
@@ -1244,13 +1240,51 @@ func (p *Bareword) traverse(pc *traversal) (err error) {
 }
 func (p *Bareword) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Bareword); ok {
-                assert(ok, "value is not Bareword")
                 if p.string == a.string {
                         res = cmpEqual
                 } else if p.string > a.string {
                         res = cmpSmaller
                 } else if p.string < a.string {
                         res = cmpGreater
+                }
+        }
+        return
+}
+
+type Qualiword struct {
+        trivial
+        words []string
+}
+func (p *Qualiword) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *Qualiword) True() (bool, error) { return len(p.words)!=0, nil }
+func (p *Qualiword) String() string { return strings.Join(p.words,".") }
+func (p *Qualiword) Strval() (string, error) { return p.String(), nil }
+func (p *Qualiword) Integer() (int64, error) { return int64(len(p.words)), nil }
+func (p *Qualiword) Float() (float64, error) { return float64(len(p.words)), nil }
+func (p *Qualiword) traverse(pc *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(pc, p)) }
+        err = pc.traverseTarget(p.position, p.String())
+        return
+}
+func (p *Qualiword) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*Qualiword); ok {
+                var n int
+                var al, pl = len(a.words), len(p.words)
+                for i, w := range p.words {
+                        if al <= i {
+                                break
+                        } else if w == a.words[n] {
+                                if n += 1; n == al && al == pl {
+                                        res = cmpEqual
+                                } else {
+                                        continue
+                                }
+                        } else if w > a.words[n] {
+                                res = cmpSmaller // cmpGreater??
+                        } else {
+                                res = cmpGreater // cmpSmaller??
+                        }
+                        break
                 }
         }
         return

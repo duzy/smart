@@ -221,6 +221,8 @@ type useRuleEntry struct {
 type Project struct {
         keyword  token.Token // project, package, module
 
+        self *ProjectName // $:self:
+
         changedWD string
 	absPath string
 	relPath string
@@ -228,15 +230,12 @@ type Project struct {
 	spec    string
 	name    string
         scope   *Scope
-        bases   []*Project
-        imports []*Project
-
-        self *ProjectName
+        bases []*Project
+        loads []*Project
+        using   *usinglist
 
         // List order is significant, duplication is acceptable.
         filemap []*FileMap
-
-        using  *usinglist
 
         // Rule Registry (orderred)
         userules []*useRuleEntry // the 'use' rule
@@ -251,7 +250,7 @@ type Project struct {
         plugin *plugin.Plugin
         pluginScope *Scope
 
-        allowMultiImported bool // allow being imported multiple times
+        multiUseAllowed bool // this project is used multiple times
         breakUseLoop bool // don't recursively use this project
 }
 
@@ -298,11 +297,14 @@ func (p *Project) filemaps() (filemaps []*FileMap) {
                 }
         }
         /*
-        for _, u := range p.using.list {
-                app(u.project.filemaps(imports))
-        }
-        for _, proj := range p.imports {
-                app(proj.filemaps(imports))
+        if false {
+                for _, u := range p.using.list {
+                        app(u.project.filemaps(loads))
+                }
+        } else {
+                for _, proj := range p.loads {
+                        app(proj.filemaps(loads))
+                }
         }
         */
         return
@@ -945,25 +947,25 @@ func (p *Project) hasBase(proj *Project) (res bool) {
         return
 }
 
-func (p *Project) hasImported(proj *Project) (rp *Project, res, isb bool, err error) {
-        return p.hasImportedRecur(p, proj)
+func (p *Project) hasLoaded(proj *Project) (rp *Project, res, isb bool, err error) {
+        return p.hasLoadedRecur(p, proj)
 }
 
-func (p *Project) hasImportedRecur(top, proj *Project) (rp *Project, res, isb bool, err error) {
+func (p *Project) hasLoadedRecur(top, proj *Project) (rp *Project, res, isb bool, err error) {
         for _, base := range p.bases {
                 if isb = base == proj; isb { return }
-                if rp, res, isb, err = base.hasImportedRecur(top, proj); err != nil {
+                if rp, res, isb, err = base.hasLoadedRecur(top, proj); err != nil {
                         return
                 } else if res || isb { rp = base ; return }
         }
-        for _, imp := range p.imports {
+        for _, imp := range p.loads {
                 if imp == top {
-                        s := top.loopImportPath()
+                        s := top.loopLoadPath()
                         err = fmt.Errorf("loop `%v`", s)
                         return
                 }
                 if res = imp == proj; res { rp = imp; return }
-                if rp, res, res, err = imp.hasImportedRecur(top, proj); err != nil {
+                if rp, res, res, err = imp.hasLoadedRecur(top, proj); err != nil {
                         return
                 } else if res { rp = imp; return }
         }
@@ -971,17 +973,17 @@ func (p *Project) hasImportedRecur(top, proj *Project) (rp *Project, res, isb bo
         return
 }
 
-func (p *Project) loopImportPath() (s string) { return p.loopImportRecur(p) }
-func (p *Project) loopImportRecur(top *Project) (s string) {
-        for _, imp := range p.imports {
+func (p *Project) loopLoadPath() (s string) { return p.loopLoadRecur(p) }
+func (p *Project) loopLoadRecur(top *Project) (s string) {
+        for _, imp := range p.loads {
                 if imp == top {
                         if p != top { s = "⇢" }
-                        s += p.name + "⇢" + imp.name
+                        s += fmt.Sprintf("(%s)⇢(%s)", p.spec, imp.spec)
                         break
                 }
-                if t := imp.loopImportRecur(top); t != "" {
+                if t := imp.loopLoadRecur(top); t != "" {
                         if p != top { s = "⇢" }
-                        s += p.name + t
+                        s += fmt.Sprintf("(%s)%s", p.spec, t)
                         break
                 }
         }

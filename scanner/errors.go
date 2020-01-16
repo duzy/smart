@@ -31,7 +31,11 @@ func (e *Error) Error() (s string) {
         if len(e.Errs) == 1 {
                 switch t := e.Errs[0].(type) {
                 case *Error:
-                        s = fmt.Sprintf("%s\n%s: …from here", t, t.Pos)
+                        if e.Pos.Equals(&t.Pos) {
+                                s = t.Error()
+                        } else {
+                                s = fmt.Sprintf("%s\n%s: …from here", t, e.Pos)
+                        }
                 default:
                         s = fmt.Sprintf("%s: %s", e.Pos, t)
                 }
@@ -40,10 +44,8 @@ func (e *Error) Error() (s string) {
         for _, err := range e.Errs {
                 if s == "" {
                         switch t := e.Errs[0].(type) {
-                        case *Error:
-                                s = fmt.Sprintf("%s\n%s: …from here", t, t.Pos)
-                        default:
-                                s = fmt.Sprintf("error: %s", err)
+                        case *Error: s = t.Error()
+                        default: s = fmt.Sprintf("error: %s", err)
                         }
                 } else {
                         s = fmt.Sprintf("%s\n%s", s, err)
@@ -53,7 +55,7 @@ func (e *Error) Error() (s string) {
                 if s == "" {
                         s = fmt.Sprintf("%s: no errors", e.Pos)
                 } else {
-                        s = fmt.Sprintf("%s\n%s: …from here", s, e.Pos)
+                        s = fmt.Sprintf("%s\n%s: …from here!", s, e.Pos)
                 }
         }
 	return
