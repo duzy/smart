@@ -143,8 +143,8 @@ type loader struct {
         loadArgs []Value
         loads    []*loadinfo
         loaded   map[string]*Project // loaded projects
-        usePath []*Project // use path
-        importPath []*Project // import path
+        loadStack []*Project // load path
+        useStack []*Project // use path
         useesExecuted []*Project // all executed usees
         project  *Project // the current project
         scope    *Scope   // the current scope
@@ -405,10 +405,10 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
         }
         if breakUseLoop { return }
 
-        defer func(a []*Project) { l.importPath = a } (l.importPath)
-        l.importPath = append(l.importPath, l.project) // build the import path
+        defer func(a []*Project) { l.loadStack = a } (l.loadStack)
+        l.loadStack = append(l.loadStack, l.project) // build the load path
 
-        var loaded, yes = l.loaded[absPath]
+        var loaded, loadedValid = l.loaded[absPath]
 
         // https://unicode-table.com/en/sets/arrows-symbols/
         // ┌────────────────────────────────┐
@@ -420,7 +420,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
         // │└──→───⇥─┴─⇤────┬──┴──┬──┘  │
         // └──→           ⇠─┘     ↓     └─→ ⇒ …
         if optionVerboseImport {
-                if len(l.importPath) > 1 {
+                if len(l.loadStack) > 1 {
                         defer func(s string) { l.vs = s } (l.vs)
                         l.vs += "│"
                 }
@@ -439,7 +439,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                 } (time.Now())
         }
 
-        if yes && !specOpts.reuse {
+        if loadedValid && !specOpts.reuse {
                 var ( proj *Project ; res, isb bool )
                 if proj, res, isb, err = l.project.hasLoaded(loaded); err != nil {
                         l.error(spec.Pos(), "`%s`: %s", specName, err)
@@ -453,41 +453,43 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                 }
         }
 
-        var hasConfDir bool
-        if isDir {
-                hasConfDir, err = l.loadDir(specName, absPath, nil)
-        } else {
-                err = l.load(specName, absPath, nil)
-        }
-        if err != nil {
-                switch e := err.(type) {
-                case *scanner.Error:
-                        // Report errors immediately, so that they could be
-                        // discoverred asap.
-                        fmt.Fprintf(stderr, "%v\n", e)
-                        l.error(spec.Pos(), "import `%v` failed (%v)", specName, absPath)
-                default:
-                        l.error(spec.Pos(), "import `%v` (%v): %v", specName, absPath, err)
+        if /*!loadedValid || loaded == nil*/true {
+                var hasConfDir bool
+                if isDir {
+                        hasConfDir, err = l.loadDir(specName, absPath, nil)
+                } else {
+                        err = l.load(specName, absPath, nil)
                 }
-                return
+                if err != nil {
+                        switch e := err.(type) {
+                        case *scanner.Error:
+                                // Report errors immediately, so that they could be
+                                // discoverred asap.
+                                fmt.Fprintf(stderr, "%v\n", e)
+                                l.error(spec.Pos(), "import `%v` failed (%v)", specName, absPath)
+                        default:
+                                l.error(spec.Pos(), "import `%v` (%v): %v", specName, absPath, err)
+                        }
+                        return
+                }
+
+                if loaded != nil {
+                        // already loaded previously
+                } else if loaded, loadedValid = l.loaded[absPath]; loadedValid {
+                        // successfully loaded (first)
+                } else if hasConfDir {
+                        return
+                } else {
+                        l.error(spec.Pos(), "'%s' not loaded (%s)", specName, absPath)
+                }
+
+                if loaded == nil {
+                        l.error(spec.Pos(), "'%s' not smart project", specName)
+                        return
+                }
         }
 
-        if loaded != nil {
-                // already loaded previously
-        } else if loaded, yes = l.loaded[absPath]; yes {
-                // successfully loaded (first)
-        } else if hasConfDir {
-                return
-        } else {
-                l.error(spec.Pos(), "'%s' not loaded (%s)", specName, absPath)
-        }
-
-        if loaded == nil {
-                l.error(spec.Pos(), "'%s' not smart project", specName)
-                return
-        }
-
-        // Check against the current load list.
+        // Check against the current load list before appending loaded.
         for _, lp := range l.project.loads {
                 var ( proj *Project ; res, isb bool )
 
@@ -519,7 +521,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                 }
         }
 
-        // The project import list is different from using list.
+        // The project load list is different from using list.
         l.project.loads = append(l.project.loads, loaded)
 
         if specOpts.unuse { return }
@@ -1189,8 +1191,8 @@ func (l *loader) useProject(pos token.Pos, usee *Project, params []Value, opts u
         return
 }
 
-func (l *loader) usePathStr() (s string) {
-        for i, u := range l.usePath {
+func (l *loader) usePath() (s string) {
+        for i, u := range l.useStack {
                 if i > 0 { s += "," }
                 s += u.name
         }
@@ -1200,7 +1202,7 @@ func (l *loader) usePathStr() (s string) {
 func (l *loader) useProject2(pos token.Pos, usee *Project, params []Value, opts useoptions) (err error) {
         position := l.parser.file.Position(pos)
         if usee == l.project {
-                err = scanner.Errorf(position, "'%v' use loop (%s)", usee.name, l.usePathStr())
+                err = scanner.Errorf(position, "'%v' use loop (%s)", usee.name, l.usePath())
                 return
         } else if false {
                 for _, using := range l.project.using.list {
@@ -1215,7 +1217,7 @@ func (l *loader) useProject2(pos token.Pos, usee *Project, params []Value, opts 
                 var d = time.Now().Sub(t)
                 if optionVerboseImport {
                         if optionBenchImport /*&& d > 1*time.Millisecond*/ {
-                                var s = l.usePathStr()
+                                var s = l.usePath()
                                 fmt.Fprintf(stderr, "%s││ %s:use(%s) … (%s) (%s)\n", l.vs, l.project.name, usee.name, d, s)
                         }
                 } else if optionBenchSlow && d > 500*time.Millisecond { // ⌚ ⌛
@@ -1223,8 +1225,8 @@ func (l *loader) useProject2(pos token.Pos, usee *Project, params []Value, opts 
                 }
         } (time.Now())
 
-        defer func(a []*Project) { l.usePath = a } (l.usePath)
-        l.usePath = append(l.usePath, usee) // build the use path
+        defer func(a []*Project) { l.useStack = a } (l.useStack)
+        l.useStack = append(l.useStack, usee) // build the use path
 
         // Add to the project using list, so that the use path is correct.
         l.project.using.append(Position(position), usee, params, opts)
@@ -2197,7 +2199,7 @@ ListLoop:
                         if skip { continue ListLoop }
                 }
                 if (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
-                        hasConfDir = true
+                        hasConfDir = true // TODO: remove ConfigDir feature
                         if err := l.ParseConfigDir(filepath.Dir(filename), linked); err != nil {
                                 if first == nil {
                                         first = err
@@ -2296,13 +2298,12 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         } (time.Now())
 
         if !filepath.IsAbs(absDir) {
-                panic(fmt.Sprintf("Invalid abs name `%s' (%s).", absDir, specName))
                 err = fmt.Errorf("Invalid abs name `%s' (%s).", absDir, specName)
                 return
         }
 
         // Check already loaded project.
-        if loaded, yes := l.loaded[absDir]; yes {
+        if loaded, valid := l.loaded[absDir]; valid {
                 _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
                 if a != nil {
                         if v, ok := a.(*ProjectName); !ok || v == nil {
@@ -2323,7 +2324,7 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         if err == nil && mods == nil && !hasConfDir && filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` invalid project", specName)
         }
-        if _, yes := l.loaded[absDir]; yes {
+        if _, valid := l.loaded[absDir]; valid {
                 // Good!
         } else if filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` not loaded (%s)", specName, absDir)
