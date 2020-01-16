@@ -38,7 +38,7 @@ const (
         optionTraceParsing = false
         optionTraceTraversal = false
         optionTraceTraversalNestIndent = true
-        optionTraceExec = true
+        optionTraceExec = false
         optionTraceEntering = optionTraceTraversal && false
 
         optionExecuteUseRulesRecursively = false

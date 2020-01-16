@@ -105,7 +105,7 @@ func (e fileNotFoundError) Error() string {
 func report(err error) error {
         if err != nil {
                 if false { debug.PrintStack() }
-                scanner.PrintError(stderr, err)
+                fmt.Fprintf(stderr, "%s", err)
         }
         return err
 }

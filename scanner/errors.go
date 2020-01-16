@@ -10,11 +10,14 @@ package scanner
 
 import (
         "extbit.io/smart/token"
+        "errors"
         "reflect"
 	"sort"
 	"fmt"
-	"io"
 )
+
+const maxErrors = 120
+var errTooManyErrors = errors.New("too many errors")
 
 // In an Errors, an error is represented by an *Error.
 // The position Pos, if valid, points to the beginning of
@@ -99,6 +102,24 @@ ForErrs:
                                 continue ForErrs // FIXME: merge error at pos
                         }
                 }
+
+                if len(result.Errs) > maxErrors {
+                        result.Errs = result.Errs[maxErrors:]
+                }
+
+                var s string
+                for _, e := range result.Errs {
+                        if e == err { continue ForErrs }
+                        if e, ok := e.(*Error); !ok {
+                                if s == "" {
+                                        if _, ok := err.(*Error); !ok {
+                                                s = err.Error()
+                                        }
+                                }
+                                if e.Error() == s { continue ForErrs }
+                        }
+                }
+
                 result.Errs = append(result.Errs, err)
         }
 }
@@ -157,14 +178,6 @@ func (p *Errors) RemoveMultiples() {
 		}
 	}
 	(*p) = (*p)[0:i]
-}
-
-// PrintError is a utility function that prints a list of errors to w,
-// one error per line, if the err parameter is an Errors. Otherwise
-// it prints the err string.
-//
-func PrintError(w io.Writer, err error) {
-        fmt.Fprintf(w, "%s\n", err)
 }
 
 func Errorf(pos token.Position, s string, args... interface{}) (err error) {
