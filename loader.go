@@ -454,9 +454,8 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
         }
 
         if /*!loadedValid || loaded == nil*/true {
-                var hasConfDir bool
                 if isDir {
-                        hasConfDir, err = l.loadDir(specName, absPath, nil)
+                        err = l.loadDir(specName, absPath, nil)
                 } else {
                         err = l.load(specName, absPath, nil)
                 }
@@ -477,8 +476,6 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                         // already loaded previously
                 } else if loaded, loadedValid = l.loaded[absPath]; loadedValid {
                         // successfully loaded (first)
-                } else if hasConfDir {
-                        return
                 } else {
                         l.error(spec.Pos(), "'%s' not loaded (%s)", specName, absPath)
                 }
@@ -1588,9 +1585,8 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
                         break ParamsLoop
                 }
 
-                var hasConfDir bool
                 if isDir {
-                        hasConfDir, err = l.loadDirWithArgs(specName, absPath, args, nil)
+                        err = l.loadDirWithArgs(specName, absPath, args, nil)
                 } else {
                         err = l.loadWithArgs(specName, absPath, args, nil)
                 }
@@ -1598,9 +1594,6 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
                 // chain loaded base project, note that err might not be nil
                 if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
                         l.project.Chain(loaded)
-                } else if hasConfDir {
-                        err = fmt.Errorf("`%v` base on configuration. (%T, %s)", elem, elem, absPath)
-                        break ParamsLoop
                 } else {
                         err = fmt.Errorf("project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath)
                         break ParamsLoop
@@ -1615,9 +1608,8 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 }
 
 func (l *loader) loadDotDock(ident *ast.Bareword, file *File) (err error) {
-        var hasConfDir bool
-        if hasConfDir, err = l.loadDir(".dock", file.fullname(), nil); err != nil {
-                if !hasConfDir { l.error(ident.Pos(), "dock: %v", err) }
+        if err = l.loadDir(".dock", file.fullname(), nil); err != nil {
+                l.error(ident.Pos(), "dock: %v", err)
         } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
                 name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
                 if name == nil {
@@ -2139,7 +2131,7 @@ ListLoop:
 // returned. If a parse error occurred, a non-nil but incomplete map and the
 // first error encountered are returned.
 //
-func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Project, hasConfDir bool, first error) {
+func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode) (mods map[string]*ast.Project, first error) {
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseParsing /*&& d > 50*time.Millisecond*/ {
@@ -2152,11 +2144,11 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
         } (time.Now())
 
 	fd, err := os.Open(path)
-	if err != nil { return nil, false, err }
+	if err != nil { return nil, err }
 	defer fd.Close()
 
 	list, err := fd.Readdir(-1)
-	if err != nil { return nil, false, err }
+	if err != nil { return nil, err }
 
         for i, a := range list {
                 if i > 0 && a.Name() == "build.smart" {
@@ -2198,8 +2190,8 @@ ListLoop:
                         skip = skip || !(strings.HasSuffix(name, ".smart") || strings.HasSuffix(name, ".sm"))
                         if skip { continue ListLoop }
                 }
-                if (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
-                        hasConfDir = true // TODO: remove ConfigDir feature
+                /*if (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
+                        //hasConfDir = true // TODO: remove ConfigDir feature
                         if err := l.ParseConfigDir(filepath.Dir(filename), linked); err != nil {
                                 if first == nil {
                                         first = err
@@ -2207,7 +2199,8 @@ ListLoop:
                                 return
                         }
                         continue ListLoop
-                }
+                }*/
+                if linked != "" { }
 
 		if mo.IsRegular() && (filter == nil || filter(d)) {
 			if src, err := l.ParseFile(filename, nil, mode|parsingDir); err == nil {
@@ -2280,7 +2273,7 @@ func (l *loader) load(specName, absPath string, source interface{}) (err error) 
         return
 }
 
-func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (hasConfDir bool, err error) {
+func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (err error) {
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
@@ -2320,8 +2313,8 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         // the same dir, for example:
         //      project Foo # file build.smart
         //      project # file config.smart
-        mods, hasConfDir, err = l.ParseDir(absDir, filter, parseMode)
-        if err == nil && mods == nil && !hasConfDir && filepath.Base(specName) != "@" {
+        mods, err = l.ParseDir(absDir, filter, parseMode)
+        if err == nil && mods == nil && filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` invalid project", specName)
         }
         if _, valid := l.loaded[absDir]; valid {
@@ -2337,7 +2330,7 @@ func (l *loader) loadWithArgs(specName, absPath string, args []Value, source int
         return l.load(specName, absPath, source)
 }
 
-func (l *loader) loadDirWithArgs(specName, absPath string, args []Value, filter func(os.FileInfo) bool) (hasConfDir bool, err error) {
+func (l *loader) loadDirWithArgs(specName, absPath string, args []Value, filter func(os.FileInfo) bool) (err error) {
         defer l.setArgs(l.setArgs(args))
         return l.loadDir(specName, absPath, filter)
 }
@@ -2350,7 +2343,7 @@ func (l *loader) loadFile(filename string, source interface{}) error {
 
 func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) (err error) {
         s, _ := filepath.Rel(l.workdir, path)
-        _, err = l.loadDir(s, path, filter)
+        err = l.loadDir(s, path, filter)
         return err
 }
 
