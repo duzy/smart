@@ -13,6 +13,12 @@ import (
         "fmt"
 )
 
+var (
+        t_parse = new(tracing) // UNUSED
+        t_traverse = new(tracing) // UNUSED
+        t_exec = new(tracing)
+)
+
 type tracer interface {
         trace(a ...interface{})
         level(n int)
@@ -26,8 +32,8 @@ func trace(p tracer, msg string) tracer {
 
 // Usage pattern: defer un(trace(p, "..."))
 func un(p tracer) {
-	p.level(-1)
-	p.trace(")")
+        p.level(-1)
+        p.trace(")")
 }
 
 type tracing struct {
@@ -114,6 +120,10 @@ func printIndentDots(indent int, a ...interface{}) {
 
 func (p *tracing) traceAt(pos token.Position, a ...interface{}) {
 	fmt.Fprintf(stderr, "%7d:%3d: ", pos.Line, pos.Column)
+        printIndentDots(p.indent, a...)
+}
+
+func (p *tracing) trace(a ...interface{}) {
         printIndentDots(p.indent, a...)
 }
 

@@ -111,7 +111,7 @@ func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (er
 
         var value Value
         if value, err = i.Evaluate(pc, params); err == nil {
-                if value != nil { pc.modifyBuf.set(DefDefault, value) }
+                if value != nil { pc.def.modbuff.set(DefDefault, value) }
                 _, _, err = pc.updateRecipesHash()
         }
 
@@ -144,7 +144,7 @@ func (prog *Program) modify(pc *traversal, m *modifier) (err error) {
                 if err == nil {
                         var value Value
                         if value, err = f(m.position, pc, v...); err == nil && value != nil {
-                                pc.modifyBuf.set(DefDefault, value)
+                                pc.def.modbuff.set(DefDefault, value)
                         }
                 }
         } else if i, _ := dialects[name]; i != nil {
@@ -291,14 +291,14 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         defer func() {
                 set := func(def *Def, val Value) { def.value = val }
                 for _, def := range []*Def{
-                        pc.targetDef,
-                        pc.dependsDef,
-                        pc.depend0Def,
-                        pc.orderedDef,
-                        pc.greppedDef,
-                        pc.updatedDef,
-                        pc.stemDef,
-                        pc.modifyBuf,
+                        pc.def.target,
+                        pc.def.depends,
+                        pc.def.depend0,
+                        pc.def.ordered,
+                        pc.def.grepped,
+                        pc.def.updated,
+                        pc.def.stem,
+                        pc.def.modbuff,
                 } { set(def, def.value) }
         } ()
 
@@ -332,14 +332,14 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         } ()
 
         // set $@, $^, $<, $|, $~, $?, etc
-        if pc.targetDef,  err = prog.auto("@", none); err != nil { return }
-        if pc.depend0Def, err = prog.auto("<", none); err != nil { return }
-        if pc.dependsDef, err = prog.auto("^", none); err != nil { return }
-        if pc.orderedDef, err = prog.auto("|", none); err != nil { return }
-        if pc.greppedDef, err = prog.auto("~", none); err != nil { return }
-        if pc.updatedDef, err = prog.auto("?", none); err != nil { return }
-        if pc.stemDef,    err = prog.auto("*", none); err != nil { return }
-        if pc.modifyBuf,  err = prog.auto("-", none); err != nil { return }
+        if pc.def.target,  err = prog.auto("@", none); err != nil { return }
+        if pc.def.depend0, err = prog.auto("<", none); err != nil { return }
+        if pc.def.depends, err = prog.auto("^", none); err != nil { return }
+        if pc.def.ordered, err = prog.auto("|", none); err != nil { return }
+        if pc.def.grepped, err = prog.auto("~", none); err != nil { return }
+        if pc.def.updated, err = prog.auto("?", none); err != nil { return }
+        if pc.def.stem,    err = prog.auto("*", none); err != nil { return }
+        if pc.def.modbuff,  err = prog.auto("-", none); err != nil { return }
 
         var fileTarget *File
 
@@ -347,7 +347,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         // because the target could be overrided by parameters.
         switch t := pc.entry.target.(type) {
         case *File:
-                pc.targetDef.set(DefDefault, t)
+                pc.def.target.set(DefDefault, t)
                 fileTarget = t
         default:
                 var name string
@@ -360,7 +360,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         fileTarget = file
                         target = file
                 }
-                pc.targetDef.set(DefDefault, target)
+                pc.def.target.set(DefDefault, target)
         }
 
         if e, clearParams := prog.setParams(args); e != nil {
@@ -368,7 +368,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         } else {
                 defer func() {
                         clearParams()
-                        pc.params = nil
+                        pc.def.params = nil
                 } ()
         }
 
@@ -383,16 +383,16 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 return
         }
 
-        pc.dependsDef.set(DefDefault, MakeList(prog.position, depends...))
+        pc.def.depends.set(DefDefault, MakeList(prog.position, depends...))
         if len(depends) > 0 {
-                pc.depend0Def.set(DefDefault, depends[0])
+                pc.def.depend0.set(DefDefault, depends[0])
         }
         if len(ordered) > 0 {
-                pc.orderedDef.set(DefDefault, MakeList(prog.position, ordered...))
+                pc.def.ordered.set(DefDefault, MakeList(prog.position, ordered...))
         }
 
         if pc.stems != nil {
-                pc.stemDef.set(DefDefault, &String{trivial{prog.position},pc.stems[0]})
+                pc.def.stem.set(DefDefault, &String{trivial{prog.position},pc.stems[0]})
         }
 
         if fileTarget != nil && fileTarget.info != nil && fileTarget.updated {
@@ -410,7 +410,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         fileTarget.updated = true
                 }
 
-                result, err = pc.modifyBuf.Call(prog.position)
+                result, err = pc.def.modbuff.Call(prog.position)
                 if err != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
                         err = wrap(prog.position, err)
@@ -420,14 +420,19 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
 }
 
 func (pc *traversal) exec(prog *Program) (result Value, err error) {
+        if optionTraceExec {
+                var t = pc.def.target.value
+                defer un(trace(t_exec, fmt.Sprintf("%s: %v", typeof(t), t)))
+        }
+
         var (
                 none = &None{trivial{prog.position}}
-                depends = pc.dependsDef.value
-                ordered = pc.orderedDef.value
-                grepped = pc.greppedDef.value
+                depends = pc.def.depends.value
+                ordered = pc.def.ordered.value
+                grepped = pc.def.grepped.value
         )
-
-        pc.updatedDef.set(DefDefault, none)
+       
+        pc.def.updated.set(DefDefault, none)
 
         // FIXME: handle 'ordered' and 'grepped' differently
         if err = pc.traverseAll([]Value{depends,ordered,grepped}); err != nil {
@@ -447,15 +452,15 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
         }
 
         if optionTraceTraversal && false {
-                pc.tracef("%v", pc.targets)
-                pc.tracef("%v", pc.targetDef)
-                pc.tracef("%v", pc.depend0Def)
-                pc.tracef("%v", pc.dependsDef)
-                pc.tracef("%v", pc.orderedDef)
-                pc.tracef("%v", pc.greppedDef)
-                pc.tracef("%v", pc.updatedDef)
-                pc.tracef("%v", pc.stemDef)
-                pc.tracef("%v", pc.modifyBuf)
+                //pc.tracef("%v", pc.targets)
+                pc.tracef("%v", pc.def.target)
+                pc.tracef("%v", pc.def.depend0)
+                pc.tracef("%v", pc.def.depends)
+                pc.tracef("%v", pc.def.ordered)
+                pc.tracef("%v", pc.def.grepped)
+                pc.tracef("%v", pc.def.updated)
+                pc.tracef("%v", pc.def.modbuff)
+                pc.tracef("%v", pc.def.stem)
         }
         return
 }

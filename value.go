@@ -10,7 +10,7 @@ import (
         "extbit.io/smart/token"
         "crypto/sha256"
         "path/filepath"
-        "runtime/debug"
+        //"runtime/debug"
         "net/url"
         "reflect"
         "strconv"
@@ -172,26 +172,30 @@ func newUpdatedTarget(target Value, prerequisites ...*updatedtarget) *updatedtar
 type traversal struct {
         program *Program
 
+        def struct {
+                params []*Def // $0, $1, $2, ...
+                target   *Def // $@
+                depends  *Def // $^
+                depend0  *Def // $<
+                ordered  *Def // $|
+                grepped  *Def // $~
+                updated  *Def // $?
+                modbuff  *Def // $-
+                stem     *Def // $*
+        }
+
+        stack []Value
+
         group *sync.WaitGroup
         caller *traversal
         calleeErrors []error
         entry *RuleEntry // caller entry (target)
         args, arguments []Value // target and argumented prerequisite args
-        targets []Value // prerequisite targets ($^ $<)
+        //targets []Value // prerequisite targets ($^ $<)
         updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
         derived *Project // the most derived project
         stems []string // set by StemmedEntry
         traceLevel int
-
-        targetDef  *Def // $@
-        dependsDef *Def // $^
-        depend0Def *Def // $<
-        orderedDef *Def // $|
-        greppedDef *Def // $~
-        updatedDef *Def // $?
-        modifyBuf  *Def // $-
-        stemDef    *Def // $*
-        params   []*Def
 
         breaker *breaker
         interpreted []interpreter
@@ -201,7 +205,7 @@ type traversal struct {
 }
 
 // Usage pattern: defer un(tt(pc, "..."))
-func tt(pc *traversal, i Value) tracer {
+func tt(pc *traversal, i Value) *traversal {
         // Note that pc.args and pc.arguments are different, they're
         // target execution args and argumented-prerequisite args.
         var a string
@@ -216,6 +220,30 @@ func tt(pc *traversal, i Value) tracer {
         return pc
 }
 
+func op(pc *traversal, i Value) (*traversal, []Value) {
+        //fmt.Fprintf(stderr, "%s: %v (%v)\n", typeof(i), i, len(pc.stack))
+
+        for n, v := range pc.stack {
+                if v == i || v.cmp(i) == cmpEqual {
+                        var s string
+                        for x := 0; x <= n; x += 1 {
+                                s += pc.stack[x].String() + "⇢"
+                        }
+                        s += i.String()
+                        fmt.Fprintf(stderr, "loop: %v/%v, %s\n", n, len(pc.stack), s)
+                        //panic(fmt.Sprintf("loop: %v:%s : %s\n", v, typeof(v), s))
+                }
+        }
+
+        var saved = pc.stack
+        pc.stack = append(pc.stack, i)
+        return pc, saved
+}
+
+func lo(pc *traversal, saved []Value) {
+        pc.stack = saved
+}
+
 func (pc *traversal) level(n int) { pc.traceLevel += n }
 func (pc *traversal) trace(a ...interface{}) {
         printIndentDots(pc.traceLevel, a...)
@@ -225,6 +253,7 @@ func (pc *traversal) tracef(s string, a ...interface{}) {
         printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...))
 }
 
+/*
 func (pc *traversal) addNotExistedTarget1(target Value) {
         if pc.debug && false {
                 fmt.Fprintf(stderr, "add: %T %v\n", target, target)
@@ -260,6 +289,7 @@ func (pc *traversal) addNotExistedTargets(targets ...Value) {
                 pc.addNotExistedTarget1(elem)
         }
 }
+*/
 
 func (pc *traversal) traverseAll(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
@@ -273,7 +303,7 @@ func (pc *traversal) traverseAll(value interface{}) (err error) {
 }
 
 func (pc *traversal) traverse(i interface{}) (err error) {
-        var pos = pc.targetDef.position //pc.entry.position
+        var pos = pc.def.target.position //pc.entry.position
         if i == nil {
                 err = errorf(pos, "updating nil prerequisite")
         } else if value, ok := i.(Value); !ok {
@@ -317,16 +347,17 @@ func (pc *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
                         }
                 }
         }
+        if res == nil { }
 
-        target, _ := prog.scope.Lookup("@").(*Def).Call(entry.position)
-        pc.addNotExistedTargets(target, res)
+        //target, _ := prog.scope.Lookup("@").(*Def).Call(entry.position)
+        //pc.addNotExistedTargets(target, res)
         return
 }
 
 func (pc *traversal) appendUpdated(target *updatedtarget) {
         pc.updated = append(pc.updated, target)
         if pc.caller != nil {
-                var t = newUpdatedTarget(pc.targetDef.value, target)
+                var t = newUpdatedTarget(pc.def.target.value, target)
                 pc.caller.appendUpdated(t)
         }
 }
@@ -343,7 +374,7 @@ func (pc *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
                 val = sha256.New()
                 str string
         )
-        if str, err = pc.targetDef.value.Strval(); err != nil { return }
+        if str, err = pc.def.target.value.Strval(); err != nil { return }
         fmt.Fprintf(key, "%s", pc.program.project.absPath)
         fmt.Fprintf(key, "%v", str)
 
@@ -706,8 +737,8 @@ func (p *Any) Strval() (s string, err error) {
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
 func (p *Any) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-        if p, ok := p.value.(Value); ok {
-                err = p.traverse(pc)
+        if v, ok := p.value.(Value); ok {
+                err = v.traverse(pc)
         }
         return 
 }
@@ -767,9 +798,7 @@ func (p *negative) Integer() (res int64, err error) {
 }
 func (p *negative) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-        if p.x != nil {
-                err = p.x.traverse(pc)
-        }
+        if p.x != nil { err = p.x.traverse(pc) }
         return
 }
 
@@ -2135,12 +2164,12 @@ func (p *File) stamp(pc *traversal) (files []*File, err error) {
                 p.updated = nt.After(ot)
                 files = append(files, p)
 
-                var target = pc.targetDef.value
+                var target = pc.def.target.value
                 var cmp = target.cmp(p)
                 if cmp == cmpEqual && pc.caller != nil {
                         // Add to caller context
                         pc.caller.appendUpdated(newUpdatedTarget(p))
-                        target = pc.caller.targetDef.value
+                        target = pc.caller.def.target.value
                 } else {
                         pc.appendUpdated(newUpdatedTarget(p))
                 }
@@ -2161,16 +2190,18 @@ func (p *File) exists() existence {
 func (p *File) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
 
+        //defer lo(op(pc, p))
+
         var project = mostDerived()
 
         // FIXES: checks none-File file target
-        switch t := pc.targetDef.value.(type) {
+        switch t := pc.def.target.value.(type) {
         case *Barecomp: // convert barecomp path into a real Path
                 var v = t.Elems[0]
                 if p, ok := v.(*Path); ok {
                         t.Elems = append(p.Elems[len(p.Elems)-1:], t.Elems[1:]...)
                         p.Elems[len(p.Elems)-1] = t
-                        pc.targetDef.value = p
+                        pc.def.target.value = p
                         if optionTraceTraversal {
                                 pc.tracef("FIX: barecomp path: %v", p)
                         }
@@ -2178,7 +2209,7 @@ func (p *File) traverse(pc *traversal) (err error) {
                         var s string
                         if s, err = t.Strval(); err != nil { return }
                         if file := project.matchFile(s); file != nil {
-                                pc.targetDef.value = file
+                                pc.def.target.value = file
                                 if optionTraceTraversal {
                                         pc.tracef("FIX: barecomp file: %v", p)
                                 }
@@ -2192,14 +2223,14 @@ func (p *File) traverse(pc *traversal) (err error) {
         }
 
         if optionTraceTraversal {
-                var t = pc.targetDef.value
+                var t = pc.def.target.value
                 pc.tracef("%s: %v (%v)", typeof(t), t, t.mod(pc))
                 pc.tracef("%s: %v (%v)", typeof(p), p, p.mod(pc))
         }
 
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
-        if p.info.ModTime().After(pc.targetDef.value.mod(pc)) {
+        if p.info.ModTime().After(pc.def.target.value.mod(pc)) {
                 if optionTraceTraversal { pc.tracef("updated: %v", p) }
                 pc.appendUpdated(newUpdatedTarget(p))
         }

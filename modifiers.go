@@ -862,7 +862,7 @@ func parseGrepOption(pos Position, pc *traversal, optGrep Value) (result []Value
         
         var target Value
         var targetStr string
-        var targetDef = pc.targetDef // $@
+        var targetDef = pc.def.target // $@
         if n := len(args); n == 1 {
                 // Change $@ to args[0]
                 targetDef.set(DefDefault, args[0])
@@ -2053,7 +2053,7 @@ func modifierWait(pos Position, pc *traversal, args... Value) (result Value, err
         }); err != nil { return }
 
         if optVerbose {
-                fmt.Fprintf(stderr, "smart: Wait (%v) …\n", pc.targetDef.value)
+                fmt.Fprintf(stderr, "smart: Wait (%v) …\n", pc.def.target.value)
         }
 
         err = pc.wait(pos)
@@ -2061,7 +2061,7 @@ func modifierWait(pos Position, pc *traversal, args... Value) (result Value, err
         if optVerbose {
                 var s = "Done"
                 if err != nil { s = "Fail" }
-                fmt.Fprintf(stderr, "smart: %s (%v), updated=%v\n", s, pc.targetDef.value, pc.updated)
+                fmt.Fprintf(stderr, "smart: %s (%v), updated=%v\n", s, pc.def.target.value, pc.updated)
         }
         return
 }
@@ -2105,7 +2105,7 @@ func modifierCase(pos Position, pc *traversal, args... Value) (result Value, err
 
 func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err error) {
         var target string
-        if target, err = pc.targetDef.value.Strval(); err != nil {
+        if target, err = pc.def.target.value.Strval(); err != nil {
                 err = wrap(pos, err)
                 return
         }
@@ -2150,8 +2150,8 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                                 var dirty bool
                                 if dirty = pc.breaker != nil; dirty {
                                         reasons = append(reasons, fmt.Sprintf("-dirty: %v", pc.breaker.what))
-                                } else if dirty = !exists(pc.targetDef.value); dirty {
-                                        reasons = append(reasons, fmt.Sprintf("-dirty: not exists %v", pc.targetDef.value))
+                                } else if dirty = !exists(pc.def.target.value); dirty {
+                                        reasons = append(reasons, fmt.Sprintf("-dirty: not exists %v", pc.def.target.value))
                                 } else if dirty = len(pc.updated) > 0; dirty {
                                         reasons = append(reasons, fmt.Sprintf("-dirty: updated %v", pc.updated))
                                 } else if dirty, err = pc.isRecipesDirty(); err != nil {
@@ -2161,7 +2161,8 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                                 }
 
                                 if optionTraceTraversal {
-                                        pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", dirty, len(pc.updated), exists(pc.targetDef.value), pc.targetDef.value)
+                                        var t = pc.def.target.value
+                                        pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", dirty, len(pc.updated), exists(t), t)
                                         if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }
                                 }
                                 if optAnd {

@@ -745,17 +745,17 @@ func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error)
         names = nil // clean names cache
 
         if exists(file) {
-                pc.addNotExistedTarget1(file)
+                //pc.addNotExistedTarget1(file)
                 okay = true
                 return
         } else if file != nil && file.match != nil {
                 if file.searchInMatchedPaths(p) {
-                        pc.addNotExistedTarget1(file)
+                        //pc.addNotExistedTarget1(file)
                         okay = true
                         return
                 }
         } else if alt := p.searchFile(file.name); alt != nil {
-                pc.addNotExistedTarget1(alt)
+                //pc.addNotExistedTarget1(alt)
                 okay = true
                 return
         }
