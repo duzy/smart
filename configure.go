@@ -634,7 +634,7 @@ func scanCommandFailedError(err error) (n, en int, tag string) {
                 }
         default:
                 var s = err.Error()
-                n, _ = fmt.Sscanf(s, errCommandFailedFmt, &tag, &en)
+                n, _ = fmt.Sscanf(s, exitstatusFmt, &tag, &en)
         }
         return
 }

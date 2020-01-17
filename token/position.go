@@ -25,7 +25,6 @@ func (p *Position) Equals(o *Position) bool {
                 p.Offset == o.Offset &&
                 p.Line == o.Line &&
                 p.Column == o.Column
-                
 }
 
 const NoPos Pos = Pos(got.NoPos)

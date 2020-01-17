@@ -404,7 +404,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                         breakUseLoop = (loopBreakers != nil)
                         if !breakUseLoop {
                                 l.error(spec.Pos(), "loop detected: %s", s)
-                        } else if true || optionVerboseImport || optionVerboseUsing || optionVerboseLoading {
+                        } else if optionVerboseImport || optionVerboseUsing || optionVerboseLoading {
                                 fmt.Fprintf(stderr, "%s: loop detected: %v\n", l.project, s)
                         }
                 }

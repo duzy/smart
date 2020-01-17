@@ -31,6 +31,7 @@ type Error struct {
 
 // Error implements the error interface.
 func (e *Error) Error() (s string) {
+        if e == nil { return }
         if len(e.Errs) == 1 {
                 switch t := e.Errs[0].(type) {
                 case *Error:
@@ -90,32 +91,46 @@ func (e *Error) getErrorAt(pos token.Position) (res *Error) {
         return
 }
 
+func (e *Error) find(err error) int {
+        if _, ok := err.(*Error); !ok {
+                for i, e := range e.Errs {
+                        if _, ok := e.(*Error); ok { continue }
+                        if e == err || e.Error() == err.Error() {
+                                return i
+                        }
+                }
+        }
+        return -1
+}
+
 func (result *Error) Merge(errs ...error) {
 ForErrs:
         for _, err := range errs {
                 if v := reflect.ValueOf(err); err == nil || v.IsNil() {
                         continue
+                } else if len(result.Errs) > maxErrors {
+                        result.Errs = result.Errs[maxErrors:]
                 }
+
                 if e, ok := err.(*Error); ok {
                         if t := result.getErrorAt(e.Pos); t != nil {
                                 t.Merge(e.Errs...)
-                                continue ForErrs // FIXME: merge error at pos
+                        } else {
+                                for i, f := range result.Errs {
+                                        if j := e.find(f); j >= 0 {
+                                                result.Errs = append(result.Errs[0:i], result.Errs[i+1:]...)
+                                        }
+                                }
+                                result.Errs = append(result.Errs, err)
                         }
-                }
-
-                if len(result.Errs) > maxErrors {
-                        result.Errs = result.Errs[maxErrors:]
+                        continue ForErrs
                 }
 
                 var s string
                 for _, e := range result.Errs {
                         if e == err { continue ForErrs }
                         if e, ok := e.(*Error); !ok {
-                                if s == "" {
-                                        if _, ok := err.(*Error); !ok {
-                                                s = err.Error()
-                                        }
-                                }
+                                if s == "" { s = err.Error() }
                                 if e.Error() == s { continue ForErrs }
                         }
                 }

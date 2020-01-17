@@ -419,10 +419,21 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         return pc.exec(prog)
 }
 
+const maxRecursion  = 32 //64
+
 func (pc *traversal) exec(prog *Program) (result Value, err error) {
         if optionTraceExec {
                 var t = pc.def.target.value
                 defer un(trace(t_exec, fmt.Sprintf("%s: %v", typeof(t), t)))
+        }
+
+        var recursion int
+        for caller := pc.caller; caller != nil; caller = caller.caller {
+                if caller.program == prog { recursion += 1 }
+        }
+        if recursion >= maxRecursion {
+                err = errorf(prog.position, "too many recursion (%d) (%v)", recursion, pc.def.target)
+                return
         }
 
         var (
@@ -435,8 +446,12 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
         pc.def.updated.set(DefDefault, none)
 
         // FIXME: handle 'ordered' and 'grepped' differently
-        if err = pc.traverseAll([]Value{depends,ordered,grepped}); err != nil {
-                err = wrap(prog.position, err)
+        var errs = pc.calleeErrors()
+        if e := pc.traverseAll([]Value{depends,ordered,grepped}); e != nil {
+                errs = append(errs, e)
+        }
+        if len(errs) > 0 {
+                err = wrap(prog.position, errs...)
                 return
         }
 

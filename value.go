@@ -184,13 +184,14 @@ type traversal struct {
                 stem     *Def // $*
         }
 
-        stack []Value
-
         group *sync.WaitGroup
         caller *traversal
-        calleeErrors []error
+        calleeErrs []error
+        calleeErrsM sync.Mutex
+
         entry *RuleEntry // caller entry (target)
         args, arguments []Value // target and argumented prerequisite args
+
         //targets []Value // prerequisite targets ($^ $<)
         updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
         derived *Project // the most derived project
@@ -218,30 +219,6 @@ func tt(pc *traversal, i Value) *traversal {
         pc.trace(a, ":", b, "(")
         pc.level(+1)
         return pc
-}
-
-func op(pc *traversal, i Value) (*traversal, []Value) {
-        //fmt.Fprintf(stderr, "%s: %v (%v)\n", typeof(i), i, len(pc.stack))
-
-        for n, v := range pc.stack {
-                if v == i || v.cmp(i) == cmpEqual {
-                        var s string
-                        for x := 0; x <= n; x += 1 {
-                                s += pc.stack[x].String() + "⇢"
-                        }
-                        s += i.String()
-                        fmt.Fprintf(stderr, "loop: %v/%v, %s\n", n, len(pc.stack), s)
-                        //panic(fmt.Sprintf("loop: %v:%s : %s\n", v, typeof(v), s))
-                }
-        }
-
-        var saved = pc.stack
-        pc.stack = append(pc.stack, i)
-        return pc, saved
-}
-
-func lo(pc *traversal, saved []Value) {
-        pc.stack = saved
 }
 
 func (pc *traversal) level(n int) { pc.traceLevel += n }
@@ -290,6 +267,26 @@ func (pc *traversal) addNotExistedTargets(targets ...Value) {
         }
 }
 */
+
+func (pc *traversal) calleeStart() {
+        pc.group.Add(1)
+}
+
+func (pc *traversal) calleeDone(err error) {
+        if err != nil { pc.calleeError(err) }
+        pc.group.Done()
+}
+
+func (pc *traversal) calleeError(err error) {
+        pc.calleeErrsM.Lock(); defer pc.calleeErrsM.Unlock()
+        pc.calleeErrs = append(pc.calleeErrs, err)
+}
+
+func (pc *traversal) calleeErrors() (errs []error) {
+        pc.calleeErrsM.Lock(); defer pc.calleeErrsM.Unlock()
+        errs = pc.calleeErrs
+        return
+}
 
 func (pc *traversal) traverseAll(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
@@ -449,7 +446,7 @@ func (pc *traversal) isRecipesDirty() (dirty bool, err error) {
 
 func (pc *traversal) wait(pos Position) (err error) {
         pc.group.Wait()
-        for _, e := range pc.calleeErrors {
+        for _, e := range pc.calleeErrors() {
                 err = wrap(pos, e, err)
         }
         return

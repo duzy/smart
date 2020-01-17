@@ -947,25 +947,25 @@ func (p *Project) hasBase(proj *Project) (res bool) {
         return
 }
 
-func (p *Project) hasLoaded(proj *Project) (rp *Project, res, isb bool, err error) {
-        return p.hasLoadedRecur(p, proj)
+func (p *Project) hasLoaded(proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
+        return p.hasLoadedRecur(p, proj, breakUseLoop)
 }
 
-func (p *Project) hasLoadedRecur(top, proj *Project) (rp *Project, res, isb bool, err error) {
+func (p *Project) hasLoadedRecur(top, proj *Project, breakUseLoop bool) (rp *Project, res, isb bool, err error) {
         for _, base := range p.bases {
                 if isb = base == proj; isb { return }
-                if rp, res, isb, err = base.hasLoadedRecur(top, proj); err != nil {
+                if rp, res, isb, err = base.hasLoadedRecur(top, proj, breakUseLoop); err != nil {
                         return
                 } else if res || isb { rp = base ; return }
         }
         for _, imp := range p.loads {
-                if imp == top {
+                if imp == top && !breakUseLoop {
                         s := top.loopLoadPath()
                         err = fmt.Errorf("loop `%v`", s)
                         return
                 }
                 if res = imp == proj; res { rp = imp; return }
-                if rp, res, res, err = imp.hasLoadedRecur(top, proj); err != nil {
+                if rp, res, res, err = imp.hasLoadedRecur(top, proj, breakUseLoop); err != nil {
                         return
                 } else if res { rp = imp; return }
         }

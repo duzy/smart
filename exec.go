@@ -24,7 +24,14 @@ import (
 )
 
 // Note that it's is also used with Sscanf.
-const errCommandFailedFmt = "exit status %d"
+const exitstatusFmt = "exit status %d"
+
+type exitstatus struct { code int }
+
+func (e *exitstatus) Error() string {
+        return fmt.Sprintf(exitstatusFmt, e.code)
+}
+
 const (
         rxNotTTYDevice_i int = iota
         rxNoContainer_i
@@ -33,6 +40,7 @@ const (
         rxIncludedFrom_i
         rxFileNotFound_i
         rxArNoSuchFile_i
+        rxBashNoSuchFile_i
 )
 var (
         defaultShell = "bash"
@@ -45,6 +53,7 @@ var (
         errIncludedFrom = `In file included from (.+?):(\d+):(\d+):`
         errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
         errArNoSuchFile = `ar: (.+?): No such file or directory`
+        errBashNoSuchFile = `bash: (.+?): No such file or directory`
 
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
@@ -53,15 +62,17 @@ var (
         rxIncludedFrom = regexp.MustCompile(errIncludedFrom)
         rxFileNotFound = regexp.MustCompile(errFileNotFound)
         rxArNoSuchFile = regexp.MustCompile(errArNoSuchFile)
+        rxBashNoSuchFile = regexp.MustCompile(errBashNoSuchFile)
 
         knownerrors = []*regexp.Regexp{
-                rxNotTTYDevice_i: rxNotTTYDevice,
-                rxNoContainer_i: rxNoContainer,
-                rxNoNetwork_i: rxNoNetwork,
-                rxCompilation_i: rxCompilation,
-                rxIncludedFrom_i: rxIncludedFrom,
-                rxFileNotFound_i: rxFileNotFound,
-                rxArNoSuchFile_i: rxArNoSuchFile,
+                rxNotTTYDevice_i:   rxNotTTYDevice,
+                rxNoContainer_i:    rxNoContainer,
+                rxNoNetwork_i:      rxNoNetwork,
+                rxCompilation_i:    rxCompilation,
+                rxIncludedFrom_i:   rxIncludedFrom,
+                rxFileNotFound_i:   rxFileNotFound,
+                rxArNoSuchFile_i:   rxArNoSuchFile,
+                rxBashNoSuchFile_i: rxBashNoSuchFile,
         }
 
         workingMutex = new(sync.Mutex)
@@ -272,6 +283,10 @@ func (p *ExecBuffer) processKnownErrors(pc *traversal, dock *Project, sh *exec.C
                                 if err == nil {
                                         err = errorf(pos, "`%v` file not found", filepath.Base(string(v[1])))
                                 }
+                        case rxBashNoSuchFile_i:
+                                if err == nil {
+                                        err = errorf(pos, "%v: no such command", string(v[1]))
+                                }
                         }
                 }
         }
@@ -284,18 +299,18 @@ func (p *ExecBuffer) processKnownErrors(pc *traversal, dock *Project, sh *exec.C
                 if p.report { fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num) }
                 c := exec.Command(sh.Path, sh.Args...)
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                p.runAndProcessKnownErrors(pc, dock, c, x, num+1) // retry
+                _, err = p.runAndProcessKnownErrors(pc, dock, c, x, num+1) // retry
         } else if err != nil {
                 // ends with error
         } else if tag == "" {
-                err = fmt.Errorf(errCommandFailedFmt, status) //, targetName
+                err = &exitstatus{ status }
         } else if skip := p.skips(tag); !skip && dock != nil && num < maxRetries {
                 p.retried[tag] = true // save it to skip next time
                 if err = x.runContainer(pc, dock); err == nil {
                         if p.report { fmt.Fprintf(stderr, "smart: started %s\n", tag) }
                         c := exec.Command(sh.Path, sh.Args...)
                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                        p.runAndProcessKnownErrors(pc, dock, c, x, num+1) // retry
+                        _, err = p.runAndProcessKnownErrors(pc, dock, c, x, num+1) // retry
                 } else {
                         //err = errorf(pc.program.position, "`%s` no such container", tag)
                 }
@@ -307,12 +322,22 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pc *traversal, dock *Project, sh *
         p.matches = nil
         if err = sh.Run(); err == nil {
                 // It's good!
-        } else if n, e := fmt.Sscanf(err.Error(), "exit status %v", &status); n == 1 && e == nil {
+        } else if n, e := fmt.Sscanf(err.Error(), exitstatusFmt, &status); n == 1 && e == nil {
+                err = &exitstatus{ status } // convert to exitstatus
                 if p.log != nil && p.log.writer != nil {
-                        fmt.Fprintf(p.log, "\n"+errCommandFailedFmt+"\n", status)
-                        if p.report { fmt.Fprintf(stderr, "%s:%d: %v\n", p.log.filename, p.log.lines, err) }
+                        fmt.Fprintf(p.log, "\n%s\n", err)
+
+                        var pos Position
+                        pos.Filename = p.log.filename
+                        pos.Offset = 0 // FIXME: what should be the offset?
+                        pos.Line = p.log.lines
+                        pos.Column = 0
+                        err = wrap(pos, err)
                 }
-                err = p.processKnownErrors(pc, dock, sh, x, status, num)
+                if e := p.processKnownErrors(pc, dock, sh, x, status, num); e != nil {
+                        err = wrap(pc.program.position, e, err)
+                }
+                if p.report { fmt.Fprintf(stderr, "%v\n", err) }
         } else {
                 if status == 0 { status = -1 }
                 if e != nil { err = e }
@@ -719,10 +744,7 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                                 }
                         }
                         if pc.caller != nil {
-                                pc.caller.group.Done()
-                                if err != nil {
-                                        pc.caller.calleeErrors = append(pc.caller.calleeErrors, err)
-                                }
+                                pc.caller.calleeDone(err)
                         }
                         if prompt {
                                 if pc.caller == nil {
@@ -810,21 +832,14 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
 
                         exeres.Stderr.report = !silent
                         exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pc, dock, sh, p, 1)
-                        if err == nil {
-                                // good
-                        } else {
-                                // Return immediately once error occured. The
-                                // rest commands won't be executed.
-                                if silent { err = nil }
-                                return
-                        }
+                        if err != nil { return }
                 }
         }
 
         printEnteringDirectory()
 
         if pc.caller != nil {
-                pc.caller.group.Add(1)
+                pc.caller.calleeStart()
                 go run()
         } else {
                 run()
