@@ -16,6 +16,7 @@ import (
 var (
         t_parse = new(tracing) // UNUSED
         t_traverse = new(tracing) // UNUSED
+        t_executor = new(tracing)
         t_exec = new(tracing)
 )
 

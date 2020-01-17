@@ -424,7 +424,7 @@ const maxRecursion  = 32 //64
 func (pc *traversal) exec(prog *Program) (result Value, err error) {
         if optionTraceExec {
                 var t = pc.def.target.value
-                defer un(trace(t_exec, fmt.Sprintf("%s: %v", typeof(t), t)))
+                defer un(trace(t_executor, fmt.Sprintf("%s: %v (depth=%d)", typeof(t), t, pc.depth())))
         }
 
         var recursion int

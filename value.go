@@ -268,6 +268,11 @@ func (pc *traversal) addNotExistedTargets(targets ...Value) {
 }
 */
 
+func (pc *traversal) depth() (res int) {
+        for c := pc.caller; c != nil; c = c.caller { res += 1 }
+        return
+}
+
 func (pc *traversal) calleeStart() {
         pc.group.Add(1)
 }

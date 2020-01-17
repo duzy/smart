@@ -448,6 +448,23 @@ func (p *executor) ensureContainerRunning(pc *traversal, dock *Project, containe
 }
 
 func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err error) {
+        if optionTraceExecutor {
+                var t = pc.def.target.value
+                defer un(trace(t_executor, fmt.Sprintf("%s: %v (depth=%d)", typeof(t), t, pc.depth())))
+        }
+
+        var recursion int
+        for c := pc.caller; c != nil; c = c.caller {
+                if c.def.target.value == pc.def.target.value {
+                        recursion += 1
+                }
+        }
+        if recursion > 1 {
+                var pos = pc.caller.program.Position()
+                err = errorf(pos, "%v: too many recursion (%d)", pc.def.target.value, recursion)
+                return
+        }
+
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
         var cmd, promStr, logFileName = p.cmd, "", ""
