@@ -377,38 +377,53 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                 return
         }
 
+        var loaded, loadedValid = l.loaded[absPath]
+
         // Checking circular loads. See also Project.loopImportPath()!
         var breakUseLoop bool
         for i, load := range l.loads {
                 if load.absDir == absPath {
-                        var useLoopPath []*loadinfo
+                        var s string
+                        var loop, loopBreakers []*loadinfo
                         for n := i; n < len(l.loads); n += 1 {
                                 var load = l.loads[n]
-                                useLoopPath = append(useLoopPath, load)
-                                if !breakUseLoop {
-                                        breakUseLoop = load.breakUseLoop() 
+                                loop = append(loop, load)
+                                if load.breakUseLoop() {
+                                        loopBreakers = append(loopBreakers, load)
+                                        s += "<" + load.specName + "> → "
+                                } else {
+                                        s += load.specName + " → "
                                 }
                         }
-
-                        var s string
-                        for _, p := range useLoopPath {
-                                s += p.specName + " → "
+                        if loadedValid && loaded.breakUseLoop {
+                                s += "<" + specName + ">"
+                        } else {
+                                s += specName
                         }
-                        s += specName
 
+                        breakUseLoop = (loopBreakers != nil)
                         if !breakUseLoop {
                                 l.error(spec.Pos(), "loop detected: %s", s)
-                        } else if optionVerboseImport || optionVerboseUsing || optionVerboseLoading {
-                                fmt.Fprintf(stderr, "warning: loop detected: %v\n", s)
+                        } else if true || optionVerboseImport || optionVerboseUsing || optionVerboseLoading {
+                                fmt.Fprintf(stderr, "%s: loop detected: %v\n", l.project, s)
                         }
                 }
         }
-        if breakUseLoop { return }
+
+        if breakUseLoop {
+                /*if loadedValid {
+                        _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
+                        if a != nil {
+                                if v, ok := a.(*ProjectName); !ok || v == nil {
+                                        err = fmt.Errorf("`%s' name already taken (%T).", loaded.Name(), a)
+                                }
+                        }
+                }
+                return*/
+        }
 
         defer func(a []*Project) { l.loadStack = a } (l.loadStack)
         l.loadStack = append(l.loadStack, l.project) // build the load path
-
-        var loaded, loadedValid = l.loaded[absPath]
 
         // https://unicode-table.com/en/sets/arrows-symbols/
         // ┌────────────────────────────────┐
@@ -441,7 +456,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
 
         if loadedValid && !specOpts.reuse {
                 var ( proj *Project ; res, isb bool )
-                if proj, res, isb, err = l.project.hasLoaded(loaded); err != nil {
+                if proj, res, isb, err = l.project.hasLoaded(loaded, breakUseLoop); err != nil {
                         l.error(spec.Pos(), "`%s`: %s", specName, err)
                         return
                 } else if isb {
@@ -485,6 +500,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                         return
                 }
         }
+        if breakUseLoop { /*return*/ }
 
         // Check against the current load list before appending loaded.
         for _, lp := range l.project.loads {
@@ -495,7 +511,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                         return
                 }
 
-                if proj, res, isb, err = loaded.hasLoaded(lp); err != nil {
+                if proj, res, isb, err = loaded.hasLoaded(lp, breakUseLoop); err != nil {
                         l.error(spec.Pos(), "%s: %s", specName, err)
                         return
                 } else if isb {
@@ -508,7 +524,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                         l.parser.warn(spec.Pos(), "`%s` has already imported `%s` (from %s)", loaded, lp, proj)
                 }
 
-                if proj, res, isb, err = lp.hasLoaded(loaded); err != nil {
+                if proj, res, isb, err = lp.hasLoaded(loaded, breakUseLoop); err != nil {
                         l.error(spec.Pos(), "%s: %s", specName, err)
                         return
                 } else if isb {
@@ -518,10 +534,10 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                 }
         }
 
-        // The project load list is different from using list.
-        l.project.loads = append(l.project.loads, loaded)
-
-        if specOpts.unuse { return }
+        if specOpts.unuse || breakUseLoop { return } else {
+                // The project load list is different from using list.
+                l.project.loads = append(l.project.loads, loaded)
+        }
 
         name, _ := l.project.scope.Lookup(loaded.name).(*ProjectName)
         if name == nil {
