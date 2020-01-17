@@ -255,11 +255,9 @@ func (p *ExecBuffer) skips(tag string) (result bool) {
         return
 }
 
-func (p *ExecBuffer) processKnownErrors(pc *traversal, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
-        var pos = pc.program.position
+func (p *ExecBuffer) processKnownErrors(pos Position, pc *traversal, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
         var retry bool
         var tag string
-
         for _, m := range p.matches {
                 for _, v := range m.v { // captures
                         switch m.i {
@@ -275,18 +273,12 @@ func (p *ExecBuffer) processKnownErrors(pc *traversal, dock *Project, sh *exec.C
                                 if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
                         case rxFileNotFound_i:
                                 if p.report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4]) }
-                                if err == nil {
-                                        err = errorf(pos, "`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
-                                }
+                                err = wrap(pos, fmt.Errorf("`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1]))), err)
                         case rxArNoSuchFile_i:
                                 if p.report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1]) }
-                                if err == nil {
-                                        err = errorf(pos, "`%v` file not found", filepath.Base(string(v[1])))
-                                }
+                                err = wrap(pos, fmt.Errorf("`%v` file not found", filepath.Base(string(v[1]))), err)
                         case rxBashNoSuchFile_i:
-                                if err == nil {
-                                        err = errorf(pos, "%v: no such command", string(v[1]))
-                                }
+                                err = wrap(pos, fmt.Errorf("%v: no such command", string(v[1])), err)
                         }
                 }
         }
@@ -299,7 +291,7 @@ func (p *ExecBuffer) processKnownErrors(pc *traversal, dock *Project, sh *exec.C
                 if p.report { fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num) }
                 c := exec.Command(sh.Path, sh.Args...)
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                _, err = p.runAndProcessKnownErrors(pc, dock, c, x, num+1) // retry
+                _, err = p.runAndProcessKnownErrors(pos, pc, dock, c, x, num+1) // retry
         } else if err != nil {
                 // ends with error
         } else if tag == "" {
@@ -310,15 +302,15 @@ func (p *ExecBuffer) processKnownErrors(pc *traversal, dock *Project, sh *exec.C
                         if p.report { fmt.Fprintf(stderr, "smart: started %s\n", tag) }
                         c := exec.Command(sh.Path, sh.Args...)
                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                        _, err = p.runAndProcessKnownErrors(pc, dock, c, x, num+1) // retry
+                        _, err = p.runAndProcessKnownErrors(pos, pc, dock, c, x, num+1) // retry
                 } else {
-                        //err = errorf(pc.program.position, "`%s` no such container", tag)
+                        //err = errorf(pos, "`%s` no such container", tag)
                 }
         }
         return
 }
 
-func (p *ExecBuffer) runAndProcessKnownErrors(pc *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
+func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, pc *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
         p.matches = nil
         if err = sh.Run(); err == nil {
                 // It's good!
@@ -334,10 +326,10 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pc *traversal, dock *Project, sh *
                         pos.Column = 0
                         err = wrap(pos, err)
                 }
-                if e := p.processKnownErrors(pc, dock, sh, x, status, num); e != nil {
-                        err = wrap(pc.program.position, e, err)
+                if e := p.processKnownErrors(pos, pc, dock, sh, x, status, num); e != nil {
+                        err = wrap(pos, e, err)
                 }
-                if p.report { fmt.Fprintf(stderr, "%v\n", err) }
+                //if p.report { fmt.Fprintf(stderr, "%v\n", err) }
         } else {
                 if status == 0 { status = -1 }
                 if e != nil { err = e }
@@ -648,8 +640,6 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                 }
         }
 
-        var source, str string
-        var sources []string
         var envars []*Pair // disclosed values
         if def, _ := pc.program.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
                 if l, _ := def.value.(*List); l != nil {
@@ -668,7 +658,13 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
 
         var recipes []Value
         if recipes, err = mergeresult(ExpandAll(pc.program.recipes...)); err != nil { return }
+
+        var pos Position
+        var source, str string
+        var sources []string
+        var positions []Position
         for _, recipe := range recipes {
+                if !pos.IsValid() { pos = recipe.Position() }
                 if str, err = recipe.Strval(); err != nil { return }
                 if source += str; strings.HasSuffix(source, "\\") {
                         source += "\n" // append the line feed
@@ -684,8 +680,10 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                 // Duplicates all %
                 //source = strings.Replace(source, "%", "%%", -1)
 
+                positions = append(positions, pos)
                 sources = append(sources, source)
                 source = ""
+                pos = Position{}
         }
 
         var envstr string
@@ -711,10 +709,10 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
         if logFileName == "" {
                 // no log required
         } else if err = os.MkdirAll(filepath.Dir(logFileName), os.FileMode(0755)); err != nil {
-                errorf(pc.program.position, "%v", err)
+                err = wrap(pc.program.position, err)
                 return // FIXME: err for outer func
         } else if logfile, err = os.Create(logFileName); err != nil {
-                errorf(pc.program.position, "%v", err)
+                err = wrap(pc.program.position, err)
                 return // FIXME: err for outer func
         } else {
                 cmdline := strings.Join(sources, "\n")
@@ -784,7 +782,8 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                                 fmt.Fprintf(stderr, "%s%s ……\n", promStr, targetStr)
                         }
                 }
-                for _, src := range sources {
+                for i, src := range sources {
+                        var pos = positions[i]
                         if strings.HasPrefix(src, "@") {
                                 src = src[1:]
                         } else if !prompt {
@@ -814,9 +813,6 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         lockCD(dir, 25*time.Millisecond)
                         if s, _ := os.Getwd(); s != dir {
                                 assert(s == dir, "wrong work directory (%s != %s)", s, dir)
-                                if false {
-                                        fmt.Printf("exec: %v %v (%v %v)\n", dir, s, cwd, pc.program.changedWD)
-                                }
                         }
 
                         var sh = exec.Command(cmd, aa...)
@@ -831,8 +827,11 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         sh.Args = append(sh.Args, p.opt, src)
 
                         exeres.Stderr.report = !silent
-                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pc, dock, sh, p, 1)
-                        if err != nil { return }
+                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pos, pc, dock, sh, p, 1)
+                        if err != nil { err = wrap(pc.program.position, err)
+                                if !silent { fmt.Fprintf(stderr, "%v\n", err) }
+                                return
+                        }
                 }
         }
 
