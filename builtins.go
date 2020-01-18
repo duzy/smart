@@ -2216,38 +2216,55 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                 case 'v': optVerbose = trueVal(v, true)
                 }
         }); err != nil { return }
+        if false { fmt.Printf("%v: %v\n", pos, args) }
 ForArgs:
         for i, na := 0, len(args); i < na; i += 1 {
-                var oldname, newname string
+                var oldNameVal, newNameVal Value
                 switch t := args[i].(type) {
-                case *Pair: // symlink oldname => newname old => new
-                        if oldname, err = t.Key.Strval(); err != nil { return }
-                        if newname, err = t.Value.Strval(); err != nil { return }
-                case *Group: // symlink (oldname newname) (old new)
-                        if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { return }
-                                if newname, err = t.Get(1).Strval(); err != nil { return }
-                        } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
-                                break
+                case *Pair: // symlink oldname=newname oldname=>newname...
+                        oldNameVal, newNameVal = t.Key, t.Value
+                case *Group: // symlink (oldname newname) (oldname newname)...
+                        if t.Len() != 2 {
+                                err = wrap(pos, errorf(t.Position(), "expects two values of group"))
+                                return
                         }
+                        oldNameVal, newNameVal = t.Get(0), t.Get(1)
                 case *List: // symlink oldname newname, old new, ...
-                        if t.Len() == 2 {
-                                if oldname, err = t.Get(0).Strval(); err != nil { return }
-                                if newname, err = t.Get(1).Strval(); err != nil { return }
-                        } else {
-                                err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
-                                break
+                        if t.Len() != 2 {
+                                err = wrap(pos, errorf(t.Position(), "expects two values of list"))
+                                return
                         }
-                default: // symlink newname oldname  newname oldname ...
+                        oldNameVal, newNameVal = t.Get(0), t.Get(1)
+                default:// Multiple pairs of names:
+                        // symlink  newname oldname  newname oldname ...
                         if i+1 < na {
-                                if oldname, err = args[i+0].Strval(); err != nil { return }
-                                if newname, err = args[i+1].Strval(); err != nil { return }
+                                oldNameVal, newNameVal = args[i+0], args[i+1]
                                 i += 1
                         } else {
-                                err = errors.New(fmt.Sprintf("Wrong arguments `%v'", args))
-                                break
+                                err = wrap(pos, errorf(args[i].Position(), "expects pair of names (%v)", args[i]))
+                                return
                         }
+                }
+
+                var oldname, newname string
+                if oldname, err = oldNameVal.Strval(); err != nil {
+                        err = wrap(oldNameVal.Position(), err)
+                        err = wrap(pos, err)
+                        return
+                }
+                if newname, err = newNameVal.Strval(); err != nil {
+                        err = wrap(newNameVal.Position(), err)
+                        err = wrap(pos, err)
+                        return
+                }
+
+                if newname == "" {
+                        err = errorf(pos, "empty new filename")
+                        return
+                }
+                if oldname == "" {
+                        err = errorf(pos, "empty old filename (%v)", )
+                        return
                 }
 
                 if optForce {
@@ -2265,7 +2282,9 @@ ForArgs:
                         }
                 }
                 if optVerbose {
-                        fmt.Fprintf(stderr, "smart: Symlink %s -> %s …", newname, oldname)
+                        var d = filepath.Base(newname)
+                        var s = filepath.Base(oldname)
+                        fmt.Fprintf(stderr, "smart: Symlink %s -> %s …", d, s)
                 }
                 if optRel {
                         var dir = filepath.Dir(newname)

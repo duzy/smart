@@ -192,10 +192,12 @@ type traversal struct {
         entry *RuleEntry // caller entry (target)
         args, arguments []Value // target and argumented prerequisite args
 
-        //targets []Value // prerequisite targets ($^ $<)
-        updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
         derived *Project // the most derived project
-        stems []string // set by StemmedEntry
+
+        targets []Value // prerequisite targets for updating $^ $<
+        updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
+        stems   []string // set by StemmedEntry
+
         traceLevel int
 
         breaker *breaker
@@ -267,6 +269,19 @@ func (pc *traversal) addNotExistedTargets(targets ...Value) {
         }
 }
 */
+func (pc *traversal) addNewTarget(target Value) {
+        if isNil(target) {
+                // ignore
+        } else if _, ok := target.(*None); ok {
+                // ignore
+        } else {
+                for _, t := range pc.targets {
+                        if t == target { return }
+                        if t.cmp(target) == cmpEqual { return }
+                }
+                pc.targets = append(pc.targets, target)
+        }
+}
 
 func (pc *traversal) depth() (res int) {
         for c := pc.caller; c != nil; c = c.caller { res += 1 }
@@ -451,8 +466,8 @@ func (pc *traversal) isRecipesDirty() (dirty bool, err error) {
 
 func (pc *traversal) wait(pos Position) (err error) {
         pc.group.Wait()
-        for _, e := range pc.calleeErrors() {
-                err = wrap(pos, e, err)
+        if e := pc.calleeErrors(); len(e) > 0 {
+                err = wrap(pos, e...)
         }
         return
 }
@@ -889,6 +904,12 @@ func (p *answer) cmp(v Value) (res cmpres) {
         }
         return
 }
+
+type prediction struct {
+        boolean
+        reason string
+}
+func (p *prediction) expand(_ expandwhat) (Value, error) { return p, nil }
 
 type integer struct {
         trivial
@@ -2194,6 +2215,8 @@ func (p *File) traverse(pc *traversal) (err error) {
 
         //defer lo(op(pc, p))
 
+        pc.addNewTarget(p)
+
         var project = mostDerived()
 
         // FIXES: checks none-File file target
@@ -2232,6 +2255,7 @@ func (p *File) traverse(pc *traversal) (err error) {
 
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
+        if p.info == nil { return }
         if p.info.ModTime().After(pc.def.target.value.mod(pc)) {
                 if optionTraceTraversal { pc.tracef("updated: %v", p) }
                 pc.appendUpdated(newUpdatedTarget(p))
@@ -2426,10 +2450,12 @@ func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
         case *String:
                 for _, opt := range opts {
                         if t.string == opt {
-                                if len(opt) > 0 {
-                                        names = append(names, opt)
-                                }
+                                names = append(names, opt)
                         }
+                }
+                if len(names) == 0 {
+                        err = errorf(p.Position(), "unknown flag (check: %s)",
+                                strings.Join(opts, ", "))
                 }
         case *Bareword:
                 for _, opt := range opts {
@@ -2446,6 +2472,10 @@ func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
                                         names = append(names, opt[i+1:])
                                 }
                         }
+                }
+                if len(runes) == 0 || len(names) == 0 {
+                        err = errorf(p.Position(), "unknown flag (check: %s)",
+                                strings.Join(opts, ", "))
                 }
         }
         if enable_assertions {
@@ -2581,9 +2611,27 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
 func (p *List) traverse(pc *traversal) (err error) {
         if len(p.Elems) == 0 { return }
         if optionTraceTraversal { defer un(tt(pc, p)) }
+        var pos = p.Elems[0].Position()
+ForElems:
         for _, v := range p.Elems {
-                if err = v.traverse(pc); err != nil {
-                        break
+                if err = v.traverse(pc); err == nil { continue }
+                var brks, errs = breakers(err)
+                if len(errs) > 0 {
+                        err = wrap(pos, errs...)
+                        return
+                }
+                for _, e := range brks {
+                        switch pc.breaker = e; e.what {
+                        case breakDone:
+                                if e.scope != breakTrave {
+                                        // err not changed
+                                } else if errs == nil {
+                                        err = nil
+                                } else {
+                                        err = wrap(pos, e, err)
+                                }
+                                break ForElems
+                        }
                 }
         }
         return

@@ -66,8 +66,8 @@ type Program struct {
         project *Project
         scope   *Scope
         params  []string
-        depends []Value
-        ordered []Value
+        depends []Value // normal
+        ordered []Value // order-only
         recipes []Value
         position Position
         changedWD string
@@ -291,14 +291,14 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         defer func() {
                 set := func(def *Def, val Value) { def.value = val }
                 for _, def := range []*Def{
-                        pc.def.target,
-                        pc.def.depends,
-                        pc.def.depend0,
-                        pc.def.ordered,
-                        pc.def.grepped,
-                        pc.def.updated,
-                        pc.def.stem,
-                        pc.def.modbuff,
+                        pc.def.target,  // $@
+                        pc.def.depends, // $^
+                        pc.def.depend0, // $<
+                        pc.def.ordered, // $|
+                        pc.def.grepped, // $~
+                        pc.def.updated, // $?
+                        pc.def.stem,    // $*
+                        pc.def.modbuff, // $-
                 } { set(def, def.value) }
         } ()
 
@@ -419,7 +419,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         return pc.exec(prog)
 }
 
-const maxRecursion  = 32 //64
+const maxRecursion  = 16 //32 //64
 
 func (pc *traversal) exec(prog *Program) (result Value, err error) {
         if optionTraceExec {
@@ -427,42 +427,81 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 defer un(trace(t_executor, fmt.Sprintf("%s: %v (depth=%d)", typeof(t), t, pc.depth())))
         }
 
+        var pos = prog.position
         var recursion int
-        for caller := pc.caller; caller != nil; caller = caller.caller {
-                if caller.program == prog { recursion += 1 }
+        for c := pc.caller; c != nil; c = c.caller {
+                if c.program == prog { recursion += 1 }
         }
         if recursion >= maxRecursion {
-                err = errorf(prog.position, "too many recursion (%d) (%v)", recursion, pc.def.target)
+                fmt.Fprintf(stderr, "%v: max execution recursion:\n", pos)
+                for c := pc; c != nil; c = c.caller {
+                        fmt.Fprintf(stderr, "    %v: %v\n", c.program.position, c.def.target)
+                }
+                //fmt.Fprintf(stderr, "\n")
+                err = errorf(pos, "too many recursion (%d) (%v) (from %v)", recursion, pc.def.target, pc.caller.def.target.value)
                 return
         }
 
         var (
-                none = &None{trivial{prog.position}}
-                depends = pc.def.depends.value
-                ordered = pc.def.ordered.value
+                none = &None{trivial{pos}}
+                depends = pc.def.depends.value // normal
+                ordered = pc.def.ordered.value // order-only
                 grepped = pc.def.grepped.value
         )
-       
+
         pc.def.updated.set(DefDefault, none)
 
-        // FIXME: handle 'ordered' and 'grepped' differently
-        var errs = pc.calleeErrors()
-        if e := pc.traverseAll([]Value{depends,ordered,grepped}); e != nil {
-                errs = append(errs, e)
-        }
-        if len(errs) > 0 {
-                err = wrap(prog.position, errs...)
+        pc.targets = nil
+        if err = pc.traverseAll([]Value{depends}); err != nil {
+                err = wrap(pos, pc.wait(pos), err)
                 return
+        } else if err = pc.wait(pos); err != nil { return }
+        if len(pc.targets) > 0 {
+                pc.def.depend0.value = pc.targets[0]
+                pc.def.depends.value = pc.targets[0]
+                for _, t := range pc.targets[1:] {
+                        pc.def.depends.append(t)
+                }
+        }
+        if len(pc.updated) > 0 {
+                pc.def.updated.value = pc.updated[0].target
+                for _, t := range pc.updated[1:] {
+                        pc.def.updated.append(t.target)
+                }
+        }
+
+        pc.targets = nil
+        if err = pc.traverseAll([]Value{ordered}); err != nil {
+                err = wrap(pos, pc.wait(pos), err)
+                return
+        } else if err = pc.wait(pos); err != nil { return }
+        if len(pc.targets) > 0 {
+                pc.def.ordered.value = pc.targets[0]
+                for _, t := range pc.targets[1:] {
+                        pc.def.ordered.append(t)
+                }
+        }
+
+        pc.targets = nil
+        if err = pc.traverseAll([]Value{grepped}); err != nil {
+                err = wrap(pos, pc.wait(pos), err)
+                return
+        } else if err = pc.wait(pos); err != nil { return }
+        if len(pc.targets) > 0 {
+                pc.def.grepped.value = pc.targets[0]
+                for _, t := range pc.targets[1:] {
+                        pc.def.grepped.append(t)
+                }
         }
 
         if len(pc.interpreted) == 0 {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
                         if err = prog.interpret(pc, i, nil); err != nil {
-                                err = wrap(prog.position, err)
+                                err = wrap(pos, err)
                         }
                 } else {
-                        err = errorf(prog.position, "no default dialect")
+                        err = errorf(pos, "no default dialect")
                 }
         }
 

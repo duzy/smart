@@ -206,10 +206,17 @@ func Errorf(pos token.Position, s string, args... interface{}) (err error) {
 }
 
 func WrapErrors(pos token.Position, errs ...error) (err error) {
-        if len(errs) == 0 { panic("no errors") }
-        var result = &Error{Pos:pos}
-        result.Merge(errs...)
-        if len(result.Errs) == 0 { panic("no errors") }
-        err = result
+        if len(errs) == 0 {
+                if false {
+                        err = &Error{pos,[]error{errors.New("no errors")}}
+                } else {
+                        panic("no errors")
+                }
+        } else {
+                var result = &Error{Pos:pos}
+                result.Merge(errs...)
+                if len(result.Errs) == 0 { panic("no errors") }
+                err = result
+        }
         return
 }

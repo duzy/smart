@@ -460,8 +460,10 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                 }
         }
         if recursion > 1 {
-                var pos = pc.caller.program.Position()
-                err = errorf(pos, "%v: too many recursion (%d)", pc.def.target.value, recursion)
+                if false {
+                        var pos = pc.caller.program.Position()
+                        err = errorf(pos, "%v: too many recursion (%d)", pc.def.target.value, recursion)
+                }
                 return
         }
 
@@ -758,9 +760,7 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                                         logfile.Close()
                                 }
                         }
-                        if pc.caller != nil {
-                                pc.caller.calleeDone(err)
-                        }
+                        if c := pc.caller; c != nil { c.calleeDone(err) }
                         if prompt {
                                 if pc.caller == nil {
                                         if err == nil {

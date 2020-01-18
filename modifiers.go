@@ -30,6 +30,7 @@ const (
 )
 
 type breakind int
+type breaksco int
 
 func (k breakind) String() (s string) {
         switch k {
@@ -52,6 +53,11 @@ const (
         breakFail // (assert ...)
 )
 
+const (
+        breakGroup breaksco = iota
+        breakTrave
+)
+
 type modification struct {
         target Value
         result Value
@@ -64,6 +70,7 @@ func (m *modification) String() string {
 type breaker struct {
         pos Position
         what breakind
+        scope breaksco
         message string
         misstar *updatedtarget
         updated []*updatedtarget
@@ -96,15 +103,15 @@ func (p *breaker) prerequisites() (res []*updatedtarget) {
 }
 
 func break_bad(pos Position, s string, a... interface{}) *breaker {
-        return &breaker{ pos, breakBad, fmt.Sprintf(s, a...), nil, nil }
+        return &breaker{ pos, breakBad, breakGroup, fmt.Sprintf(s, a...), nil, nil }
 }
 
 func break_good(pos Position, s string, a... interface{}) *breaker {
-        return &breaker{ pos, breakGood, fmt.Sprintf(s, a...), nil, nil }
+        return &breaker{ pos, breakGood, breakGroup, fmt.Sprintf(s, a...), nil, nil }
 }
 
 func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
-        return &breaker{ pos, w, fmt.Sprintf(s, a...), nil, nil }
+        return &breaker{ pos, w, breakGroup, fmt.Sprintf(s, a...), nil, nil }
 }
 
 func breakers(err error) (res []*breaker, rest []error) {
@@ -113,8 +120,9 @@ func breakers(err error) (res []*breaker, rest []error) {
                 var pos = Position(t.Pos)
                 for _, e := range t.Errs {
                         brks, errs := breakers(e)
-                        res = append(res, brks...)
-                        rest = append(rest, wrap(pos, errs...))
+                        if res = append(res, brks...); len(errs) > 0 {
+                                rest = append(rest, wrap(pos, errs...))
+                        }
                 }
         case *breaker:
                 res = append(res, t)
@@ -204,15 +212,21 @@ ForModifiers:
         for _, m := range g.modifiers {
                 if err = m.traverse(pc); err == nil { continue }
                 var brks, errs = breakers(err)
-                for _, b := range brks {
-                        switch pc.breaker = b; b.what {
+                if len(errs) > 0 {
+                        err = wrap(g.Position(), errs...)
+                        return
+                }
+                for _, e := range brks {
+                        switch pc.breaker = e; e.what {
                         case breakDone:
                                 // Stop traversing this group and
                                 // return the breaker to the caller.
-                                if errs == nil {
+                                if e.scope != breakGroup {
+                                        // err not changed
+                                } else if errs == nil {
                                         err = nil
                                 } else {
-                                        err = wrap(g.position, errs...)
+                                        err = wrap(g.position, e, err)
                                 }
                                 break ForModifiers
                         }
@@ -268,11 +282,19 @@ var (
                 `check`:        modifierCheck,
                 `assert`:       modifierAssert,
                 `case`:         modifierCase,
-                `cond`:         modifierCond,
+
+                `dirty`:        modifierDirty,
+                `no-loop`:      modifierNoLoop,
+                `first-time`:   modifierFirstTime,
         }
 
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
+
+func init() {
+        // Install recursive modifiers here to avoid Go's loop detection.
+        modifiers["cond"] = modifierCond
+}
 
 func RegisterModifiers(m map[string]ModifierFunc) (err error) {
         for s, f := range m {
@@ -554,50 +576,6 @@ func parseDependList(pos Position, pc *traversal, dependList *List) (depends *Li
         }
         return
 }
-
-/*
-func compareTargetDepend(pos Position, pc *traversal, target, depend Value, tt time.Time) (outdated bool, err error) {
-        if dependFile, okay := depend.(*File); okay && dependFile != nil {
-                var str string
-                if str, err = dependFile.Strval(); err != nil { return }
-                if t := context.globe.timestamp(str); t.After(tt) {
-                        outdated = true; return // target is outdated
-                } else if dependFile.info == nil {
-                        dependFile.info, _ = os.Stat(str)
-                }
-                if dependFile.info == nil {
-                        err = break_bad(pos, "no file or directory '%v'", dependFile)
-                        return
-                }
-                if t := dependFile.info.ModTime(); t.After(tt) {
-                        if str, err = target.Strval(); err != nil { return }
-                        context.globe.stamp(str, t)
-                        outdated = true; return // target is outdated
-                } else {
-                        var (
-                                recipes []Value
-                                strings []string
-                        )
-                        if recipes, err = Disclose(pc.program.recipes...); err != nil {
-                                return
-                        }
-                        for _, recipe := range recipes {
-                                strings = append(strings, recipe.String())
-                        }
-                        if same, e := pc.program.project.CheckCmdHash(target, strings); e == nil {
-                                outdated = !same
-                        }
-                }
-                if !outdated {
-                        //ent, _ := pc.program.project.Entry(depend.Strval())
-                        //fmt.Fprintf(stderr, "compare: %v\n", ent)
-                }
-        } else {
-                fmt.Fprintf(stderr, "compare: todo: %v -> %v (%T)\n", target, depend, depend)
-        }
-        return
-}
-*/
 
 type langInfoT struct {
         rxs []string
@@ -1653,7 +1631,8 @@ func copyRegular(src, dst string, opts *copyopts) (err error) {
 }
 
 func copySymlink(src, dst string, opts *copyopts) (err error) {
-        panic("unimplemented copySymlink")
+        err = errors.New("copy symlink unimplemented")
+        return
 }
 
 func copyDir(src, dst string, opts *copyopts) (err error) {
@@ -2118,23 +2097,32 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                 if optVerbose {
                         var status = "Good"
                         if reasons != nil {
-                                status = "Bad (" + strings.Join(reasons, ",") + ")"
+                                s := strings.Join(reasons, ",")
+                                if s != "" { status = "Bad (" + s + ")" }
                         }
                         fmt.Fprintf(stderr, "… %s\n", status)
                 }
         } ()
 
+        var breakScope breaksco
         for _, arg := range args {
                 var optDirty bool
                 var va = merge(arg)
                 if va, err = parseFlags(va, []string{
                         "a,and",
                         "d,dirty",
+                        "g,group",  // breakGroup
+                        "t,trave",  // breakTrave
+                        "t,target", // breakTrave
                         "v,verbose",
                 }, func(ru rune, v Value) {
                         switch ru {
                         case 'a': optAnd = trueVal(v, false)
-                        case 'd': optDirty = trueVal(v, false)
+                        case 'g': breakScope = breakGroup
+                        case 't': breakScope = breakTrave
+                        case 'd':
+                                fmt.Fprintf(stderr, "%s: -dirty is deprecated, use (cond (dirty)) instead\n", v.Position())
+                                optDirty = trueVal(v, false)
                         case 'v': optVerbose = trueVal(v, optVerbose)
                                 if optVerbose && !verbose0 {
                                         fmt.Fprintf(stderr, "smart: Checking %v …", target)
@@ -2173,9 +2161,35 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                                 }
                         }
                         for i, a := range va {
+                                if g, ok := a.(*Group); ok && len(g.Elems) > 0 {
+                                        var name string
+                                        if name, err = g.Elems[0].Strval(); err != nil {
+                                                err = wrap(a.Position(), err)
+                                                return
+                                        }
+                                        if m, ok := modifiers[name]; ok {
+                                                var res Value
+                                                res, err = m(a.Position(), pc, g.Elems[1:]...)
+                                                if err != nil {
+                                                        err = wrap(a.Position(), err)
+                                                        return
+                                                }
+                                                a = res // replace
+                                        }
+                                }
+
                                 var t = true
-                                if t, err = a.True(); err != nil { return }
-                                if t { reasons = append(reasons, fmt.Sprintf("#%v", i+1)) }
+                                if a == nil {
+                                        continue // skip
+                                } else if p, ok := a.(*prediction); ok {
+                                        reasons = append(reasons, p.reason)
+                                        t = p.bool
+                                } else if t, err = a.True(); err != nil {
+                                        return
+                                } else if t {
+                                        reasons = append(reasons, fmt.Sprintf("#%v", i+1))
+                                }
+
                                 if optAnd {
                                         done = done && !t
                                         optAnd = false // reset -and flag
@@ -2186,6 +2200,81 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                         }
                 }
         }
-        if done && err == nil { err = &breaker{ pos:pos, what:breakDone }}
+        if done && err == nil { err = &breaker{
+                pos:pos, what:breakDone, scope:breakScope,
+        }}
+        return
+}
+
+func modifierDirty(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        err = pc.wait(pos) // Wait for prerequisites
+        if err != nil { err = wrap(pos, err); return }
+
+        var reason string
+        var dirty bool
+        if dirty = pc.breaker != nil; dirty {
+                reason = fmt.Sprintf("dirty: %v", pc.breaker.what)
+        } else if dirty = !exists(pc.def.target.value); dirty {
+                reason = fmt.Sprintf("dirty: not exists %v", pc.def.target.value)
+        } else if dirty = len(pc.updated) > 0; dirty {
+                reason = fmt.Sprintf("dirty: updated %v", pc.updated)
+        } else if dirty, err = pc.isRecipesDirty(); err != nil {
+                err = wrap(pos, err); return
+        } else if dirty {
+                reason = "dirty: recipes changed"
+        } else {
+                //reason = "clear"
+        }
+
+        if optionTraceTraversal {
+                var t = pc.def.target.value
+                pc.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", dirty, len(pc.updated), exists(t), t)
+                if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }
+        }
+
+        result = &prediction{boolean{trivial{pos},dirty},reason}
+        return
+}
+
+func modifierNoLoop(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        var loop bool
+        for caller := pc.caller; caller != nil; caller= caller.caller {
+                var same = pc.def.target.value == caller.def.target.value
+                if !same && false {
+                        cmp := pc.def.target.value.cmp(caller.def.target.value)
+                        same = (cmp == cmpEqual)
+                }
+                if same {
+                        //fmt.Printf("%s: loop: %v\n", pos, pc.def.target.value)
+                        loop = true
+                        break
+                }
+        }
+
+        var s string
+        if !loop { s = "not " }
+        s = fmt.Sprintf("loop %sdetected (%v)", s, pc.def.target.value)
+        result = &prediction{boolean{trivial{pos},!loop},s}
+        return
+}
+
+func modifierFirstTime(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        var num int
+        for caller := pc.caller; caller != nil; caller= caller.caller {
+                var same = pc.def.target.value == caller.def.target.value
+                if !same && false {
+                        cmp := pc.def.target.value.cmp(caller.def.target.value)
+                        same = (cmp == cmpEqual)
+                }
+                if same { num += 1 }
+        }
+
+        var s string
+        ;      if num == 0 { //s = "zero"
+        } else if num == 1 { //s = "one"
+        } else if num  > 1 { //s = "many"
+        }
+
+        result = &prediction{boolean{trivial{pos},num==0},s}
         return
 }

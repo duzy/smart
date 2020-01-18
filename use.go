@@ -56,7 +56,9 @@ func (p *using) traverse(pc *traversal) (err error) {
                 return
         }
         if entry := p.project.DefaultEntry(); entry != nil {
-                if err = entry.traverse(pc); err != nil {
+                if p.project.breakUseLoop {
+                        // FIXME: break use loop
+                } else if err = entry.traverse(pc); err != nil {
                         err = wrap(p.position, err)
                 } else {
                         usingPrepared[p.project] += 1
