@@ -106,7 +106,7 @@ func (e *Error) find(err error) int {
 func (result *Error) Merge(errs ...error) {
 ForErrs:
         for _, err := range errs {
-                if v := reflect.ValueOf(err); err == nil || v.IsNil() {
+                if v := reflect.ValueOf(err); err == nil || (v.Kind() == reflect.Ptr && v.IsNil()) {
                         continue
                 } else if len(result.Errs) > maxErrors {
                         result.Errs = result.Errs[maxErrors:]

@@ -9,7 +9,6 @@ package smart
 import (
         "extbit.io/smart/token"
         "path/filepath"
-        "runtime/debug"
         "runtime"
         "strings"
         "plugin"
@@ -219,6 +218,7 @@ type useRuleEntry struct {
 }
 
 type Project struct {
+        position Position
         keyword  token.Token // project, package, module
 
         self *ProjectName // $:self:
@@ -259,8 +259,8 @@ func (p *Project) String() string {
         return p.name
 }
 
-func (p *Project) NewScope(comment string) *Scope {
-        return NewScope(p.scope, p, comment)
+func (p *Project) NewScope(pos Position, comment string) *Scope {
+        return NewScope(pos, p.scope, p, comment)
 }
 
 func (p *Project) AbsPath() string { return p.absPath }
@@ -590,235 +590,6 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
                 ses, err = using.project.resolvePatterns(i)
                 if err != nil { return }
                 res = append(res, ses...)
-        }
-        return
-}
-
-func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (err error) {
-        if obj := p.scope.Lookup(target); obj != nil {
-                if pn, ok := obj.(*ProjectName); ok {
-                        var entry = pn.project.DefaultEntry()
-                        if entry != nil {
-                                err = pc.traverse(entry)
-                        }
-                        return
-                }
-        }
-
-        if file := p.matchFile(target); file != nil {
-                if enable_assertions {
-                        assert(file.match != nil, "`%s` nil match", target)
-                }
-
-                // Invoke file rules no matter if it existed or not.
-                var okay bool // true if doing good
-                if okay, err = p.traverseFile(pc, file); err != nil || okay {
-                        if optionTraceTraversal {
-                                if okay {
-                                        pc.tracef("%s: traverseTarget(file{%s}) (okay)", p.name, file)
-                                } else {
-                                        pc.tracef("%s: traverseTarget(file{%s}): %v", p.name, file, err)
-                                }
-                        }
-                        return
-                } else if enable_assertions {
-                        assert(err == nil, "got error: %v", err)
-                        assert(!exists(file), "`%s` file exists", file)
-                }
-
-                err = fileNotFoundError{p, file}
-                if false { debug.PrintStack() }
-                if optionTraceTraversal {
-                        pc.tracef("%s: `traverseTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
-                }
-                return
-        }
-
-        var entry *RuleEntry
-        if entry, err = p.resolveEntry(target); err != nil {
-                //if optionTraceTraversal { pc.tracef("%s", err) }
-                return
-        } else if entry != nil {
-                err = pc.traverse(entry)
-                return
-        }
-
-        var ses []*StemmedEntry
-        if ses, err = p.resolvePatterns(target); err == nil {
-        ForPatterns:
-                for _, se := range ses {
-                        for _, prog := range se.programs {
-                                var ok bool
-                                ok, err = checkPatternDepends(pc, p, se, prog)
-                                if err != nil { break ForPatterns }
-                                if !ok { continue ForPatterns }
-                        }
-
-                        // Bounds StemmedEntry with the source.
-                        se.target = target
-
-                        // Updated successfully!
-                        if err = se.traverse(pc); err == nil {
-                                return
-                        }
-
-                        var brks, errs = breakers(err)
-                        for _, e := range brks {
-                                switch e.what {
-                                case breakGood:
-                                        continue ForPatterns // just relax
-                                default:
-                                        //fmt.Fprintf(stderr, "%v\n", err)
-                                        //return
-                                        err = wrap(pos, e, err)
-                                }
-                        }
-
-                        //fmt.Fprintf(stderr, "%v\n", err)
-                        //fmt.Fprintf(stderr, "%v: traverse pattern %v failed\n", pos, se)
-                        if err != nil { errs = append(errs, err) }
-                        if errs != nil { err = wrap(pos, errs...) }
-                        return // Update failed!
-                }
-        }
-
-        assert(len(execstack) > 0, "empty execstack");
-
-        var current = execstack[0].project
-        if current != p /*&& current.name == "~"*/ {
-                if err = current.traverseTarget(pos, pc, target); err == nil {
-                        return
-                }
-                /*if a := breakers(err); a != nil && current.name == "~" {
-                        for _, b := range a {
-                                if e.what != breakGood {
-                                        err = nil
-                                }
-                        }
-                }*/
-        } else {
-                err = targetNotFoundError{ p, target }
-                if false { debug.PrintStack() }
-                if optionTraceTraversal {
-                        pc.tracef("%s: `traverseTarget(%s)` not found", p.name, target)
-                }
-        }
-        return
-}
-
-func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error) {
-        var names = make(map[string]bool)
-        for stub := file.filestub; true; stub = stub.other {
-                names[stub.name] = true // mark to avoid trying many times
-                okay, err = p.traverseFileStub(pc, stub)
-                if err != nil || okay { file.filestub = stub; return }
-                if stub.other == file.filestub { break }
-        }
-
-        // Try other names
-        var name string
-        for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i >= 0; {
-                if i == 0 {
-                        name = file.fullname()
-                } else {
-                        name = filepath.Join(s[i+1:], name)
-                }
-                s = s[:i] // slice out the prefix 
-                if _, tried := names[name]; !tried {
-                        names[name] = true // mark to avoid duplication
-
-                        var sub = filepath.Join(file.sub, s)
-                        var stub = &filestub{
-                                file.dir, sub, name,
-                                file.match, file.filestub.other,
-                        }
-                        file.filestub.other = stub
-
-                        okay, err = p.traverseFileStub(pc, stub)
-                        if err != nil || okay {
-                                file.filestub = stub
-                                return
-                        }
-                }
-                i = strings.LastIndex(s, PathSep)
-        }
-        names = nil // clean names cache
-
-        if exists(file) {
-                //pc.addNotExistedTarget1(file)
-                okay = true
-                return
-        } else if file != nil && file.match != nil {
-                if file.searchInMatchedPaths(p) {
-                        //pc.addNotExistedTarget1(file)
-                        okay = true
-                        return
-                }
-        } else if alt := p.searchFile(file.name); alt != nil {
-                //pc.addNotExistedTarget1(alt)
-                okay = true
-                return
-        }
-
-        /*
-        for _, other := range pc.related {
-                if other == p { continue }
-                if alt := other.searchFile(file.name); alt != nil {
-                        pc.addNotExistedTarget1(alt)
-                        okay = true
-                        return
-                }
-        }
-        */
-        assert(len(execstack) > 0, "empty execstack");
-
-        var current = execstack[0].project
-        if current != p {
-                okay, err = current.traverseFile(pc, file)
-                if okay {
-                        //err = nil
-                } else if err != nil {
-                        // ...
-                }
-        } else {
-                err = fileNotFoundError{p, file}
-                if false { debug.PrintStack() }
-                if optionTraceTraversal {
-                        pc.tracef("%s: traverseFile({%s,%s,%s}): not found", p.name, file.dir, file.sub, file.name)
-                }
-        }
-        return
-}
-
-func (p *Project) traverseFileStub(pc *traversal, stub *filestub) (okay bool, err error) {
-        /// Searching entries from the most derived project.
-        var entry *RuleEntry
-        if entry, err = p.resolveEntry(stub.name); err != nil {
-                return
-        } else if entry != nil {
-                err, okay = entry.traverse(pc), true
-                return
-        }
-
-        /// Searching patterns from the most derived project.
-        var ses []*StemmedEntry
-        if ses, err = p.resolvePatterns(stub); err != nil {
-                return
-        }
-
-ForPatterns:
-        for _, se := range ses {
-                for _, prog := range se.programs {
-                        var ok bool
-                        ok, err = checkPatternDepends(pc, p, se, prog)
-                        if err != nil { break ForPatterns }
-                        if !ok { continue ForPatterns }
-                }
-                se.stub = stub // Bounds StemmedEntry with the File.
-                if err = se.traverse(pc); err == nil {
-                        okay = true
-                        return // Updated successfully!
-                }
         }
         return
 }

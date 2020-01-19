@@ -32,7 +32,7 @@ func defUniverseBuiltins() {
 }
 
 func init() {
-        universe = NewScope(nil, nil, "universe")
+        universe = NewScope(Position{}, nil, nil, "universe")
 
         var pos Position
         bin, args := &String{trivial{pos},os.Args[0]}, new(List)
@@ -86,12 +86,13 @@ func (g *Globe) stamp(s string, t time.Time) {
 // project returns a new Project for the given project path and name;
 // the name must not be the blank identifier.
 // The project is not complete and contains no explicit imports.
-func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *Project) {
+func (g *Globe) project(pos Position, outer *Scope, absPath, relPath, tmpPath, spec, name string) (m *Project) {
         if outer == nil {
                 outer = g.scope
         }
 
 	m = &Project{
+                position: pos,
                 absPath: absPath,
                 relPath: relPath, 
                 tmpPath: tmpPath,
@@ -101,7 +102,7 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
                 name: name,
         }
 
-        m.scope = NewScope(outer, m, fmt.Sprintf("project %q", name))
+        m.scope = NewScope(pos, outer, m, fmt.Sprintf("project %q", name))
         m.self.name = name
         m.self.scope = m.scope
         m.self.owner = m
@@ -134,14 +135,14 @@ func (g *Globe) project(outer *Scope, absPath, relPath, tmpPath, spec, name stri
 // NewGlobe creates a new Globe context.
 func NewGlobe(name string) (g *Globe) {
         g = &Globe{
-                scope: NewScope(universe, nil, fmt.Sprintf("globe %q", name)),
+                scope: NewScope(Position{}, universe, nil, fmt.Sprintf("globe %q", name)),
                 _timestamps: make(map[string]time.Time),
                 _timestampx: new(sync.Mutex),
         }
 
         var absPath, relPath, tmpPath, spec string
         // TODO: determines absPath, relPath, tmpPath, spec
-        g.os = g.project(nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
+        g.os = g.project(Position{}, nil, absPath, relPath, tmpPath, spec, runtime.GOOS)
         //g.os.scope.define(g.os, "name", &None{})
         return g
 }

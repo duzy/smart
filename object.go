@@ -854,7 +854,7 @@ func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry
                         assert(name == p.target, "'%s' stemmed name is wrong (!= %s)", name, p.target)
                 }
 
-                var proj = pc.derived
+                var proj = pc.project
                 /*if proj == nil {
                         proj = pc.related[0]
                 }*/

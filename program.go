@@ -21,6 +21,7 @@ type dependPatternUnfit struct {
 
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
+/*
 type executestack []*Program
 
 var execstack executestack // latest on top
@@ -30,14 +31,6 @@ func setexecstack(v []*Program) (saved []*Program) {
 }
 
 func (xs executestack) unshift(progs... *Program) executestack {
-        /*var res executestack
-        ForProgs: for _, prog := range progs {
-                for _, x := range xs {
-                        if prog.project == x.project { continue ForProgs }
-                }
-                res = append(res, prog)
-        }
-        return append(res, execstack...)*/
         return append(progs, execstack...)
 }
 
@@ -60,6 +53,7 @@ func (xs executestack) String() (s string) {
         }
         return fmt.Sprintf("[%s]", s)
 }
+*/
 
 type Program struct {
         mutex *sync.Mutex // execution mutex
@@ -186,9 +180,7 @@ func (prog *Program) prerequisites(pc *traversal, args []Value) (result []Value,
                         if len(rest) > 0 {
                                 panic(fmt.Sprintf("FIXME: unhandled stems: %v (%v, %v) (%v)", arg, s, rest, pc.stems))
                         }
-                        if pc.derived == nil {
-                                // FIXME: prog.project.matchFile(s) ???
-                        } else if file := pc.derived.matchFile(s); file != nil {
+                        if file := pc.project.matchFile(s); file != nil {
                                 result = append(result, file)
                                 break
                         }
@@ -275,7 +267,8 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         var none = &None{trivial{prog.position}}
         var pc = &traversal{
                 program: prog,
-                derived: mostDerived(),
+                project: prog.project,
+                closure: prog.scope,
                 group: new(sync.WaitGroup),
                 entry: entry,
                 args: args,
@@ -309,8 +302,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
         if pc.print && prog.getModifier("configure") != nil { pc.print = false }
 
-        // cd before setting execstack, because cd reads execstack
-        // before changes.
+        // cd before setting cloctx
         var enterStop *enterec
         if len(cd.stack) > 0 { enterStop = cd.stack[0] }
         if err = enter(prog, prog.project.absPath); err != nil {
@@ -320,9 +312,9 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         cd.stack[0].silent = !pc.print
 
         // must set execstack after entering project
-        defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
+        //defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
         defer setclosure(setclosure(cloctx.unshift(prog.scope))) // entry.DeclScope()
-        defer func() { // leaving after setting execstack to meet the FIFO order of execstack
+        defer func() { // leaving after setting cloctx to meet the FIFO order
                 if e := leave(prog, enterStop); e != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
                         if err == nil { err = e } else {

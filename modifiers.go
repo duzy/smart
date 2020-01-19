@@ -247,7 +247,7 @@ func (g *modifiergroup) String() (s string) {
 type ModifierFunc func(pos Position, pc *traversal, args... Value) (Value, error)
 
 var (
-        modifiers = map[string]ModifierFunc{
+        init_modifiers = map[string]ModifierFunc{
                 `select`:       modifierSelect,
 
                 //`args`:       modifierSetArgs, // interpreter args
@@ -255,8 +255,6 @@ var (
                 `set`:          modifierSetVar,
 
                 `closure`:      modifierClosure,
-                `unclose`:      modifierUnclose, // deprecated by (closure)
-                `un`:           modifierUnclose, // shortcut
 
                 `cd`:           modifierCD,
                 `sudo`:         modifierSudo,
@@ -282,18 +280,21 @@ var (
                 `check`:        modifierCheck,
                 `assert`:       modifierAssert,
                 `case`:         modifierCase,
+                `cond`:         modifierCond,
 
                 `dirty`:        modifierDirty,
                 `no-loop`:      modifierNoLoop,
-                `first-time`:   modifierFirstTime,
+                `target-1st-visit`: modifierTarget1stVisit,
+                `target-nth-visit`: modifierTargetNthVisit,
         }
 
+        modifiers = make(map[string]ModifierFunc)
         crc64Table = crc64.MakeTable(crc64.ECMA /*crc64.ISO*/)
 )
 
 func init() {
         // Install recursive modifiers here to avoid Go's loop detection.
-        modifiers["cond"] = modifierCond
+        for s, m := range init_modifiers { modifiers[s] = m }
 }
 
 func RegisterModifiers(m map[string]ModifierFunc) (err error) {
@@ -418,60 +419,47 @@ ForArgs:
 func modifierClosure(pos Position, pc *traversal, args... Value) (result Value, err error) {
         // Set caller context before parsing arguments (pop the top one).
         // The context will be restored when execution is finished.
-        if len(cloctx) > 0 { cloctx = cloctx[1:] }
+        if c := pc.caller; c != nil {
+                pc.project, pc.closure = c.project, c.closure
+        }
+        if false {
+                if len(cloctx) > 0 { cloctx = cloctx[1:] }
+        } else if len(cloctx) == 0 || cloctx[0] != pc.closure {
+                setclosure(cloctx.unshift(pc.closure))
+        }
 
-        var dir string // closure work directory
-        var optPrintEnter bool
-        var optPrintLeave bool
+        var optDump bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else if args, err = parseFlags(args, []string{
-                "i,print-enter",
-                "o,print-leave",
+                "d,dump",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'i': optPrintEnter = trueVal(v, false)
-                case 'o': optPrintLeave = trueVal(v, false)
+                case 'd': optDump = trueVal(v, false)
                 }
         }); err != nil { return }
 
-        if optPrintEnter { printEnteringDirectory() }
-        if optPrintLeave { printLeavingDirectory() }
+        if optDump {
+                fmt.Fprintf(stderr, "%s: closure contexts:\n", pos)
+                for _, cc := range cloctx {
+                        fmt.Fprintf(stderr, "    %s: %s\n", cc.position, cc.comment)
+                }
+        }
+
+        var dir string // closure work directory
         if len(cloctx) == 0 {
-                err = scanner.Errorf(token.Position(pos), "empty closure context")
+                err = errorf(pos, "empty closure context")
         } else if def := cloctx[0].FindDef("/"); def == nil {
-                err = scanner.Errorf(token.Position(pos), "&/ is undefined (%s)", cloctx[0].comment)
+                err = errorf(pos, "&/ is undefined (%s)", cloctx[0].comment)
         } else if dir, err = def.value.Strval(); err != nil {
-                // oops
+                err = wrap(pos, err)
         } else if dir == "" {
-                err = scanner.Errorf(token.Position(pos), "&/ is empty (%s)", cloctx[0].comment)
+                err = errorf(pos, "&/ is empty (%s)", cloctx[0].comment)
         } else if !filepath.IsAbs(dir) {
-                err = scanner.Errorf(token.Position(pos), "&/ is relative (%s)", cloctx[0].comment)
+                err = errorf(pos, "&/ is relative (%s)", cloctx[0].comment)
         } else if err = enter(pc.program, dir); err == nil {
                 pc.program.project.changedWD = dir
                 pc.program.changedWD = dir
-        }
-        return
-}
-
-func modifierUnclose(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        fmt.Fprintf(stderr, "%v: (unclose) is deprecated by (closure)\n", pos)
-        if len(cloctx) > 0 {
-                cloctx = cloctx[1:]
-        }
-        return
-}
-
-func findBacktrackDir() (dir string) {
-        if len(execstack) > 1 {
-                // Find a backtrack.
-                top := execstack[0]
-                for _, p := range execstack[1:] {
-                        if p.project != top.project {
-                                dir = p.project.AbsPath()
-                                break
-                        }
-                }
         }
         return
 }
@@ -514,7 +502,7 @@ func modifierCD(pos Position, pc *traversal, args... Value) (result Value, err e
                 if dir, err = args[0].Strval(); err != nil {
                         return
                 } else if dir == "" {
-                        err = scanner.Errorf(token.Position(pos), "no trackback (tracks=%v)", len(execstack))
+                        // TODO: do something special
                         return
                 }
                 if !filepath.IsAbs(dir) {
@@ -751,7 +739,8 @@ func parseGrepOption(pos Position, pc *traversal, optGrep Value) (result []Value
                                         }
                                 } else if exists(t) {
                                         var list []Value
-                                        list, err = pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
+                                        //list, err = pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
+                                        list, err = pc.project.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
                                         if err != nil { return }
                                         info = &grepCacheFiles{ file:t }
                                         grepCacheFilebase[t.filebase] = info
@@ -1400,7 +1389,8 @@ func modifierGrepFiles(pos Position, pc *traversal, args... Value) (result Value
 
         var list []Value
         var target, _ = pc.program.scope.Lookup("@").(*Def).Call(pos)
-        list, err = pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
+        //list, err = pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
+        list, err = pc.project.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
         result = MakeListOrScalar(pos, list)
         return
 }
@@ -1510,7 +1500,7 @@ ForPairs:
                         }
                 case "file", "dir":
                         var file *File
-                        var project = pc.derived //mostDerived() // pc.program.project
+                        var project = pc.project
                         if str, err = t.Value.Strval(); err != nil { return }
                         if file := project.searchFile(str); !exists(file) {
                                 err = break_with(pos, optBreak, "`%v` no such file or directory", t.Value)
@@ -1756,7 +1746,7 @@ func modifierCopyFile(pos Position, pc *traversal, args... Value) (result Value,
 
         // Get target filename
         var (
-                project = pc.derived //mostDerived() // pc.program.project
+                project = pc.project
                 filename, srcname string
                 filetime, srctime time.Time
         )
@@ -1929,7 +1919,7 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
         }
 
         // Get target filename
-        var project = pc.derived //mostDerived() // pc.program.project
+        var project = pc.project
         switch t := target.(type) {
         case *File:
                 if filename, err = t.Strval(); err != nil {
@@ -2098,7 +2088,7 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                         var status = "Good"
                         if reasons != nil {
                                 s := strings.Join(reasons, ",")
-                                if s != "" { status = "Bad (" + s + ")" }
+                                if s != "" { status = s }
                         }
                         fmt.Fprintf(stderr, "… %s\n", status)
                 }
@@ -2182,7 +2172,9 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
                                 if a == nil {
                                         continue // skip
                                 } else if p, ok := a.(*prediction); ok {
-                                        reasons = append(reasons, p.reason)
+                                        if p.reason != "" {
+                                                reasons = append(reasons, p.reason)
+                                        }
                                         t = p.bool
                                 } else if t, err = a.True(); err != nil {
                                         return
@@ -2207,6 +2199,17 @@ func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err
 }
 
 func modifierDirty(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        var optSilent bool
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                "s,silent",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 's': optSilent = trueVal(v, true)
+                }
+        }); err != nil { return }
+
         err = pc.wait(pos) // Wait for prerequisites
         if err != nil { err = wrap(pos, err); return }
 
@@ -2232,6 +2235,7 @@ func modifierDirty(pos Position, pc *traversal, args... Value) (result Value, er
                 if len(pc.updated) > 0 { pc.tracef("dirty: updated=%v", pc.updated) }
         }
 
+        if optSilent { reason = "" }
         result = &prediction{boolean{trivial{pos},dirty},reason}
         return
 }
@@ -2258,7 +2262,18 @@ func modifierNoLoop(pos Position, pc *traversal, args... Value) (result Value, e
         return
 }
 
-func modifierFirstTime(pos Position, pc *traversal, args... Value) (result Value, err error) {
+func modifierTarget1stVisit(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        var optSilent bool
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                "s,silent",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 's': optSilent = trueVal(v, true)
+                }
+        }); err != nil { return }
+
         var num int
         for caller := pc.caller; caller != nil; caller= caller.caller {
                 var same = pc.def.target.value == caller.def.target.value
@@ -2270,11 +2285,69 @@ func modifierFirstTime(pos Position, pc *traversal, args... Value) (result Value
         }
 
         var s string
-        ;      if num == 0 { //s = "zero"
-        } else if num == 1 { //s = "one"
-        } else if num  > 1 { //s = "many"
+        ;      if optSilent {
+        } else if num == 0 { //s = "zero"
+        } else { s = fmt.Sprintf("1st: %v visits", num+1)
         }
 
         result = &prediction{boolean{trivial{pos},num==0},s}
+        return
+}
+
+func modifierTargetNthVisit(pos Position, pc *traversal, args... Value) (result Value, err error) {
+        var (
+                optDump bool
+                optSilent bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                "d,debug-trace", // debug-trace
+                "d,debug", // debug-trace
+                "d,dump", // debug-trace
+                "s,silent", // for reason
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'd': optDump = trueVal(v, true)
+                case 's': optSilent = trueVal(v, true)
+                }
+        }); err != nil { return }
+        
+        var nth int64
+        for _, a := range args {
+                if nth, err = a.Integer(); err != nil {
+                        err = wrap(pos, err)
+                        return
+                } else if nth <= 0 {
+                        err = errorf(pos, "needs positive number (%v)", a)
+                        return
+                }
+        }
+
+        if optDump {
+                fmt.Fprintf(stderr, "  %s: %v\n", pos, pc.def.target)
+        }
+
+        var num int64
+        for caller := pc.caller; caller != nil; caller= caller.caller {
+                var same = pc.def.target.value == caller.def.target.value
+                if !same && false {
+                        cmp := pc.def.target.value.cmp(caller.def.target.value)
+                        same = (cmp == cmpEqual)
+                }
+                if same { num += 1 }
+                if optDump && num > 0 {
+                        pos := caller.program.position //caller.def.target.Position()
+                        fmt.Fprintf(stderr, "    %s: %v\n", pos, caller.def.target)
+                }
+        }
+
+        var s string
+        ;      if optSilent {
+        } else if num == 0 { //s = "nth: zero"
+        } else if num <= nth { //s = "nth"
+        } else { s = fmt.Sprintf("nth: %d visits", num+1) }
+
+        result = &prediction{boolean{trivial{pos},num<nth},s}
         return
 }

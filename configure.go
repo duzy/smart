@@ -64,9 +64,12 @@ var configurationOps = map[string] func(pos Position, prog *Program, def *Def, a
 }
 
 func init_configuration(paths searchlist) (err error) {
-        configuration.scope = NewScope(context.globe.scope, nil, "configuration")
+        if optionTraceLaunch { defer un(trace(t_launch, "init_configuration")) }
+
+        var pos Position
+        configuration.scope = NewScope(pos, context.globe.scope, nil, "configuration")
         configuration.paths = paths
-        
+
         var l = &loader{
                 Context: &context,
                 scope:    configuration.scope,
@@ -75,6 +78,7 @@ func init_configuration(paths searchlist) (err error) {
                 loaded:   make(map[string]*Project),
         }
         var filename = filepath.Join(context.workdir, "~.smart")
+
         if err = l.loadFile(filename, configurationInitFile); err != nil {
                 return
         } else if project, ok := l.loaded[filename]; ok {

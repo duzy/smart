@@ -352,6 +352,7 @@ func (l *loader) parseUseProps(props []ast.Expr) (specName string, opts importsp
 }
 
 func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadUseSpec")) }
         var (
                 linfo = l.loads[len(l.loads)-1]
                 specOpts importspecoptions
@@ -567,6 +568,8 @@ const pluginDifferentVersionError = `plugin was built with a different version o
 var numUpdatedPlugins = 0
 
 func buildPlugin(s, src string) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.buildPlugin")) }
+
         fmt.Fprintf(stderr, "smart: Build %v …", src)
         dir, _ := filepath.Split(src)
         o := &bytes.Buffer{}
@@ -585,6 +588,8 @@ func buildPlugin(s, src string) (err error) {
 }
 
 func (l *loader) loadPlugin() (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadPlugin")) }
+
         g := stat("smart.go", "", l.project.absPath)
         if g == nil { return /* smart.go was not presented */ }
 
@@ -1553,12 +1558,18 @@ func (l *loader) includeFile(pos token.Pos, spec Value) {
 }
 
 func (l *loader) openScope(comment string) loaderScope {
-        l.scope = NewScope(l.scope, l.project, comment)
+        if false && optionTraceLaunch { defer un(trace(t_launch, "loader.openScope")) }
+        var pos Position
+        if l.parser != nil {
+                pos = Position(l.file.Position(l.pos))
+        }
+        l.scope = NewScope(pos, l.scope, l.project, comment)
         cc := setclosure(cloctx.unshift(l.scope))
         return loaderScope{ cc, l.scope }
 }
 
 func (l *loader) closeScope(ls loaderScope) {
+        if false && optionTraceLaunch { defer un(trace(t_launch, "loader.closeScope")) }
         if ls.scope != nil {
                 l.scope = ls.scope.outer
                 if ls.cc != nil { setclosure(ls.cc) }
@@ -1580,6 +1591,8 @@ func (l *loader) setArgs(args []Value) (oldArgs []Value) {
 
 // project example (base(var=value))
 func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadBases")) }
+
         var isDir bool
         var absPath, specName string
 
@@ -1624,6 +1637,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 }
 
 func (l *loader) loadDotDock(ident *ast.Bareword, file *File) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotDock")) }
         if err = l.loadDir(".dock", file.fullname(), nil); err != nil {
                 l.error(ident.Pos(), "dock: %v", err)
         } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
@@ -1704,8 +1718,10 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         isMainProj = true
                 }
 
+                pos := Position(l.parser.file.Position(l.parser.pos))
+
                 dec = new(declare)
-                dec.project = l.globe.project(outer, absDir, relPath, tmpPath, linfo.specName, name)
+                dec.project = l.globe.project(pos, outer, absDir, relPath, tmpPath, linfo.specName, name)
                 l.loaded[linfo.absPath()] = dec.project
                 linfo.declares[name] = dec
         }
@@ -1857,7 +1873,8 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
         }
 
         var outer = l.scope
-        var scope = NewScope(outer, l.project, comment)
+        var pos = Position(l.parser.file.Position(l.parser.pos))
+        var scope = NewScope(pos, outer, l.project, comment)
         if strings.HasPrefix(outer.Comment(), "dir ") {
                 outer = outer.outer // discard dir scope
         }
@@ -2013,7 +2030,8 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 // the corresponding ast.File node. The source code may be provided via
 // the filename of the source file, or via the src parameter.
 func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.File, err error) {
-	// get source
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.ParseFile")) }
+
         var text []byte
 	if text, err = readSource(filename, src); err != nil { return }
 
@@ -2029,7 +2047,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
 		for e != nil {
 			// resume same panic if it's not a bailout
 			switch failure := e.(type) {
-                        case bailout: // Good!
+                        case bailout: e = nil // Good!
                         default:
                                 if l.parser != nil && l.parser.file != nil {
                                         position := l.parser.file.Position(l.pos)
@@ -2246,6 +2264,7 @@ ListLoop:
 
 // loader.Load loads script from a file or source code (string, []byte).
 func (l *loader) load(specName, absPath string, source interface{}) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.load")) }
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
@@ -2290,6 +2309,7 @@ func (l *loader) load(specName, absPath string, source interface{}) (err error) 
 }
 
 func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDir")) }
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
                 if optionVerboseLoading /*&& d > 50*time.Millisecond*/ {
@@ -2342,28 +2362,33 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
 }
 
 func (l *loader) loadWithArgs(specName, absPath string, args []Value, source interface{}) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadWithArgs")) }
         defer l.setArgs(l.setArgs(args))
         return l.load(specName, absPath, source)
 }
 
 func (l *loader) loadDirWithArgs(specName, absPath string, args []Value, filter func(os.FileInfo) bool) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDirWithArgs")) }
         defer l.setArgs(l.setArgs(args))
         return l.loadDir(specName, absPath, filter)
 }
 
 func (l *loader) loadFile(filename string, source interface{}) error {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.load_file")) }
         s, _ := filepath.Split(filename)
         s, _  = filepath.Rel(l.workdir, s)
         return l.load(s, filename, source)
 }
 
 func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadPath")) }
         s, _ := filepath.Rel(l.workdir, path)
         err = l.loadDir(s, path, filter)
         return err
 }
 
 func (l *loader) loadText(filename string, text string) []Value {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadText")) }
         if l.globe.main == nil { return nil }
 
 	defer func(saved *parser) {

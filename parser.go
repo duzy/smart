@@ -2270,9 +2270,8 @@ func (p *parser) parseClause(sync func(*parser)) ast.Clause {
 }
 
 func (p *parser) parseFile() *ast.File {
-	if p.tracing.enabled {
-		defer un(trace(p, "File '"+p.file.Name()+"'"))
-	}
+        if optionTraceLaunch { defer un(trace(t_launch, "parser.parseFile")) }
+	if p.tracing.enabled { defer un(trace(p, "File '"+p.file.Name()+"'")) }
 
 	// Don't bother parsing the rest if we had errors scanning the first token.
 	// Likely not a Go source file at all.
@@ -2447,12 +2446,12 @@ func (p *parser) parseFile() *ast.File {
 		if p.mode&ImportsOnly == 0 {
 			// rest of module body
 			for p.tok != token.EOF {
-                                 switch p.tok {
-                                 case token.LINEND:
-                                         p.next() // skip empty lines
-                                 default:
-                                         clauses = append(clauses, p.parseClause(syncClause1))
-                                 }
+                                switch p.tok {
+                                case token.LINEND:
+                                        p.next() // skip empty lines
+                                default:
+                                        clauses = append(clauses, p.parseClause(syncClause1))
+                                }
 			}
 		}
 	}
@@ -2470,6 +2469,7 @@ func (p *parser) parseFile() *ast.File {
 }
 
 func (p *parser) parseText() (res []ast.Expr) {
+        if optionTraceLaunch { defer un(trace(t_launch, "parser.parseText")) }
         for p.tok != token.EOF {
                 res = append(res, p.parseExpr(false))
         }

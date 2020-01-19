@@ -19,18 +19,20 @@ import (
 // A Scope maintains a set of objects;
 type Scope struct {
         mutex *sync.Mutex
+        position Position
+        project *Project
         outer *Scope
         elems map[string]Object
-        project *Project
         comment string
 }
 
-func NewScope(outer *Scope, project *Project, comment string) *Scope {
+func NewScope(pos Position, outer *Scope, project *Project, comment string) *Scope {
         scope := &Scope{
                 mutex: new(sync.Mutex),
+                position: pos,
+                project: project,
                 outer: outer,
                 elems: make(map[string]Object),
-                project: project,
                 comment: comment,
         }
         return scope

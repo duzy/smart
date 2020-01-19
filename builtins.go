@@ -622,10 +622,9 @@ func builtinEnv(pos Position, args... Value) (res Value, err error) {
 
 func builtinValue(pos Position, args... Value) (res Value, err error) {
         var scope *Scope
-        switch {
-        case len(execstack) > 0: scope = execstack[0].scope
-        case context.loader != nil: scope = context.loader.scope
-        }
+        if len(cloctx) > 0 { scope = cloctx[0] } else
+        if context.loader != nil { scope = context.loader.scope }
+
         var vals []Value
         for _, a := range args {
                 var s string
@@ -1187,7 +1186,7 @@ func builtinPatsubst(pos Position, args... Value) (res Value, err error) {
         if dstPats, err = mergeresult(ExpandAll(args[1])); err != nil { return }
         if sources, err = mergeresult(ExpandAll(args[2:]...)); err != nil { return }
 
-        var proj = mostDerived()
+        var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown most derived context")
                 return
@@ -2490,7 +2489,7 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
                 }
         }); err != nil { return }
 
-        var proj = mostDerived()
+        var proj = current()
         if proj == nil {
                 err = fmt.Errorf("unknown most derived context")
                 return
@@ -2897,10 +2896,8 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
         }); err != nil { return } else if len(args) < 1 { return }
 
         var scope *Scope
-        switch {
-        case len(execstack) > 0: scope = execstack[0].scope
-        case context.loader != nil: scope = context.loader.scope
-        }
+        if len(cloctx) > 0 { scope = cloctx[0] } else
+        if context.loader != nil { scope = context.loader.scope }
         if scope == nil {
                 err = fmt.Errorf("unknown configure scope")
                 return

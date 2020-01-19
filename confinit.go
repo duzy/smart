@@ -21,24 +21,24 @@ _LOADLIBES_ :=
 
 # -l=$(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).log
 # -o $(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).out
--include:[((TARGET)) (unclose) (cd -s &/)] $(TARGET).$(LANG).include [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
+-include:[((TARGET)) (closure)] $(TARGET).$(LANG).include [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).$(LANG).out
--symbol:[((TARGET SYMBOL)) (unclose) (cd -s &/)] $(TARGET).symbol($(SYMBOL)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
+-symbol:[((TARGET SYMBOL)) (closure)] $(TARGET).symbol($(SYMBOL)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
--function:[((TARGET FUNCTION)) (unclose) (cd -s &/)] $(TARGET).function($(FUNCTION)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
+-function:[((TARGET FUNCTION)) (closure)] $(TARGET).function($(FUNCTION)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
--type:[((TARGET TYPE)) (unclose) (cd -s &/)] $(TARGET).type($(TYPE)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
+-type:[((TARGET TYPE)) (closure)] $(TARGET).type($(TYPE)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
--library:[((TARGET LIBRARY FUNCTION)) (unclose) (cd -s &/)] $(TARGET).function($(FUNCTION)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
+-library:[((TARGET LIBRARY FUNCTION)) (closure)] $(TARGET).function($(FUNCTION)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o $(OUTDIR)/$(TARGET).out
--struct-member:[((TARGET STRUCT MEMBER)) (unclose) (cd -s &/)] $(TARGET).structmember($(STRUCT),$(MEMBER)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
+-struct-member:[((TARGET STRUCT MEMBER)) (closure)] $(TARGET).structmember($(STRUCT),$(MEMBER)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
--sizeof:[((TARGET TYPE)) (unclose) (cd -s &/)] $(TARGET).sizeof($(TYPE)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
+-sizeof:[((TARGET TYPE)) (closure)] $(TARGET).sizeof($(TYPE)) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
--compiles:[((TARGET)) (unclose) (cd -s &/)] $(TARGET).$(LANG) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
+-compiles:[((TARGET)) (closure)] $(TARGET).$(LANG) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 
-%.c.include:[(unclose) (cd -s &/) (plain c) (update-file -sp)]
+%.c.include:[(closure) (plain c) (update-file -sp)]
 	$(_INCLUDES_)
 	#ifdef __CLASSIC_C__
 	int main() { return 0; }
@@ -46,11 +46,11 @@ _LOADLIBES_ :=
 	int main(void) { return 0; }
 	#endif
 	
-%.c++.include:[(unclose) (cd -s &/) (plain c++) (update-file -sp)]
+%.c++.include:[(closure) (plain c++) (update-file -sp)]
 	$(_INCLUDES_)
 	int main() { return 0; }
 	
-%.symbol:[((SYMBOL)) (unclose) (cd -s &/) (plain text) (update-file -sp)]
+%.symbol:[((SYMBOL)) (closure) (plain text) (update-file -sp)]
 	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
@@ -63,7 +63,7 @@ _LOADLIBES_ :=
 	#endif
 	}
 	
-%.type:[((TYPE)) (unclose) (cd -s &/) (plain text) (update-file -sp)]
+%.type:[((TYPE)) (closure) (plain text) (update-file -sp)]
 	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
@@ -73,7 +73,7 @@ _LOADLIBES_ :=
 	  return 0;
 	}
 	
-%.variable:[((VARIABLE)) (unclose) (cd -s &/) (plain text) (update-file -sp)]
+%.variable:[((VARIABLE)) (closure) (plain text) (update-file -sp)]
 	$(_INCLUDES_)
 	extern int $(VARIABLE)
 	#ifdef __CLASSIC_C__
@@ -83,7 +83,7 @@ _LOADLIBES_ :=
 	#endif
 	{ (void)argv; return $(VARIABLE); }
 	
-%.function:[((FUNCTION)) (unclose) (cd -s &/) (plain text) (update-file -sp)]
+%.function:[((FUNCTION)) (closure) (plain text) (update-file -sp)]
 	$(_INCLUDES_)
 	#ifdef __cplusplus
 	extern "C"
@@ -96,11 +96,11 @@ _LOADLIBES_ :=
 	#endif
 	{ $(FUNCTION)(); return 0; }
 	
-%.structmember:[((STRUCT MEMBER)) (unclose) (cd -s &/) (plain text) (update-file -sp)]
+%.structmember:[((STRUCT MEMBER)) (closure) (plain text) (update-file -sp)]
 	$(_INCLUDES_)
 	int main() { (void)sizeof((($(STRUCT) *)0)->$(MEMBER)); return 0; }
 	
-%.sizeof:[((TYPE)) (unclose) (cd -s &/) (plain text) (update-file -sp)]
+%.sizeof:[((TYPE)) (closure) (plain text) (update-file -sp)]
 	#undef ARCH
 	#if defined(__i386)
 	#   define ARCH "__i386"
@@ -126,7 +126,7 @@ _LOADLIBES_ :=
 	{ (void)argv; return SIZE; }
 	
 #$(OUTDIR)/pthreads.c
-pthreads.c:[(unclose) (cd -s &/) (plain c) (update-file -sp)]
+pthreads.c:[(closure) (plain c) (update-file -sp)]
 	#include <pthread.h>
 	void* routine(void* args) { return args; }
 	int main(void) {
@@ -136,10 +136,10 @@ pthreads.c:[(unclose) (cd -s &/) (plain c) (update-file -sp)]
 	  return 0;
 	}
 	
-%.c:[(unclose) (cd -s &/) (plain c) (update-file -sp)]
+%.c:[(closure) (plain c) (update-file -sp)]
 	$(_VALUE_)
 	
-%.c++:[(unclose) (cd -s &/) (plain c++) (update-file -sp)]
+%.c++:[(closure) (plain c++) (update-file -sp)]
 	$(_VALUE_)
 	
 `

@@ -35,6 +35,7 @@ var (
         optionPrintStack = false
 )
 const (
+        optionTraceLaunch = false
         optionTraceParsing = false
         optionTraceTraversal = false
         optionTraceTraversalNestIndent = true
@@ -69,22 +70,10 @@ type Context struct {
 var context Context
 
 func current() (proj *Project) {
-        switch {
-        case context.loader != nil: // at load time
-                proj = context.loader.project
-        case len(execstack) > 0: // at runtime
-                proj = execstack[0].project
-        }
-        return
-}
-
-func mostDerived() (proj *Project) {
-        // Check cloctx first, then execstack and context.loader
         if len(cloctx) > 0 && cloctx[0].project != nil {
-                return cloctx[0].project
-        }
-
-        if l := len(execstack); l == 1 {
+                proj = cloctx[0].project
+                /*
+        } else if l := len(execstack); l==1 && execstack[0].project != nil {
                 proj = execstack[0].project
         } else if l > 1 {
                 var p = execstack[0].project
@@ -98,14 +87,16 @@ func mostDerived() (proj *Project) {
                         }
                         break
                 }
-                proj = p
-        } else {
-                proj = current()
+                proj = p */
+        } else if context.loader != nil { // for load time
+                proj = context.loader.project
         }
         return
 }
 
 func (ctx *Context) run() (result []Value, err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "Context.run")) }
+
         var main = ctx.globe.main
         if main == nil {
                 err = fmt.Errorf("no targets to update `%v`", ctx.goals)
@@ -294,7 +285,9 @@ func (ctx *Context) loadCommandArguments(text string) (err error) {
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
 func (ctx *Context) loadwork() (err error) {
-        var pos Position
+        if optionTraceLaunch { defer un(trace(t_launch, "Context.loadwork")) }
+
+        var pos Position // FIXME: find a useful position
         defer func(l *loader) { ctx.loader = l } (ctx.loader)
         ctx.loader = &loader{
                 Context:  ctx,
@@ -310,8 +303,7 @@ func (ctx *Context) loadwork() (err error) {
                                 owner: nil,
                         }, ":goals:",
                 },
-                DefDefault,
-                &None{trivial{pos}},
+                DefDefault, &None{trivial{pos}},
         }
 
         if optionVerbose || optionBenchImport {
@@ -323,11 +315,17 @@ func (ctx *Context) loadwork() (err error) {
 
         var (
                 base, _ = os.Getwd()
+                sp = filepath.Join(base, ".smart", "modules")
+        )
+        if _, e := os.Stat(sp); e == nil {
+                ctx.loader.AddSearchPaths(sp)
+        }
+
+        /*
+        var (
                 rel, _ = filepath.Rel(base, base)
                 tmp = joinTmpPath(base, rel)
-                sp = filepath.Join(base, ".smart", "modules")
-
-                at = ctx.loader.globe.project(nil, base, rel, tmp, ".", "@")
+                at = ctx.loader.globe.project(pos, nil, base, rel, tmp, ".", "@")
                 as = at.Scope()
         )
 
@@ -339,17 +337,12 @@ func (ctx *Context) loadwork() (err error) {
                 }
         }
 
-        if _, e := os.Stat(sp); e == nil {
-                ctx.loader.AddSearchPaths(sp)
-        }
-
         saveLoadingInfo(ctx.loader, at.Spec(), at.absPath, "")
         linfo := ctx.loader.loads[len(ctx.loader.loads)-1]
         linfo.declares[at.Name()] = &declare{ project: at }
 
         ctx.loader.globe.scope.ProjectName(nil, at.Name(), at)
 
-        /*
         var (
                 ab = base
                 defCTD, _ = as.define(at, "CTD", &String{pos,tmp})
@@ -390,9 +383,10 @@ AtLookupLoop:
                 }
                 if ab == "/" { break }
                 if ab = filepath.Dir(ab); ab == "." { break }
-        } */
+        }
 
         restoreLoadingInfo(ctx.loader)
+        */
 
         var args []string
         var commandText string
@@ -458,6 +452,7 @@ AtLookupLoop:
 }
 
 func CommandLine() {
+        if optionTraceLaunch { defer un(trace(t_launch, "CommandLine")) }
         if s, err := os.Getwd(); err != nil { return } else {
                 context.workdir = s
         }
@@ -502,12 +497,13 @@ func CommandLine() {
         }
 
         //loadGrepCache()
+
         defer func(globe *Globe) {
                 saveGrepCache()
                 context.globe = globe
         } (context.globe)
-
         context.globe = NewGlobe("smart")
+
         if err := init_configuration(packagePaths); err != nil {
                 report(err)
         } else if err = context.loadwork(); err != nil {
