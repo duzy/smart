@@ -72,22 +72,6 @@ var context Context
 func current() (proj *Project) {
         if len(cloctx) > 0 && cloctx[0].project != nil {
                 proj = cloctx[0].project
-                /*
-        } else if l := len(execstack); l==1 && execstack[0].project != nil {
-                proj = execstack[0].project
-        } else if l > 1 {
-                var p = execstack[0].project
-                for i, prog := range execstack[1:] {
-                        // If the next (n=i+1) project is derived from 'p'...
-                        if n := i+1; n < l {
-                                if p == prog.project { continue } else {
-                                        var next = execstack[n].project
-                                        if next.isa(p) { p = next; continue }
-                                }
-                        }
-                        break
-                }
-                proj = p */
         } else if context.loader != nil { // for load time
                 proj = context.loader.project
         }

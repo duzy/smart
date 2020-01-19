@@ -21,40 +21,6 @@ type dependPatternUnfit struct {
 
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
-/*
-type executestack []*Program
-
-var execstack executestack // latest on top
-
-func setexecstack(v []*Program) (saved []*Program) {
-        saved = execstack; execstack = v; return
-}
-
-func (xs executestack) unshift(progs... *Program) executestack {
-        return append(progs, execstack...)
-}
-
-func (xs executestack) projects(first *Project) (res []*Project) {
-        if first != nil { res = append(res, first) }
-ForXS:
-        for _, x := range xs {
-                for _, p := range res {
-                        if x.project == p { continue ForXS }
-                }
-                res = append(res, x.project)
-        }
-        return
-}
-
-func (xs executestack) String() (s string) {
-        for i, x := range xs {
-                if i > 0 { s += " " }
-                s += x.project.name
-        }
-        return fmt.Sprintf("[%s]", s)
-}
-*/
-
 type Program struct {
         mutex *sync.Mutex // execution mutex
         project *Project
@@ -311,8 +277,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
         cd.stack[0].silent = !pc.print
 
-        // must set execstack after entering project
-        //defer setexecstack(setexecstack(execstack.unshift(prog))) // build the call stack
+        // must set cloctx after cd (enter)
         defer setclosure(setclosure(cloctx.unshift(prog.scope))) // entry.DeclScope()
         defer func() { // leaving after setting cloctx to meet the FIFO order
                 if e := leave(prog, enterStop); e != nil {
@@ -331,7 +296,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if pc.def.grepped, err = prog.auto("~", none); err != nil { return }
         if pc.def.updated, err = prog.auto("?", none); err != nil { return }
         if pc.def.stem,    err = prog.auto("*", none); err != nil { return }
-        if pc.def.modbuff,  err = prog.auto("-", none); err != nil { return }
+        if pc.def.modbuff, err = prog.auto("-", none); err != nil { return }
 
         var fileTarget *File
 
