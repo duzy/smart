@@ -843,7 +843,7 @@ func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry
         }
 
         if p.stub != nil {
-                file := stat(name, p.stub.sub, p.stub.dir, nil)
+                file := stat(p.position, name, p.stub.sub, p.stub.dir, nil)
                 entry.target = file
                 if enable_assertions {
                         //assert(name == p.stub.name, "'%s' stemmed name is wrong (!= %s)", name, p.stub.name)

@@ -60,9 +60,10 @@ func (filemap *FileMap) Match(filename string) (matched bool, pre string) {
 }
 
 func (filemap *FileMap) stat(base, pre, name string) (file *File) {
+        var pos = filemap.Pattern.Position()
         if filemap.Paths == nil {
                 // Check file in the filesystem (no paths).
-                file = stat(name, "", base, nil)
+                file = stat(pos, name, "", base, nil)
                 return
         }
         for _, path := range filemap.Paths {
@@ -85,7 +86,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                 }
 
                 // Check file in the filesystem.
-                if file = stat(name, sub, dir, nil); file != nil {
+                if file = stat(pos, name, sub, dir, nil); file != nil {
                         break
                 }
 
@@ -95,7 +96,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                                 //   xxx.c  <->  (*.c => /path/to/source)
                                 // Become:
                                 //   /path/to/source  ""  xxx.c
-                                file = stat(name, "", sub, nil)
+                                file = stat(pos, name, "", sub, nil)
                         } else if strings.HasSuffix(sub, PathSep+pre) {
                                 // For example of:
                                 //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
@@ -103,14 +104,14 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                                 //   /path/to/source  foo/bar  xxx.c
                                 s := strings.TrimSuffix(sub, PathSep+pre)
                                 n := strings.TrimPrefix(name, pre+PathSep)
-                                file = stat(n, pre, s, nil)
+                                file = stat(pos, n, pre, s, nil)
                         } else if false { // This is wrong, only base name matched!!
                                 // For example of:
                                 //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
                                 // Become:
                                 //   /path/to/source  foo/bar  xxx.c
                                 n := strings.TrimPrefix(name, pre+PathSep)
-                                file = stat(n, pre, sub, nil)
+                                file = stat(pos, n, pre, sub, nil)
                         }
                 } else {
                         if pre == "" { // Fullmatch!
@@ -118,14 +119,14 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                                 //   xxx.c  <->  (*.c => source)
                                 // Become:
                                 //   <p.absPath>  source  xxx.c
-                                file = stat(name, sub, dir, nil)
+                                file = stat(pos, name, sub, dir, nil)
                         } else if sub == pre {
                                 // For example of:
                                 //   foo/bar/xxx.c  <->  (*.c => foo/bar)
                                 // Become:
                                 //   <dir>  foo/bar  xxx.c
                                 n := strings.TrimPrefix(name, pre+PathSep)
-                                file = stat(n, sub, dir, nil)
+                                file = stat(pos, n, sub, dir, nil)
                         } else if strings.HasSuffix(sub, PathSep+pre) {
                                 // For example of:
                                 //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
@@ -133,7 +134,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                                 //   <dir>  source/foo/bar  xxx.c
                                 s := strings.TrimSuffix(sub, PathSep+pre)
                                 n := strings.TrimPrefix(name, pre+PathSep)
-                                file = stat(n, pre, s, nil)
+                                file = stat(pos, n, pre, s, nil)
                         } else if false { // This is wrong, only base name matched!!
                                 // For example of:
                                 //   foo/bar/xxx.c  <->  (*.c => source)
@@ -141,7 +142,7 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                                 //   <dir>  source/foo/bar  xxx.c
                                 s := filepath.Join(sub, pre)
                                 n := strings.TrimPrefix(name, pre+PathSep)
-                                file = stat(n, s, dir, nil)
+                                file = stat(pos, n, s, dir, nil)
                         }
                 }
         }
@@ -346,7 +347,7 @@ ForPats:
                         if filepath.IsAbs(str) || strings.HasPrefix(str, "./") || strings.HasPrefix(str, "../") {
                                 if names, err = filepath.Glob(str); err != nil { break ForPats }
                                 for _, s := range names {
-                                        file := stat(filepath.Base(s), "", filepath.Dir(s))
+                                        file := stat(pos, filepath.Base(s), "", filepath.Dir(s))
                                         files = append(files, file)
                                         if enable_assertions {
                                                 assert(file != nil, "`%s` missing", s)
@@ -376,7 +377,7 @@ ForPats:
                                 if len(names) > 0 {
                                         for _, s := range names {
                                                 name := strings.TrimPrefix(s, prefix)
-                                                file := stat(name, sub, prefix)
+                                                file := stat(pos, name, sub, prefix)
                                                 files = append(files, file)
                                                 if enable_assertions {
                                                         assert(file != nil, "`%s` missing (%s)", s, name)
@@ -390,7 +391,7 @@ ForPats:
                                         if err != nil { break ForPats }
 
                                         // Append this non-existed/missing file.
-                                        file := stat(name, sub, prefix, nil)
+                                        file := stat(pos, name, sub, prefix, nil)
                                         files = append(files, file)
 
                                         if false { fmt.Fprintf(stderr, "%s: %s -> %s\n", pos, pat, file) }
@@ -497,14 +498,14 @@ ForFilemaps:
         return
 }
 
-func (p *Project) matchTempFile(name string) (file *File) {
+func (p *Project) matchTempFile(pos Position, name string) (file *File) {
         if file = p.matchFile(name); file != nil {
                 // good
         } else if ctd := p.scope.FindDef("CTD"); ctd == nil {
                 unreachable()
         } else if s, err := ctd.Strval(); err == nil {
                 // stat temp file (maybe not existed)
-                file = stat(filepath.Join(s, name), "", "", nil)
+                file = stat(pos, filepath.Join(s, name), "", "", nil)
         } else {
                 fmt.Fprintf(stderr, "%v: %v\n", p, err)
         }

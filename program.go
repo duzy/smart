@@ -394,7 +394,7 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 for c := pc; c != nil; c = c.caller {
                         fmt.Fprintf(stderr, "    %v: %v\n", c.program.position, c.def.target)
                 }
-                //fmt.Fprintf(stderr, "\n")
+                if false { fmt.Fprintf(stderr, "\n") }
                 err = errorf(pos, "too many recursion (%d) (%v) (from %v)", recursion, pc.def.target, pc.caller.def.target.value)
                 return
         }
@@ -413,15 +413,15 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 return
         } else if err = pc.wait(pos); err != nil { return }
         if len(pc.targets) > 0 {
-                pc.def.depend0.value = pc.targets[0]
-                pc.def.depends.value = pc.targets[0]
+                pc.def.depend0.value = pc.targets[0] // $<
+                pc.def.depends.value = pc.targets[0] // $^
                 for _, t := range pc.targets[1:] {
                         pc.def.depends.append(t)
                 }
                 pc.targets = nil
         }
         if len(pc.updated) > 0 {
-                pc.def.updated.value = pc.updated[0].target
+                pc.def.updated.value = pc.updated[0].target // $?
                 for _, t := range pc.updated[1:] {
                         pc.def.updated.append(t.target)
                 }
@@ -432,7 +432,7 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 return
         } else if err = pc.wait(pos); err != nil { return }
         if len(pc.targets) > 0 {
-                pc.def.ordered.value = pc.targets[0]
+                pc.def.ordered.value = pc.targets[0] // $|
                 for _, t := range pc.targets[1:] {
                         pc.def.ordered.append(t)
                 }

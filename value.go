@@ -234,15 +234,12 @@ func (pc *traversal) tracef(s string, a ...interface{}) {
 }
 
 func (pc *traversal) addNewTarget(target Value) {
-        if isNil(target) {
-                // ignore
-        } else if _, ok := target.(*None); ok {
-                // ignore
-        } else {
-                for _, t := range pc.targets {
-                        if t == target { return }
-                        if t.cmp(target) == cmpEqual { return }
-                }
+        if isNil(target) || isNone(target) {
+                return // ignore
+        }
+        for _, t := range pc.targets {
+                if t == target { return }
+                if t.cmp(target) == cmpEqual { return }
                 pc.targets = append(pc.targets, target)
         }
 }
@@ -348,7 +345,7 @@ func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error)
                 return
         }
 
-        err = fileNotFoundError{p, file}
+        err = wrap(file.Position(), fileNotFoundError{p, file})
         if false { debug.PrintStack() }
         if optionTraceTraversal {
                 pc.tracef("%s: traverseFile({%s,%s,%s}): not found", p.name, file.dir, file.sub, file.name)
@@ -405,9 +402,13 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
                         assert(file.match != nil, "`%s` nil match", target)
                 }
 
+                // Change the position for tracing
+                file.position = pos
+
                 // Invoke file rules no matter if it existed or not.
                 var okay bool // true if doing good
                 if okay, err = p.traverseFile(pc, file); err != nil || okay {
+                        file.position = pos
                         if optionTraceTraversal {
                                 if okay {
                                         pc.tracef("%s: traverseTarget(file{%s}) (okay)", p.name, file)
@@ -421,7 +422,7 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
                         assert(!exists(file), "`%s` file exists", file)
                 }
 
-                err = fileNotFoundError{p, file}
+                err = wrap(pos, fileNotFoundError{p, file})
                 if false { debug.PrintStack() }
                 if optionTraceTraversal {
                         pc.tracef("%s: `traverseTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
@@ -1825,7 +1826,7 @@ func (p *Path) stamp(pc *traversal) (files []*File, err error) {
         if fullname, err = p.Strval(); err == nil {
                 if fullname == "" {
                         err = errorf(p.position, "no fullname for `%s`", p)
-                } else if file := stat(fullname,"","",nil); file != nil {
+                } else if file := stat(p.position, fullname,"","",nil); file != nil {
                         files, err = file.stamp(pc)
                 }
         }
@@ -1833,7 +1834,7 @@ func (p *Path) stamp(pc *traversal) (files []*File, err error) {
 }
 func (p *Path) exists() existence {
         if fullname, err := p.Strval(); err == nil {
-                if file := stat(fullname,"","",nil); file != nil {
+                if file := stat(p.position, fullname,"","",nil); file != nil {
                         return existenceConfirmed
                 }
         }
@@ -1850,7 +1851,7 @@ func (p *Path) traverse(pc *traversal) (err error) {
         if err != nil { return }
 
         // Stat the file by fullname.
-        var file = stat(fullname, "", "", nil)
+        var file = stat(p.position, fullname, "", "", nil)
         if optionTraceTraversal {
                 pc.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
         }
@@ -1872,7 +1873,7 @@ func (p *Path) mod(pc *traversal) (t time.Time) {
                 // oops
         } else if fullname == "" {
                 err = errorf(p.position, "path matches no target: %v", p)
-        } else if file := stat(fullname, "", "", nil); file != nil && file.info != nil {
+        } else if file := stat(p.position, fullname, "", "", nil); file != nil && file.info != nil {
                 t = file.info.ModTime()
         }
         //if optionTraceTraversal { pc.tracef("Path.mod: %v (%v)", t, p) }
@@ -2092,7 +2093,6 @@ func (p *PathSeg) cmp(v Value) (res cmpres) {
 }
 
 type filestub struct {
-        // TODO: project *Project // the project in which the file was found
         dir string       // full directory where the file was or should be found
         sub string       // matched sub path (see Project.search), may be Dir (absoletep path)
         name string      // constant represented name (e.g. relative filename)
@@ -2126,7 +2126,7 @@ func (p *filebase) exists() (res existence) {
         return
 }
 
-func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
+func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File) {
         var ( base *filebase ; stub *filestub ; fullname string )
 
         statmutex.Lock()
@@ -2268,7 +2268,7 @@ func stat(name, sub, dir string, infos ...os.FileInfo) (file *File) {
                 filecache[fullname] = base
         }
 GotFile:
-        file = &File{trivial{},base,stub} // FIXME: needs position information
+        file = &File{trivial{pos},base,stub} // FIXME: needs position information
         if enable_assertions {
                 if !addNotExisted {
                         assert(exists(file), "`%s` file not existed", fullname)
@@ -2371,8 +2371,7 @@ func (p *File) exists() existence {
 func (p *File) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
 
-        //defer lo(op(pc, p))
-
+        // Add new file target, no matter it's going to be updated or not.
         pc.addNewTarget(p)
 
         // FIXES: checks none-File file target
@@ -2508,7 +2507,7 @@ func checkPatternDepend(pc *traversal, project *Project, se *StemmedEntry, prog 
         // Matches a FileMap (IsKnown(), may exists or not)
         if exists(project.matchFile(name)) { return true, nil }
         if filepath.IsAbs(name) {
-                if exists(stat(name, "", "")) { return true, nil }
+                if exists(stat(project.position, name, "", "")) { return true, nil }
         }
 
         // TODO: check filepath.Join(project.absPath, name)

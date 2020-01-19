@@ -587,10 +587,10 @@ func buildPlugin(s, src string) (err error) {
         return
 }
 
-func (l *loader) loadPlugin() (err error) {
+func (l *loader) loadPlugin(pos Position) (err error) {
         if optionTraceLaunch { defer un(trace(t_launch, "loader.loadPlugin")) }
 
-        g := stat("smart.go", "", l.project.absPath)
+        g := stat(pos, "smart.go", "", l.project.absPath)
         if g == nil { return /* smart.go was not presented */ }
 
         var src string
@@ -601,7 +601,7 @@ func (l *loader) loadPlugin() (err error) {
 
         var build = true
 
-        so := stat(/*l.project.name*/"plugin", "", s, nil)
+        so := stat(pos, /*l.project.name*/"plugin", "", s, nil)
         if s, err = so.Strval(); err != nil { return }
         if exists(so) && !optionAlwaysBuildPlugins {
                 if so.info.ModTime().After(g.info.ModTime()) {
@@ -919,10 +919,12 @@ func (l *loader) exprBarefile(x *ast.Barefile) (v Value) {
 
 func (l *loader) convertBarefiles(targets []ast.Expr) []ast.Expr {
         for i, target := range targets {
+                var pos = Position(l.parser.file.Position(target.Pos()))
                 switch t := target.(type) {
                 case *ast.Bareword:
                         if file := l.project.matchFile(t.Value); file != nil {
-                                targets[i] = &ast.Barefile{ Name:target, File:file }
+                                targets[i] = &ast.Barefile{Name:target,File:file}
+                                file.position = pos
                         }
                 case *ast.Barecomp:
                         var value = l.exprBarecomp(t)
@@ -930,7 +932,8 @@ func (l *loader) convertBarefiles(targets []ast.Expr) []ast.Expr {
                         if s, err := value.Strval(); err != nil {
                                 l.error(t.Pos(), "%v: %v", value, err)
                         } else if file := l.project.matchFile(s); file != nil {
-                                targets[i] = &ast.Barefile{ Name:target, File:file }
+                                targets[i] = &ast.Barefile{Name:target,File:file}
+                                file.position = pos
                         }
                 case *ast.ArgumentedExpr:
                         vals := l.convertBarefiles(append([]ast.Expr{t.X},t.Arguments...))
@@ -1460,8 +1463,11 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         switch target.(type) {
                         case *File, *Path, Pattern:
                         default:
-                                file := l.project.matchFile(name)
-                                if file != nil { target = file }
+                                var file = l.project.matchFile(name)
+                                if file != nil {
+                                        file.position = target.Position()
+                                        target = file
+                                }
                         }
                 }
                 entry, err = l.project.entry(special, optionVals, target, prog)
@@ -1691,6 +1697,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         }
 
         var (
+                pos = Position(l.parser.file.Position(l.parser.pos))
                 name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
                 dec, declared = linfo.declares[name]
@@ -1717,8 +1724,6 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 if l.globe.main == nil && l.project == nil && name != "~" {
                         isMainProj = true
                 }
-
-                pos := Position(l.parser.file.Position(l.parser.pos))
 
                 dec = new(declare)
                 dec.project = l.globe.project(pos, outer, absDir, relPath, tmpPath, linfo.specName, name)
@@ -1782,7 +1787,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 }
         }
 
-        if err = l.loadPlugin(); err != nil { return }
+        if err = l.loadPlugin(pos); err != nil { return }
 
         // no bases or docking for external packages
         if keyword == token.PACKAGE { return }
@@ -1799,7 +1804,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 // Does nothing!
         } else if s, err := configurationFileName(l.project); err != nil {
                 return err
-        } else if file := stat(filepath.Base(s), "", filepath.Dir(s)); file != nil {
+        } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
                 if optionVerboseImport || true {
                         full, _ := file.Strval()
                         fmt.Fprintf(stderr, "smart: Load configuration for %s (%s): %s\n", l.project, l.project.relPath, full)
@@ -1816,7 +1821,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         }
 
         // Looking for project specific ".dock" module
-        file := stat(".dock", "", l.project.absPath)
+        file := stat(pos, ".dock", "", l.project.absPath)
         if exists(file) {
                 err = l.loadDotDock(ident, file)
                 return
@@ -1824,7 +1829,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
         // Looking for .smart/.dock
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
-                file := stat(".dock", "", filepath.Join(s, ".smart"))
+                file := stat(pos, ".dock", "", filepath.Join(s, ".smart"))
                 if !exists(file) {
                         // no docking enabled
                 } else if err = l.loadDotDock(ident, file); err != nil {

@@ -210,7 +210,8 @@ func openConfigurationFile(p *Project) (file *os.File, err error) {
 
 func configurationFileName(p *Project) (s string, err error) {
         const name = "configuration.sm"
-        if f := p.matchTempFile(name); f != nil {
+        var pos Position // TODO: find the position
+        if f := p.matchTempFile(pos, name); f != nil {
                 s, err = f.Strval()
         } else {
                 fmt.Fprintf(stderr, "%v: no file for configuration.sm\n", p)
@@ -546,7 +547,7 @@ func configureOption(pos Position, prog *Program, def *Def, args... Value) (resu
 func loadPackageSmartInfo(pos Position, name string) (info *packageinfo, err error) {
         var file *File
         for _, path := range configuration.paths {
-                file = stat(name+".smart", "", path)
+                file = stat(pos, name+".smart", "", path)
                 if file != nil { break }
         }
         if file == nil { return }
@@ -910,14 +911,14 @@ func walkFileInfos(root string, pats []Value, fn filepath.WalkFunc) (err error) 
         })
 }
 
-func walkFiles(root string, pats []Value, fn filewalkFunc) error {
+func walkFiles(pos Position, root string, pats []Value, fn filewalkFunc) error {
         return walkFileInfos(root, pats, func(path string, info os.FileInfo, err error) error {
                 if err != nil { return err }
                 var rel string
                 if rel, err = filepath.Rel(root, path); err != nil {
                         return err
                 }
-                file := stat(rel, "", root, info)
+                file := stat(pos, rel, "", root, info)
                 if enable_assertions {
                         assert(file != nil, "`%s` file is nil", rel)
                 }
@@ -1076,7 +1077,7 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args... Value) (r
                 case *Path:
                         var s string
                         if s, err = d.Strval(); err == nil {
-                                err = walkFiles(s, pats, func(file *File, err error) error {
+                                err = walkFiles(pos, s, pats, func(file *File, err error) error {
                                         if err == nil {
                                                 sources = append(sources, file)
                                         }
@@ -1091,12 +1092,12 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args... Value) (r
 
                         dir := filepath.Dir(s)
                         name := filepath.Base(s)
-                        file := stat(name, "", dir)
+                        file := stat(pos, name, "", dir)
                         if file == nil {
                                 err = scanner.Errorf(token.Position(pos), "`%s` file not found (configure)", name)
                                 return
                         } else if file.info.IsDir() {
-                                err = walkFiles(s, pats, func(file *File, err error) error {
+                                err = walkFiles(pos, s, pats, func(file *File, err error) error {
                                         if err == nil { sources = append(sources, file) }
                                         return err
                                 })

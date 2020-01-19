@@ -737,8 +737,7 @@ func parseGrepOption(pos Position, pc *traversal, optGrep Value) (result []Value
                                         }
                                 } else if exists(t) {
                                         var list []Value
-                                        //list, err = pc.derived.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
-                                        list, err = pc.project.grepFiles(val, tops, rxs, optReportMissing, optDiscardMissing)
+                                        list, err = pc.project.grepFiles(pos, val, tops, rxs, optReportMissing, optDiscardMissing)
                                         if err != nil { return }
                                         info = &grepCacheFiles{ file:t }
                                         grepCacheFilebase[t.filebase] = info
@@ -759,7 +758,7 @@ func parseGrepOption(pos Position, pc *traversal, optGrep Value) (result []Value
                                         }
                                 }
                         default:
-                                err = scanner.Errorf(token.Position(pos), "'%v' cant grep this type", t)
+                                err = errorf(pos, "'%v' cant grep this type", t)
                                 return
                         }
                 }
@@ -803,7 +802,7 @@ func loadGrepCache() {
                 } else {
                         a := strings.Split(s, "|")
                         if len(a) == 3 {
-                                file := stat(a[0], a[1], a[2])
+                                file := stat(Position{}, a[0], a[1], a[2])
                                 if file != nil {
                                         list = append(list, file)
                                 }
@@ -828,7 +827,7 @@ func saveGrepCache() {
         }
 }
 
-func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report, discard bool) (result []Value, err error) {
+func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*greprex, report, discard bool) (result []Value, err error) {
         var targetDir, targetName, targetFileName string
         switch t := target.(type) {
         case *File:
@@ -869,9 +868,9 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
         var searchName = func(sys bool, linum, colnum int, name string) (file *File) {
                 var isAbs, isRel bool
                 if isAbs = filepath.IsAbs(name); isAbs {
-                        file = stat(name, "", "", nil)
+                        file = stat(pos, name, "", "", nil)
                 } else if isRel = isRelPath(name); isRel { // relative to target dir
-                        file = stat(name, "", targetDir, nil)
+                        file = stat(pos, name, "", targetDir, nil)
                         if !exists(file) {
                                 var f = p.matchFile(name)
                                 if f != nil {
@@ -897,7 +896,7 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
 
                 if !isAbs && !isRel && (file == nil || !exists(file)) {
                         // relative to target directory
-                        var alt = stat(name, "", targetDir)
+                        var alt = stat(pos, name, "", targetDir)
                         if alt != nil { file = alt }
 
                         // Check for bare non-system sub-paths:
@@ -965,15 +964,15 @@ func (p *Project) grepFiles(target Value, tops []string, rxs []*greprex, report,
 
         // Make names like .grep/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
         var nameSum = nameHash.Sum(nil)
-        var savedGrepFile = p.matchTempFile(filepath.Join(".grep",
+        var savedGrepFile = p.matchTempFile(pos, filepath.Join(".grep",
                 fmt.Sprintf("%x", nameSum[ :1]),
                 fmt.Sprintf("%x", nameSum[1:2]),
                 fmt.Sprintf("%x", nameSum[2: ]),
         ))
         savedGrepFileName, _ = savedGrepFile.Strval()
 
-        if file1 := stat(savedGrepFileName, "", ""); file1 != nil {
-                if file2 := stat(targetFileName, "", ""); file2 != nil {
+        if file1 := stat(pos, savedGrepFileName, "", ""); file1 != nil {
+                if file2 := stat(pos, targetFileName, "", ""); file2 != nil {
                         if file2.info.ModTime().After(file1.info.ModTime()) {
                                 goto GrepTargetFile
                         }
@@ -1128,8 +1127,7 @@ func modifierGrepFiles(pos Position, pc *traversal, args... Value) (result Value
 
         var list []Value
         var target, _ = pc.program.scope.Lookup("@").(*Def).Call(pos)
-        //list, err = pc.derived.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
-        list, err = pc.project.grepFiles(target, tops, rxs, optReportMissing, optDiscardMissing)
+        list, err = pc.project.grepFiles(pos, target, tops, rxs, optReportMissing, optDiscardMissing)
         result = MakeListOrScalar(pos, list)
         return
 }
@@ -1312,7 +1310,7 @@ type copyopts struct {
         foot Value
 }
 
-func copyRegular(src, dst string, opts *copyopts) (err error) {
+func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
         var srcFile, dstFile *os.File
         if srcFile, err = os.Open(src); err != nil { return }
 
@@ -1335,7 +1333,7 @@ func copyRegular(src, dst string, opts *copyopts) (err error) {
                 dstFile.Close()
                 srcFile.Close()
                 
-                var file = stat(dst, "", "")
+                var file = stat(pos, dst, "", "")
                 context.globe.stamp(dst, file.info.ModTime())
         } ()
 
@@ -1359,12 +1357,12 @@ func copyRegular(src, dst string, opts *copyopts) (err error) {
         return
 }
 
-func copySymlink(src, dst string, opts *copyopts) (err error) {
+func copySymlink(pos Position, src, dst string, opts *copyopts) (err error) {
         err = errors.New("copy symlink unimplemented")
         return
 }
 
-func copyDir(src, dst string, opts *copyopts) (err error) {
+func copyDir(pos Position, src, dst string, opts *copyopts) (err error) {
         if dst != "." && dst != "/" { // Make path (mkdir -p)
                 err = os.MkdirAll(dst, os.FileMode(0755))
                 if err != nil { return }
@@ -1377,21 +1375,21 @@ func copyDir(src, dst string, opts *copyopts) (err error) {
         for _, fi := range fis {
                 ss := filepath.Join(src, fi.Name())
                 sd := filepath.Join(dst, fi.Name())
-                err = copyFile(fi, ss, sd, opts)
+                err = copyFile(pos, fi, ss, sd, opts)
                 if err != nil { break }
         }
         return
 }
 
-func copyFile(srcFi os.FileInfo, src, dst string, opts *copyopts) (err error) {
+func copyFile(pos Position, srcFi os.FileInfo, src, dst string, opts *copyopts) (err error) {
         if m := srcFi.Mode(); m&os.ModeSymlink != 0 {
                 if opts.mode == 0 { opts.mode = srcFi.Mode() }
-                err = copySymlink(src, dst, opts)
+                err = copySymlink(pos, src, dst, opts)
         } else if srcFi.IsDir() {
-                err = copyDir(src, dst, opts)
+                err = copyDir(pos, src, dst, opts)
         } else if m.IsRegular() {
                 if opts.mode == 0 { opts.mode = srcFi.Mode() }
-                err = copyRegular(src, dst, opts)
+                err = copyRegular(pos, src, dst, opts)
         } else {
                 err = fmt.Errorf("copying non-regular files/dirs (%s)", src)
         }
@@ -1553,16 +1551,15 @@ func modifierCopyFile(pos Position, pc *traversal, args... Value) (result Value,
                 err = wrap(pos, err)
         } else if !fi.IsDir() {
                 if optMode == 0 { optMode = fi.Mode() }
-                if err = copyFile(fi, srcname, filename, copyOpts); err != nil {
+                if err = copyFile(pos, fi, srcname, filename, copyOpts); err != nil {
                         err = wrap(pos, err)
                 }
         } else if optRecursive {
-                if err = copyDir(srcname, filename, copyOpts); err != nil {
+                if err = copyDir(pos, srcname, filename, copyOpts); err != nil {
                         err = wrap(pos, err)
                 }
         } else {
-                err = fmt.Errorf("`%v` is a directory (use -r to solve it)", source)
-                err = wrap(pos, err)
+                err = errorf(pos, "`%v` is a directory (use -r to solve it)", source)
         }
 
         if optVerbose {
@@ -1597,7 +1594,7 @@ func modifierWriteFile(pos Position, pc *traversal, args... Value) (result Value
                 } else if str, err = value.Strval(); err != nil {
                         return
                 } else if _, err = f.WriteString(str); err == nil {
-                        result = stat(filename, "", "")
+                        result = stat(pos, filename, "", "")
                 } else {
                         os.Remove(filename)
                 }
@@ -1712,7 +1709,7 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
                 }
                 if w1.Sum64() == w2.Sum64() {
                         if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
-                        result = stat(filename, "", "")
+                        result = stat(pos, filename, "", "")
                         return
                 }
                 if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
@@ -1733,7 +1730,7 @@ func modifierUpdateFile(pos Position, pc *traversal, args... Value) (result Valu
         if err == nil && f != nil {
                 defer f.Close()
                 if _, err = f.WriteString(content); err == nil {
-                        var file = stat(filename, "", "")
+                        var file = stat(pos, filename, "", "")
                         file.stamp(pc)
                         result = file // resulting the updated file
                         if optVerbose { fmt.Fprintf(stderr, "… (ok)\n") }

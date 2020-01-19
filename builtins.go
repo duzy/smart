@@ -1272,7 +1272,7 @@ ForSources:
                                         }
                                 }
                                 if file == nil {
-                                        file = stat(name, t.sub, t.dir, nil/* okay missing */)
+                                        file = stat(pos, name, t.sub, t.dir, nil/* okay missing */)
                                 }
 
                                 list = append(list, file)
@@ -2362,9 +2362,9 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
                 var ( s string ; file *File )
                 if s, err = a.Strval(); err != nil { return }
                 if filepath.IsAbs(s) {
-                        file = stat(s, "", "")
+                        file = stat(pos, s, "", "")
                 } else {
-                        file = stat(s, "", proj.absPath)
+                        file = stat(pos, s, "", proj.absPath)
                 }
                 if file == nil { file = proj.searchFile(s) }
                 if file != nil { check(file) }
@@ -2373,15 +2373,8 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 switch t := a.(type) {
                 case *File: check(t)
-                case *Path:
-                        /*if t.File != nil {
-                                check(t.File)
-                        } else {
-                                checkstat(a)
-                        }*/
-                        checkstat(a)
-                default:
-                        checkstat(a)
+                case *Path: checkstat(a)
+                default:    checkstat(a)
                 }
                 //fmt.Printf("file-exists: %T %v %v\n", a, a, reses)
         }
@@ -2925,7 +2918,7 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                 }
                 var dir = filepath.Dir(filename)
                 var name = filepath.Base(filename)
-                file = stat(name, "", dir, nil)
+                file = stat(pos, name, "", dir, nil)
                 if file == nil {
                         err = fmt.Errorf("configure-file: nil `%v`", filename)
                         return
@@ -2937,7 +2930,7 @@ func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
                 return
         }
         if file.info == nil {
-                if f := stat(filename, "", ""); f != nil {
+                if f := stat(pos, filename, "", ""); f != nil {
                         file.info = f.info
                 }
         }

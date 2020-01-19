@@ -151,7 +151,7 @@ func (ctx *Context) run() (result []Value, err error) {
 func walkSmartBaseDirs(cwd string, vis func(string)bool) (s string) {
         s = cwd
         for s != "" {
-                file := stat(".smart", "", s)
+                file := stat(Position{}, ".smart", "", s)
                 if file != nil && file.info.IsDir() && !vis(s) { break }
                 if up := filepath.Dir(s); up == s {
                         break
