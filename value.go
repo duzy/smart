@@ -233,43 +233,6 @@ func (pc *traversal) tracef(s string, a ...interface{}) {
         printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...))
 }
 
-/*
-func (pc *traversal) addNotExistedTarget1(target Value) {
-        if pc.debug && false {
-                fmt.Fprintf(stderr, "add: %T %v\n", target, target)
-                if c, ok := target.(*Compound); ok && len(c.Elems) > 0 {
-                        h := c.Elems[0]
-                        fmt.Fprintf(stderr, "---: %T %v\n", h, h)
-                        debug.PrintStack()
-                }
-        }
-        if target == nil {
-                // ignore
-        } else if _, ok := target.(*None); ok {
-                // ignore
-        } else {
-                for _, t := range pc.targets {
-                        if t == target { return }
-                        if t.cmp(target) == cmpEqual { return }
-                }
-                pc.targets = append(pc.targets, target)
-        }
-}
-
-func (pc *traversal) addNotExistedTargets(targets ...Value) {
-        var valid []Value
-        for _, elem := range targets {
-                if elem == nil {
-                        // ...
-                } else if _, ok := elem.(*None); ok {
-                        valid = append(valid, elem)
-                }
-        }
-        for _, elem := range merge(valid...) {
-                pc.addNotExistedTarget1(elem)
-        }
-}
-*/
 func (pc *traversal) addNewTarget(target Value) {
         if isNil(target) {
                 // ignore
@@ -373,31 +336,17 @@ func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error)
         names = nil // clean names cache
 
         if exists(file) {
-                //pc.addNotExistedTarget1(file)
                 okay = true
                 return
         } else if file != nil && file.match != nil {
                 if file.searchInMatchedPaths(p) {
-                        //pc.addNotExistedTarget1(file)
                         okay = true
                         return
                 }
         } else if alt := p.searchFile(file.name); alt != nil {
-                //pc.addNotExistedTarget1(alt)
                 okay = true
                 return
         }
-
-        /*
-        for _, other := range pc.related {
-                if other == p { continue }
-                if alt := other.searchFile(file.name); alt != nil {
-                        pc.addNotExistedTarget1(alt)
-                        okay = true
-                        return
-                }
-        }
-        */
 
         err = fileNotFoundError{p, file}
         if false { debug.PrintStack() }
@@ -1613,6 +1562,20 @@ func (p *Barecomp) elemstr(o Object, k elemkind) (s string) {
 }
 func (p *Barecomp) True() (bool, error) { return p.elements.True() }
 func (p *Barecomp) String() (s string) { return p.elemstr(nil, 0) }
+func (p *Barecomp) Integer() (res int64, err error) {
+        if len(p.Elems) == 2 {
+                if i, ok := p.Elems[0].(*Int); ok {
+                        var n = i.int64
+                        if w, ok := p.Elems[1].(*Bareword); ok {
+                                ;    if (w.string == "st" && n%1 == 0) ||
+                                        (w.string == "nd" && n%2 == 0) ||
+                                        (w.string == "rd" && n%3 == 0) ||
+                                        (w.string == "th") { res = n }
+                        }
+                }
+        }
+        return
+}
 func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
         if elems, num, err = expandall(w, p.Elems...); err == nil {

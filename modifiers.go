@@ -415,7 +415,7 @@ ForArgs:
         return
 }
 
-// create closure context of caller
+// create closure context for the traversal
 func modifierClosure(pos Position, pc *traversal, args... Value) (result Value, err error) {
         // Set caller context before parsing arguments (pop the top one).
         // The context will be restored when execution is finished.
@@ -440,7 +440,7 @@ func modifierClosure(pos Position, pc *traversal, args... Value) (result Value, 
         }); err != nil { return }
 
         if optDump {
-                fmt.Fprintf(stderr, "%s: closure contexts:\n", pos)
+                fmt.Fprintf(stderr, "%s: closure:\n", pos)
                 for _, cc := range cloctx {
                         fmt.Fprintf(stderr, "    %s: %s\n", cc.position, cc.comment)
                 }
@@ -450,13 +450,13 @@ func modifierClosure(pos Position, pc *traversal, args... Value) (result Value, 
         if len(cloctx) == 0 {
                 err = errorf(pos, "empty closure context")
         } else if def := cloctx[0].FindDef("/"); def == nil {
-                err = errorf(pos, "&/ is undefined (%s)", cloctx[0].comment)
+                err = wrap(pos, errorf(cloctx[0].position, "&/ is undefined"))
         } else if dir, err = def.value.Strval(); err != nil {
                 err = wrap(pos, err)
         } else if dir == "" {
-                err = errorf(pos, "&/ is empty (%s)", cloctx[0].comment)
+                err = wrap(pos, errorf(cloctx[0].position, "&/ is empty"))
         } else if !filepath.IsAbs(dir) {
-                err = errorf(pos, "&/ is relative (%s)", cloctx[0].comment)
+                err = wrap(pos, errorf(cloctx[0].position, "&/ is relative"))
         } else if err = enter(pc.program, dir); err == nil {
                 pc.program.project.changedWD = dir
                 pc.program.changedWD = dir
@@ -470,13 +470,11 @@ func modifierCD(pos Position, pc *traversal, args... Value) (result Value, err e
         var optPath bool
         var optPrintEnter bool
         var optPrintLeave bool
-        //var target, _ = pc.program.scope.Lookup("@").(*Def).Call(pos)
-        //if _, ok := target.(*Flag); ok { optPrint = false }
         if args, err = parseFlags(args, []string{
                 "p,path",
                 "e,print-enter",
                 "l,print-leave",
-                //"-,",
+                //"-",
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'p': optPath = trueVal(v, false)
@@ -783,265 +781,6 @@ func parseGrepOption(pos Position, pc *traversal, optGrep Value) (result []Value
         }
         return
 }
-
-//var uniqueCompareGood = make(map[string]*breaker)
-// sysgrcmp := '^\s*#\s*include\s*<(.*)>'
-// grepcmps := '^\s*#\s*include\s*"(.*)"'
-// (compare -pg=(regexp=(top=(llvm,llvm-c,clang,clang-c) sys=$(sysgrcmp) $(grepcmps)) -re $<))
-// (compare -pg=(lang=c++) -re $<)
-/*func modifierCompare(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        var (
-                optDiscardMissing, optVerbose bool
-                optPath, optNoUpdate, optMulti bool
-                optGrep Value
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
-                "p,path",
-                "e,report",
-                "i,ignore",
-                "n,no-time",
-                "m,multi", // multiple compare/execution
-                "g,grep", // -grep=(regexp=(sys='...' '...') $^)
-                //"t,touch", // touch target file when updated
-                //"t,stamp", // touch target file when updated
-                //"r,recursive",
-                "v,verbose",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'p': optPath = trueVal(v, true)
-                case 'm': optMulti = trueVal(v, true)
-                case 'v': optVerbose = trueVal(v, true)
-                case 'n': optNoUpdate = trueVal(v, true)
-                case 'i': optDiscardMissing = trueVal(v, true)
-                //case 't': optTouch = trueVal(v, true)
-                case 'g': optGrep = v
-                }
-        }); err != nil { return }
-
-        // No need to do further comparation if any prerequisites
-        // already modified. We have to update the target if so.
-        if len(pc.modified) > 0 {
-                // Just return to continue with the rest modifiers.
-                return
-        }
-        
-        var target Value
-        var targetStr string
-        var targetDef = pc.def.target // $@
-        if n := len(args); n == 1 {
-                // Change $@ to args[0]
-                targetDef.set(DefDefault, args[0])
-        } else if n > 1 {
-                err = break_bad(pos, "two many targets (%v)", args)
-                return
-        }
-
-        // Get target value from $@.
-        if target, err = targetDef.Call(pos); err != nil {
-                err = break_bad(pos, "comparing %v: %v", targetDef, err)
-                return
-        } else if target == nil {
-                err = break_bad(pos, "comparing nil target")
-                return
-        } else if _, ok := target.(*None); ok {
-                err = break_bad(pos, "comparing 'none' target")
-                return
-        } else if file, ok := target.(*File); ok && file.info != nil && file.updated {
-                // already updated
-                return
-        }
-
-        // Target string value (name).
-        if targetStr, err = target.Strval(); err != nil { return }
-        if optPath {
-                var s string = filepath.Dir(targetStr)
-                if s != "." && s != ".." && s != PathSep {
-                        if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-                                return
-                        }
-                }
-        }
-
-        // Block until all prerequisites are good.
-        if err = pc.program.waitForPrerequisites(); err != nil {
-                return
-        }
-
-        var comparedGood bool
-        if !optMulti {
-                good, found := uniqueCompareGood[targetStr]
-                if found && good != nil {
-                        comparedGood = true
-                        //fmt.Printf("compare: %v (%v)\n", targetStr, good)
-
-                        //// Return if the target has already compared
-                        //err =  good
-                        //return
-                }
-        }
-
-        // Grep files first if enabled to ensure that the $~ is updated.
-        var grepped Value
-        if optGrep != nil {
-                var res []Value
-                if res, err = parseGrepOption(pos, prog, optGrep); err != nil { return }
-                if res != nil { grepped = MakeListOrScalar(res) }
-        }
-
-        var depends []Value
-        depends = append(depends, pc.dependsDef.Value) // $^
-        depends = append(depends, pc.orderedDef.Value) // $|
-        depends = append(depends, pc.greppedDef.Value) // $~
-        if grepped != nil { depends = append(depends, grepped) }
-
-        if true { // 'false' is okay here
-                depends, err = mergeresult(ExpandAll(depends...))
-                if err != nil { return }
-        }
-
-        // Change into compare mode to avoid interpretion if there're
-        // no targets are updated
-        //pc.mode = compareMode
-
-        var c *comparer
-        if c, err = newcompariation(prog, target); err != nil {
-                return
-        }
-
-        if (optVerbose || optionVerboseChecks) && !comparedGood {
-                if true {
-                        fmt.Fprintf(stderr, "smart: Checking %s …", target)
-                } else {
-                        tar, _ := filepath.Rel(pc.program.project.absPath, targetStr)
-                        fmt.Fprintf(stderr, "smart: Checking %s …", tar)
-                }
-        }
-
-        c.nomiss, c.nocomp = optDiscardMissing, optNoUpdate
-        if err = c.Compare(pos, depends); err == nil {
-                result = &boolean{pos,true}
-        } else {
-                result = &boolean{pos,false}
-                if br, ok := err.(*breaker); ok {
-                        switch br.what {
-                        case breakGood:
-                                uniqueCompareGood[targetStr] = br
-                        }
-                } else {
-                        fmt.Fprintf(stderr, "%v: compare: %v\n", pos, err)
-                        fmt.Fprintf(stderr, "%v: %v\n", targetStr, depends)
-                }
-        }
-
-        if (optVerbose || optionVerboseChecks) && !comparedGood {
-                if err == nil {
-                        fmt.Fprintf(stderr, "… (done)")
-                } else if br, ok := err.(*breaker); ok {
-                        switch br.what {
-                        case breakBad: fmt.Fprintf(stderr, "… Bad (%s)", br.message)
-                        case breakGood: fmt.Fprintf(stderr, "… Good")
-                        case breakUpdates:
-                                if a := br.prerequisites(); len(a) == 0 {
-                                        fmt.Fprintf(stderr, "… Outdated")
-                                } else {
-                                        fmt.Fprintf(stderr, "… %v", a)
-                                }
-                        }
-                }
-                fmt.Fprintf(stderr, "\n")
-        }
-
-        if len(c.updated) > 0 && enable_assertions {
-                assert(err != nil, "expects update breaker")
-                if false { fmt.Fprintf(stderr, "compare: %v\n", err) }
-                // e, ok := err.(*breaker)
-                // assert(ok, "expects update breaker")
-                // assert(e.what == breakUpdates, "expects update breaker")
-                // assert(e.updated != nil, "nil updated target")
-                //assert(e.updated.target == c.target, "updated target differs")
-                //assert(len(e.updated.prerequisites) == len(c.updated), "updated target differs")
-                //for i, preq := range e.updated.prerequisites {
-                //       assert(preq == c.updated[i], "updated target differs")
-                //}
-        }
-        return
-}*/
-
-// grep-compare - grep files from target and compare, example usage:
-//
-//      (grep-compare '\s*#\s*include\s*<(.*)>')
-//      
-/*func modifierGrepCompare(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        var (
-                optPath, optNoUpdate, optDisMiss bool
-                optTarget Value
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
-                "p,path",
-                "i,ignore",
-                "n,no-update",
-                "t,target",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'p': optPath = trueVal(v, true)
-                case 'i': optDisMiss = trueVal(v, true)
-                case 'n': optNoUpdate = trueVal(v, true)
-                case 't': optTarget = v
-                }
-        }); err != nil { return }
-
-        var target = pc.program.scope.Lookup("@").(*Def)
-        if optTarget != nil {
-                defer func(v Value) { target.set(DefDefault, v) } (target.Value)
-                target.set(DefDefault, optTarget)
-        }
-        if optPath && target.Value != nil {
-                var s string
-                if s, err = target.Value.Strval(); err != nil { return }
-                if s = filepath.Dir(s); s != "." && s != ".." && s != PathSep {
-                        if err = os.MkdirAll(s, os.FileMode(0755)); err != nil { return }
-                }
-        }
-
-        //if v, e := grepFiles(target, rxs, true, optDisMiss); e != nil {
-        if v, e := modifierGrepFiles(pos, prog, args...); e != nil {
-                err = e
-        } else if v != nil {
-                var c *comparer
-                if c, err = newcompariation(prog, target); err == nil {
-                        c.nomiss = optDisMiss
-                        c.nocomp = optNoUpdate
-                        if err = c.Compare(pos, v); err == nil {
-                                result = &boolean{pos,true} //MakeListOrScalar(c.result)
-                        } else {
-                                result = &boolean{pos,false}
-                        }
-                }
-        }
-        return
-}
-
-// grep-dependencies - grep dependencies from target, example usage:
-//
-//      (grep-dependencies '\s*#\s*include\s*<(.*)>')
-//      
-func modifierGrepDependencies(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        if v, e := modifierGrepFiles(pos, prog, args...); e != nil {
-                err = e
-        } else if v != nil {
-                if false {
-                        err = pc.program.scope.Lookup("^").(*Def).append(v)
-                } else {
-                        err = pc.program.scope.Lookup("|").(*Def).append(v)
-                }
-        }
-        return
-}
-*/
 
 type greprex struct{ string ; bool ; *regexp.Regexp }
 var grepcache = make(map[string][]Value)
@@ -2286,8 +2025,8 @@ func modifierTarget1stVisit(pos Position, pc *traversal, args... Value) (result 
 
         var s string
         ;      if optSilent {
-        } else if num == 0 { //s = "zero"
-        } else { s = fmt.Sprintf("1st: %v visits", num+1)
+        } else if num == 0  { //s = "zero"
+        } else { s = fmt.Sprintf("%v visits", num+1)
         }
 
         result = &prediction{boolean{trivial{pos},num==0},s}
@@ -2296,18 +2035,21 @@ func modifierTarget1stVisit(pos Position, pc *traversal, args... Value) (result 
 
 func modifierTargetNthVisit(pos Position, pc *traversal, args... Value) (result Value, err error) {
         var (
+                optClosure bool
                 optDump bool
                 optSilent bool
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else if args, err = parseFlags(args, []string{
+                "c,closure",
                 "d,debug-trace", // debug-trace
                 "d,debug", // debug-trace
                 "d,dump", // debug-trace
                 "s,silent", // for reason
         }, func(ru rune, v Value) {
                 switch ru {
+                case 'c': optClosure = trueVal(v, true)
                 case 'd': optDump = trueVal(v, true)
                 case 's': optSilent = trueVal(v, true)
                 }
@@ -2319,17 +2061,15 @@ func modifierTargetNthVisit(pos Position, pc *traversal, args... Value) (result 
                         err = wrap(pos, err)
                         return
                 } else if nth <= 0 {
-                        err = errorf(pos, "needs positive number (%v)", a)
+                        err = errorf(pos, "needs positive number (%v, %s)", a, typeof(a))
                         return
                 }
         }
 
-        if optDump {
-                fmt.Fprintf(stderr, "  %s: %v\n", pos, pc.def.target)
-        }
-
         var num int64
+        var head bool = true
         for caller := pc.caller; caller != nil; caller= caller.caller {
+                if optClosure && caller.closure == pc.closure { continue }
                 var same = pc.def.target.value == caller.def.target.value
                 if !same && false {
                         cmp := pc.def.target.value.cmp(caller.def.target.value)
@@ -2337,16 +2077,19 @@ func modifierTargetNthVisit(pos Position, pc *traversal, args... Value) (result 
                 }
                 if same { num += 1 }
                 if optDump && num > 0 {
-                        pos := caller.program.position //caller.def.target.Position()
+                        if head { head = false
+                                fmt.Fprintf(stderr, "  %s: nth(%d)\n", pos, nth)
+                        }
+                        var pos = caller.program.position
                         fmt.Fprintf(stderr, "    %s: %v\n", pos, caller.def.target)
                 }
         }
 
         var s string
         ;      if optSilent {
-        } else if num == 0 { //s = "nth: zero"
-        } else if num <= nth { //s = "nth"
-        } else { s = fmt.Sprintf("nth: %d visits", num+1) }
+        } else if num == 0  { //s = "nth: zero"
+        } else if num < nth { //s = "nth"
+        } else { s = fmt.Sprintf("%d visits", num+1) }
 
         result = &prediction{boolean{trivial{pos},num<nth},s}
         return

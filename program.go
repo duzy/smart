@@ -408,7 +408,6 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
 
         pc.def.updated.set(DefDefault, none)
 
-        pc.targets = nil
         if err = pc.traverseAll([]Value{depends}); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
                 return
@@ -419,6 +418,7 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 for _, t := range pc.targets[1:] {
                         pc.def.depends.append(t)
                 }
+                pc.targets = nil
         }
         if len(pc.updated) > 0 {
                 pc.def.updated.value = pc.updated[0].target
@@ -427,7 +427,6 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 }
         }
 
-        pc.targets = nil
         if err = pc.traverseAll([]Value{ordered}); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
                 return
@@ -437,9 +436,9 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 for _, t := range pc.targets[1:] {
                         pc.def.ordered.append(t)
                 }
+                pc.targets = nil
         }
 
-        pc.targets = nil
         if err = pc.traverseAll([]Value{grepped}); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
                 return
@@ -449,6 +448,7 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 for _, t := range pc.targets[1:] {
                         pc.def.grepped.append(t)
                 }
+                pc.targets = nil
         }
 
         if len(pc.interpreted) == 0 {
@@ -463,7 +463,6 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
         }
 
         if optionTraceTraversal && false {
-                //pc.tracef("%v", pc.targets)
                 pc.tracef("%v", pc.def.target)
                 pc.tracef("%v", pc.def.depend0)
                 pc.tracef("%v", pc.def.depends)
