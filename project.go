@@ -409,49 +409,49 @@ ForPats:
         return
 }
 
-// TODO: searchFile deprecated, use only matchFile instead
-func (p *Project) searchFile(name string) (file *File) {
-        for _, filemap := range p.filemaps() {
-                // Match the represented file name.
-                matched, pre := filemap.Match(name)
-                if !matched { continue }
-                if p.changedWD != "" {
-                        file = filemap.stat(p.changedWD, pre, name)
-                }
-                if file == nil {
-                        file = filemap.stat(p.absPath, pre, name)
-                }
-                if file != nil {
-                        if file.match == nil { file.match = filemap }
-                        if pre != "" { /* FIXME: file.change(...pre) */ }
-                        if enable_assertions {
-                                assert(exists(file), "`%s` file not existed", file)
-                        }
-                        break
-                }
-        }
-        if file != nil && enable_assertions {
-                assert(exists(file), "`%s` file not existed", file)
-                assert(file.match != nil, "`%s` not matched file", name)
-                assert(file.info != nil, "`%v` found nil file info", name)
-                if filepath.IsAbs(name) {
-                        if strings.HasPrefix(name, file.dir+PathSep) {
-                                //assert(file.name == filepath.Base(name), "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, filepath.Base(name))
-                                //assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
-                                //assert(file.dir != "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
-                        } else {
-                                assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
-                                assert(file.dir == "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
-                                assert(file.fullname() == file.name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
-                        }
-                        assert(file.fullname() == name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
-                } else {
-                        assert(file.dir != "", "`%v` found empty file dir", name)
-                        assert(filepath.IsAbs(file.dir), "not abs file{%s %s %s}", file.dir, file.sub, file.name)
-                }
-        }
-        return
-}
+// // TODO: searchFile deprecated, use only matchFile instead
+// func (p *Project) searchFile(name string) (file *File) {
+//         for _, filemap := range p.filemaps() {
+//                 // Match the represented file name.
+//                 matched, pre := filemap.Match(name)
+//                 if !matched { continue }
+//                 if p.changedWD != "" {
+//                         file = filemap.stat(p.changedWD, pre, name)
+//                 }
+//                 if file == nil {
+//                         file = filemap.stat(p.absPath, pre, name)
+//                 }
+//                 if file != nil {
+//                         if file.match == nil { file.match = filemap }
+//                         if pre != "" { /* FIXME: file.change(...pre) */ }
+//                         if enable_assertions {
+//                                 assert(exists(file), "`%s` file not existed", file)
+//                         }
+//                         break
+//                 }
+//         }
+//         if file != nil && enable_assertions {
+//                 assert(exists(file), "`%s` file not existed", file)
+//                 assert(file.match != nil, "`%s` not matched file", name)
+//                 assert(file.info != nil, "`%v` found nil file info", name)
+//                 if filepath.IsAbs(name) {
+//                         if strings.HasPrefix(name, file.dir+PathSep) {
+//                                 //assert(file.name == filepath.Base(name), "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, filepath.Base(name))
+//                                 //assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
+//                                 //assert(file.dir != "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
+//                         } else {
+//                                 assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
+//                                 assert(file.dir == "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
+//                                 assert(file.fullname() == file.name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
+//                         }
+//                         assert(file.fullname() == name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
+//                 } else {
+//                         assert(file.dir != "", "`%v` found empty file dir", name)
+//                         assert(filepath.IsAbs(file.dir), "not abs file{%s %s %s}", file.dir, file.sub, file.name)
+//                 }
+//         }
+//         return
+// }
 
 func (p *Project) matchFile(name string) (file *File) {
         //[optional]: defer setclosure(setclosure(cloctx.unshift(p.scope)))

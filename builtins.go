@@ -2366,7 +2366,7 @@ func builtinFileExists(pos Position, args... Value) (res Value, err error) {
                 } else {
                         file = stat(pos, s, "", proj.absPath)
                 }
-                if file == nil { file = proj.searchFile(s) }
+                if file == nil { file = proj./*searchFile*/matchFile(s) }
                 if file != nil { check(file) }
         }
 
@@ -2398,7 +2398,7 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
         for _, a := range args {
                 var str string
                 if str, err = a.Strval(); err != nil { return }
-                if file := proj.searchFile(str); file != nil {
+                if file := proj./*searchFile*/matchFile(str); file != nil {
                         l = append(l, &String{trivial{a.Position()},file.sub})
                 }
         }
@@ -2418,8 +2418,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        }
-        if va, err = parseFlags(args, opts, func(ru rune, v Value) {
+        } else if va, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
                 case 'c': optCallerContext = trueVal(v, true)
                 case 'e': optReportMissing = trueVal(v, true)

@@ -16,7 +16,7 @@ import (
         "strconv"
         "strings"
         "bytes"
-        "runtime/debug"
+        //"runtime/debug" // debug.PrintStack()
         "sync"
         "time"
         "math"
@@ -187,6 +187,8 @@ type traversal struct {
                 stem     *Def // $*
         }
 
+        visited map[Value]int
+
         group *sync.WaitGroup
         caller *traversal
         calleeErrs []error
@@ -234,14 +236,11 @@ func (pc *traversal) tracef(s string, a ...interface{}) {
 }
 
 func (pc *traversal) addNewTarget(target Value) {
-        if isNil(target) || isNone(target) {
-                return // ignore
-        }
+        if isNil(target) || isNone(target) { return }
         for _, t := range pc.targets {
-                if t == target { return }
-                if t.cmp(target) == cmpEqual { return }
-                pc.targets = append(pc.targets, target)
+                if t == target || t.cmp(target) == cmpEqual { return }
         }
+        pc.targets = append(pc.targets, target)
 }
 
 func (pc *traversal) depth() (res int) {
@@ -295,6 +294,8 @@ func (pc *traversal) traverse(i interface{}) (err error) {
 }
 
 func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error) {
+        if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("in %v", p))) }
+
         var names = make(map[string]bool)
         for stub := file.filestub; true; stub = stub.other {
                 names[stub.name] = true // mark to avoid trying many times
@@ -334,21 +335,10 @@ func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error)
 
         if exists(file) {
                 okay = true
-                return
         } else if file != nil && file.match != nil {
-                if file.searchInMatchedPaths(p) {
-                        okay = true
-                        return
-                }
-        } else if alt := p.searchFile(file.name); alt != nil {
+                okay = file.searchInMatchedPaths(p)
+        } else if alt := p./*searchFile*/matchFile(file.name); alt != nil {
                 okay = true
-                return
-        }
-
-        err = wrap(file.Position(), fileNotFoundError{p, file})
-        if false { debug.PrintStack() }
-        if optionTraceTraversal {
-                pc.tracef("%s: traverseFile({%s,%s,%s}): not found", p.name, file.dir, file.sub, file.name)
         }
         return
 }
@@ -386,56 +376,39 @@ ForPatterns:
         return
 }
 
-func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (err error) {
+func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (okay bool, err error) {
         if obj := p.scope.Lookup(target); obj != nil {
-                if pn, ok := obj.(*ProjectName); ok {
-                        var entry = pn.project.DefaultEntry()
-                        if entry != nil {
-                                err = pc.traverse(entry)
+                if name, ok := obj.(*ProjectName); ok {
+                        if okay, err = name.traverse2(pc); okay || err != nil {
+                                return
                         }
-                        return
                 }
         }
 
         if file := p.matchFile(target); file != nil {
-                if enable_assertions {
-                        assert(file.match != nil, "`%s` nil match", target)
-                }
-
-                // Change the position for tracing
+                // Change the position for tracing.
                 file.position = pos
 
                 // Invoke file rules no matter if it existed or not.
-                var okay bool // true if doing good
-                if okay, err = p.traverseFile(pc, file); err != nil || okay {
-                        file.position = pos
-                        if optionTraceTraversal {
-                                if okay {
-                                        pc.tracef("%s: traverseTarget(file{%s}) (okay)", p.name, file)
-                                } else {
-                                        pc.tracef("%s: traverseTarget(file{%s}): %v", p.name, file, err)
-                                }
-                        }
-                        return
-                } else if enable_assertions {
-                        assert(err == nil, "got error: %v", err)
-                        assert(!exists(file), "`%s` file exists", file)
+                if okay, err = p.traverseFile(pc, file); err != nil {
+                        err = wrap(pos, err)
+                } else if !okay {
+                        err = wrap(pos, fileNotFoundError{p, file})
                 }
-
-                err = wrap(pos, fileNotFoundError{p, file})
-                if false { debug.PrintStack() }
                 if optionTraceTraversal {
-                        pc.tracef("%s: `traverseTarget(file{%s,%s,%s})` not found", p.name, file.dir, file.sub, file.name)
+                        pc.tracef("%s: traverseTarget(file{%s,%s,%s}): okay=%v, err=%v",
+                                p.name, file.dir, file.sub, file.name,
+                                okay, err)
                 }
                 return
         }
 
         var entry *RuleEntry
         if entry, err = p.resolveEntry(target); err != nil {
-                //if optionTraceTraversal { pc.tracef("%s", err) }
+                err = wrap(pos, err)
                 return
         } else if entry != nil {
-                err = pc.traverse(entry)
+                okay, err = true, pc.traverse(entry)
                 return
         }
 
@@ -450,47 +423,75 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (er
                                 if !ok { continue ForPatterns }
                         }
 
-                        // Bounds StemmedEntry with the source.
+                        // Associate StemmedEntry with the target.
                         se.target = target
 
                         // Updated successfully!
                         if err = se.traverse(pc); err == nil {
-                                return
+                                okay = true; return // done
                         }
 
                         var brks, errs = breakers(err)
+                        if len(errs) > 0 { return }
+
                         for _, e := range brks {
-                                switch e.what {
-                                case breakGood:
-                                        continue ForPatterns // just relax
-                                default:
-                                        //fmt.Fprintf(stderr, "%v\n", err)
-                                        //return
-                                        err = wrap(pos, e, err)
+                                if e.what == breakGood {
+                                        continue ForPatterns
+                                } else {
+                                        errs = append(errs, e)
                                 }
                         }
-
-                        //fmt.Fprintf(stderr, "%v\n", err)
-                        //fmt.Fprintf(stderr, "%v: traverse pattern %v failed\n", pos, se)
-                        if err != nil { errs = append(errs, err) }
-                        if errs != nil { err = wrap(pos, errs...) }
-                        return // Update failed!
+                        if len(errs) > 0 { err = wrap(pos, errs...) }
+                        return
                 }
         }
+        return
+}
 
-        err = targetNotFoundError{ p, target }
-        if false { debug.PrintStack() }
-        if optionTraceTraversal {
-                pc.tracef("%s: `traverseTarget(%s)` not found", p.name, target)
+func (pc *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay bool, err error) {
+        var projects = []*Project{ pc.project }
+        if pc.program.project != pc.project {
+                projects = append(projects, pc.program.project)
+        }
+
+ForCallers:
+        for c := pc; c != nil; c = c.caller {
+                if c.closure != pc.closure { break }
+                var proj = c.project
+                for _, p := range projects {
+                        if proj == p { continue ForCallers }
+                }
+                projects = append(projects, proj)
+        }
+
+        for _, proj := range projects {
+                if okay, err = f(proj); okay || err != nil { break }
+        }
+        return
+}
+
+func (pc *traversal) traverseFile(file *File) (err error) {
+        var okay bool
+        okay, err = pc.foreachClosureProject(func(p *Project) (bool, error) {
+                return p.traverseFile(pc, file)
+        })
+        if !okay && err == nil {
+                err = wrap(file.Position(), fileNotFoundError{pc.project, file})
+                if optionTraceTraversal { pc.tracef("%v: traverseFile({%s,%s,%s}): not found",
+                        pc.project, file.dir, file.sub, file.name) }
         }
         return
 }
 
 func (pc *traversal) traverseTarget(pos Position, target string) (err error) {
-        if pc.project == nil {
-                err = errorf(pos, "unkown project for target '%s'\n", target)
-        } else {
-                err = pc.project.traverseTarget(pos, pc, target)
+        var okay bool
+        okay, err = pc.foreachClosureProject(func(p *Project) (bool, error) {
+                return p.traverseTarget(pos, pc, target)
+        })
+        if !okay && err == nil {
+                err = wrap(pos, targetNotFoundError{pc.project, target})
+                if optionTraceTraversal { pc.tracef("%v: `traverseTarget(%s)` not found",
+                        pc.project, target) }
         }
         return
 }
@@ -2370,6 +2371,7 @@ func (p *File) exists() existence {
 }
 func (p *File) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
+        if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
 
         // Add new file target, no matter it's going to be updated or not.
         pc.addNewTarget(p)
@@ -2397,8 +2399,9 @@ func (p *File) traverse(pc *traversal) (err error) {
                 }
         }
 
-        _, err = pc.project.traverseFile(pc, p)
-        if err != nil { return }
+        if err = pc.traverseFile(p); err != nil {
+                return
+        }
 
         if optionTraceTraversal {
                 var t = pc.def.target.value

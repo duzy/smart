@@ -172,13 +172,15 @@ func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
         }
         return
 }
-
 func (p *ProjectName) traverse(pc *traversal) (err error) {
+        _, err = p.traverse2(pc)
+        return
+}
+func (p *ProjectName) traverse2(pc *traversal) (okay bool, err error) {
         if optionTraceTraversal { defer un(tt(pc, p)) }
-
-        var defent = p.project.DefaultEntry()
-        if defent != nil && defent.class != UseRuleEntry {
-                err = defent.traverse(pc)
+        var entry = p.project.DefaultEntry()
+        if entry != nil && entry.class != UseRuleEntry {
+                okay, err = true, entry.traverse(pc)
         }
         return
 }

@@ -133,10 +133,9 @@ func (prog *Program) getModifier(name string) (res *modifier) {
 func (prog *Program) prerequisites(pc *traversal, args []Value) (result []Value, err error) {
         // IMPORTANT: don't expand the args here. The prerequisites like
         // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
-        //      xxx: mergeresult(ExpandAll(args...))
         for _, arg := range args {
                 switch a := arg.(type) {
-                case Pattern: //*PercPattern:
+                case Pattern:
                         var s string
                         var rest []string
                         if s, rest, err = a.stencil(pc.stems); err != nil {
@@ -147,6 +146,7 @@ func (prog *Program) prerequisites(pc *traversal, args []Value) (result []Value,
                                 panic(fmt.Sprintf("FIXME: unhandled stems: %v (%v, %v) (%v)", arg, s, rest, pc.stems))
                         }
                         if file := pc.project.matchFile(s); file != nil {
+                                file.position = arg.Position()
                                 result = append(result, file)
                                 break
                         }
@@ -157,8 +157,6 @@ func (prog *Program) prerequisites(pc *traversal, args []Value) (result []Value,
                         } else {
                                 err = scanner.Errorf(token.Position(prog.position), "`%s` unknown target (via %s)", s, a)
                         }
-                case *GlobPattern:
-                        unreachable("`%s` glob pattern unsupported", a)
                 default:
                         result = append(result, a)
                 }
@@ -218,6 +216,8 @@ func (prog *Program) setParams(args []Value) (err error, restore func()) {
         return
 }
 
+const maxRecursion  = 16 //32 //64
+
 func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, err error) {
         if false {
                 // Execution can be nested, a program.mutex.lock may
@@ -226,15 +226,31 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 defer prog.mutex.Unlock()
         }
 
+        var pos = prog.position
+        var recursion int
+        for c := caller; c != nil; c = c.caller {
+                if c.program == prog { recursion += 1 }
+        }
+        if recursion >= maxRecursion {
+                fmt.Fprintf(stderr, "%v: max recursion: %v\n", pos, entry.target)
+                for c := caller; c != nil; c = c.caller {
+                        fmt.Fprintf(stderr, "    %v: %v\n", c.program.position, c.def.target)
+                }
+                if false { fmt.Fprintf(stderr, "\n") }
+                err = errorf(pos, "too many recursion (%d) (%v) (from %v)", recursion, entry.target, caller.def.target.value)
+                return
+        }
+
         defer func(s string) {
                 prog.project.changedWD = s
         } (prog.project.changedWD)
 
-        var none = &None{trivial{prog.position}}
+        var none = &None{trivial{pos}}
         var pc = &traversal{
                 program: prog,
                 project: prog.project,
                 closure: prog.scope,
+                visited: make(map[Value]int),
                 group: new(sync.WaitGroup),
                 entry: entry,
                 args: args,
@@ -313,7 +329,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         err = wrap(prog.position, err)
                         return
                 }
-                if file := prog.project.searchFile(name); file != nil {
+                if file := prog.project./*searchFile*/matchFile(name); file != nil {
                         fileTarget = file
                         target = file
                 }
@@ -340,13 +356,8 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 return
         }
 
-        pc.def.depends.set(DefDefault, MakeList(prog.position, depends...))
-        if len(depends) > 0 {
-                pc.def.depend0.set(DefDefault, depends[0])
-        }
-        if len(ordered) > 0 {
-                pc.def.ordered.set(DefDefault, MakeList(prog.position, ordered...))
-        }
+        if len(depends) > 0 { pc.def.depends.set(DefDefault, MakeList(prog.position, depends...)) }
+        if len(ordered) > 0 { pc.def.ordered.set(DefDefault, MakeList(prog.position, ordered...)) }
 
         if pc.stems != nil {
                 pc.def.stem.set(DefDefault, &String{trivial{prog.position},pc.stems[0]})
@@ -376,42 +387,65 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         return pc.exec(prog)
 }
 
-const maxRecursion  = 16 //32 //64
-
 func (pc *traversal) exec(prog *Program) (result Value, err error) {
         if optionTraceExec {
+                var d = pc.depth()
                 var t = pc.def.target.value
-                defer un(trace(t_executor, fmt.Sprintf("%s: %v (depth=%d)", typeof(t), t, pc.depth())))
+                var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
+                defer un(trace(t_exec, s))
         }
 
         var pos = prog.position
-        var recursion int
-        for c := pc.caller; c != nil; c = c.caller {
-                if c.program == prog { recursion += 1 }
+        if n, ok := pc.visited[pc.def.target.value]; ok && n > 0 {
+                if optionTraceExec { t_exec.trace(fmt.Sprintf("visited: %v", pc.def.target.value)) }
+                if false { return }
         }
-        if recursion >= maxRecursion {
-                fmt.Fprintf(stderr, "%v: max execution recursion:\n", pos)
-                for c := pc; c != nil; c = c.caller {
-                        fmt.Fprintf(stderr, "    %v: %v\n", c.program.position, c.def.target)
+        pc.visited[pc.def.target.value] += 1
+
+        // Update normal prerequisites
+        if err = pc.traverseNormalPrerequisites(pos); err != nil {
+                return
+        }
+
+        // Update order-only prerequisites
+        if err = pc.traverseOrderOnlyPrerequisites(pos); err != nil {
+                return
+        }
+
+        // Update grapped files
+        if err = pc.traverseGrepFiles(pos); err != nil {
+                return
+        }
+
+        if len(pc.interpreted) == 0 {
+                // Using the default statements interpreter.
+                if i, ok := dialects["eval"]; ok && i != nil {
+                        if err = prog.interpret(pc, i, nil); err != nil {
+                                err = wrap(pos, err)
+                        }
+                } else {
+                        err = errorf(pos, "no default dialect")
                 }
-                if false { fmt.Fprintf(stderr, "\n") }
-                err = errorf(pos, "too many recursion (%d) (%v) (from %v)", recursion, pc.def.target, pc.caller.def.target.value)
-                return
         }
 
-        var (
-                none = &None{trivial{pos}}
-                depends = pc.def.depends.value // normal
-                ordered = pc.def.ordered.value // order-only
-                grepped = pc.def.grepped.value
-        )
+        if optionTraceExec {
+                t_exec.trace(pc.def.stem)
+                t_exec.trace(pc.def.target)
+                t_exec.trace(pc.def.depend0)
+                t_exec.trace(pc.def.depends)
+                t_exec.trace(pc.def.ordered)
+                t_exec.trace(pc.def.grepped)
+                t_exec.trace(pc.def.updated)
+                t_exec.trace(pc.def.modbuff)
+        }
+        return
+}
 
-        pc.def.updated.set(DefDefault, none)
-
-        if err = pc.traverseAll([]Value{depends}); err != nil {
+func (pc *traversal) traverseNormalPrerequisites(pos Position) (err error) {
+        if optionTraceExec { defer un(trace(t_exec, pc.def.depends.name)) }
+        if err = pc.traverseAll([]Value{pc.def.depends.value}); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
-                return
-        } else if err = pc.wait(pos); err != nil { return }
+        } else if err = pc.wait(pos); err != nil {  }
         if len(pc.targets) > 0 {
                 pc.def.depend0.value = pc.targets[0] // $<
                 pc.def.depends.value = pc.targets[0] // $^
@@ -426,11 +460,14 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                         pc.def.updated.append(t.target)
                 }
         }
+        return
+}
 
-        if err = pc.traverseAll([]Value{ordered}); err != nil {
+func (pc *traversal) traverseOrderOnlyPrerequisites(pos Position) (err error) {
+        if optionTraceExec { defer un(trace(t_exec, pc.def.ordered.name)) }
+        if err = pc.traverseAll([]Value{pc.def.ordered.value}); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
-                return
-        } else if err = pc.wait(pos); err != nil { return }
+        } else if err = pc.wait(pos); err != nil {  }
         if len(pc.targets) > 0 {
                 pc.def.ordered.value = pc.targets[0] // $|
                 for _, t := range pc.targets[1:] {
@@ -438,39 +475,20 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 }
                 pc.targets = nil
         }
+        return
+}
 
-        if err = pc.traverseAll([]Value{grepped}); err != nil {
+func (pc *traversal) traverseGrepFiles(pos Position) (err error) {
+        if optionTraceExec { defer un(trace(t_exec, pc.def.grepped.name)) }
+        if err = pc.traverseAll([]Value{pc.def.grepped.value}); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
-                return
-        } else if err = pc.wait(pos); err != nil { return }
+        } else if err = pc.wait(pos); err != nil {  }
         if len(pc.targets) > 0 {
                 pc.def.grepped.value = pc.targets[0]
                 for _, t := range pc.targets[1:] {
                         pc.def.grepped.append(t)
                 }
                 pc.targets = nil
-        }
-
-        if len(pc.interpreted) == 0 {
-                // Using the default statements interpreter.
-                if i, ok := dialects["eval"]; ok && i != nil {
-                        if err = prog.interpret(pc, i, nil); err != nil {
-                                err = wrap(pos, err)
-                        }
-                } else {
-                        err = errorf(pos, "no default dialect")
-                }
-        }
-
-        if optionTraceTraversal && false {
-                pc.tracef("%v", pc.def.target)
-                pc.tracef("%v", pc.def.depend0)
-                pc.tracef("%v", pc.def.depends)
-                pc.tracef("%v", pc.def.ordered)
-                pc.tracef("%v", pc.def.grepped)
-                pc.tracef("%v", pc.def.updated)
-                pc.tracef("%v", pc.def.modbuff)
-                pc.tracef("%v", pc.def.stem)
         }
         return
 }
