@@ -9,6 +9,7 @@ package smart
 import (
         "extbit.io/smart/scanner"
         "extbit.io/smart/token"
+        "runtime/debug" // debug.PrintStack()
         "strconv"
         //"strings"
         "sync"
@@ -67,7 +68,7 @@ func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (er
         if len(pc.breakers) > 0 { return }
         if err = pc.wait(prog.position); err != nil {
                 return
-        }
+        } else if false { debug.PrintStack() }
 
         var value Value
         if value, err = i.Evaluate(pc, params); err == nil {
@@ -226,8 +227,8 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 defer prog.mutex.Unlock()
         }
 
-        var pos = prog.position
         var recursion int
+        var pos = prog.position
         for c := caller; c != nil; c = c.caller {
                 if c.program == prog { recursion += 1 }
         }
@@ -240,10 +241,6 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 err = errorf(pos, "too many recursion (%d) (%v) (from %v)", recursion, entry.target, caller.def.target.value)
                 return
         }
-
-        defer func(s string) {
-                prog.project.changedWD = s
-        } (prog.project.changedWD)
 
         var none = &None{trivial{pos}}
         var pc = &traversal{
@@ -263,19 +260,6 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         pc.traceLevel = pc.caller.traceLevel
                 }
         }
-        defer func() {
-                set := func(def *Def, val Value) { def.value = val }
-                for _, def := range []*Def{
-                        pc.def.target,  // $@
-                        pc.def.depends, // $^
-                        pc.def.depend0, // $<
-                        pc.def.ordered, // $|
-                        pc.def.grepped, // $~
-                        pc.def.updated, // $?
-                        pc.def.stem,    // $*
-                        pc.def.modbuff, // $-
-                } { set(def, def.value) }
-        } ()
 
         // Flag targets (-foo) turn off printing
         if _, ok := pc.entry.target.(*Flag); ok { pc.print = false }
@@ -294,7 +278,8 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         cd.stack[0].silent = !pc.print
 
         // must set cloctx after cd (enter)
-        defer setclosure(setclosure(cloctx.unshift(prog.scope))) // entry.DeclScope()
+        defer setclosure(setclosure(cloctx.unshift(prog.scope)))
+        defer func(s string) { prog.project.changedWD = s } (prog.project.changedWD)
         defer func() { // leaving after setting cloctx to meet the FIFO order
                 if e := leave(prog, enterStop); e != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
@@ -313,6 +298,17 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if pc.def.updated, err = prog.auto("?", none); err != nil { return }
         if pc.def.stem,    err = prog.auto("*", none); err != nil { return }
         if pc.def.modbuff, err = prog.auto("-", none); err != nil { return }
+        var set = func(def *Def, val Value) { def.value = val }
+        for _, def := range []*Def{
+                pc.def.target,  // $@
+                pc.def.depends, // $^
+                pc.def.depend0, // $<
+                pc.def.ordered, // $|
+                pc.def.grepped, // $~
+                pc.def.updated, // $?
+                pc.def.stem,    // $*
+                pc.def.modbuff, // $-
+        } { defer set(def, def.value) }
 
         var fileTarget *File
 

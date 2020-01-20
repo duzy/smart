@@ -43,15 +43,6 @@ const (
         optionTraceExec = false
         optionTraceEntering = optionTraceTraversal && false
 
-        optionExecuteUseRulesRecursively = false
-        optionExecuteUseRuleMultiTimes = false
-        optionExecuteUseLightly = false
-        optionExecuteUseBases = false
-
-        optionSearchImportedFiles = false // time consuming
-
-        optionNoDeprecatedFeatures = true
-
         // Return error if wildcard files not found.
         optionWildcardMissingError = false
 
