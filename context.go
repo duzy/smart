@@ -501,7 +501,8 @@ func CommandLine() {
                 report(do_configuration())
         } else if result, err := context.run(); err != nil {
                 defer printLeavingDirectory()
-                var brks, errs = breakers(err)
+
+                var brks, errs = extractBreakers(err)
                 for _, e := range brks {
                         switch e.what {
                         default: report(e)

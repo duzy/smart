@@ -628,23 +628,22 @@ ForPrograms:
                         result = append(result, val)
                         continue ForPrograms
                 }
-                var brks, errs = breakers(e)
-                for _, b := range brks {
-                        switch b.what {
-                        case breakFail: // (assert) failure
-                                err = wrap(b.pos, e, err)
-                                continue ForPrograms // break ForPrograms
-                        case breakNext: // continue with the next (case)
-                                continue ForPrograms
-                        case breakCase, breakDone:
-                                // finish (case) or (cond) peacefully
-                                break ForPrograms
+
+                var brks, errs = extractBreakers(e)
+                if len(errs) > 0 {
+                        err = wrap(program.position, errs...)
+                        break
+                }
+
+                for _, brk := range brks {
+                        switch brk.what {
+                        case breakNext: continue ForPrograms
+                        case breakCase, breakDone: break ForPrograms
+                        default: err = wrap(program.position, brk, err)
                         }
                 }
-                if err != nil { errs = append(errs, err) }
-                if errs != nil { err = wrap(program.position, errs...) }
         }
-        if err != nil { err = wrap(pos, err) }
+        if err != nil { err = wrap(pos, wrap(entry.position, err)) }
         return
 }
 func (entry *RuleEntry) Get(name string) (Value, error) {
@@ -732,33 +731,26 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
 }
 func (entry *RuleEntry) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, entry.target)) }
-        var failed bool
 ForPrograms:
         for _, prog := range entry.programs {
-                if err = pc.execute(entry, prog); err == nil {
-                        continue // with the next program
-                } /*else if _, ok := err.(targetNotFoundError); ok {
-                        break ForPrograms // Don't try other programs if it's undefined.
-                }*/
-                brks, errs := breakers(err)
-                for _, b := range brks {
-                        switch b.what {
-                        case breakFail:
-                                fmt.Fprintf(stderr, "%s: entry.prepare: %s\n", b.pos, b.message)
-                                failed, err = true, nil
-                                continue ForPrograms
-                        case breakNext:
-                                continue ForPrograms
-                        case breakCase, breakDone:
-                                break ForPrograms
+                var e = pc.execute(entry, prog)
+                if e == nil { continue }
+
+                var brks, errs = extractBreakers(e)
+                if len(errs) > 0 {
+                        err = wrap(prog.position, errs...)
+                        break
+                }
+
+                for _, brk := range brks {
+                        switch brk.what {
+                        case breakNext: continue ForPrograms
+                        case breakCase, breakDone: break ForPrograms
+                        default: err = wrap(prog.position, brk, err)
                         }
                 }
-                if err != nil { errs = append(errs, err) }
-                if errs != nil { err = wrap(prog.position, errs...) }
         }
-        if err == nil && failed {
-                err = errorf(entry.position, "assertion failed")
-        }
+        if err != nil { err = wrap(entry.position, err) }
         return
 }
 func (entry *RuleEntry) mod(pc *traversal) time.Time {

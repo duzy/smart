@@ -427,21 +427,8 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (ok
                         se.target = target
 
                         // Updated successfully!
-                        if err = se.traverse(pc); err == nil {
-                                okay = true; return // done
-                        }
-
-                        var brks, errs = breakers(err)
-                        if len(errs) > 0 { return }
-
-                        for _, e := range brks {
-                                if e.what == breakGood {
-                                        continue ForPatterns
-                                } else {
-                                        errs = append(errs, e)
-                                }
-                        }
-                        if len(errs) > 0 { err = wrap(pos, errs...) }
+                        err = se.traverse(pc)
+                        okay = err == nil
                         return
                 }
         }
@@ -2767,28 +2754,8 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
 func (p *List) traverse(pc *traversal) (err error) {
         if len(p.Elems) == 0 { return }
         if optionTraceTraversal { defer un(tt(pc, p)) }
-        var pos = p.Elems[0].Position()
-ForElems:
         for _, v := range p.Elems {
-                if err = v.traverse(pc); err == nil { continue }
-                var brks, errs = breakers(err)
-                if len(errs) > 0 {
-                        err = wrap(pos, errs...)
-                        return
-                }
-                for _, e := range brks {
-                        switch pc.breaker = e; e.what {
-                        case breakDone:
-                                if e.scope != breakTrave {
-                                        // err not changed
-                                } else if errs == nil {
-                                        err = nil
-                                } else {
-                                        err = wrap(pos, e, err)
-                                }
-                                break ForElems
-                        }
-                }
+                if err = v.traverse(pc); err != nil { break }
         }
         return
 }

@@ -114,12 +114,12 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
         return &breaker{ pos, w, breakGroup, fmt.Sprintf(s, a...), nil, nil }
 }
 
-func breakers(err error) (res []*breaker, rest []error) {
+func extractBreakers(err error) (res []*breaker, rest []error) {
         switch t := err.(type) {
         case *scanner.Error:
                 var pos = Position(t.Pos)
                 for _, e := range t.Errs {
-                        brks, errs := breakers(e)
+                        brks, errs := extractBreakers(e)
                         if res = append(res, brks...); len(errs) > 0 {
                                 rest = append(rest, wrap(pos, errs...))
                         }
@@ -208,29 +208,27 @@ func (_ *modifiergroup) cmp(v Value) (res cmpres) {
 }
 func (g *modifiergroup) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, g)) }
-ForModifiers:
         for _, m := range g.modifiers {
                 if err = m.traverse(pc); err == nil { continue }
-                var brks, errs = breakers(err)
+                var brks, errs = extractBreakers(err)
                 if len(errs) > 0 {
-                        err = wrap(g.Position(), errs...)
-                        return
+                        if false { err = wrap(g.position, errs...) }
+                        break
                 }
+
+                err = nil // reset the resulting err
+
+                var done bool
                 for _, e := range brks {
-                        switch pc.breaker = e; e.what {
-                        case breakDone:
-                                // Stop traversing this group and
-                                // return the breaker to the caller.
-                                if e.scope != breakGroup {
-                                        // err not changed
-                                } else if errs == nil {
-                                        err = nil
-                                } else {
-                                        err = wrap(g.position, e, err)
-                                }
-                                break ForModifiers
+                        pc.breaker = e
+                        if e.what == breakDone && e.scope == breakGroup {
+                                done = true
+                        } else {
+                                // return the breakers
+                                err = wrap(g.position, e, err)
                         }
                 }
+                if done || err != nil { break }
         }
         return
 }
@@ -1805,7 +1803,11 @@ func predict(pos Position, pc *traversal, args... Value) (result bool, breakScop
                                 if s != "" { status = s }
                         }
                         if status == "" {
-                                status = fmt.Sprintf("Good (%d)", num)
+                                var s string
+                                if result { s = "Yes" } else { s = "No" }
+                                status = fmt.Sprintf("%v (%d)", s, num)
+                        } else if false {
+                                status += fmt.Sprintf(" (result=%v)", result)
                         }
                         fmt.Fprintf(stderr, "… %s\n", status)
                 }
@@ -1834,9 +1836,8 @@ func predict(pos Position, pc *traversal, args... Value) (result bool, breakScop
                                 }
                         }
                 }); err != nil { return }
-                if optAnd && !result { continue }
-                // Else: !optAnd || (optAnd && result)
-                for i, a := range va {
+                //if optAnd && !result { continue }
+                if !optAnd || (optAnd && result) { for i, a := range va {
                         if g, ok := a.(*Group); ok && len(g.Elems) > 0 {
                                 var name string
                                 if name, err = g.Elems[0].Strval(); err != nil {
@@ -1854,13 +1855,11 @@ func predict(pos Position, pc *traversal, args... Value) (result bool, breakScop
                                 }
                         }
 
-                        var t = true
+                        var t bool
                         if a == nil {
                                 continue // skip
                         } else if p, ok := a.(*prediction); ok {
-                                if p.reason != "" {
-                                        reasons = append(reasons, p.reason)
-                                }
+                                if p.reason != "" { reasons = append(reasons, p.reason) }
                                 t = p.bool
                         } else if t, err = a.True(); err != nil {
                                 return
@@ -1869,13 +1868,13 @@ func predict(pos Position, pc *traversal, args... Value) (result bool, breakScop
                         }
 
                         if optAnd {
-                                result = result && !t
+                                result = result && t
                                 optAnd = false // reset -and flag
-                        } else if !t {
+                        } else if t {
                                 result = true
                                 break
                         }
-                }
+                }}
         }
         return
 }
@@ -1889,20 +1888,20 @@ func modifierAssert(pos Position, pc *traversal, args... Value) (result Value, e
         return
 }
 
-func modifierCase(pos Position, pc *traversal, args... Value) (result Value, err error) {
+func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err error) {
         var ( res bool; sco breaksco; msg string )
-        if res, sco, msg, err = predict(pos, pc, args...); err == nil {
-                var what = breakNext
-                if res { what = breakCase } // end cases
-                err = &breaker{ pos:pos, what:what, message:msg, scope:sco }
+        if res, sco, msg, err = predict(pos, pc, args...); !res && err == nil {
+                err = &breaker{ pos:pos, what:breakDone, message:msg, scope:sco }
         }
         return
 }
 
-func modifierCond(pos Position, pc *traversal, args... Value) (result Value, err error) {
+func modifierCase(pos Position, pc *traversal, args... Value) (result Value, err error) {
         var ( res bool; sco breaksco; msg string )
-        if res, sco, msg, err = predict(pos, pc, args...); res && err == nil {
-                err = &breaker{ pos:pos, what:breakDone, message:msg, scope:sco }
+        if res, sco, msg, err = predict(pos, pc, args...); err == nil {
+                var what = breakNext // next case
+                if res { what = breakCase } // select case
+                err = &breaker{ pos:pos, what:what, message:msg, scope:sco }
         }
         return
 }
@@ -1927,7 +1926,7 @@ func modifierDirty(pos Position, pc *traversal, args... Value) (result Value, er
         if dirty = pc.breaker != nil; dirty {
                 reason = fmt.Sprintf("dirty: %v", pc.breaker.what)
         } else if dirty = !exists(pc.def.target.value); dirty {
-                reason = fmt.Sprintf("dirty: not exists %v", pc.def.target.value)
+                reason = "dirty: target not exists"
         } else if dirty = len(pc.updated) > 0; dirty {
                 reason = fmt.Sprintf("dirty: updated %v", pc.updated)
         } else if dirty, err = pc.isRecipesDirty(); err != nil {
@@ -1935,7 +1934,7 @@ func modifierDirty(pos Position, pc *traversal, args... Value) (result Value, er
         } else if dirty {
                 reason = "dirty: recipes changed"
         } else {
-                //reason = "clear"
+                reason = "Good"
         }
 
         if optionTraceTraversal {
