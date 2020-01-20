@@ -220,7 +220,9 @@ func (g *modifiergroup) traverse(pc *traversal) (err error) {
 
                 var done bool
                 for _, e := range brks {
-                        pc.breaker = e
+                        // Save all breakers for (dirty) and interpreters.
+                        pc.breakers = append(pc.breakers, e)
+
                         if e.what == breakDone && e.scope == breakGroup {
                                 done = true
                         } else {
@@ -1923,8 +1925,8 @@ func modifierDirty(pos Position, pc *traversal, args... Value) (result Value, er
 
         var reason string
         var dirty bool
-        if dirty = pc.breaker != nil; dirty {
-                reason = fmt.Sprintf("dirty: %v", pc.breaker.what)
+        if dirty = len(pc.breakers) > 0; dirty {
+                reason = fmt.Sprintf("dirty: %v breakers", len(pc.breakers))
         } else if dirty = !exists(pc.def.target.value); dirty {
                 reason = "dirty: target not exists"
         } else if dirty = len(pc.updated) > 0; dirty {

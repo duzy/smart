@@ -64,7 +64,7 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
 }
 
 func (prog *Program) interpret(pc *traversal, i interpreter, params []Value) (err error) {
-        if pc.breaker != nil { return }
+        if len(pc.breakers) > 0 { return }
         if err = pc.wait(prog.position); err != nil {
                 return
         }

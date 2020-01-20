@@ -203,7 +203,7 @@ type traversal struct {
 
         traceLevel int
 
-        breaker *breaker
+        breakers []*breaker
         interpreted []interpreter
 
         print bool // printing work directories (Entering/Leaving)
