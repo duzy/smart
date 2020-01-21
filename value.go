@@ -196,7 +196,9 @@ type traversal struct {
         entry *RuleEntry // caller entry (target)
         args, arguments []Value // target and argumented prerequisite args
 
-        targets []Value // prerequisite targets for updating $^ $<
+        targets *Def
+        grepped []Value
+
         updated []*updatedtarget // prerequisites newer than the target (from comparer) ($?)
         stems   []string // set by StemmedEntry
 
@@ -236,10 +238,13 @@ func (pc *traversal) tracef(s string, a ...interface{}) {
 
 func (pc *traversal) addNewTarget(target Value) {
         if isNil(target) || isNone(target) { return }
-        for _, t := range pc.targets {
-                if t == target || t.cmp(target) == cmpEqual { return }
+        if pc.targets.value == target { return }
+        if targets, ok := pc.targets.value.(*List); ok {
+                for _, t := range targets.Elems {
+                        if t == target || t.cmp(target) == cmpEqual { return }
+                }
         }
-        pc.targets = append(pc.targets, target)
+        pc.targets.append(target)
 }
 
 func (pc *traversal) depth() (res int) {
@@ -2416,10 +2421,16 @@ func checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog
         // Set arguments in case that depends may refer to a parameter.
         if prog.params == nil || pc.arguments == nil {
                 // no need to set arguments
-        } else if e, clearParams := prog.setParams(pc.arguments); e != nil {
-                err = e; return
         } else {
-                defer clearParams()
+                var params []*Def
+                if params, err = prog.setParams(pc.arguments); err != nil { return } else
+                if len(params) > 0 {
+                        defer func(none *None) {
+                                for _, param := range params {
+                                        param.set(DefDefault, none)
+                                }
+                        } (&None{trivial{prog.position}})
+                }
         }
 
         var checkedPatterns = 0

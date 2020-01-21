@@ -99,19 +99,22 @@ func (prog *Program) modify(pc *traversal, m *modifier) (err error) {
                 if name == "configure" && pc.interpreted == nil {
                         // Evaluate for configure modifier
                         if i, ok := dialects["eval"]; ok && i != nil {
-                                err = prog.interpret(pc, i, v)
+                                if err = prog.interpret(pc, i, v); err != nil {
+                                        return
+                                }
                         }
                 }
-                if err == nil {
-                        var value Value
-                        if value, err = f(m.position, pc, v...); err == nil && value != nil {
-                                pc.def.modbuff.set(DefDefault, value)
+
+                var value Value
+                if value, err = f(m.position, pc, v...); err == nil && value != nil {
+                        if value != pc.def.modbuff && value != pc.def.modbuff.value {
+                                err = pc.def.modbuff.set(DefDefault, value)
                         }
                 }
         } else if i, _ := dialects[name]; i != nil {
                 err = prog.interpret(pc, i, v)
         } else {
-                err = fmt.Errorf("unknown modifier '%s'", name)
+                err = errorf(m.position, "unknown modifier '%s'", name)
         }
         return
 }
@@ -165,8 +168,7 @@ func (prog *Program) prerequisites(pc *traversal, args []Value) (result []Value,
         return
 }
 
-func (prog *Program) setParams(args []Value) (err error, restore func()) {
-        var params []*Def
+func (prog *Program) setParams(args []Value) (params []*Def, err error) {
         for i, param := range prog.params {
                 var def *Def
                 if def, err = prog.auto(param, &None{}); err != nil {
@@ -207,11 +209,6 @@ func (prog *Program) setParams(args []Value) (err error, restore func()) {
                 if err != nil {
                         err = wrap(prog.position, err)
                         return
-                }
-        }
-        restore = func() {
-                for _, param := range params {
-                        param.set(DefDefault, &None{})
                 }
         }
         return
@@ -272,6 +269,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if pc.def.updated, err = prog.auto("?", none); err != nil { return }
         if pc.def.stem,    err = prog.auto("*", none); err != nil { return }
         if pc.def.modbuff, err = prog.auto("-", none); err != nil { return }
+        if pc.def.params,  err = prog.setParams(args); err != nil { return }
         if pc.caller != nil {
                 pc.stems = pc.caller.stems
                 if optionTraceTraversalNestIndent {
@@ -294,15 +292,19 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
 
         // must set cloctx after cd (enter)
         defer setclosure(setclosure(cloctx.unshift(prog.scope)))
-        defer func(s string) { prog.project.changedWD = s } (prog.project.changedWD)
-        defer func() { // leaving after setting cloctx to meet the FIFO order
+        defer func(s string) { // leaving after setting cloctx to meet the FIFO order
                 if e := leave(prog, enterStop); e != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
                         if err == nil { err = e } else {
                                 fmt.Fprintf(stderr, "%s: leaving: %s\n", pc.entry.Position, e)
                         }
                 }
-        } ()
+                prog.project.changedWD = s
+        } (prog.project.changedWD)
+
+        if pc.stems != nil {
+                pc.def.stem.set(DefDefault, &String{trivial{prog.position},pc.stems[0]})
+        }
 
         var fileTarget *File
 
@@ -319,40 +321,12 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         err = wrap(prog.position, err)
                         return
                 }
-                if file := prog.project./*searchFile*/matchFile(name); file != nil {
+                if file := prog.project.matchFile(name); file != nil {
                         fileTarget = file
                         target = file
                 }
                 pc.def.target.set(DefDefault, target)
         }
-
-        if e, clearParams := prog.setParams(args); e != nil {
-                err = e; return
-        } else {
-                defer func() {
-                        clearParams()
-                        pc.def.params = nil
-                } ()
-        }
-
-        // Expanding all dependencies after pre-modifiers.
-        var depends, ordered []Value
-        if depends, err = prog.prerequisites(pc, prog.depends); err != nil {
-                err = wrap(prog.position, err)
-                return
-        }
-        if ordered, err = prog.prerequisites(pc, prog.ordered); err != nil {
-                err = wrap(prog.position, err)
-                return
-        }
-
-        if len(depends) > 0 { pc.def.depends.set(DefDefault, MakeList(prog.position, depends...)) }
-        if len(ordered) > 0 { pc.def.ordered.set(DefDefault, MakeList(prog.position, ordered...)) }
-
-        if pc.stems != nil {
-                pc.def.stem.set(DefDefault, &String{trivial{prog.position},pc.stems[0]})
-        }
-
         if fileTarget != nil && fileTarget.info != nil && fileTarget.updated {
                 if optionVerbose {
                         fmt.Fprintf(stderr, "smart: Already updated %v\n", fileTarget)
@@ -369,10 +343,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 }
 
                 result, err = pc.def.modbuff.Call(prog.position)
-                if err != nil {
-                        // NOTE: err could be breakCase, breakDone, etc.
-                        err = wrap(prog.position, err)
-                }
+                if err != nil { err = wrap(prog.position, err) }
         } ()
         return pc.exec(prog)
 }
@@ -385,12 +356,13 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
                 defer un(trace(t_exec, s))
         }
 
-        var pos = prog.position
-        if n, ok := pc.visited[pc.def.target.value]; ok && n > 0 {
+        pc.visited[pc.def.target.value] += 1
+        if pc.visited[pc.def.target.value] > 1 {
                 if optionTraceExec { t_exec.trace(fmt.Sprintf("visited: %v", pc.def.target.value)) }
                 if false { return }
         }
-        pc.visited[pc.def.target.value] += 1
+
+        var pos = prog.position
 
         // Update normal prerequisites
         if err = pc.traverseNormalPrerequisites(pos); err != nil {
@@ -403,7 +375,7 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
         }
 
         // Update grapped files
-        if err = pc.traverseGrepFiles(pos); err != nil {
+        if err = pc.traverseGreppedFiles(pos); err != nil {
                 return
         }
 
@@ -433,52 +405,62 @@ func (pc *traversal) exec(prog *Program) (result Value, err error) {
 
 func (pc *traversal) traverseNormalPrerequisites(pos Position) (err error) {
         if optionTraceExec { defer un(trace(t_exec, pc.def.depends.name)) }
-        if err = pc.traverseAll([]Value{pc.def.depends.value}); err != nil {
+
+        pc.targets = pc.def.depends
+        defer func() {
+                if isNone(pc.def.depends.value) { return }
+                if list, ok := pc.def.depends.value.(*List); ok {
+                        pc.def.depend0.value = list.Elems[0]
+                } else {
+                        pc.def.depend0.value = pc.def.depends.value
+                }
+                if len(pc.updated) > 0 {
+                        pc.def.updated.value = pc.updated[0].target // $?
+                        for _, t := range pc.updated[1:] {
+                                pc.def.updated.append(t.target)
+                        }
+                }
+        } ()
+
+        var depends []Value
+        if depends, err = pc.program.prerequisites(pc, pc.program.depends); err != nil {
+                err = wrap(pos, err)
+        } else if err = pc.traverseAll(depends); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
-        } else if err = pc.wait(pos); err != nil {  }
-        if len(pc.targets) > 0 {
-                pc.def.depend0.value = pc.targets[0] // $<
-                pc.def.depends.value = pc.targets[0] // $^
-                for _, t := range pc.targets[1:] {
-                        pc.def.depends.append(t)
-                }
-                pc.targets = nil
-        }
-        if len(pc.updated) > 0 {
-                pc.def.updated.value = pc.updated[0].target // $?
-                for _, t := range pc.updated[1:] {
-                        pc.def.updated.append(t.target)
-                }
+        } else if err = pc.wait(pos); err != nil {
+                // ...
         }
         return
 }
 
 func (pc *traversal) traverseOrderOnlyPrerequisites(pos Position) (err error) {
         if optionTraceExec { defer un(trace(t_exec, pc.def.ordered.name)) }
-        if err = pc.traverseAll([]Value{pc.def.ordered.value}); err != nil {
+
+        pc.targets = pc.def.ordered
+
+        var ordered []Value
+        if ordered, err = pc.program.prerequisites(pc, pc.program.ordered); err != nil {
+                err = wrap(pos, err)
+        } else if err = pc.traverseAll(ordered); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
-        } else if err = pc.wait(pos); err != nil {  }
-        if len(pc.targets) > 0 {
-                pc.def.ordered.value = pc.targets[0] // $|
-                for _, t := range pc.targets[1:] {
-                        pc.def.ordered.append(t)
-                }
-                pc.targets = nil
+        } else if err = pc.wait(pos); err != nil {
+                // ...
         }
         return
 }
 
-func (pc *traversal) traverseGrepFiles(pos Position) (err error) {
+func (pc *traversal) traverseGreppedFiles(pos Position) (err error) {
         if optionTraceExec { defer un(trace(t_exec, pc.def.grepped.name)) }
-        if err = pc.traverseAll([]Value{pc.def.grepped.value}); err != nil {
+
+        pc.targets = pc.def.grepped
+        
+        var grepped []Value
+        if grepped, err = pc.program.prerequisites(pc, pc.grepped); err != nil {
+                err = wrap(pos, err)
+        } else if err = pc.traverseAll(grepped); err != nil {
                 err = wrap(pos, pc.wait(pos), err)
-        } else if err = pc.wait(pos); err != nil {  }
-        if len(pc.targets) > 0 {
-                pc.def.grepped.value = pc.targets[0]
-                for _, t := range pc.targets[1:] {
-                        pc.def.grepped.append(t)
-                }
-                pc.targets = nil
+        } else if err = pc.wait(pos); err != nil {
+                // ...
         }
         return
 }

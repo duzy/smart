@@ -325,14 +325,14 @@ func (d *Def) Strval() (s string, e error) {
 
 func (d *Def) set(origin DefOrigin, value Value) (err error) {
         if origin != DefSimple && value != nil && value.refs(d) {
-                err = fmt.Errorf("recursive variable `%s` (from %v)", d.name, d.OwnerProject())
+                err = errorf(d.position, "value refers `%s`: %v (%T)", d.name, value, value)
                 if true || optionVerbose {
-                        fmt.Fprintf(stderr, "error: %v\n", err)
+                        fmt.Fprintf(stderr, "%v\n", err)
                         debug.PrintStack()
                 }
                 return
         } else if origin != DefExecute && value == nil {
-                value = &None{}
+                value = &None{trivial{d.position}}
         }
 
         switch d.origin = origin; origin {
