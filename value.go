@@ -386,6 +386,8 @@ func (p *Project) traverseTarget(pos Position, t *traversal, target string) (oka
         if file := p.matchFile(target); file != nil {
                 // Change the position for tracing.
                 file.position = pos
+                
+                t.addNewTarget(file) // Add new file target
 
                 // Invoke file rules no matter if it existed or not.
                 if okay, err = p.traverseFile(t, file); err != nil {
@@ -3600,8 +3602,8 @@ func (p *PercPattern) traverse(t *traversal) (err error) {
                 // oops...
         } else if len(rest) > 0 || target == "" {
                 // just relax
-        } else {
-                err = t.traverseTarget(p.position, target)
+        } else if err = t.traverseTarget(p.position, target); err == nil {
+                //t.addNewTarget(&String{trivial{p.position},target})
         }
         return
 }

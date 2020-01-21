@@ -2528,16 +2528,18 @@ func builtinReadFile(pos Position, args... Value) (res Value, err error) {
                 var (
                         s []byte
                         str string
+                        apos = a.Position()
                 )
+                if !apos.IsValid() { apos = pos }
                 if str, err = a.Strval(); err != nil { return }
                 if str == "" {
-                        err = scanner.Errorf(token.Position(pos), "`%v` empty file name", a)
+                        err = errorf(apos, "`%v` is empty file name", a)
                         break
                 }
                 if s, err = ioutil.ReadFile(str); err == nil {
-                        l = append(l, &String{trivial{a.Position()},string(s)})
+                        l = append(l, &String{trivial{pos},string(s)})
                 } else {
-                        break //l = append(l, &None{trivial{pos}})
+                        break
                 }
         }
         if err == nil {
