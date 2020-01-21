@@ -41,10 +41,10 @@ func (p *using) expand(w expandwhat) (Value, error) {
         }
         return p, nil
 }
-func (p *using) mod(pc *traversal) (res time.Time) {
+func (p *using) mod(t *traversal) (res time.Time, err error) {
         if entry := p.project.DefaultEntry(); entry != nil {
                 // FIXME: entry maybe not pointing to the real target
-                res = entry.mod(pc)
+                res, err = entry.mod(t)
         }
         return
 }
@@ -181,11 +181,11 @@ ForElems:
 func (p *usinglist) Name() string { return p.name }
 func (p *usinglist) Integer() (int64, error) { return 0, nil }
 func (p *usinglist) Float() (float64, error) { return 0, nil }
-func (p *usinglist) mod(pc *traversal) (res time.Time) {
+func (p *usinglist) mod(t *traversal) (res time.Time, err error) {
+        var a time.Time
         for _, elem := range p.list {
-                if t := elem.mod(pc); t.After(res) {
-                        res = t
-                }
+                if a, err = elem.mod(t); err != nil { break } else
+                if a.After(res) { res = a }
         }
         return
 }

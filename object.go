@@ -184,11 +184,11 @@ func (p *ProjectName) traverse2(pc *traversal) (okay bool, err error) {
         }
         return
 }
-func (p *ProjectName) mod(pc *traversal) (t time.Time) {
+func (p *ProjectName) mod(t *traversal) (res time.Time, err error) {
         if p.project != nil {
                 var defent = p.project.DefaultEntry()
                 if defent != nil && defent.class != UseRuleEntry {
-                        t = defent.mod(pc)
+                        res, err = defent.mod(t)
                 }
         }
         return
@@ -446,8 +446,8 @@ func (d *Def) traverse(pc *traversal) (err error) {
         if d.value != nil { err = d.value.traverse(pc) }
         return
 }
-func (d *Def) mod(pc *traversal) (t time.Time) {
-        if d.value != nil { t = d.value.mod(pc) }
+func (d *Def) mod(t *traversal) (res time.Time, err error) {
+        if d.value != nil { res, err = d.value.mod(t) }
         return
 }
 
@@ -488,7 +488,7 @@ func (p *undetermined) String() (s string) {
 func (p *undetermined) Strval() (string, error) { return p.value.Strval() }
 func (p *undetermined) Float() (float64, error) { return 0, nil }
 func (p *undetermined) Integer() (int64, error) { return 0, nil }
-func (p *undetermined) mod(pc *traversal) (t time.Time) { return }
+func (p *undetermined) mod(t *traversal) (res time.Time, err error) { return }
 func (p *undetermined) cmp(v Value) (res cmpres) {
         if a, ok := v.(*undetermined); ok {
                 assert(ok, "value is not undetermined")
@@ -753,9 +753,9 @@ ForPrograms:
         if err != nil { err = wrap(entry.position, err) }
         return
 }
-func (entry *RuleEntry) mod(pc *traversal) time.Time {
+func (entry *RuleEntry) mod(t *traversal) (time.Time, error) {
         // FIXME: entry.target maybe not the real target
-        return entry.target.mod(pc)
+        return entry.target.mod(t)
 }
 func (entry *RuleEntry) cmp(v Value) (res cmpres) {
         if a, ok := v.(*RuleEntry); ok {

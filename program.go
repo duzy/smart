@@ -119,15 +119,13 @@ func (prog *Program) modify(pc *traversal, m *modifier) (err error) {
         return
 }
 
-func (prog *Program) getModifier(name string) (res *modifier) {
+func (prog *Program) modifier(name string) (res *modifier) {
         for _, d := range prog.depends {
-                var g, ok = d.(*modifiergroup)
-                if !ok { continue }
-                for _, m := range g.modifiers {
-                        if s, err := m.name.Strval(); err != nil {
-                                break
-                        } else if name == s {
-                                res = m
+                if g, ok := d.(*modifiergroup); ok {
+                        for _, m := range g.modifiers {
+                                if s, _ := m.name.Strval(); s == name {
+                                        return m
+                                }
                         }
                 }
         }
@@ -279,7 +277,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         // Flag targets (-foo) turn off printing automatically
         if _, ok := pc.entry.target.(*Flag); ok { pc.print = false }
         if pc.print && pc.entry.class == UseRuleEntry { pc.print = false }
-        if pc.print && prog.getModifier("configure") != nil { pc.print = false }
+        if pc.print && prog.modifier("configure") != nil { pc.print = false }
 
         // cd before setting cloctx
         var enterStop *enterec

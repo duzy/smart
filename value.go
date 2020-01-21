@@ -96,13 +96,13 @@ type Value interface {
         cmp(v Value) cmpres
 
         // Returns the modification time.
-        mod(pc *traversal) time.Time // FIXME: (time.Time, error)
+        mod(t *traversal) (time.Time, error)
 
         // Returns value existence (as a target)
         exists() existence
 
         // Stamp the value if it's file (update FileInfo).
-        stamp(pc *traversal) ([]*File, error)
+        stamp(t *traversal) ([]*File, error)
 
         // Recursively detecting whether this value references
         // the object (to avoid loop-delegation).
@@ -114,7 +114,7 @@ type Value interface {
         // $(...) -> ......
         expand(what expandwhat) (Value, error)
 
-        traverse(pc *traversal) error
+        traverse(t *traversal) error
 }
 
 type closurecontext []*Scope
@@ -212,98 +212,92 @@ type traversal struct {
 }
 
 // Usage pattern: defer un(tt(pc, "..."))
-func tt(pc *traversal, i Value) *traversal {
-        // Note that pc.args and pc.arguments are different, they're
+func tt(t *traversal, i Value) *traversal {
+        // Note that t.args and t.arguments are different, they're
         // target execution args and argumented-prerequisite args.
         var a string
-        if t := pc.entry.target; len(pc.args) > 0 {
-                a = fmt.Sprintf("%T{%s}%s", t, t, pc.args)
+        if tar := t.entry.target; len(t.args) > 0 {
+                a = fmt.Sprintf("%T{%s}%s", tar, tar, t.args)
         } else {
-                a = fmt.Sprintf("%T{%v}", t, t)
+                a = fmt.Sprintf("%T{%v}", tar, tar)
         }
         var b = fmt.Sprintf("%T{%v}", i, i)
-        pc.trace(a, ":", b, "(")
-        pc.level(+1)
-        return pc
+        t.trace(a, ":", b, "(")
+        t.level(+1)
+        return t
 }
+func (t *traversal) level(n int) { t.traceLevel += n }
+func (t *traversal) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...) }
+func (t *traversal) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
 
-func (pc *traversal) level(n int) { pc.traceLevel += n }
-func (pc *traversal) trace(a ...interface{}) {
-        printIndentDots(pc.traceLevel, a...)
-}
-
-func (pc *traversal) tracef(s string, a ...interface{}) {
-        printIndentDots(pc.traceLevel, fmt.Sprintf(s, a...))
-}
-
-func (pc *traversal) addNewTarget(target Value) {
+func (t *traversal) addNewTarget(target Value) {
         if isNil(target) || isNone(target) { return }
-        if pc.targets.value == target { return }
-        if targets, ok := pc.targets.value.(*List); ok {
+        if t.targets.value == target { return }
+        if targets, ok := t.targets.value.(*List); ok {
                 for _, t := range targets.Elems {
                         if t == target || t.cmp(target) == cmpEqual { return }
                 }
         }
-        pc.targets.append(target)
+        t.targets.append(target)
 }
 
-func (pc *traversal) depth() (res int) {
-        for c := pc.caller; c != nil; c = c.caller { res += 1 }
+func (t *traversal) depth() (res int) {
+        for c := t.caller; c != nil; c = c.caller { res += 1 }
         return
 }
 
-func (pc *traversal) calleeStart() {
-        pc.group.Add(1)
+func (t *traversal) calleeStart() {
+        t.group.Add(1)
 }
 
-func (pc *traversal) calleeDone(err error) {
-        if err != nil { pc.calleeError(err) }
-        pc.group.Done()
+func (t *traversal) calleeDone(err error) {
+        if err != nil { t.calleeError(err) }
+        t.group.Done()
 }
 
-func (pc *traversal) calleeError(err error) {
-        pc.calleeErrsM.Lock(); defer pc.calleeErrsM.Unlock()
-        pc.calleeErrs = append(pc.calleeErrs, err)
+func (t *traversal) calleeError(err error) {
+        t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
+        t.calleeErrs = append(t.calleeErrs, err)
 }
 
-func (pc *traversal) calleeErrors() (errs []error) {
-        pc.calleeErrsM.Lock(); defer pc.calleeErrsM.Unlock()
-        errs = pc.calleeErrs
+func (t *traversal) calleeErrors() (errs []error) {
+        t.calleeErrsM.Lock(); defer t.calleeErrsM.Unlock()
+        errs = t.calleeErrs
         return
 }
 
-func (pc *traversal) traverseAll(value interface{}) (err error) {
+func (t *traversal) traverseAll(value interface{}) (err error) {
         if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
                 for i := 0; err == nil && i < v.Len(); i++ {
-                        err = pc.traverse(v.Index(i).Interface())
+                        err = t.traverse(v.Index(i).Interface())
                 }
         } else {
-                err = pc.traverse(value)
+                err = t.traverse(value)
         }
         return
 }
 
-func (pc *traversal) traverse(i interface{}) (err error) {
-        var pos = pc.def.target.position //pc.entry.position
+func (t *traversal) traverse(i interface{}) (err error) {
+        var pos = t.def.target.position //t.entry.position
         if i == nil {
                 err = errorf(pos, "updating nil prerequisite")
         } else if value, ok := i.(Value); !ok {
                 err = errorf(pos, "'%v' is invalid", value)
         } else if value == nil { // this could happen
                 err = errorf(pos, "updating nil prerequisite")
-        } else if err = value.traverse(pc); err == nil {
+        } else if err = value.traverse(t); err == nil {
                 // alright!
         }
         return
 }
 
-func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error) {
+func (p *Project) traverseFile(t *traversal, file *File) (okay bool, err error) {
         if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("in %v", p))) }
 
         var names = make(map[string]bool)
         for stub := file.filestub; true; stub = stub.other {
                 names[stub.name] = true // mark to avoid trying many times
-                okay, err = p.traverseFileStub(pc, stub)
+                okay, err = p.traverseFileStub(t, stub)
                 if err != nil || okay { file.filestub = stub; return }
                 if stub.other == file.filestub { break }
         }
@@ -327,7 +321,7 @@ func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error)
                         }
                         file.filestub.other = stub
 
-                        okay, err = p.traverseFileStub(pc, stub)
+                        okay, err = p.traverseFileStub(t, stub)
                         if err != nil || okay {
                                 file.filestub = stub
                                 return
@@ -347,13 +341,13 @@ func (p *Project) traverseFile(pc *traversal, file *File) (okay bool, err error)
         return
 }
 
-func (p *Project) traverseFileStub(pc *traversal, stub *filestub) (okay bool, err error) {
+func (p *Project) traverseFileStub(t *traversal, stub *filestub) (okay bool, err error) {
         /// Searching entries from the most derived project.
         var entry *RuleEntry
         if entry, err = p.resolveEntry(stub.name); err != nil {
                 return
         } else if entry != nil {
-                err, okay = entry.traverse(pc), true
+                err, okay = entry.traverse(t), true
                 return
         }
 
@@ -367,12 +361,12 @@ ForPatterns:
         for _, se := range ses {
                 for _, prog := range se.programs {
                         var ok bool
-                        ok, err = checkPatternDepends(pc, p, se, prog)
+                        ok, err = checkPatternDepends(t, p, se, prog)
                         if err != nil { break ForPatterns }
                         if !ok { continue ForPatterns }
                 }
                 se.stub = stub // Bounds StemmedEntry with the File.
-                if err = se.traverse(pc); err == nil {
+                if err = se.traverse(t); err == nil {
                         okay = true
                         return // Updated successfully!
                 }
@@ -380,10 +374,10 @@ ForPatterns:
         return
 }
 
-func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (okay bool, err error) {
+func (p *Project) traverseTarget(pos Position, t *traversal, target string) (okay bool, err error) {
         if obj := p.scope.Lookup(target); obj != nil {
                 if name, ok := obj.(*ProjectName); ok {
-                        if okay, err = name.traverse2(pc); okay || err != nil {
+                        if okay, err = name.traverse2(t); okay || err != nil {
                                 return
                         }
                 }
@@ -394,13 +388,13 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (ok
                 file.position = pos
 
                 // Invoke file rules no matter if it existed or not.
-                if okay, err = p.traverseFile(pc, file); err != nil {
+                if okay, err = p.traverseFile(t, file); err != nil {
                         err = wrap(pos, err)
                 } else if !okay {
                         err = wrap(pos, fileNotFoundError{p, file})
                 }
                 if optionTraceTraversal {
-                        pc.tracef("%s: traverseTarget(file{%s,%s,%s}): okay=%v, err=%v",
+                        t.tracef("%s: traverseTarget(file{%s,%s,%s}): okay=%v, err=%v",
                                 p.name, file.dir, file.sub, file.name,
                                 okay, err)
                 }
@@ -412,7 +406,7 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (ok
                 err = wrap(pos, err)
                 return
         } else if entry != nil {
-                okay, err = true, pc.traverse(entry)
+                okay, err = true, t.traverse(entry)
                 return
         }
 
@@ -422,7 +416,7 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (ok
                 for _, se := range ses {
                         for _, prog := range se.programs {
                                 var ok bool
-                                ok, err = checkPatternDepends(pc, p, se, prog)
+                                ok, err = checkPatternDepends(t, p, se, prog)
                                 if err != nil { break ForPatterns }
                                 if !ok { continue ForPatterns }
                         }
@@ -431,7 +425,7 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (ok
                         se.target = target
 
                         // Updated successfully!
-                        err = se.traverse(pc)
+                        err = se.traverse(t)
                         okay = err == nil
                         return
                 }
@@ -439,15 +433,15 @@ func (p *Project) traverseTarget(pos Position, pc *traversal, target string) (ok
         return
 }
 
-func (pc *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay bool, err error) {
-        var projects = []*Project{ pc.project }
-        if pc.program.project != pc.project {
-                projects = append(projects, pc.program.project)
+func (t *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay bool, err error) {
+        var projects = []*Project{ t.project }
+        if t.program.project != t.project {
+                projects = append(projects, t.program.project)
         }
 
 ForCallers:
-        for c := pc; c != nil; c = c.caller {
-                if c.closure != pc.closure { break }
+        for c := t; c != nil; c = c.caller {
+                if c.closure != t.closure { break }
                 var proj = c.project
                 for _, p := range projects {
                         if proj == p { continue ForCallers }
@@ -461,36 +455,36 @@ ForCallers:
         return
 }
 
-func (pc *traversal) traverseFile(file *File) (err error) {
+func (t *traversal) traverseFile(file *File) (err error) {
         var okay bool
-        okay, err = pc.foreachClosureProject(func(p *Project) (bool, error) {
-                return p.traverseFile(pc, file)
+        okay, err = t.foreachClosureProject(func(p *Project) (bool, error) {
+                return p.traverseFile(t, file)
         })
         if !okay && err == nil {
-                err = wrap(file.Position(), fileNotFoundError{pc.project, file})
-                if optionTraceTraversal { pc.tracef("%v: traverseFile({%s,%s,%s}): not found",
-                        pc.project, file.dir, file.sub, file.name) }
+                err = wrap(file.Position(), fileNotFoundError{t.project, file})
+                if optionTraceTraversal { t.tracef("%v: traverseFile({%s,%s,%s}): not found",
+                        t.project, file.dir, file.sub, file.name) }
         }
         return
 }
 
-func (pc *traversal) traverseTarget(pos Position, target string) (err error) {
+func (t *traversal) traverseTarget(pos Position, target string) (err error) {
         var okay bool
-        okay, err = pc.foreachClosureProject(func(p *Project) (bool, error) {
-                return p.traverseTarget(pos, pc, target)
+        okay, err = t.foreachClosureProject(func(p *Project) (bool, error) {
+                return p.traverseTarget(pos, t, target)
         })
         if !okay && err == nil {
-                err = wrap(pos, targetNotFoundError{pc.project, target})
-                if optionTraceTraversal { pc.tracef("%v: `traverseTarget(%s)` not found",
-                        pc.project, target) }
+                err = wrap(pos, targetNotFoundError{t.project, target})
+                if optionTraceTraversal { t.tracef("%v: `traverseTarget(%s)` not found",
+                        t.project, target) }
         }
         return
 }
 
-func (pc *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
+func (t *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
         // Execute the updating program.
         var res Value
-        if res, err = prog.execute(pc, entry, pc.arguments); err != nil {
+        if res, err = prog.execute(t, entry, t.arguments); err != nil {
                 if br, ok := err.(*breaker); ok {
                         switch br.what {
                         case breakBad:
@@ -502,28 +496,26 @@ func (pc *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
         return
 }
 
-func (pc *traversal) appendUpdated(target *updatedtarget) {
-        pc.updated = append(pc.updated, target)
-        if pc.caller != nil {
-                var t = newUpdatedTarget(pc.def.target.value, target)
-                pc.caller.appendUpdated(t)
-        }
+func (t *traversal) appendUpdated(target *updatedtarget) {
+        t.updated = append(t.updated, target)
+        if c := t.caller; c != nil { c.appendUpdated(
+                newUpdatedTarget(t.def.target.value, target))}
 }
 
-func (pc *traversal) hashDir(k []byte) string {
-        dir := pc.program.project.tmpPath
+func (t *traversal) hashDir(k []byte) string {
+        dir := t.program.project.tmpPath
         h := fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
         return filepath.Join(dir, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
 }
 
-func (pc *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
+func (t *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
         var (
                 key = sha256.New()
                 val = sha256.New()
                 str string
         )
-        if str, err = pc.def.target.value.Strval(); err != nil { return }
-        fmt.Fprintf(key, "%s", pc.program.project.absPath)
+        if str, err = t.def.target.value.Strval(); err != nil { return }
+        fmt.Fprintf(key, "%s", t.program.project.absPath)
         fmt.Fprintf(key, "%v", str)
 
         for _, value := range values {
@@ -540,12 +532,12 @@ func (pc *traversal) cmdHash(values ...Value) (k, v HashBytes, err error) {
         return
 }
 
-func (pc *traversal) updateRecipesHash() (k, v HashBytes, err error) {
-        if k, v, err = pc.cmdHash(pc.program.recipes...); err != nil {
+func (t *traversal) updateRecipesHash() (k, v HashBytes, err error) {
+        if k, v, err = t.cmdHash(t.program.recipes...); err != nil {
                 return
         }
 
-        var dir = pc.hashDir(k[:])
+        var dir = t.hashDir(k[:])
         var name = filepath.Join(dir, fmt.Sprintf("%x", k))
         if f, e := os.Open(name); e == nil {
                 defer f.Close()
@@ -564,7 +556,7 @@ func (pc *traversal) updateRecipesHash() (k, v HashBytes, err error) {
                 defer f.Close()
                 _, err = fmt.Fprintf(f, "%x", v)
                 /*fmt.Printf("update: %s\n%x\n", name, v)
-                for _, value := range pc.program.recipes {
+                for _, value := range t.program.recipes {
                         str, _ := value.Strval()
                         fmt.Printf("recipe: %v\n", str)
                 }*/
@@ -574,13 +566,13 @@ func (pc *traversal) updateRecipesHash() (k, v HashBytes, err error) {
         return
 }
 
-func (pc *traversal) isRecipesDirty() (dirty bool, err error) {
+func (t *traversal) isRecipesDirty() (dirty bool, err error) {
         var k, v HashBytes
-        if k, v, err = pc.cmdHash(pc.program.recipes...); err != nil {
+        if k, v, err = t.cmdHash(t.program.recipes...); err != nil {
                 return
         }
 
-        var dir = pc.hashDir(k[:])
+        var dir = t.hashDir(k[:])
         var name = filepath.Join(dir, fmt.Sprintf("%x", k))
         if f, e := os.Open(name); e == nil {
                 defer f.Close()
@@ -595,9 +587,9 @@ func (pc *traversal) isRecipesDirty() (dirty bool, err error) {
         return
 }
 
-func (pc *traversal) wait(pos Position) (err error) {
-        pc.group.Wait()
-        if e := pc.calleeErrors(); len(e) > 0 {
+func (t *traversal) wait(pos Position) (err error) {
+        t.group.Wait()
+        if e := t.calleeErrors(); len(e) > 0 {
                 err = wrap(pos, e...)
         }
         return
@@ -628,16 +620,16 @@ func (_ *trivial) refs(_ Value) (res bool) { return }
 func (_ *trivial) closured() (res bool) { return }
 func (_ *trivial) expand(_ expandwhat) (v Value, err error) { return }
 func (_ *trivial) cmp(_ Value) (res cmpres) { return }
-func (_ *trivial) mod(pc *traversal) (t time.Time) { return }
+func (_ *trivial) mod(t *traversal) (res time.Time, err error) { return }
 func (_ *trivial) exists() existence { return existenceMatterless }
-func (_ *trivial) stamp(pc *traversal) (file []*File, err error) { return }
+func (_ *trivial) stamp(t *traversal) (file []*File, err error) { return }
 func (p *trivial) Position() (res Position) { return p.position }
 func (_ *trivial) True() (res bool, err error) { return }
 func (_ *trivial) Integer() (i int64, err error) { return }
 func (_ *trivial) Float() (f float64, err error) { return }
 func (_ *trivial) String() (s string) { return }
 func (_ *trivial) Strval() (s string, err error) { return }
-func (_ *trivial) traverse(pc *traversal) (err error) { return }
+func (_ *trivial) traverse(t *traversal) (err error) { return }
 
 func exists(v Value) bool {
         // FIXME: returns true if existenceMatterless??
@@ -687,11 +679,11 @@ func (p *Argumented) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *Argumented) stamp(pc *traversal) ([]*File, error) { return p.value.stamp(pc) }
+func (p *Argumented) stamp(t *traversal) ([]*File, error) { return p.value.stamp(t) }
 func (p *Argumented) exists() existence { return p.value.exists() }
-func (p *Argumented) mod(pc *traversal) time.Time {
-        // FIXME: p.value maybe not the real target
-        return p.value.mod(pc)
+func (p *Argumented) mod(t *traversal) (time.Time, error) {
+        // FIXME: p.value maybe not the real target (depending on the arguments)
+        return p.value.mod(t)
 }
 func (p *Argumented) Position() Position { return p.value.Position() }
 func (p *Argumented) True() (res bool, err error) {
@@ -740,23 +732,23 @@ func (p *Argumented) Strval() (s string, err error) {
         s += ")"
         return
 }
-func (p *Argumented) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *Argumented) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         //!< IMPORTANT! - Don't merge-expand arguments here!
         //!< Arguments should be passed to Execute as it's
         //!< represented.
-        defer func(a []Value) { pc.arguments = a } (pc.arguments)
-        pc.arguments = p.args
-        err = pc.traverse(p.value)
+        defer func(a []Value) { t.arguments = a } (t.arguments)
+        t.arguments = p.args
+        err = t.traverse(p.value)
         return
 }
-func (p *Argumented) checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog *Program) (ok, res1 bool, err error) {
+func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (ok, res1 bool, err error) {
         switch v := p.value.(type) {
         case Pattern:
                 ok = true
-                res1, err = checkPatternDepend(pc, project, se, prog, v)
+                res1, err = checkPatternDepend(t, project, se, prog, v)
         case *Argumented:
-                ok, res1, err = v.checkPatternDepends(pc, project, se, prog)
+                ok, res1, err = v.checkPatternDepends(t, project, se, prog)
         }
         return
 }
@@ -801,22 +793,16 @@ func (p *Any) cmp(v Value) (res cmpres) {
         }
         return
 }
-func (p *Any) stamp(pc *traversal) (files []*File, err error) {
-        if a, ok := p.value.(Value); ok {
-                files, err = a.stamp(pc)
-        }
+func (p *Any) stamp(t *traversal) (files []*File, err error) {
+        if a, ok := p.value.(Value); ok { files, err = a.stamp(t) }
         return
 }
 func (p *Any) exists() existence {
-        if a, ok := p.value.(Value); ok {
-                return a.exists()
-        }
+        if a, ok := p.value.(Value); ok { return a.exists() }
         return existenceMatterless
 }
-func (p *Any) mod(pc *traversal) (t time.Time) {
-        if a, ok := p.value.(Value); ok {
-                t = a.mod(pc)
-        }
+func (p *Any) mod(t *traversal) (res time.Time, err error) {
+        if a, ok := p.value.(Value); ok { res, err = a.mod(t) }
         return
 }
 func (p *Any) expand(w expandwhat) (res Value, err error) {
@@ -828,21 +814,15 @@ func (p *Any) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Any) refs(o Value) (res bool) {
-        if v, ok := p.value.(Value); ok {
-                res = v.refs(o)
-        }
+        if v, ok := p.value.(Value); ok { res = v.refs(o) }
         return
 }
 func (p *Any) closured() (res bool) {
-        if v, ok := p.value.(Value); ok {
-                res = v.closured()
-        }
+        if v, ok := p.value.(Value); ok { res = v.closured() }
         return
 }
 func (p *Any) Position() (res Position) {
-        if v, ok := p.value.(Positioner); ok {
-                res = v.Position()
-        }
+        if v, ok := p.value.(Positioner); ok { res = v.Position() }
         return
 }
 func (p *Any) True() (t bool, err error) {
@@ -883,10 +863,10 @@ func (p *Any) Strval() (s string, err error) {
         return
 }
 func (p *Any) String() string { return fmt.Sprintf("<%v>", p.value) }
-func (p *Any) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *Any) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         if v, ok := p.value.(Value); ok {
-                err = v.traverse(pc)
+                err = v.traverse(t)
         }
         return 
 }
@@ -944,9 +924,9 @@ func (p *negative) Integer() (res int64, err error) {
         }
         return
 }
-func (p *negative) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
-        if p.x != nil { err = p.x.traverse(pc) }
+func (p *negative) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if p.x != nil { err = p.x.traverse(t) }
         return
 }
 
@@ -1124,7 +1104,6 @@ func (p *DateTime) String() string {
 func (p *DateTime) Strval() (string, error) { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00"), nil } // time.RFC3339Nano
 func (p *DateTime) Integer() (int64, error) { return p.t.Unix(), nil }
 func (p *DateTime) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
-//func (p *DateTime) mod(pc *traversal) (t time.Time) { return }
 func (p *DateTime) cmp(v Value) (res cmpres) {
         var vt time.Time
         switch a := v.(type) {
@@ -1378,9 +1357,9 @@ func (p *String) String() string { return p.elemstr(nil, 0) }
 func (p *String) Strval() (string, error) { return strings.Replace(p.string, "\\\"", "\"", -1), nil }
 func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-func (p *String) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
-        if false { err = pc.traverseTarget(p.Position(), p.string) }
+func (p *String) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if false { err = t.traverseTarget(p.Position(), p.string) }
         return
 }
 func (p *String) cmp(v Value) (res cmpres) {
@@ -1416,9 +1395,9 @@ func (p *Bareword) String() string { return p.string }
 func (p *Bareword) Strval() (string, error) { return p.string, nil }
 func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
-func (p *Bareword) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
-        err = pc.traverseTarget(p.position, p.string)
+func (p *Bareword) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        err = t.traverseTarget(p.position, p.string)
         return
 }
 func (p *Bareword) cmp(v Value) (res cmpres) {
@@ -1444,9 +1423,9 @@ func (p *Qualiword) String() string { return strings.Join(p.words,".") }
 func (p *Qualiword) Strval() (string, error) { return p.String(), nil }
 func (p *Qualiword) Integer() (int64, error) { return int64(len(p.words)), nil }
 func (p *Qualiword) Float() (float64, error) { return float64(len(p.words)), nil }
-func (p *Qualiword) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
-        err = pc.traverseTarget(p.position, p.String())
+func (p *Qualiword) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        err = t.traverseTarget(p.position, p.String())
         return
 }
 func (p *Qualiword) cmp(v Value) (res cmpres) {
@@ -1580,11 +1559,11 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *Barecomp) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *Barecomp) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         var target string
         if target, err = p.Strval(); err == nil {
-                err = pc.traverseTarget(p.Position(), target)
+                err = t.traverseTarget(p.Position(), target)
         }
         return
 }
@@ -1638,20 +1617,20 @@ func (p *Barefile) Float() (float64, error) {
         i, e := p.Integer()
         return float64(i), e
 }
-func (p *Barefile) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *Barefile) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         if p.File != nil {
-                err = p.File.traverse(pc)
+                err = p.File.traverse(t)
         } else {
                 var target string
                 if target, err = p.Strval(); err == nil {
-                        err = pc.traverseTarget(p.Position(),target)
+                        err = t.traverseTarget(p.Position(),target)
                 }
         }
         return
 }
-func (p *Barefile) stamp(pc *traversal) (files []*File, err error) {
-        if p.File != nil { files, err = p.File.stamp(pc) }
+func (p *Barefile) stamp(t *traversal) (files []*File, err error) {
+        if p.File != nil { files, err = p.File.stamp(t) }
         return
 }
 func (p *Barefile) exists() (res existence) {
@@ -1662,8 +1641,8 @@ func (p *Barefile) exists() (res existence) {
         }
         return
 }
-func (p *Barefile) mod(pc *traversal) (t time.Time) {
-        if p.File != nil { t = p.File.mod(pc) }
+func (p *Barefile) mod(t *traversal) (res time.Time, err error) {
+        if p.File != nil { res, err = p.File.mod(t) }
         return
 }
 func (p *Barefile) cmp(v Value) (res cmpres) {
@@ -1813,13 +1792,13 @@ func (p *Path) fullname(stems []string) (fullname string, err error) {// the add
         }
         return
 }
-func (p *Path) stamp(pc *traversal) (files []*File, err error) {
+func (p *Path) stamp(t *traversal) (files []*File, err error) {
         var fullname string
         if fullname, err = p.Strval(); err == nil {
                 if fullname == "" {
                         err = errorf(p.position, "no fullname for `%s`", p)
                 } else if file := stat(p.position, fullname,"","",nil); file != nil {
-                        files, err = file.stamp(pc)
+                        files, err = file.stamp(t)
                 }
         }
         return
@@ -1832,12 +1811,12 @@ func (p *Path) exists() existence {
         }
         return existenceNegated
 }
-func (p *Path) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *Path) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
 
         // Path fullname.
         var fullname string // the addressed file target
-        if fullname, err = p.fullname(pc.stems); err == nil && fullname == "" {
+        if fullname, err = p.fullname(t.stems); err == nil && fullname == "" {
                 err = errorf(p.position, "path matches no target: %v", p)
         }
         if err != nil { return }
@@ -1845,30 +1824,28 @@ func (p *Path) traverse(pc *traversal) (err error) {
         // Stat the file by fullname.
         var file = stat(p.position, fullname, "", "", nil)
         if optionTraceTraversal {
-                pc.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
+                t.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
         }
 
         file.position = p.position
-        if err = file.traverse(pc); err != nil {
+        if err = file.traverse(t); err != nil {
                 // oops, file not existed or other errors
         }
 
         if optionTraceTraversal {
-                pc.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
+                t.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
         }
         return
 }
-func (p *Path) mod(pc *traversal) (t time.Time) {
-        var err error
+func (p *Path) mod(t *traversal) (res time.Time, err error) {
         var fullname string // the addressed file target
-        if fullname, err = p.fullname(pc.stems); err != nil {
+        if fullname, err = p.fullname(t.stems); err != nil {
                 // oops
         } else if fullname == "" {
                 err = errorf(p.position, "path matches no target: %v", p)
         } else if file := stat(p.position, fullname, "", "", nil); file != nil && file.info != nil {
-                t = file.info.ModTime()
+                res = file.info.ModTime()
         }
-        //if optionTraceTraversal { pc.tracef("Path.mod: %v (%v)", t, p) }
         return
 }
 func (p *Path) isPattern() (result bool) {
@@ -2321,7 +2298,7 @@ func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
         }
         return
 }
-func (p *File) stamp(pc *traversal) (files []*File, err error) {
+func (p *File) stamp(t *traversal) (files []*File, err error) {
         var fullname string
         if fullname = p.fullname(); fullname == "" {
                 err = errorf(p.position, "no fullname for `%s`", p)
@@ -2337,17 +2314,17 @@ func (p *File) stamp(pc *traversal) (files []*File, err error) {
                 p.updated = nt.After(ot)
                 files = append(files, p)
 
-                var target = pc.def.target.value
+                var target = t.def.target.value
                 var cmp = target.cmp(p)
-                if cmp == cmpEqual && pc.caller != nil {
+                if cmp == cmpEqual && t.caller != nil {
                         // Add to caller context
-                        pc.caller.appendUpdated(newUpdatedTarget(p))
-                        target = pc.caller.def.target.value
+                        t.caller.appendUpdated(newUpdatedTarget(p))
+                        target = t.caller.def.target.value
                 } else {
-                        pc.appendUpdated(newUpdatedTarget(p))
+                        t.appendUpdated(newUpdatedTarget(p))
                 }
                 if optionTraceTraversal {
-                        pc.tracef("stamp: %v (%v, %v, %v)", p, nt.Sub(ot),
+                        t.tracef("stamp: %v (%v, %v, %v)", p, nt.Sub(ot),
                                 target, cmp)
                 }
         }
@@ -2360,70 +2337,74 @@ func (p *File) exists() existence {
                 return existenceNegated
         }
 }
-func (p *File) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *File) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
 
         // Add new file target, no matter it's going to be updated or not.
-        pc.addNewTarget(p)
+        t.addNewTarget(p)
 
         // FIXES: checks none-File file target
-        switch t := pc.def.target.value.(type) {
+        switch a := t.def.target.value.(type) {
         case *Barecomp: // convert barecomp path into a real Path
-                var v = t.Elems[0]
+                var v = a.Elems[0]
                 if p, ok := v.(*Path); ok {
-                        t.Elems = append(p.Elems[len(p.Elems)-1:], t.Elems[1:]...)
-                        p.Elems[len(p.Elems)-1] = t
-                        pc.def.target.value = p
+                        a.Elems = append(p.Elems[len(p.Elems)-1:], a.Elems[1:]...)
+                        p.Elems[len(p.Elems)-1] = a
+                        t.def.target.value = p
                         if optionTraceTraversal {
-                                pc.tracef("FIX: barecomp path: %v", p)
+                                t.tracef("FIX: barecomp path: %v", p)
                         }
                 } else {
                         var s string
-                        if s, err = t.Strval(); err != nil { return }
-                        if file := pc.project.matchFile(s); file != nil {
-                                pc.def.target.value = file
+                        if s, err = a.Strval(); err != nil { return }
+                        if file := t.project.matchFile(s); file != nil {
+                                t.def.target.value = file
                                 if optionTraceTraversal {
-                                        pc.tracef("FIX: barecomp file: %v", p)
+                                        t.tracef("FIX: barecomp file: %v", p)
                                 }
                         }
                 }
         }
 
-        if err = pc.traverseFile(p); err != nil {
+        if err = t.traverseFile(p); err != nil {
                 return
         }
 
         if optionTraceTraversal {
-                var t = pc.def.target.value
-                pc.tracef("%s: %v (%v)", typeof(t), t, t.mod(pc))
-                pc.tracef("%s: %v (%v)", typeof(p), p, p.mod(pc))
+                var a = t.def.target.value
+                var t1, _ = a.mod(t)
+                var t2, _ = p.mod(t)
+                t.tracef("%s: %v (%v)", typeof(a), a, t1)
+                t.tracef("%s: %v (%v)", typeof(p), p, t2)
         }
 
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
+        var a time.Time
         if p.info == nil { return }
-        if p.info.ModTime().After(pc.def.target.value.mod(pc)) {
-                if optionTraceTraversal { pc.tracef("updated: %v", p) }
-                pc.appendUpdated(newUpdatedTarget(p))
+        if a, err = t.def.target.value.mod(t); err != nil { return }
+        if p.info.ModTime().After(a) {
+                if optionTraceTraversal { t.tracef("updated: %v", p) }
+                t.appendUpdated(newUpdatedTarget(p))
         }
         return
 }
 
 // check pattern depends to find out if all depends are updatable
 // or updated/exists.
-func checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
+func checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
         if len(prog.depends) == 0 {
                 // Pattern is always good as no depends to check.
                 return true, nil
         }
 
         // Set arguments in case that depends may refer to a parameter.
-        if prog.params == nil || pc.arguments == nil {
+        if prog.params == nil || t.arguments == nil {
                 // no need to set arguments
         } else {
                 var params []*Def
-                if params, err = prog.setParams(pc.arguments); err != nil { return } else
+                if params, err = prog.setParams(t.arguments); err != nil { return } else
                 if len(params) > 0 {
                         defer func(none *None) {
                                 for _, param := range params {
@@ -2437,13 +2418,13 @@ func checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog
         for _, dep := range prog.depends {
                 switch d := dep.(type) {
                 case Pattern:
-                        res, err = checkPatternDepend(pc, project, se, prog, d)
+                        res, err = checkPatternDepend(t, project, se, prog, d)
                         checkedPatterns += 1
                         if err != nil { return }
                         if !res { break }
                 case *Argumented:
                         var ok, res1 bool
-                        ok, res1, err = d.checkPatternDepends(pc, project, se, prog)
+                        ok, res1, err = d.checkPatternDepends(t, project, se, prog)
                         if err != nil { return }
                         if ok && !res1 { break }
                         res = res1
@@ -2467,7 +2448,7 @@ func checkPatternDepends(pc *traversal, project *Project, se *StemmedEntry, prog
         return
 }
 
-func checkPatternDepend(pc *traversal, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
+func checkPatternDepend(t *traversal, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
         var name string
         var rest []string // rest stems
         if name, rest, err = pat.stencil(se.Stems); err != nil { return }
@@ -2497,7 +2478,7 @@ func checkPatternDepend(pc *traversal, project *Project, se *StemmedEntry, prog 
                         var recipes int
                         for _, prog := range se.programs {
                                 var ok bool
-                                ok, err = checkPatternDepends(pc, project, se, prog)
+                                ok, err = checkPatternDepends(t, project, se, prog)
                                 if !ok { continue ForPatterns }
                         }
                         if recipes > 0 { return true, nil }
@@ -2513,9 +2494,8 @@ func checkPatternDepend(pc *traversal, project *Project, se *StemmedEntry, prog 
         // TODO: check filepath.Join(project.absPath, name)
         return
 }
-func (p *File) mod(pc *traversal) (t time.Time) {
-        if p.info != nil { t = p.info.ModTime() }
-        //if optionTraceTraversal { pc.tracef("File.mod: %v (%v)", t, p) }
+func (p *File) mod(t *traversal) (res time.Time, err error) {
+        if p.info != nil { res = p.info.ModTime() }
         return
 }
 func (p *File) cmp(v Value) (res cmpres) {
@@ -2761,11 +2741,11 @@ func (p *List) expand(w expandwhat) (res Value, err error) {
         return
 }
 
-func (p *List) traverse(pc *traversal) (err error) {
+func (p *List) traverse(t *traversal) (err error) {
         if len(p.Elems) == 0 { return }
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+        if optionTraceTraversal { defer un(tt(t, p)) }
         for _, v := range p.Elems {
-                if err = v.traverse(pc); err != nil { break }
+                if err = v.traverse(t); err != nil { break }
         }
         return
 }
@@ -2786,20 +2766,20 @@ ForElems:
         return
 }
 
-func (p *List) stamp(pc *traversal) (files []*File, err error) {
+func (p *List) stamp(t *traversal) (files []*File, err error) {
         for _, elem := range p.Elems {
                 var a []*File
-                if a, err = elem.stamp(pc); err != nil { break }
+                if a, err = elem.stamp(t); err != nil { break }
                 files = append(files, a...)
         }
         return
 }
 
-func (p *List) mod(pc *traversal) (res time.Time) {
+func (p *List) mod(t *traversal) (res time.Time, err error) {
+        var a time.Time
         for _, elem := range p.Elems {
-                if t := elem.mod(pc); t.After(res) {
-                        res = t
-                }
+                if a, err = elem.mod(t); err == nil { break } else
+                if a.After(res) { res = a }
         }
         return
 }
@@ -2820,7 +2800,7 @@ func (p *Group) elemstr(o Object, k elemkind) string {
         }
         return fmt.Sprintf("(%s)", strings.Join(strs, " "))
 }
-func (p *Group) mod(pc *traversal) time.Time { return p.trivial.mod(pc) }
+func (p *Group) mod(t *traversal) (time.Time, error) { return p.trivial.mod(t) }
 func (p *Group) Position() Position { return p.trivial.Position() }
 func (p *Group) Float() (float64, error) { return p.trivial.Float() }
 func (p *Group) Integer() (int64, error) { return p.trivial.Integer() }
@@ -2835,8 +2815,8 @@ func (p *Group) Strval() (s string, err error) {
         }
         return
 }
-func (p *Group) traverse(pc *traversal) (err error) { return }
-func (p *Group) stamp(pc *traversal) (files []*File, err error) { return }
+func (p *Group) traverse(t *traversal) (err error) { return }
+func (p *Group) stamp(t *traversal) (files []*File, err error) { return }
 func (p *Group) exists() existence { return p.List.exists() }
 func (p *Group) expand(w expandwhat) (res Value, err error) {
         var ( elems []Value; num int )
@@ -3077,19 +3057,18 @@ func (p *delegate) closured() bool {
         }
         return false
 }
-func (p *delegate) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *delegate) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         var val Value
         if val, err = p.expand(expandAll); err == nil {
-                err = pc.traverse(val)
+                err = t.traverse(val)
         }
         return
 }
-func (p *delegate) mod(pc *traversal) (t time.Time) {
-        var err error
+func (p *delegate) mod(t *traversal) (res time.Time, err error) {
         var val Value
         if val, err = p.expand(expandAll); err == nil {
-                t = val.mod(pc)
+                res, err = val.mod(t)
         }
         return
 }
@@ -3274,23 +3253,22 @@ func (p *closure) refs(v Value) bool {
         return false
 }
 func (p *closure) closured() bool { return true }
-func (p *closure) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *closure) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         if v, e := p.expand(expandClosure); e != nil {
                 err = e
         } else if v == nil {
                 err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
                 fmt.Fprintf(stderr, "%s: closure.prepare: %v\n", p.Position(), err)
         } else {
-                err = pc.traverse(v)
+                err = t.traverse(v)
         }
         return
 }
-func (p *closure) mod(pc *traversal) (t time.Time) {
-        var err error
+func (p *closure) mod(t *traversal) (res time.Time, err error) {
         var val Value
         if val, err = p.expand(expandAll); err == nil {
-                t = val.mod(pc)
+                res, err = val.mod(t)
         }
         return
 }
@@ -3428,27 +3406,26 @@ func (p *selection) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *selection) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *selection) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         var v Value
         if v, err = p.value(); err != nil {
                 // sth's wrong
         } else if v == nil {
                 err = fmt.Errorf("`%v` is nil", p)
         } else {
-                err = pc.traverse(v)
+                err = t.traverse(v)
         }
         return
 }
-func (p *selection) mod(pc *traversal) (t time.Time) {
-        var err error
+func (p *selection) mod(t *traversal) (res time.Time, err error) {
         var v Value
-        if v, err = p.value(); err != nil {
-                // sth's wrong
-        } else if v == nil {
-                err = fmt.Errorf("`%v` is nil", p)
-        } else {
-                t = v.mod(pc)
+        if v, err = p.value(); err == nil {
+                if v == nil {
+                        err = errorf(p.position, "selection is nil")
+                } else {
+                        res, err = v.mod(t)
+                }
         }
         return
 }
@@ -3483,8 +3460,8 @@ func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleE
         entry = new(RuleEntry)
         *entry = *patent // Copy the entry object bits
 
-        if pc.project.isFileName(target) {
-                var file = pc.project.searchFile(target)
+        if t.project.isFileName(target) {
+                var file = t.project.searchFile(target)
                 if file == nil { // stat non-existed file
                         file = stat(target, "", project.absPath, nil)
                 }
@@ -3613,18 +3590,18 @@ func (p *PercPattern) stencil(stems []string) (s string, rest []string, err erro
 }
 func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.refs(v) }
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
-func (p *PercPattern) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
-        if pc.stems == nil { return }
+func (p *PercPattern) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if t.stems == nil { return }
 
         var target string
         var rest []string
-        if target, rest, err = p.stencil(pc.stems); err != nil {
+        if target, rest, err = p.stencil(t.stems); err != nil {
                 // oops...
         } else if len(rest) > 0 || target == "" {
                 // just relax
         } else {
-                err = pc.traverseTarget(p.position, target)
+                err = t.traverseTarget(p.position, target)
         }
         return
 }
@@ -3738,18 +3715,18 @@ func (p *GlobPattern) closured() (res bool) {
         }
         return
 }
-func (p *GlobPattern) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
-        if pc.stems == nil { return }
+func (p *GlobPattern) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if t.stems == nil { return }
 
         var target string
         var rest []string
-        if target, rest, err = p.stencil(pc.stems); err != nil {
+        if target, rest, err = p.stencil(t.stems); err != nil {
                 // oops...
         } else if len(rest) > 0 || target == "" {
                 // just relax
         } else {
-                err = pc.traverseTarget(p.position, target)
+                err = t.traverseTarget(p.position, target)
         }
         return
 }
