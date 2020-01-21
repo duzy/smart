@@ -238,8 +238,18 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         fmt.Fprintf(stderr, "    %v: %v\n", c.program.position, c.def.target)
                 }
                 if false { fmt.Fprintf(stderr, "\n") }
-                err = errorf(pos, "too many recursion (%d) (%v) (from %v)", recursion, entry.target, caller.def.target.value)
+                err = errorf(pos, "too many recursion (%d) (%v) (from %v)",
+                        recursion, entry.target, caller.def.target.value)
                 return
+        }
+
+        // The program scope must be protected!
+        for _, o := range prog.scope.elems {
+                if def, okay := o.(*Def); okay {
+                        defer func(def *Def, v Value) {
+                                def.value = v
+                        } (def, def.value)
+                }
         }
 
         var none = &None{trivial{pos}}
@@ -254,18 +264,23 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 caller: caller,
                 print: true,
         }
+        if pc.def.target,  err = prog.auto("@", none); err != nil { return }
+        if pc.def.depend0, err = prog.auto("<", none); err != nil { return }
+        if pc.def.depends, err = prog.auto("^", none); err != nil { return }
+        if pc.def.ordered, err = prog.auto("|", none); err != nil { return }
+        if pc.def.grepped, err = prog.auto("~", none); err != nil { return }
+        if pc.def.updated, err = prog.auto("?", none); err != nil { return }
+        if pc.def.stem,    err = prog.auto("*", none); err != nil { return }
+        if pc.def.modbuff, err = prog.auto("-", none); err != nil { return }
         if pc.caller != nil {
                 pc.stems = pc.caller.stems
                 if optionTraceTraversalNestIndent {
                         pc.traceLevel = pc.caller.traceLevel
                 }
         }
-
-        // Flag targets (-foo) turn off printing
+        // Flag targets (-foo) turn off printing automatically
         if _, ok := pc.entry.target.(*Flag); ok { pc.print = false }
-        if pc.print && pc.entry.class == UseRuleEntry {
-                pc.print = false
-        }
+        if pc.print && pc.entry.class == UseRuleEntry { pc.print = false }
         if pc.print && prog.getModifier("configure") != nil { pc.print = false }
 
         // cd before setting cloctx
@@ -288,27 +303,6 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         }
                 }
         } ()
-
-        // set $@, $^, $<, $|, $~, $?, etc
-        if pc.def.target,  err = prog.auto("@", none); err != nil { return }
-        if pc.def.depend0, err = prog.auto("<", none); err != nil { return }
-        if pc.def.depends, err = prog.auto("^", none); err != nil { return }
-        if pc.def.ordered, err = prog.auto("|", none); err != nil { return }
-        if pc.def.grepped, err = prog.auto("~", none); err != nil { return }
-        if pc.def.updated, err = prog.auto("?", none); err != nil { return }
-        if pc.def.stem,    err = prog.auto("*", none); err != nil { return }
-        if pc.def.modbuff, err = prog.auto("-", none); err != nil { return }
-        var set = func(def *Def, val Value) { def.value = val }
-        for _, def := range []*Def{
-                pc.def.target,  // $@
-                pc.def.depends, // $^
-                pc.def.depend0, // $<
-                pc.def.ordered, // $|
-                pc.def.grepped, // $~
-                pc.def.updated, // $?
-                pc.def.stem,    // $*
-                pc.def.modbuff, // $-
-        } { defer set(def, def.value) }
 
         var fileTarget *File
 
