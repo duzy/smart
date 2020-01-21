@@ -10,7 +10,7 @@ import (
         "extbit.io/smart/token"
         "crypto/sha256"
         "path/filepath"
-        //"runtime/debug" // debug.PrintStack()
+        "runtime/debug" // debug.PrintStack()
         "net/url"
         "reflect"
         "strconv"
@@ -439,14 +439,14 @@ func (t *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay 
                 projects = append(projects, t.program.project)
         }
 
-ForCallers:
         for c := t; c != nil; c = c.caller {
-                if c.closure != t.closure { break }
-                var proj = c.project
-                for _, p := range projects {
-                        if proj == p { continue ForCallers }
+                if t.closure == c.closure {
+                        var proj = c.project
+                        for _, p := range projects {
+                                if proj == p { proj = nil; break }
+                        }
+                        if proj != nil { projects = append(projects, proj) }
                 }
-                projects = append(projects, proj)
         }
 
         for _, proj := range projects {
@@ -478,21 +478,18 @@ func (t *traversal) traverseTarget(pos Position, target string) (err error) {
                 if optionTraceTraversal { t.tracef("%v: `traverseTarget(%s)` not found",
                         t.project, target) }
         }
+        if false && err != nil { debug.PrintStack() }
         return
 }
 
 func (t *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
         // Execute the updating program.
         var res Value
-        if res, err = prog.execute(t, entry, t.arguments); err != nil {
-                if br, ok := err.(*breaker); ok {
-                        switch br.what {
-                        case breakBad:
-                                fmt.Fprintf(stderr, "%s: %v\n", prog.position, err)
-                        }
+        if res, err = prog.execute(t, entry, t.arguments); err == nil {
+                if res != nil {
+                        // TODO: deal with res...
                 }
         }
-        if res == nil { /* TODO: ... */ }
         return
 }
 
@@ -3592,7 +3589,10 @@ func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.r
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
 func (p *PercPattern) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if t.stems == nil { return }
+        if t.stems == nil {
+                err = errorf(p.position, "no stems")
+                return
+        }
 
         var target string
         var rest []string
