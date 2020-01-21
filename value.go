@@ -196,6 +196,7 @@ type traversal struct {
         entry *RuleEntry // caller entry (target)
         args, arguments []Value // target and argumented prerequisite args
 
+        target0 *Def
         targets *Def
         grepped []Value
 
@@ -239,6 +240,9 @@ func (t *traversal) addNewTarget(target Value) {
                 }
         }
         t.targets.append(target)
+        if t.target0 != nil && isNone(t.target0.value) {
+                t.target0.value = target
+        }
 }
 
 func (t *traversal) depth() (res int) {
@@ -2513,7 +2517,7 @@ func (p *File) cmp(v Value) (res cmpres) {
                 } else if false /*p.dir != a.dir && p.sub == a.sub && p.name == a.name*/ {
                         s := fmt.Sprintf("\n      a: %s: %s %s", p.name, p.dir, p.sub)
                         s += fmt.Sprintf("\n      b: %s: %s %s", a.name, a.dir, a.sub)
-                        fmt.Fprintf(stderr, "warning: files may differ: %s != %s :%s\n", p.name, a.name, s)
+                        fmt.Fprintf(stderr, "%s: warning: files may differ: %s != %s :%s\n", p.position, p.name, a.name, s)
                 }
         }
         return

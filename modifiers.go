@@ -1532,19 +1532,20 @@ func modifierCopyFile(pos Position, pc *traversal, args... Value) (result Value,
         }
 
         if filepath.Base(srcname) != filepath.Base(filename) {
-                t, _ := pc.program.scope.Lookup("@").(*Def)
-                a, _ := pc.program.scope.Lookup("^").(*Def)
-                fmt.Printf("warning: %v, %v (%v) (%v)\n", target, source, t, a)
+                fmt.Fprintf(stderr, "%s:warning: %v, %v, %v\n", pos, target, filename, srcname)
+
+                a, _ := pc.program.scope.Lookup("@").(*Def)
+                b, _ := pc.program.scope.Lookup("<").(*Def)
+                c, _ := pc.program.scope.Lookup("^").(*Def)
+                fmt.Fprintf(stderr, "%s:warning: %v\n", a.position, a)
+                fmt.Fprintf(stderr, "%s:warning: %v\n", b.position, b)
+                fmt.Fprintf(stderr, "%s:warning: %v\n", c.position, c)
         }
 
         if !filetime.IsZero() && filetime.After(srctime) {
-                if optVerbose {
-                        fmt.Fprintf(stderr, "smart: Copying %v …… existed.\n", target)
-                }
+                if optVerbose { fmt.Fprintf(stderr, "smart: Copying %v …… existed.\n", target) }
                 return
-        } else if optVerbose {
-                fmt.Fprintf(stderr, "smart: Copying %v …", target)
-        }
+        } else if optVerbose { fmt.Fprintf(stderr, "smart: Copying %v …", target) }
         
         var copyOpts = &copyopts{ optPath, optMode, optHead, optFoot }
         var fi os.FileInfo
