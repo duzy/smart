@@ -11,6 +11,7 @@ import (
         "extbit.io/smart/token"
         "runtime/debug"
         "runtime"
+        "strings"
         "errors"
         "fmt"
 )
@@ -105,7 +106,7 @@ func (e fileNotFoundError) Error() string {
 func report(err error) error {
         if err != nil {
                 if false { debug.PrintStack() }
-                fmt.Fprintf(stderr, "%s", err)
+                fmt.Fprintf(stderr, "%s\n", strings.TrimSpace(err.Error()))
         }
         return err
 }

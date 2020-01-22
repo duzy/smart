@@ -182,7 +182,7 @@ type traversal struct {
                 ordered  *Def // $|
                 grepped  *Def // $~
                 updated  *Def // $?
-                modbuff  *Def // $-
+                buffer   *Def // $-
                 stem     *Def // $*
         }
 

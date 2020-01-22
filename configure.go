@@ -928,20 +928,15 @@ func walkFiles(pos Position, root string, pats []Value, fn filewalkFunc) error {
 
 // configure-file modifier (see also builtinConfigureFile), example usage:
 // 
-//     config.h:[(compare) (configure-file)]: config.h.in
+//     config.h: config.h.in [(configure-file)]
 //     
 func modifierConfigureFile(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        // Only configure file in update mode.
-        /*if pc.program.pc.mode != updateMode {
-                // Return to not overriding the configured file. 
-                return
-        }*/
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
         var target Value
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
         for _, arg := range args {
                 switch a := arg.(type) {
-                case *None, *Flag, *Pair:
+                case *Nil, *None, *Flag, *Pair:
                 default:
                         if target == nil {
                                 target = a
@@ -951,24 +946,12 @@ func modifierConfigureFile(pos Position, pc *traversal, args... Value) (result V
                         }
                 }
         }
-
         if target == nil {
-                if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil {
-                        return
-                } else if target == nil {
-                        err = fmt.Errorf("unknown configure file")
-                        return
-                } else {
-                        args = append(args, target)
-                }
+                target = pc.def.target.value
+                args = append(args, target)
         }
 
-        var value Value
-        if value, err = pc.program.scope.Lookup("-").(*Def).Call(pos); err != nil {
-                return
-        }
-
-        args = append(args, value)
+        args = append(args, pc.def.buffer.value)
         result, err = builtinConfigureFile(pos, args...)
         return
 }
@@ -978,29 +961,14 @@ func modifierConfigureFile(pos Position, pc *traversal, args... Value) (result V
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
 func modifierExtractConfiguration(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        // Only generate configure file in update mode
-        /*if m := pc.program.pc.mode; m != updateMode {
-                return
-        }*/
-
-        var target Value
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
-
-        var (depends []Value; val Value)
-        if val, err = pc.program.scope.Lookup("^").(*Def).Call(pos); err != nil { return }
-        if depends, err = mergeresult(ExpandAll(val)); err != nil { return }
-
-        val = nil // clear
-
-        var optPath bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
         var pats []Value
         var rxs []*regexp.Regexp
         var optTarget string
+        var optPath bool
         var optPerm = os.FileMode(0640) // sys default 0666
-        if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
                 "p,path",
                 "r,rx",
                 "r,regex",
@@ -1051,7 +1019,7 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args... Value) (r
         }
 
         var outFile string
-        if outFile, err = target.Strval(); err != nil { return }
+        if outFile, err = pc.def.target.value.Strval(); err != nil { return }
         if optPath {
                 if err = os.MkdirAll(filepath.Dir(outFile), os.FileMode(0755)); err != nil {
                         return
@@ -1065,6 +1033,9 @@ func modifierExtractConfiguration(pos Position, pc *traversal, args... Value) (r
                 out.Flush()
                 fil.Close()
         }()
+
+        var depends []Value
+        if depends, err = mergeresult(ExpandAll(pc.def.depends.value)); err != nil { return }
 
         var sources []Value
         for _, depend := range depends {
@@ -1171,8 +1142,8 @@ func modifierConfigure(pos Position, pc *traversal, args... Value) (result Value
                 }
         }); err != nil { return }
 
-        var ( target Value; name string )
-        if target, err = pc.program.scope.Lookup("@").(*Def).Call(pos); err != nil { return }
+        var name string
+        var target = pc.def.target.value
         if name, err = target.Strval(); err != nil { return }
 
         var def, alt = pc.program.project.scope.define(pc.program.project, name, nil)
@@ -1194,9 +1165,8 @@ func modifierConfigure(pos Position, pc *traversal, args... Value) (result Value
 
         var value Value
         var configured bool
-        var pipe = pc.program.scope.Lookup("-").(*Def)
         if len(args) == 0 { // zero configuration: (configure)
-                if value, err = pipe.Call(pos); err != nil {
+                if value, err = pc.def.buffer.Call(pos); err != nil {
                         err = wrap(pos, err)
                         return
                 }
@@ -1261,7 +1231,7 @@ ForConfig:
                         }
                 }
                 if err == nil && name != nil {
-                        configured, value, err = configureAction(pos, pc.program, target, def, pipe, name, para)
+                        configured, value, err = configureAction(pos, pc.program, target, def, pc.def.buffer, name, para)
                         if err != nil { err = wrap(pos, err) }
                 } else if err == nil {
                         err = errorf(pos, ") unknown configure action `%v` (%T)\n", a, a)

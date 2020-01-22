@@ -72,7 +72,7 @@ func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err
 
         var value Value
         if value, err = i.Evaluate(t, params); err == nil {
-                if value != nil { t.def.modbuff.set(DefDefault, value) }
+                if value != nil { t.def.buffer.set(DefDefault, value) }
                 _, _, err = t.updateRecipesHash()
         }
 
@@ -107,8 +107,8 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
 
                 var value Value
                 if value, err = f(m.position, t, v...); err == nil && value != nil {
-                        if value != t.def.modbuff && value != t.def.modbuff.value {
-                                err = t.def.modbuff.set(DefDefault, value)
+                        if value != t.def.buffer && value != t.def.buffer.value {
+                                err = t.def.buffer.set(DefDefault, value)
                         }
                 }
         } else if i, _ := dialects[name]; i != nil {
@@ -275,7 +275,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if t.def.grepped, err = prog.auto("~", none); err != nil { return }
         if t.def.updated, err = prog.auto("?", none); err != nil { return }
         if t.def.stem,    err = prog.auto("*", none); err != nil { return }
-        if t.def.modbuff, err = prog.auto("-", none); err != nil { return }
+        if t.def.buffer, err = prog.auto("-", none); err != nil { return }
         if t.def.params,  err = prog.setParams(args); err != nil { return }
         if t.caller != nil {
                 t.stems = t.caller.stems
@@ -349,7 +349,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         fileTarget.updated = true
                 }
 
-                result, err = t.def.modbuff.Call(prog.position)
+                result, err = t.def.buffer.Call(prog.position)
                 if err != nil { err = wrap(prog.position, err) }
         } ()
         return t.exec(prog)
@@ -405,7 +405,7 @@ func (t *traversal) exec(prog *Program) (result Value, err error) {
                 t_exec.trace(t.def.ordered)
                 t_exec.trace(t.def.grepped)
                 t_exec.trace(t.def.updated)
-                t_exec.trace(t.def.modbuff)
+                t_exec.trace(t.def.buffer)
         }
         return
 }
