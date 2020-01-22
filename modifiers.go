@@ -1911,13 +1911,16 @@ func modifierCase(pos Position, t *traversal, args... Value) (result Value, err 
 }
 
 func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var optDebug bool
         var optSilent bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else if args, err = parseFlags(args, []string{
+                "d,debug",
                 "s,silent",
         }, func(ru rune, v Value) {
                 switch ru {
+                case 'd': optDebug = trueVal(v, true)
                 case 's': optSilent = trueVal(v, true)
                 }
         }); err != nil { return }
@@ -1939,6 +1942,10 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 reason = "dirty: recipes changed"
         } else {
                 reason = "Good"
+        }
+
+        if optDebug {
+                fmt.Fprintf(stderr, "%s: dirty: %v\n", pos, dirty)
         }
 
         if optionTraceTraversal {
