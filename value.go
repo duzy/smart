@@ -369,10 +369,10 @@ ForPatterns:
                         if err != nil { break ForPatterns }
                         if !ok { continue ForPatterns }
                 }
-                se.stub = stub // Bounds StemmedEntry with the File.
+                // Associate StemmedEntry with the filestub.
+                //se.stub = stub
                 if err = se.traverse(t); err == nil {
-                        okay = true
-                        return // Updated successfully!
+                        okay = true; return
                 }
         }
         return
@@ -428,12 +428,10 @@ func (p *Project) traverseTarget(pos Position, t *traversal, target string) (oka
                         }
 
                         // Associate StemmedEntry with the target.
-                        se.target = target
-
-                        // Updated successfully!
-                        err = se.traverse(t)
-                        okay = err == nil
-                        return
+                        //se.target = target
+                        if err = se.traverse(t); err == nil {
+                                okay = true; return
+                        }
                 }
         }
         return

@@ -1576,9 +1576,23 @@ func modifierWriteFile(pos Position, t *traversal, args... Value) (result Value,
 }
 
 func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        var (
+                optDebug bool
+                optVerbose bool
+                filename string
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                "d,debug",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'd': optDebug = trueVal(v, true)
+                case 'v': optVerbose = trueVal(v, true)
+                }
+        }); err != nil { return }
 
-        var filename string
         if n := len(args); n > 1 {
                 err = errorf(pos, "too many files: %v", args)
                 return
@@ -1586,6 +1600,10 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
                 if filename, err = args[0].Strval(); err != nil { return }
         } else if filename, err = t.def.target.value.Strval(); err != nil {
                 return
+        }
+
+        if optDebug {
+                fmt.Fprintf(stderr, "%s:debug: read-file: %v\n", pos, filename)
         }
 
         var s []byte
@@ -1605,8 +1623,6 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 optMode = os.FileMode(0640) // sys default 0666
                 filename, content string
         )
-
-        // Process flags
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else if args, err = parseFlags(args, []string{
@@ -1641,21 +1657,24 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
 
         // Get target filename
         var project = t.project
-        switch t := target.(type) {
-        case *File:
-                if filename, err = t.Strval(); err != nil {
+        switch p := target.(type) {
+        case *File, *Path:
+                if filename, err = p.Strval(); err != nil {
                         return
                 }
         default:
-                if filename, err = target.Strval(); err != nil {
-                        return
-                } else if file := project.matchFile(filename); file != nil {
+                if filename, err = target.Strval(); err != nil { return } else
+                if file := project.matchFile(filename); file != nil {
                         if filename, err = file.Strval(); err != nil {
                                 return
                         } else {
                                 target = file
                         }
                 }
+        }
+
+        if optDebug {
+                fmt.Fprintf(stderr, "%s:debug: update-file: %v\n", pos, filename)
         }
 
         // Make path (mkdir -p)

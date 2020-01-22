@@ -575,9 +575,7 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
                 if s, stems, err = pat.Pattern.match(i); err != nil {
                         return
                 } else if s != "" && stems != nil {
-                        res = append(res, &StemmedEntry{
-                                pat, stems, s, nil,
-                        })
+                        res = append(res, &StemmedEntry{pat, stems})
                 }
         }
         for _, base := range p.bases {

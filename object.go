@@ -796,15 +796,13 @@ func (p *PatternEntry) cmp(v Value) (res cmpres) {
 type StemmedEntry struct {
         *PatternEntry
         Stems []string // stem string
-        target string // source target matching the pattern
-        stub *filestub // source file matching the pattern
 }
 func (p *StemmedEntry) expand(w expandwhat) (res Value, err error) {
         var v Value
         if v, err = p.PatternEntry.expand(w); err != nil {
                 return
         } else if v != p.PatternEntry {
-                res = &StemmedEntry{v.(*PatternEntry),p.Stems,p.target,p.stub}
+                res = &StemmedEntry{v.(*PatternEntry),p.Stems}
         }
         return
 }
@@ -822,54 +820,36 @@ func (p *StemmedEntry) cmp(v Value) (res cmpres) {
 func (p *StemmedEntry) String() (s string) {
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
-func (p *StemmedEntry) concrete(pc *traversal, stems []string) (entry *RuleEntry, err error) {
+func (p *StemmedEntry) concrete(t *traversal, stems []string) (entry *RuleEntry, err error) {
         entry = new(RuleEntry)
         *entry = *p.RuleEntry // copy RuleEntry bits
 
+        var pos = p.position
         var name string
         var rest []string
-        name, rest, err = p.Pattern.stencil(stems)
-        if err != nil { return }
-        if len(rest) > 0 {
-                // TODO: panic(fmt.Sprintf("unhandled stems %v (name=%v)", rest, name))
-                //
-                // This happens for examples like "%%/Dockerfile" (rest=[Dockerfile])
-        }
+        if name, rest, err = p.Pattern.stencil(stems); err != nil { err = wrap(pos, err); return }
+        if len(rest) > 0 { err = errorf(pos, "incomplete stencil: rest=%v", rest); return }
 
-        if p.stub != nil {
-                file := stat(p.position, name, p.stub.sub, p.stub.dir, nil)
+        if file := t.project.matchFile(name); file != nil {
                 entry.target = file
-                if enable_assertions {
-                        //assert(name == p.stub.name, "'%s' stemmed name is wrong (!= %s)", name, p.stub.name)
-                        //assert(file.filebase == p.file.filebase, "'%v' stemmed file is wrong (!= %v)", file, p.file)
+                if false { s, _ := file.Strval()
+                        fmt.Fprintf(stderr, "%s: %v, %v, %s\n", pos, stems, file, s)
                 }
         } else {
-                if enable_assertions && p.target != "" {
-                        assert(name == p.target, "'%s' stemmed name is wrong (!= %s)", name, p.target)
-                }
-
-                var proj = pc.project
-                /*if proj == nil {
-                        proj = pc.related[0]
-                }*/
-
-                if file := proj.matchFile(name); file != nil {
-                        entry.target = file
-                } else {
-                        entry.target = &String{trivial{entry.position},name}
-                }
+                entry.target = &String{trivial{pos},name}
         }
         return
 }
-func (p *StemmedEntry) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *StemmedEntry) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
 
-        pc.stems = p.Stems // set stems for the traversal
+        defer func(stems []string) { t.stems = stems } (t.stems)
+        t.stems = p.Stems // set stems for the traversal
 
         var entry *RuleEntry
-        if entry, err = p.concrete(pc, pc.stems); err != nil {
+        if entry, err = p.concrete(t, t.stems); err != nil {
                 // oops
-        } else if err = entry.traverse(pc); err != nil {
+        } else if err = entry.traverse(t); err != nil {
                 err = wrap(p.position, err)
         }
         return

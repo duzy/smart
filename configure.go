@@ -961,55 +961,49 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                 }}
         }); err != nil { err = wrap(pos, err); return }
 
-        var data bytes.Buffer
-        var scope *Scope //= t.closure
-        if len(cloctx) > 0 { scope = cloctx[0] } else
-        if context.loader != nil { scope = context.loader.scope }
-        if scope == nil {
-                err = errorf(pos, "unknown configure scope")
-                return
+        var file *File
+        if file, _ = t.def.target.value.(*File); file == nil {
+                var s string
+                if s, err = t.def.target.value.Strval(); err != nil {
+                        err = wrap(pos, err)
+                        return
+                }
+
+                var okay bool
+                okay, err = t.foreachClosureProject(func(p *Project) (ok bool, err error) {
+                        if file = p.matchFile(s); file != nil { ok = true }
+                        if optDebug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
+                        return
+                })
+                if err != nil { return } else if !okay {
+                        err = errorf(pos, "'%s' is not a file", s)
+                        return
+                }
         }
+        if file == nil { err = errorf(pos, "no file target"); return }
+
+        var filename string
+        if filename, err = file.Strval(); err != nil { err = wrap(pos, err); return } else
+        if filename == "" { err = errorf(pos, "`%v` has empty filename", file); return }
+        if file.info == nil {if f := stat(pos, filename, "", ""); f != nil { file.info = f.info }}
+        if optDebug {
+                var s, _ = file.Strval()
+                var target = t.def.target.value
+                fmt.Fprintf(stderr, "%s:debug: configure-file: %s %v (%s)\n", pos, typeof(target), target, s)
+        }
+
+        var data bytes.Buffer
         for _, arg := range append(args, t.def.buffer.value) {
                 var str string
                 if str, err = arg.Strval(); err != nil { return }
                 if str == "" { continue }
-                if err = configure(pos, &data, scope, str); err != nil {
+                if err = configure(pos, &data, t.closure, str); err != nil {
                         return
                 }
         }
         if data.Len() == 0 {
                 err = errorf(pos, "no input data")
                 return
-        }
-
-        var file *File
-        var filename string
-        if file, _ = t.def.target.value.(*File); file == nil {
-                if filename, err = t.def.target.value.Strval(); err != nil {
-                        return
-                }
-                var dir = filepath.Dir(filename)
-                var name = filepath.Base(filename)
-                file = stat(pos, name, "", dir, nil)
-                if file == nil {
-                        err = errorf(pos, "configure-file: nil `%v`", filename)
-                        return
-                }
-        } else if filename, err = file.Strval(); err != nil {
-                unreachable()
-        } else if filename == "" {
-                err = fmt.Errorf("invalid file `%v`", file)
-                return
-        }
-        if file.info == nil {
-                if f := stat(pos, filename, "", ""); f != nil {
-                        file.info = f.info
-                }
-        }
-
-        if optDebug {
-                s, _ := file.Strval()
-                fmt.Fprintf(stderr, "%s:debug: update-file: %v", pos, s)
         }
 
         if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
