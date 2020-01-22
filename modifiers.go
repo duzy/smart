@@ -1945,7 +1945,9 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         }
 
         if optDebug {
-                fmt.Fprintf(stderr, "%s: dirty: %v\n", pos, dirty)
+                var a = typeof(t.def.target.value)
+                var s, _ = t.def.target.value.Strval()
+                fmt.Fprintf(stderr, "%s: %s %s (dirty=%v)\n", pos, a, s, dirty)
         }
 
         if optionTraceTraversal {

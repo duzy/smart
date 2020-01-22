@@ -820,36 +820,37 @@ func (p *StemmedEntry) cmp(v Value) (res cmpres) {
 func (p *StemmedEntry) String() (s string) {
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
-func (p *StemmedEntry) concrete(t *traversal, stems []string) (entry *RuleEntry, err error) {
-        entry = new(RuleEntry)
-        *entry = *p.RuleEntry // copy RuleEntry bits
+func (p *StemmedEntry) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+
+        defer func(a Value) { p.target = a } (p.target)
+        defer func(stems []string) { t.stems = stems } (t.stems)
+        t.stems = p.Stems // set stems for the traversal
 
         var pos = p.position
         var name string
         var rest []string
-        if name, rest, err = p.Pattern.stencil(stems); err != nil { err = wrap(pos, err); return }
+        if name, rest, err = p.Pattern.stencil(t.stems); err != nil { err = wrap(pos, err); return }
         if len(rest) > 0 { err = errorf(pos, "incomplete stencil: rest=%v", rest); return }
 
-        if file := t.project.matchFile(name); file != nil {
-                entry.target = file
+        if path, ok := p.Pattern.(*Path); ok {
+                p.target = MakePathStr(pos, name)
+                if false {
+                        fmt.Fprintf(stderr, "%s:stemmed: path %v -> %s, stems=%v\n", pos, path, p.target, t.stems)
+                }
+        } else if file := t.project.matchFile(name); file != nil {
+                p.target = file
                 if false { s, _ := file.Strval()
-                        fmt.Fprintf(stderr, "%s: %v, %v, %s\n", pos, stems, file, s)
+                        fmt.Fprintf(stderr, "%s:stemmed: %T %v -> %v, %v, stems=%v\n", pos, p.Pattern, p.Pattern, file, s, t.stems)
                 }
         } else {
-                entry.target = &String{trivial{pos},name}
+                p.target = &String{trivial{pos},name}
+                if false {
+                        fmt.Fprintf(stderr, "%s:stemmed: %T %v -> %v, stems=%v\n", pos, p.Pattern, p.Pattern, name, t.stems)
+                }
         }
-        return
-}
-func (p *StemmedEntry) traverse(t *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(t, p)) }
 
-        defer func(stems []string) { t.stems = stems } (t.stems)
-        t.stems = p.Stems // set stems for the traversal
-
-        var entry *RuleEntry
-        if entry, err = p.concrete(t, t.stems); err != nil {
-                // oops
-        } else if err = entry.traverse(t); err != nil {
+        if err = p.RuleEntry.traverse(t); err != nil {
                 err = wrap(p.position, err)
         }
         return
