@@ -11,7 +11,7 @@ import (
         "extbit.io/smart/token"
         "encoding/base64"
         "path/filepath"
-        "hash/crc64"
+        //"hash/crc64"
         "io/ioutil"
         "net/http"
         "os/exec"
@@ -176,8 +176,6 @@ var builtins = map[string]BuiltinFunc {
         `touch-file`: builtinTouchFile,
 
         `grep`:       builtinGrep,
-
-        `configure-file`: builtinConfigureFile,
 
         `return`:     builtinReturn,
 }
@@ -2856,137 +2854,6 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
         }
         if index < len(str) {
                 _, err = out.WriteString(str[index:])
-        }
-        return
-}
-
-// configure-file builtin (see also modifierConfigureFile), example usage:
-// 
-//      config.h:[(compare)]: config.h.in
-//      	configure-file -p -m=0600 $@ $(read-file $<)
-//     
-func builtinConfigureFile(pos Position, args... Value) (res Value, err error) {
-        var (
-                optPath = false
-                optVerbose = false
-                optMode = os.FileMode(0600)
-        )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
-                "m,mode",
-                "p,path",
-                "v,verbose",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'p': optPath = true
-                case 'v': optVerbose = true
-                case 'm': if v != nil {
-                        var num int64
-                        if num, err = v.Integer(); err != nil { return } else {
-                                optMode = os.FileMode(num & 0777)
-                        }
-                }}
-        }); err != nil { return } else if len(args) < 1 { return }
-
-        var scope *Scope
-        if len(cloctx) > 0 { scope = cloctx[0] } else
-        if context.loader != nil { scope = context.loader.scope }
-        if scope == nil {
-                err = fmt.Errorf("unknown configure scope")
-                return
-        }
-
-        var data bytes.Buffer
-        for _, arg := range args[1:] {
-                var str string
-                if str, err = arg.Strval(); err != nil { return }
-                if str == "" { continue }
-                if err = configure(pos, &data, scope, str); err != nil {
-                        return
-                }
-        }
-        if data.Len() == 0 && len(args) <= 1 {
-                // no content produced
-                return
-        }
-
-        var file *File
-        var filename string
-        if file, _ = args[0].(*File); file == nil {
-                if filename, err = args[0].Strval(); err != nil {
-                        return
-                }
-                var dir = filepath.Dir(filename)
-                var name = filepath.Base(filename)
-                file = stat(pos, name, "", dir, nil)
-                if file == nil {
-                        err = fmt.Errorf("configure-file: nil `%v`", filename)
-                        return
-                }
-        } else if filename, err = file.Strval(); err != nil {
-                unreachable()
-        } else if filename == "" {
-                err = fmt.Errorf("invalid file `%v`", file)
-                return
-        }
-        if file.info == nil {
-                if f := stat(pos, filename, "", ""); f != nil {
-                        file.info = f.info
-                }
-        }
-        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
-        if file.info != nil {
-                var f *os.File
-                if f, err = os.Open(filename); err == nil && f != nil {
-                        defer f.Close()
-                        if st, _ := f.Stat(); st.Mode().Perm() != optMode {
-                                if err = f.Chmod(optMode); err != nil {
-                                        fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                                        return
-                                }
-                        }
-                        w1 := crc64.New(crc64Table)
-                        w2 := crc64.New(crc64Table)
-                        if _, err = io.Copy(w1, f); err != nil {
-                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                                return
-                        }
-                        if _, err = w2.Write(data.Bytes()); err != nil {
-                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                                return
-                        }
-                        if s1, s2 := w1.Sum64(), w2.Sum64(); s1 == s2 {
-                                if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
-                                res = file
-                                return
-                        }
-                }
-        } else if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
-                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
-        }
-        if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
-
-        var status string
-        if optVerbose {
-                printEnteringDirectory()
-                fmt.Fprintf(stderr, "smart: Updating %v …", file)
-                defer func() {
-                        if err != nil { status = "error!" } else {
-                                if status == "" { status = "done." }
-                        }
-                        fmt.Fprintf(stderr, "… %s\n", status)
-                } ()
-        }
-
-        if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err == nil {
-                if file.info != nil { res = file } else {
-                        if file.info, err = os.Stat(filename); err == nil {
-                                context.globe.stamp(filename, file.info.ModTime())
-                                res = file
-                        }
-                }
-                status = fmt.Sprintf("updated (%d bytes).", data.Len())
         }
         return
 }

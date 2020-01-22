@@ -1578,14 +1578,21 @@ func modifierWriteFile(pos Position, t *traversal, args... Value) (result Value,
 func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var ( filename string ; s []byte )
-        if filename, err = t.def.target.value.Strval(); err != nil {
+        var filename string
+        if n := len(args); n > 1 {
+                err = errorf(pos, "too many files: %v", args)
                 return
-        } else if s, err = ioutil.ReadFile(filename); err == nil {
+        } else if n == 1 {
+                if filename, err = args[0].Strval(); err != nil { return }
+        } else if filename, err = t.def.target.value.Strval(); err != nil {
+                return
+        }
+
+        var s []byte
+        if s, err = ioutil.ReadFile(filename); err == nil {
                 t.def.buffer.value = &String{trivial{pos},string(s)}
         } else {
-                s := fmt.Sprintf("file %s not generated", t.def.target.value)
-                err = &breaker{ pos:pos, what:breakFail, message:s }
+                err = &breaker{pos:pos, what:breakFail, message:err.Error()}
         }
         return
 }
@@ -1593,6 +1600,7 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
 func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value, err error) {
         var (
                 optPath bool
+                optDebug bool
                 optVerbose bool
                 optMode = os.FileMode(0640) // sys default 0666
                 filename, content string
@@ -1602,11 +1610,13 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else if args, err = parseFlags(args, []string{
+                "d,debug",
                 "p,path",
                 "v,verbose",
                 "m,mode",
         }, func(ru rune, v Value) {
                 switch ru {
+                case 'd': optDebug = trueVal(v, true)
                 case 'p': optPath = trueVal(v, true)
                 case 'v': optVerbose = trueVal(v, true)
                 case 'm':

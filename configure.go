@@ -12,12 +12,16 @@ import (
         "path/filepath"
         "unicode/utf8"
         "unicode"
+        "hash/crc64"
+        "io/ioutil"
         "strings"
         "regexp"
         "bufio"
+        "bytes"
         "sort"
         "fmt"
         "os"
+        "io"
 )
 
 type packagetype uint8
@@ -930,29 +934,137 @@ func walkFiles(pos Position, root string, pats []Value, fn filewalkFunc) error {
 // 
 //     config.h: config.h.in [(configure-file)]
 //     
-func modifierConfigureFile(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var (
+                optPath = false
+                optDebug = false
+                optVerbose = false
+                optMode = os.FileMode(0600)
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                "d,debug",
+                "m,mode",
+                "p,path",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'd': optDebug = trueVal(v, true)
+                case 'p': optPath = trueVal(v, true)
+                case 'v': optVerbose = trueVal(v, true)
+                case 'm': if v != nil {
+                        var num int64
+                        if num, err = v.Integer(); err != nil { return } else {
+                                optMode = os.FileMode(num & 0777)
+                        }
+                }}
+        }); err != nil { err = wrap(pos, err); return }
 
-        var target Value
-        for _, arg := range args {
-                switch a := arg.(type) {
-                case *Nil, *None, *Flag, *Pair:
-                default:
-                        if target == nil {
-                                target = a
-                        } else {
-                                err = fmt.Errorf("too many configure files")
+        var data bytes.Buffer
+        var scope *Scope //= t.closure
+        if len(cloctx) > 0 { scope = cloctx[0] } else
+        if context.loader != nil { scope = context.loader.scope }
+        if scope == nil {
+                err = errorf(pos, "unknown configure scope")
+                return
+        }
+        for _, arg := range append(args, t.def.buffer.value) {
+                var str string
+                if str, err = arg.Strval(); err != nil { return }
+                if str == "" { continue }
+                if err = configure(pos, &data, scope, str); err != nil {
+                        return
+                }
+        }
+        if data.Len() == 0 {
+                err = errorf(pos, "no input data")
+                return
+        }
+
+        var file *File
+        var filename string
+        if file, _ = t.def.target.value.(*File); file == nil {
+                if filename, err = t.def.target.value.Strval(); err != nil {
+                        return
+                }
+                var dir = filepath.Dir(filename)
+                var name = filepath.Base(filename)
+                file = stat(pos, name, "", dir, nil)
+                if file == nil {
+                        err = errorf(pos, "configure-file: nil `%v`", filename)
+                        return
+                }
+        } else if filename, err = file.Strval(); err != nil {
+                unreachable()
+        } else if filename == "" {
+                err = fmt.Errorf("invalid file `%v`", file)
+                return
+        }
+        if file.info == nil {
+                if f := stat(pos, filename, "", ""); f != nil {
+                        file.info = f.info
+                }
+        }
+
+        if optDebug {
+                s, _ := file.Strval()
+                fmt.Fprintf(stderr, "%s:debug: update-file: %v", pos, s)
+        }
+
+        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
+        if file.info != nil {
+                var f *os.File
+                if f, err = os.Open(filename); err == nil && f != nil {
+                        defer f.Close()
+                        if st, _ := f.Stat(); st.Mode().Perm() != optMode {
+                                if err = f.Chmod(optMode); err != nil {
+                                        fmt.Fprintf(stderr, "… (error: %s)\n", err)
+                                        return
+                                }
+                        }
+                        w1 := crc64.New(crc64Table)
+                        w2 := crc64.New(crc64Table)
+                        if _, err = io.Copy(w1, f); err != nil {
+                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
+                                return
+                        }
+                        if _, err = w2.Write(data.Bytes()); err != nil {
+                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
+                                return
+                        }
+                        if s1, s2 := w1.Sum64(), w2.Sum64(); s1 == s2 {
+                                if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
+                                result = file
                                 return
                         }
                 }
+        } else if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
+                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
         }
-        if target == nil {
-                target = pc.def.target.value
-                args = append(args, target)
+        if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
+
+        var status string
+        if optVerbose {
+                printEnteringDirectory()
+                fmt.Fprintf(stderr, "smart: Updating %v …", file)
+                defer func() {
+                        if err != nil { status = "error!" } else {
+                                if status == "" { status = "done." }
+                        }
+                        fmt.Fprintf(stderr, "… %s\n", status)
+                } ()
         }
 
-        args = append(args, pc.def.buffer.value)
-        result, err = builtinConfigureFile(pos, args...)
+        if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err == nil {
+                if file.info != nil { result = file } else {
+                        if file.info, err = os.Stat(filename); err == nil {
+                                context.globe.stamp(filename, file.info.ModTime())
+                                result = file
+                        }
+                }
+                status = fmt.Sprintf("updated (%d bytes).", data.Len())
+        }
         return
 }
 
