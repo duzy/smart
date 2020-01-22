@@ -1935,7 +1935,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         } else if dirty = !exists(t.def.target.value); dirty {
                 reason = "dirty: target not exists"
         } else if dirty = len(t.updated) > 0; dirty {
-                reason = fmt.Sprintf("dirty: updated %v", t.updated)
+                reason = fmt.Sprintf("dirty: %v updated", len(t.updated))
         } else if dirty, err = t.isRecipesDirty(); err != nil {
                 err = wrap(pos, err); return
         } else if dirty {
