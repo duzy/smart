@@ -361,6 +361,13 @@ func (ctx *Context) loadwork() (err error) {
 
 func CommandLine() {
         if optionTraceLaunch { defer un(trace(t_launch, "CommandLine")) }
+        if optionEnableBenchmarks {
+                benchmark.spot = time.Now()
+                defer func(t time.Time) {
+                        benchmark.spent = time.Now().Sub(t)
+                        benchmark.report(0)
+                } (benchmark.spot)
+        }
         if s, err := os.Getwd(); err != nil { return } else {
                 context.workdir = s
         }

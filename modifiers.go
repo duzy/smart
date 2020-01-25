@@ -143,6 +143,7 @@ func (_ *modifier) cmp(v Value) (res cmpres) {
         return
 }
 func (m *modifier) traverse(t *traversal) (err error) {
+        if optionEnableBenchmarks { defer bench(spot(fmt.Sprintf("(%s)", m))) }
         if optionTraceTraversal { defer un(tt(t, m)) }
         return t.program.modify(t, m)
 }
@@ -192,6 +193,7 @@ func (_ *modifiergroup) cmp(v Value) (res cmpres) {
         return
 }
 func (g *modifiergroup) traverse(t *traversal) (err error) {
+        if optionEnableBenchmarks { defer bench(spot(fmt.Sprintf("[%s]", g))) }
         if optionTraceTraversal { defer un(tt(t, g)) }
         for _, m := range g.modifiers {
                 if err = m.traverse(t); err == nil { continue }

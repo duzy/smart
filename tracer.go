@@ -11,6 +11,7 @@ import (
         "extbit.io/smart/scanner"
         "errors"
         "fmt"
+        "io"
 )
 
 var (
@@ -83,18 +84,18 @@ const lenPrintTab = 8
 // Printing fields (splitted by \t).
 //var lenPrintField = lenPrintTab * 1
 
-func printIndentDots(indent int, a ...interface{}) {
+func fprintIndentDots(w io.Writer, indent int, a ...interface{}) {
 	const dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
 	const n = len(dots)
 	i := 2 * indent
 	for i > n {
-		fmt.Fprint(stderr, dots)
+		fmt.Fprint(w, dots)
 		i -= n
 	}
 	// i <= n
-	fmt.Fprint(stderr, dots[0:i])
+	fmt.Fprint(w, dots[0:i])
 	if false && len(a) > 0 {
-                fmt.Fprintln(stderr, a...)
+                fmt.Fprintln(w, a...)
         } else {
                 var fieldLen = 0
                 for i, v := range a {
@@ -102,21 +103,25 @@ func printIndentDots(indent int, a ...interface{}) {
                                 const sps = "                         "
                                 if m := fieldLen % lenPrintTab; m > 0 {
                                         if m > len(sps) { m = len(sps)-1 }
-                                        fmt.Fprint(stderr, sps[:m])
+                                        fmt.Fprint(w, sps[:m])
                                 }
                                 fieldLen = 0
                         } else if s := fmt.Sprint(v); s != "" {
                                 if i > 0 {
-                                        fmt.Fprint(stderr, " ", s)
+                                        fmt.Fprint(w, " ", s)
                                         fieldLen += len(s) + 1
                                 } else {
-                                        fmt.Fprint(stderr, s)
+                                        fmt.Fprint(w, s)
                                         fieldLen += len(s)
                                 }
                         }
                 }
-                fmt.Fprintln(stderr)
+                fmt.Fprintln(w)
         }
+}
+
+func printIndentDots(indent int, a ...interface{}) {
+        fprintIndentDots(stderr, indent, a...)
 }
 
 func (p *tracing) traceAt(pos token.Position, a ...interface{}) {

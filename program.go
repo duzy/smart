@@ -13,6 +13,7 @@ import (
         "strconv"
         //"strings"
         "sync"
+        //"time"
         "fmt"
         //"os"
 )
@@ -65,6 +66,11 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
 }
 
 func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err error) {
+        if optionEnableBenchmarks {
+                s := fmt.Sprintf("Program.interpret(%T)", i)
+                defer bench(spot(s))
+        }
+
         if len(t.breakers) > 0 { return }
         if err = t.wait(prog.position); err != nil {
                 return
@@ -133,6 +139,7 @@ func (prog *Program) modifier(name string) (res *modifier) {
 }
 
 func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, err error) {
+        if optionEnableBenchmarks { defer bench(spot("Program.prerequisites")) }
         // IMPORTANT: don't expand the args here. The prerequisites like
         // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
         for _, arg := range args {
@@ -224,6 +231,11 @@ func (prog *Program) setParams(args []Value) (params []*Def, err error) {
 const maxRecursion  = 16 //32 //64
 
 func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, err error) {
+        if optionEnableBenchmarks {
+                s := fmt.Sprintf("Program.execute(%s)", entry.target)
+                defer bench(spot(s))
+        }
+
         if false {
                 // Execution can be nested, a program.mutex.lock may
                 // cause dead-lock in such case.
@@ -256,7 +268,6 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 }
         }
 
-        var none = &None{trivial{pos}}
         var t = &traversal{
                 program: prog,
                 project: prog.project,
@@ -268,21 +279,22 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 caller: caller,
                 print: true,
         }
+        var ( none = &None{trivial{pos}} ; stem Value = none )
+        if t.caller != nil {
+                if optionTraceTraversalNestIndent { t.traceLevel = t.caller.traceLevel }
+                if t.stems = t.caller.stems; t.stems != nil {
+                        stem = &String{trivial{pos}, t.stems[0]}
+                }
+        }
+        if t.def.stem,    err = prog.auto("*", stem); err != nil { return }
         if t.def.target,  err = prog.auto("@", none); err != nil { return }
         if t.def.depend0, err = prog.auto("<", none); err != nil { return }
         if t.def.depends, err = prog.auto("^", none); err != nil { return }
         if t.def.ordered, err = prog.auto("|", none); err != nil { return }
         if t.def.grepped, err = prog.auto("~", none); err != nil { return }
         if t.def.updated, err = prog.auto("?", none); err != nil { return }
-        if t.def.stem,    err = prog.auto("*", none); err != nil { return }
-        if t.def.buffer, err = prog.auto("-", none); err != nil { return }
+        if t.def.buffer,  err = prog.auto("-", none); err != nil { return }
         if t.def.params,  err = prog.setParams(args); err != nil { return }
-        if t.caller != nil {
-                t.stems = t.caller.stems
-                if optionTraceTraversalNestIndent {
-                        t.traceLevel = t.caller.traceLevel
-                }
-        }
         // Flag targets (-foo) turn off printing automatically
         if _, ok := t.entry.target.(*Flag); ok { t.print = false }
         if t.print && t.entry.class == UseRuleEntry { t.print = false }
@@ -308,10 +320,6 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 }
                 prog.project.changedWD = s
         } (prog.project.changedWD)
-
-        if t.stems != nil {
-                t.def.stem.set(DefDefault, &String{trivial{pos},t.stems[0]})
-        }
 
         var fileTarget *File
 
@@ -340,7 +348,6 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 }
                 return
         }
-
         defer func() {
                 if err != nil { return }
 
@@ -362,6 +369,7 @@ func (t *traversal) exec(prog *Program) (result Value, err error) {
                 var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
                 defer un(trace(t_exec, s))
         }
+        if optionEnableBenchmarks { defer bench(spot("traversal.exec")) }
 
         t.visited[t.def.target.value] += 1
         if t.visited[t.def.target.value] > 1 {
@@ -412,6 +420,7 @@ func (t *traversal) exec(prog *Program) (result Value, err error) {
 
 func (t *traversal) traverseNormalPrerequisites(pos Position) (err error) {
         if optionTraceExec { defer un(trace(t_exec, t.def.depends.name)) }
+        if optionEnableBenchmarks { defer bench(spot("traversal.traverseNormalPrerequisites")) }
 
         t.target0 = t.def.depend0
         t.targets = t.def.depends
@@ -438,6 +447,7 @@ func (t *traversal) traverseNormalPrerequisites(pos Position) (err error) {
 
 func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) (err error) {
         if optionTraceExec { defer un(trace(t_exec, t.def.ordered.name)) }
+        if optionEnableBenchmarks { defer bench(spot("traversal.traverseOrderOnlyPrerequisites")) }
 
         t.target0 = nil
         t.targets = t.def.ordered
@@ -473,10 +483,5 @@ func (t *traversal) traverseGreppedFiles(pos Position) (err error) {
         } else if err = t.wait(pos); err != nil {
                 // ...
         }
-        return
-}
-
-func (prog *Program) passExecution(position Position, entry *RuleEntry, args... Value) (result []Value, err error) {
-        result, err = Executer(entry).Execute(position, args...)
         return
 }

@@ -2625,6 +2625,8 @@ func (p *Flag) cmp(v Value) (res cmpres) {
         }
         return
 }
+
+const escapedChars = "\"\r\n"
       
 type Compound struct { trivial ; elements } // "compound string"
 func (p *Compound) expand(w expandwhat) (res Value, err error) {
@@ -2643,7 +2645,33 @@ func (p *Compound) elemstr(o Object, k elemkind) (s string) {
         for _, elem := range p.Elems {
                 s += elementString(o, elem, tk)
         }
-        if k&elemNoQuote == 0 { s = `"`+s+`"` }
+        if k&elemNoQuote != 0 { return }
+        var err error
+        var buf bytes.Buffer
+        buf.WriteString(`"`); defer buf.WriteString(`"`)
+        for i := strings.IndexAny(s, escapedChars); i != -1; {
+		if _, err = buf.WriteString(s[:i]); err != nil {
+                        // TODO: errors...
+			return
+		}
+                var esc string
+                switch s[i] {
+                case '"':  esc = `\"`
+                case '\r': esc = `\r`
+                case '\n': esc = `\n`
+                }
+                s = s[i+1:]
+                if _, err = buf.WriteString(esc); err != nil {
+                        // TODO: errors...
+			return
+                }
+                i = strings.IndexAny(s, escapedChars)
+        }
+        if _, err = buf.WriteString(s); err != nil {
+                // TODO: errors...
+                return
+        }
+        s = buf.String()
         return
 }
 func (p *Compound) String() string { return p.elemstr(nil, 0) }

@@ -655,7 +655,7 @@ func configureEntry(pos Position, prog *Program, s string, params... Value) (con
                 err = errorf(pos, "resolve %v: %v", s, err)
         } else if entry == nil {
                 err = errorf(pos, "unknown configuration `%v` (no such entry)", s)
-        } else if res, err = prog.passExecution(pos, entry, params...); err != nil {
+        } else if res, err = Executer(entry).Execute(pos, params...); err != nil {
                 n, _, _ := scanCommandFailedError(err)
                 if n == 2 {
                         configured, err = true, nil
