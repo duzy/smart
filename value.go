@@ -270,33 +270,36 @@ func (t *traversal) calleeErrors() (errs []error) {
         return
 }
 
-func (t *traversal) traverseAll(value interface{}) (err error) {
-        if v := reflect.ValueOf(value); v.Kind() == reflect.Slice {
-                for i := 0; err == nil && i < v.Len(); i++ {
-                        err = t.traverse(v.Index(i).Interface())
-                }
-        } else {
-                err = t.traverse(value)
-        }
-        return
-}
+func (t *traversal) dispatch(i interface{}) (err error) {
+        if optionEnableBenchmarks && false {  defer bench(mark(fmt.Sprintf("traversal.dispatch(%s=%v)", typeof(i), i))) }
 
-func (t *traversal) traverse(i interface{}) (err error) {
-        var pos = t.def.target.position //t.entry.position
-        if i == nil {
+        var pos = t.def.target.position
+        if v := reflect.ValueOf(i); v.Kind() == reflect.Slice {
+                for n := 0; err == nil && n < v.Len(); n++ {
+                        if optionEnableBenchmarks && false {
+                                i := v.Index(n).Interface()
+                                a, b := mark(fmt.Sprintf("%v: %s %v", n, typeof(i), i))
+                                err = t.dispatch(i)
+                                bench(a, b)
+                        } else {
+                                err = t.dispatch(v.Index(n).Interface())
+                        }
+                }
+        } else if i == nil {
                 err = errorf(pos, "updating nil prerequisite")
         } else if value, ok := i.(Value); !ok {
                 err = errorf(pos, "'%v' is invalid", value)
         } else if value == nil { // this could happen
                 err = errorf(pos, "updating nil prerequisite")
-        } else if err = value.traverse(t); err == nil {
-                // alright!
+        } else {
+                err = value.traverse(t)
         }
         return
 }
 
 func (p *Project) traverseFile(t *traversal, file *File) (okay bool, err error) {
         if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("in %v", p))) }
+        if optionEnableBenchspots { defer bench(spot("Project.traverseFile")) }
 
         var names = make(map[string]bool)
         for stub := file.filestub; true; stub = stub.other {
@@ -339,13 +342,14 @@ func (p *Project) traverseFile(t *traversal, file *File) (okay bool, err error) 
                 okay = true
         } else if file != nil && file.match != nil {
                 okay = file.searchInMatchedPaths(p)
-        } else if alt := p./*searchFile*/matchFile(file.name); alt != nil {
+        } else if alt := p.matchFile(file.name); alt != nil {
                 okay = true
         }
         return
 }
 
 func (p *Project) traverseFileStub(t *traversal, stub *filestub) (okay bool, err error) {
+        if optionEnableBenchspots { defer bench(spot("Project.traverseFileStub")) }
         /// Searching entries from the most derived project.
         var entry *RuleEntry
         if entry, err = p.resolveEntry(stub.name); err != nil {
@@ -379,6 +383,9 @@ ForPatterns:
 }
 
 func (p *Project) traverseTarget(pos Position, t *traversal, target string) (okay bool, err error) {
+        if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("Project.traverseTarget(%v)", target))) }
+        if optionEnableBenchspots { defer bench(spot("Project.traverseTarget")) }
+
         if obj := p.scope.Lookup(target); obj != nil {
                 if name, ok := obj.(*ProjectName); ok {
                         if okay, err = name.traverse2(t); okay || err != nil {
@@ -412,7 +419,7 @@ func (p *Project) traverseTarget(pos Position, t *traversal, target string) (oka
                 err = wrap(pos, err)
                 return
         } else if entry != nil {
-                okay, err = true, t.traverse(entry)
+                okay, err = true, t.dispatch(entry)
                 return
         }
 
@@ -460,6 +467,7 @@ func (t *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay 
 }
 
 func (t *traversal) traverseFile(file *File) (err error) {
+        if optionEnableBenchspots { defer bench(spot("traversal.traverseFile")) }
         var okay bool
         okay, err = t.foreachClosureProject(func(p *Project) (bool, error) {
                 return p.traverseFile(t, file)
@@ -473,6 +481,7 @@ func (t *traversal) traverseFile(file *File) (err error) {
 }
 
 func (t *traversal) traverseTarget(pos Position, target string) (err error) {
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.traverseTarget(%v)", target))) }
         var okay bool
         okay, err = t.foreachClosureProject(func(p *Project) (bool, error) {
                 return p.traverseTarget(pos, t, target)
@@ -556,11 +565,6 @@ func (t *traversal) updateRecipesHash() (k, v HashBytes, err error) {
         } else if f, e := os.Create(name); e == nil {
                 defer f.Close()
                 _, err = fmt.Fprintf(f, "%x", v)
-                /*fmt.Printf("update: %s\n%x\n", name, v)
-                for _, value := range t.program.recipes {
-                        str, _ := value.Strval()
-                        fmt.Printf("recipe: %v\n", str)
-                }*/
         } else {
                 err = e
         }
@@ -589,6 +593,7 @@ func (t *traversal) isRecipesDirty() (dirty bool, err error) {
 }
 
 func (t *traversal) wait(pos Position) (err error) {
+        if optionEnableBenchmarks && false { defer bench(mark("traversal.wait")) }
         t.group.Wait()
         if e := t.calleeErrors(); len(e) > 0 {
                 err = wrap(pos, e...)
@@ -740,7 +745,7 @@ func (p *Argumented) traverse(t *traversal) (err error) {
         //!< represented.
         defer func(a []Value) { t.arguments = a } (t.arguments)
         t.arguments = p.args
-        err = t.traverse(p.value)
+        err = t.dispatch(p.value)
         return
 }
 func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (ok, res1 bool, err error) {
@@ -1864,6 +1869,7 @@ func (p *Path) cmp(v Value) (res cmpres) {
         return
 }
 func (p *Path) match(i interface{}) (result string, stems []string, err error) {
+        if optionEnableBenchspots { defer bench(spot("Path.match")) }
         var retained []string
         result, retained, stems, err = p.partialMatch(i)
         if len(retained) > 0 {
@@ -2395,6 +2401,7 @@ func (p *File) traverse(t *traversal) (err error) {
 // check pattern depends to find out if all depends are updatable
 // or updated/exists.
 func checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (res bool, err error) {
+        if optionEnableBenchspots { defer bench(spot("checkPatternDepends")) }
         if len(prog.depends) == 0 {
                 // Pattern is always good as no depends to check.
                 return true, nil
@@ -2450,6 +2457,8 @@ func checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog 
 }
 
 func checkPatternDepend(t *traversal, project *Project, se *StemmedEntry, prog *Program, pat Pattern) (res bool, err error) {
+        if optionEnableBenchspots { defer bench(spot("checkPatternDepend")) }
+
         var name string
         var rest []string // rest stems
         if name, rest, err = pat.stencil(se.Stems); err != nil { return }
@@ -2563,9 +2572,7 @@ func (p *Flag) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Flag) True() (t bool, err error) { return p.name.True() }
-func (p *Flag) elemstr(o Object, k elemkind) (s string) {
-        return "-" + elementString(o, p.name, k)
-}
+func (p *Flag) elemstr(o Object, k elemkind) (s string) { return "-" + elementString(o, p.name, k) }
 func (p *Flag) String() (s string) { return p.elemstr(nil, 0) }
 func (p *Flag) Strval() (s string, e error) {
         if p.name == nil {
@@ -3090,7 +3097,7 @@ func (p *delegate) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         var val Value
         if val, err = p.expand(expandAll); err == nil {
-                err = t.traverse(val)
+                err = t.dispatch(val)
         }
         return
 }
@@ -3290,7 +3297,7 @@ func (p *closure) traverse(t *traversal) (err error) {
                 err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
                 fmt.Fprintf(stderr, "%s: closure.prepare: %v\n", p.Position(), err)
         } else {
-                err = t.traverse(v)
+                err = t.dispatch(v)
         }
         return
 }
@@ -3443,7 +3450,7 @@ func (p *selection) traverse(t *traversal) (err error) {
         } else if v == nil {
                 err = fmt.Errorf("`%v` is nil", p)
         } else {
-                err = t.traverse(v)
+                err = t.dispatch(v)
         }
         return
 }
@@ -3484,25 +3491,6 @@ type Pattern interface {
         stencil(stems []string) (s string, rest []string, err error)
 }
 
-/*
-func (p *pattern) concrete(patent *RuleEntry, target, stem string) (entry *RuleEntry, err error) {
-        entry = new(RuleEntry)
-        *entry = *patent // Copy the entry object bits
-
-        if t.project.isFileName(target) {
-                var file = t.project.searchFile(target)
-                if file == nil { // stat non-existed file
-                        file = stat(target, "", project.absPath, nil)
-                }
-                assert(file != nil, "`%s` nil file", target)
-                entry.target = file
-        } else {
-                entry.target = &String{ target }
-        }
-        return
-}
-*/
-
 // PercPattern represents percent pattern expressions (e.g. '%.o')
 type PercPattern struct {
         trivial // TODO: supporting multiple %: foo%bar%xxx
@@ -3537,6 +3525,7 @@ func (p *PercPattern) Strval() (s string, err error) {
         return
 }
 func (p *PercPattern) match(i interface{}) (result string, stems []string, err error) {
+        if optionEnableBenchspots { defer bench(spot("PercPattern.match")) }
         var s string
         switch t := i.(type) {
         case string: s = t
@@ -3587,30 +3576,29 @@ func (p *PercPattern) match(i interface{}) (result string, stems []string, err e
         return
 }
 func (p *PercPattern) stencil(stems []string) (s string, rest []string, err error) {
-        // FIXME: the prefix is possible to be Glob, Regexp, etc.
+        if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("PercPattern.stencil(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("PercPattern.stencil")) }
+
         if !isNone(p.Prefix) {
+                // FIXME: the prefix could be Glob, Regexp, etc.
                 s, err = p.Prefix.Strval()
                 if err != nil { return }
         }
 
         var v string
         if isNone(p.Suffix) {
-                s += stems[0] + v
+                s += stems[0]
                 rest = stems[1:]
         } else if pp, ok := p.Suffix.(*PercPattern); ok {
-                // Special cases like '%%...' use only one stem,
-                // other cases like '%xxx%...' use multiple stems.
+                // patterns like '%%...' use only one stem,
+                // patterns like '%xxx%...' use multiple stems.
                 if !isNone(pp.Prefix) {
                         s += stems[0]
                         stems = stems[1:]
                 }
-                var ss string
-                ss, rest, err = pp.stencil(stems)
-                if err == nil { s += ss }
+                if v, rest, err = pp.stencil(stems); err == nil { s += v }
         } else if pp, ok := p.Suffix.(Pattern); ok {
-                var ss string
-                ss, rest, err = pp.stencil(stems)
-                if err == nil { s += ss }
+                if v, rest, err = pp.stencil(stems); err == nil { s += v }
         } else if v, err = p.Suffix.Strval(); err == nil {
                 s += stems[0] + v
                 rest = stems[1:]
@@ -3621,6 +3609,9 @@ func (p *PercPattern) refs(v Value) bool { return p.Prefix.refs(v) || p.Suffix.r
 func (p *PercPattern) closured() bool { return p.Prefix.closured() || p.Suffix.closured() }
 func (p *PercPattern) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("PercPattern.traverse(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("PercPattern.traverse")) }
+
         if t.stems == nil {
                 err = errorf(p.position, "no stems")
                 return
@@ -3703,6 +3694,7 @@ func (p *GlobPattern) Strval() (s string, err error) {
         return
 }
 func (p *GlobPattern) match(i interface{}) (result string, stems []string, err error) {
+        if optionEnableBenchspots { defer bench(spot("GlobPattern.match")) }
         var pat, s string
         switch t := i.(type) {
         case string: s = t
@@ -3783,6 +3775,7 @@ func (p *RegexpPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *RegexpPattern) String() string { return "{RegexpPattern}" }
 func (p *RegexpPattern) Strval() (s string, err error) { return "", nil }
 func (p *RegexpPattern) match(i interface{}) (result string, stems []string, err error) {
+        if optionEnableBenchspots { defer bench(spot("RegexpPattern.match")) }
         unreachable("regexp.match: %T %v", i, i)
         return
 }

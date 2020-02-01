@@ -15,6 +15,7 @@ import (
         "fmt"
         "os"
         "io"
+        "io/ioutil"
 )
 
 var (
@@ -334,15 +335,13 @@ func (ctx *Context) loadwork() (err error) {
         }
 
         defer func(t time.Time) {
-                var name string
-                if ctx.loader.project != nil {
-                        name = ctx.loader.project.name
-                }
                 var d = time.Now().Sub(t)
                 if optionVerboseImport {
+                        var name string
+                        if p := ctx.loader.project; p != nil { name = p.name }
                         fmt.Fprintf(stderr, "└·%s … (%s)\n", name, d)
                 } else if d > 5000*time.Millisecond {
-                        fmt.Fprintf(stderr, "smart: %s … (%s)\n", name, d)
+                        fmt.Fprintf(stderr, "smart: Long load time: %s !\n", d)
                 }
         } (time.Now())
         if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
@@ -360,16 +359,34 @@ func (ctx *Context) loadwork() (err error) {
 }
 
 func CommandLine() {
-        if optionTraceLaunch { defer un(trace(t_launch, "CommandLine")) }
-        if optionEnableBenchmarks {
-                benchmark.spot = time.Now()
-                defer func(t time.Time) {
-                        benchmark.spent = time.Now().Sub(t)
-                        benchmark.report(0)
-                } (benchmark.spot)
-        }
         if s, err := os.Getwd(); err != nil { return } else {
                 context.workdir = s
+        }
+
+        if optionTraceLaunch { defer un(trace(t_launch, "CommandLine")) }
+        if optionEnableBenchmarks {
+                var w *bufio.Writer
+                var d = filepath.Join(context.workdir, "benchmarks")
+                if err := os.MkdirAll(d, os.FileMode(0777)); err != nil {
+                        fmt.Fprintf(stderr, "MkdirAll: %s\n", err)
+                        return
+                } else if f, err := ioutil.TempFile(d, "*.log"); err != nil {
+                        fmt.Fprintf(stderr, "TempFile: %s\n", err)
+                        return
+                } else {
+                        w = bufio.NewWriter(f)
+                        benchmark.start = time.Now()
+                        benchmark.spot = benchmark.start
+                        defer func(t time.Time) {
+                                benchspot_report(w)
+                                w.WriteString("--------\n")
+                                benchmark.spent = time.Now().Sub(t)
+                                benchmark.summary(w)
+                                benchmark.report(w, 0, nil)
+                                w.Flush()
+                                f.Close()
+                        } (benchmark.spot)
+                }
         }
 
         var modulesPaths, packagePaths searchlist

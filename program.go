@@ -67,8 +67,8 @@ func (prog *Program) setUser(proj *Project) (saved *Project) {
 
 func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err error) {
         if optionEnableBenchmarks {
-                s := fmt.Sprintf("Program.interpret(%T)", i)
-                defer bench(spot(s))
+                s := fmt.Sprintf("Program.interpret(%s)", typeof(i))
+                defer bench(mark(s))
         }
 
         if len(t.breakers) > 0 { return }
@@ -139,7 +139,8 @@ func (prog *Program) modifier(name string) (res *modifier) {
 }
 
 func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, err error) {
-        if optionEnableBenchmarks { defer bench(spot("Program.prerequisites")) }
+        if optionEnableBenchmarks && false { defer bench(mark("Program.prerequisites")) }
+        if optionEnableBenchspots { defer bench(spot("Program.prerequisites")) }
         // IMPORTANT: don't expand the args here. The prerequisites like
         // '$(or &@,...)' have to be expanded when it's used (e.g. compare).
         for _, arg := range args {
@@ -231,10 +232,8 @@ func (prog *Program) setParams(args []Value) (params []*Def, err error) {
 const maxRecursion  = 16 //32 //64
 
 func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, err error) {
-        if optionEnableBenchmarks {
-                s := fmt.Sprintf("Program.execute(%s)", entry.target)
-                defer bench(spot(s))
-        }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
+        if optionEnableBenchspots { defer bench(spot("Program.execute")) }
 
         if false {
                 // Execution can be nested, a program.mutex.lock may
@@ -363,13 +362,14 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
 }
 
 func (t *traversal) exec(prog *Program) (result Value, err error) {
+        if optionEnableBenchmarks { defer bench(mark("traversal.exec")) }
+        if optionEnableBenchspots { defer bench(spot("traversal.exec")) }
         if optionTraceExec {
                 var d = t.depth()
                 var t = t.def.target.value
                 var s = fmt.Sprintf("%s: %v (%p, exec.depth=%d)", typeof(t), t, t, d)
                 defer un(trace(t_exec, s))
         }
-        if optionEnableBenchmarks { defer bench(spot("traversal.exec")) }
 
         t.visited[t.def.target.value] += 1
         if t.visited[t.def.target.value] > 1 {
@@ -420,7 +420,7 @@ func (t *traversal) exec(prog *Program) (result Value, err error) {
 
 func (t *traversal) traverseNormalPrerequisites(pos Position) (err error) {
         if optionTraceExec { defer un(trace(t_exec, t.def.depends.name)) }
-        if optionEnableBenchmarks { defer bench(spot("traversal.traverseNormalPrerequisites")) }
+        if optionEnableBenchmarks { defer bench(mark("traversal.traverseNormalPrerequisites")) }
 
         t.target0 = t.def.depend0
         t.targets = t.def.depends
@@ -437,7 +437,7 @@ func (t *traversal) traverseNormalPrerequisites(pos Position) (err error) {
         var depends []Value
         if depends, err = t.program.prerequisites(t, t.program.depends); err != nil {
                 err = wrap(pos, err)
-        } else if err = t.traverseAll(depends); err != nil {
+        } else if err = t.dispatch(depends); err != nil {
                 err = wrap(pos, t.wait(pos), err)
         } else if err = t.wait(pos); err != nil {
                 // ...
@@ -447,7 +447,7 @@ func (t *traversal) traverseNormalPrerequisites(pos Position) (err error) {
 
 func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) (err error) {
         if optionTraceExec { defer un(trace(t_exec, t.def.ordered.name)) }
-        if optionEnableBenchmarks { defer bench(spot("traversal.traverseOrderOnlyPrerequisites")) }
+        if optionEnableBenchmarks { defer bench(mark("traversal.traverseOrderOnlyPrerequisites")) }
 
         t.target0 = nil
         t.targets = t.def.ordered
@@ -458,7 +458,7 @@ func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) (err error) {
         var ordered []Value
         if ordered, err = t.program.prerequisites(t, t.program.ordered); err != nil {
                 err = wrap(pos, err)
-        } else if err = t.traverseAll(ordered); err != nil {
+        } else if err = t.dispatch(ordered); err != nil {
                 err = wrap(pos, t.wait(pos), err)
         } else if err = t.wait(pos); err != nil {
                 // ...
@@ -468,6 +468,7 @@ func (t *traversal) traverseOrderOnlyPrerequisites(pos Position) (err error) {
 
 func (t *traversal) traverseGreppedFiles(pos Position) (err error) {
         if optionTraceExec { defer un(trace(t_exec, t.def.grepped.name)) }
+        if optionEnableBenchmarks { defer bench(mark("traversal.traverseGreppedFiles")) }
 
         t.target0 = nil
         t.targets = t.def.grepped
@@ -478,7 +479,7 @@ func (t *traversal) traverseGreppedFiles(pos Position) (err error) {
         var grepped []Value
         if grepped, err = t.program.prerequisites(t, t.grepped); err != nil {
                 err = wrap(pos, err)
-        } else if err = t.traverseAll(grepped); err != nil {
+        } else if err = t.dispatch(grepped); err != nil {
                 err = wrap(pos, t.wait(pos), err)
         } else if err = t.wait(pos); err != nil {
                 // ...

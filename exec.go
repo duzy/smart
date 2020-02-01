@@ -81,7 +81,7 @@ var (
         stdmux = &sync.Mutex{}
         stdout = &stdWriter{ std:os.Stdout }
         stderr = &stdWriter{ std:os.Stderr }
-        dots = []byte("…")
+        udots = []byte("…")
 )
 
 const (
@@ -127,13 +127,13 @@ type stdWriter struct {
 func (w *stdWriter) Write(p []byte) (n int, err error) {
         stdmux.Lock(); defer stdmux.Unlock()
         if w.suffixDots {
-                if !bytes.HasPrefix(p, dots) {
+                if !bytes.HasPrefix(p, udots) {
                         w.std.Write([]byte("\n"))
                 }
                 w.suffixDots = false
         }
         n, err = w.std.Write(p)
-        if bytes.HasSuffix(p, dots) {
+        if bytes.HasSuffix(p, udots) {
                 w.suffixDots = true
         }
         return

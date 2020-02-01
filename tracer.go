@@ -78,19 +78,22 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
         p.errors.Add(pos, errors.New(s))
 }
 
-// Tab size helps formatting fields.
-const lenPrintTab = 8
-
 // Printing fields (splitted by \t).
 //var lenPrintField = lenPrintTab * 1
 
+const (
+        // Tab size helps formatting fields.
+        lenPrintTab = 8
+
+        dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
+        ndots = len(dots)
+)
+
 func fprintIndentDots(w io.Writer, indent int, a ...interface{}) {
-	const dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
-	const n = len(dots)
 	i := 2 * indent
-	for i > n {
+	for i > ndots {
 		fmt.Fprint(w, dots)
-		i -= n
+		i -= ndots
 	}
 	// i <= n
 	fmt.Fprint(w, dots[0:i])

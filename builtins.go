@@ -266,7 +266,7 @@ ForArgs:
         return
 }
 
-func typeof(arg Value) (s string) {
+func typeof(arg interface{}) (s string) {
         switch a := arg.(type) {
         case *List:
                 if n := len(a.Elems); n == 1 {
@@ -274,7 +274,7 @@ func typeof(arg Value) (s string) {
                         case *delegate: // FIXME: recursively undelegate types
                                 if d, _ := v.o.(*Def); d != nil {
                                         s = fmt.Sprintf("%T", d.value) //s = d.value.Type().String()
-                                        s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), "smart.")
+                                        s = strings.ReplaceAll(strings.TrimPrefix(s, "*"), "smart.", "")
                                 } else {
                                         s = "unknown"
                                 }

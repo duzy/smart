@@ -270,7 +270,6 @@ func (p *Project) Spec() string { return p.spec }
 func (p *Project) Name() string { return p.name }
 func (p *Project) Scope() *Scope { return p.scope }
 func (p *Project) Bases() []*Project { return p.bases }
-
 func (p *Project) Chain(bases ...*Project) {
         for _, base := range bases {
                 p.bases = append(p.bases, base)
@@ -283,6 +282,8 @@ func (p *Project) mapfile(pat Value, paths []Value) {
 }
 
 func (p *Project) filemaps() (filemaps []*FileMap) {
+        if optionEnableBenchmarks && false { defer bench(mark("Project.filemaps")) }
+
         var appendUnique = func(a *FileMap) {
                 for _, m := range filemaps {
                         if a == m { return }
@@ -409,68 +410,20 @@ ForPats:
         return
 }
 
-// // TODO: searchFile deprecated, use only matchFile instead
-// func (p *Project) searchFile(name string) (file *File) {
-//         for _, filemap := range p.filemaps() {
-//                 // Match the represented file name.
-//                 matched, pre := filemap.Match(name)
-//                 if !matched { continue }
-//                 if p.changedWD != "" {
-//                         file = filemap.stat(p.changedWD, pre, name)
-//                 }
-//                 if file == nil {
-//                         file = filemap.stat(p.absPath, pre, name)
-//                 }
-//                 if file != nil {
-//                         if file.match == nil { file.match = filemap }
-//                         if pre != "" { /* FIXME: file.change(...pre) */ }
-//                         if enable_assertions {
-//                                 assert(exists(file), "`%s` file not existed", file)
-//                         }
-//                         break
-//                 }
-//         }
-//         if file != nil && enable_assertions {
-//                 assert(exists(file), "`%s` file not existed", file)
-//                 assert(file.match != nil, "`%s` not matched file", name)
-//                 assert(file.info != nil, "`%v` found nil file info", name)
-//                 if filepath.IsAbs(name) {
-//                         if strings.HasPrefix(name, file.dir+PathSep) {
-//                                 //assert(file.name == filepath.Base(name), "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, filepath.Base(name))
-//                                 //assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
-//                                 //assert(file.dir != "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
-//                         } else {
-//                                 assert(file.name == name, "conflicted name: file{%s %s %s} != %s", file.dir, file.sub, file.name, name)
-//                                 assert(file.dir == "", "invalid file{%s %s %s}", file.dir, file.sub, file.name)
-//                                 assert(file.fullname() == file.name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
-//                         }
-//                         assert(file.fullname() == name, "conflicted name: file{%s %s %s}", file.dir, file.sub, file.name)
-//                 } else {
-//                         assert(file.dir != "", "`%v` found empty file dir", name)
-//                         assert(filepath.IsAbs(file.dir), "not abs file{%s %s %s}", file.dir, file.sub, file.name)
-//                 }
-//         }
-//         return
-// }
-
 func (p *Project) matchFile(name string) (file *File) {
+        if optionEnableBenchmarks && false { defer bench(mark("Project.matchFile")) }
+        if optionEnableBenchspots { defer bench(spot("Project.matchFile")) }
+
         //[optional]: defer setclosure(setclosure(cloctx.unshift(p.scope)))
 
-        var isNameMatched bool
         var first *File
 ForFilemaps:
         for _, filemap := range p.filemaps() {
                 // Match the represented file name.
                 var matched, pre = filemap.Match(name)
-                if !matched { continue ForFilemaps } else {
-                        isNameMatched = true
-                }
-                if p.changedWD != "" {
-                        file = filemap.stat(p.changedWD, pre, name)
-                }
-                if file == nil {
-                        file = filemap.stat(p.absPath, pre, name)
-                }
+                if !matched { continue ForFilemaps }
+                if p.changedWD != "" { file = filemap.stat(p.changedWD, pre, name) }
+                if file == nil { file = filemap.stat(p.absPath, pre, name) }
                 if file != nil {
                         if file.match == nil { file.match = filemap }
                         if pre != "" { /* FIXME: file.change(...pre) */ }
@@ -484,17 +437,10 @@ ForFilemaps:
                 // matched files. The current project have the highest
                 // priority to match.
                 for _, fm := range p.filemap {
-                        if filemap == fm {
-                                break ForFilemaps
-                        }
+                        if filemap == fm { break ForFilemaps }
                 }
         }
-        if first != file && !exists(file) {
-                file = first
-        }
-        if isNameMatched && enable_assertions {
-                assert(file != nil, "`%s` is a file", name)
-        }
+        if first != file && !exists(file) { file = first }
         return
 }
 
@@ -546,6 +492,8 @@ func (p *Project) resolveObject(s string) (obj Object, err error) {
 }
 
 func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
+        if optionEnableBenchmarks && false { defer bench(mark("Project.resolveEntry")) }
+        if optionEnableBenchspots { defer bench(spot("Project.resolveEntry")) }
         for _, rec := range p.concrete {
                 switch target := rec.target.(type) {
                 case *File:
@@ -561,15 +509,33 @@ func (p *Project) resolveEntry(s string) (entry *RuleEntry, err error) {
                 if err != nil || entry != nil { break }
         }
         if err == nil && entry == nil {
-                /*for _, using := range p.using.list {
-                        entry, err = using.project.resolveEntry(s)
-                        if err != nil || entry != nil { break }
-                }*/
+                if true { /* FAST */ } else { /* SLOW */
+                        for _, using := range p.using.list {
+                                entry, err = using.project.resolveEntry(s)
+                                if err != nil || entry != nil { break }
+                        }
+                }
         }
         return
 }
 
 func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error) {
+        if optionEnableBenchmarks && false { defer bench(mark("Project.resolvePatterns")) }
+        if optionEnableBenchspots { defer bench(spot("Project.resolvePatterns")) }
+        var v []*StemmedEntry
+        if res, err = p._resolvePatterns1(i); err != nil { return }
+        if v, err = p._resolvePatterns2(i); err != nil { return } else {
+                res = append(res, v...)
+        }
+        if true { /* FAST */ } else /* SLOW */
+        if v, err = p._resolvePatterns3(i); err != nil { return } else {
+                res = append(res, v...)
+        }
+        return
+}
+
+func (p *Project) _resolvePatterns1(i interface{}) (res []*StemmedEntry, err error) {
+        if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns1")) }
         for _, pat := range p.patterns {
                 var ( s string ; stems []string )
                 if s, stems, err = pat.Pattern.match(i); err != nil {
@@ -578,12 +544,22 @@ func (p *Project) resolvePatterns(i interface{}) (res []*StemmedEntry, err error
                         res = append(res, &StemmedEntry{pat, stems})
                 }
         }
+        return
+}
+
+func (p *Project) _resolvePatterns2(i interface{}) (res []*StemmedEntry, err error) {
+        if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns2")) }
         for _, base := range p.bases {
                 var ses []*StemmedEntry
                 ses, err = base.resolvePatterns(i)
                 if err != nil { return }
                 res = append(res, ses...)
         }
+        return
+}
+
+func (p *Project) _resolvePatterns3(i interface{}) (res []*StemmedEntry, err error) {
+        if optionEnableBenchspots { defer bench(spot("Project._resolvePatterns3")) }
         for _, using := range p.using.list {
                 var ses []*StemmedEntry
                 ses, err = using.project.resolvePatterns(i)

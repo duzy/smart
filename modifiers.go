@@ -18,6 +18,7 @@ import (
         "errors"
         "bufio"
         "bytes"
+        "sync"
         "time"
         "fmt"
         "os"
@@ -100,7 +101,13 @@ func break_with(pos Position, w breakind, s string, a... interface{}) *breaker {
 }
 
 func extractBreakers(err error) (res []*breaker, rest []error) {
+        if err == nil { return }
+        if optionEnableBenchmarks {
+                s := fmt.Sprintf("extractBreakers(%s)", typeof(err))
+                defer bench(mark(s))
+        }
         switch t := err.(type) {
+        case nil: break
         case *scanner.Error:
                 var pos = Position(t.Pos)
                 for _, e := range t.Errs {
@@ -143,7 +150,7 @@ func (_ *modifier) cmp(v Value) (res cmpres) {
         return
 }
 func (m *modifier) traverse(t *traversal) (err error) {
-        if optionEnableBenchmarks { defer bench(spot(fmt.Sprintf("(%s)", m))) }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("modifier.traverse(%s)", m))) }
         if optionTraceTraversal { defer un(tt(t, m)) }
         return t.program.modify(t, m)
 }
@@ -193,31 +200,46 @@ func (_ *modifiergroup) cmp(v Value) (res cmpres) {
         return
 }
 func (g *modifiergroup) traverse(t *traversal) (err error) {
-        if optionEnableBenchmarks { defer bench(spot(fmt.Sprintf("[%s]", g))) }
         if optionTraceTraversal { defer un(tt(t, g)) }
+        if optionEnableBenchmarks {
+                s := fmt.Sprintf("modifiergroup.traverse(%s)", g)
+                defer bench(mark(s))
+        }
         for _, m := range g.modifiers {
-                if err = m.traverse(t); err == nil { continue }
-                var brks, errs = extractBreakers(err)
-                if len(errs) > 0 {
-                        if false { err = wrap(g.position, errs...) }
-                        break
-                }
-
-                err = nil // reset the resulting err
-
                 var done bool
-                for _, e := range brks {
-                        // Save all breakers for (dirty) and interpreters.
-                        t.breakers = append(t.breakers, e)
+                if done, err = g.one(t, m); done || err != nil { break }
+        }
+        return
+}
+func (g *modifiergroup) one(t *traversal, m *modifier) (bool, error) {
+        if optionEnableBenchmarks && false {
+                s := fmt.Sprintf("modifiergroup.one(%s)", m)
+                defer bench(mark(s))
+        }
+        return g.handle(t, m.traverse(t))
+}
+func (g *modifiergroup) handle(t *traversal, e error) (done bool, err error) {
+        if optionEnableBenchmarks && false {
+                s := fmt.Sprintf("modifiergroup.handle")
+                defer bench(mark(s))
+        }
 
-                        if e.what == breakDone && e.scope == breakGroup {
-                                done = true
-                        } else {
-                                // return the breakers
-                                err = wrap(g.position, e, err)
-                        }
+        var brks, errs = extractBreakers(e)
+        if len(errs) > 0 {
+                if false { err = wrap(g.position, errs...) }
+                return
+        }
+
+        for _, e := range brks {
+                // Save all breakers for (dirty) and interpreters.
+                t.breakers = append(t.breakers, e)
+
+                if e.what == breakDone && e.scope == breakGroup {
+                        done = true
+                } else {
+                        // return the breakers
+                        err = wrap(g.position, e, err)
                 }
-                if done || err != nil { break }
         }
         return
 }
@@ -270,6 +292,7 @@ var (
 
                 `dirty`:        modifierDirty,
                 `no-loop`:      modifierNoLoop,
+                `once`:         modifierOnce,
                 `target-1st-visit`: modifierTarget1stVisit,
                 `target-max-visit`: modifierTargetMaxVisit,
         }
@@ -2084,5 +2107,47 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
         } else { s = fmt.Sprintf("%d visits", num+1) }
 
         result = &prediction{boolean{trivial{pos},num<nth},s}
+        return
+}
+
+var onceMutex sync.Mutex
+var onceCache = make(map[HashBytes]int,64)
+func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var (
+                optVerbose bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'v': optVerbose = trueVal(v, true)
+                }
+        }); err != nil { return }
+
+        var s string
+        var h = sha256.New()
+        if s, err = t.entry.target.Strval(); err != nil { return } else {
+                fmt.Fprintf(h, "%s", s)
+        }
+        if s, err = t.def.target.value.Strval(); err != nil { return } else {
+                fmt.Fprintf(h, "%s", s)
+        }
+        for _, a := range args {
+                if s, err = a.Strval(); err != nil { return } else {
+                        fmt.Fprintf(h, "%s", s)
+                }
+        }
+
+        var sum HashBytes
+        copy(sum[:], h.Sum(nil))
+
+        onceMutex.Lock(); defer onceMutex.Unlock()
+        onceCache[sum] += 1
+        if n := onceCache[sum]; n > 1 {
+                msg := fmt.Sprintf("once (n=%d)", n)
+                err = &breaker{ pos:pos, what:breakDone, message:msg }
+        }
         return
 }

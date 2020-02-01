@@ -731,6 +731,7 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
 }
 func (entry *RuleEntry) traverse(pc *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(pc, entry.target)) }
+        //if optionEnableBenchmarks { defer bench(mark("RuleEntry.traverse")) }
 ForPrograms:
         for _, prog := range entry.programs {
                 var e = pc.execute(entry, prog)
@@ -822,6 +823,8 @@ func (p *StemmedEntry) String() (s string) {
 }
 func (p *StemmedEntry) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.traverse(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("StemmedEntry.traverse")) }
 
         defer func(a Value) { p.target = a } (p.target)
         defer func(stems []string) { t.stems = stems } (t.stems)
