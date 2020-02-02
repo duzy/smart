@@ -49,6 +49,8 @@ var builtins = map[string]BuiltinFunc {
         */
         `not`:          builtinNot,
 
+        `not-equal`:    builtinNotEqual,
+        `equal`:        builtinEqual,
         `match`:        builtinMatch,
 
         `if`:           builtinBranchIf,
@@ -431,10 +433,28 @@ func builtinNot(pos Position, args... Value) (res Value, err error) {
         return
 }
 
+func builtinNotEqual(pos Position, args... Value) (res Value, err error) {
+        if n := len(args); n != 2 {
+                err = errorf(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
+        } else if args[0].cmp(args[1]) != cmpEqual {
+                res = &boolean{trivial{pos},true}
+        }
+        return
+}
+
+func builtinEqual(pos Position, args... Value) (res Value, err error) {
+        if n := len(args); n != 2 {
+                err = errorf(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
+        } else if args[0].cmp(args[1]) == cmpEqual {
+                res = &boolean{trivial{pos},true}
+        }
+        return
+}
+
 // $(match rx1 rx2 rx3, a b c d...)
 func builtinMatch(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n != 2 {
-                err = scanner.Errorf(token.Position(pos), "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
+                err = errorf(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
                 return
         }
         var rexList = merge(args[0])
