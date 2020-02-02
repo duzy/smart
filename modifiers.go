@@ -432,7 +432,7 @@ func modifierClosure(pos Position, t *traversal, args... Value) (result Value, e
 
         if false {
                 if len(cloctx) > 0 { cloctx = cloctx[1:] }
-        } else if len(cloctx) > 0 && cloctx[0] == t.program.scope {
+        } else if len(cloctx) > 1 && cloctx[0] == t.program.scope {
                 setclosure(append(cloctx[1:], cloctx[0]))
         } else if len(cloctx) == 0 || cloctx[0] != t.closure {
                 setclosure(cloctx.unshift(t.closure))
