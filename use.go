@@ -189,6 +189,7 @@ func (p *usinglist) mod(t *traversal) (res time.Time, err error) {
         }
         return
 }
+func (p *usinglist) tryTraverse(t *traversal) (okay bool, err error) { return false, nil }
 func (p *usinglist) cmp(v Value) (res cmpres) {
         if a, ok := v.(*usinglist); ok {
                 assert(ok, "value is not usinglist")

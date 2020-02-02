@@ -297,14 +297,14 @@ func (t *traversal) dispatch(i interface{}) (err error) {
         return
 }
 
-func (p *Project) traverseFile(t *traversal, file *File) (okay bool, err error) {
+func (t *traversal) fileInProject(p *Project, file *File) (okay bool, err error) {
         if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("in %v", p))) }
-        if optionEnableBenchspots { defer bench(spot("Project.traverseFile")) }
+        if optionEnableBenchspots { defer bench(spot("traversal.fileInProject")) }
 
         var names = make(map[string]bool)
         for stub := file.filestub; true; stub = stub.other {
                 names[stub.name] = true // mark to avoid trying many times
-                okay, err = p.traverseFileStub(t, stub)
+                okay, err = t.filestub(p, stub)
                 if err != nil || okay { file.filestub = stub; return }
                 if stub.other == file.filestub { break }
         }
@@ -328,7 +328,7 @@ func (p *Project) traverseFile(t *traversal, file *File) (okay bool, err error) 
                         }
                         file.filestub.other = stub
 
-                        okay, err = p.traverseFileStub(t, stub)
+                        okay, err = t.filestub(p, stub)
                         if err != nil || okay {
                                 file.filestub = stub
                                 return
@@ -348,8 +348,9 @@ func (p *Project) traverseFile(t *traversal, file *File) (okay bool, err error) 
         return
 }
 
-func (p *Project) traverseFileStub(t *traversal, stub *filestub) (okay bool, err error) {
-        if optionEnableBenchspots { defer bench(spot("Project.traverseFileStub")) }
+func (t *traversal) filestub(p *Project, stub *filestub) (okay bool, err error) {
+        if optionEnableBenchspots { defer bench(spot("traversal.filestub")) }
+
         /// Searching entries from the most derived project.
         var entry *RuleEntry
         if entry, err = p.resolveEntry(stub.name); err != nil {
@@ -382,15 +383,13 @@ ForPatterns:
         return
 }
 
-func (p *Project) traverseTarget(pos Position, t *traversal, target string) (okay bool, err error) {
-        if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("Project.traverseTarget(%v)", target))) }
-        if optionEnableBenchspots { defer bench(spot("Project.traverseTarget")) }
+func (t *traversal) targetInProject(pos Position, p *Project, target string) (okay bool, err error) {
+        if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("traversal.targetInProject(%v)", target))) }
+        if optionEnableBenchspots { defer bench(spot("traversal.targetInProject")) }
 
         if obj := p.scope.Lookup(target); obj != nil {
-                if name, ok := obj.(*ProjectName); ok {
-                        if okay, err = name.traverse2(t); okay || err != nil {
-                                return
-                        }
+                if okay, err = obj.tryTraverse(t); okay || err != nil {
+                        return
                 }
         }
 
@@ -401,7 +400,7 @@ func (p *Project) traverseTarget(pos Position, t *traversal, target string) (oka
                 t.addNewTarget(file) // Add new file target
 
                 // Invoke file rules no matter if it existed or not.
-                if okay, err = p.traverseFile(t, file); err != nil {
+                if okay, err = t.fileInProject(p, file); err != nil {
                         err = wrap(pos, err)
                 } else if !okay {
                         err = wrap(pos, fileNotFoundError{p, file})
@@ -466,29 +465,31 @@ func (t *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay 
         return
 }
 
-func (t *traversal) traverseFile(file *File) (err error) {
-        if optionEnableBenchspots { defer bench(spot("traversal.traverseFile")) }
+func (t *traversal) file(file *File) (err error) {
+        if optionEnableBenchspots { defer bench(spot("traversal.file")) }
         var okay bool
         okay, err = t.foreachClosureProject(func(p *Project) (bool, error) {
-                return p.traverseFile(t, file)
+                return t.fileInProject(p, file)
         })
         if !okay && err == nil {
                 err = wrap(file.Position(), fileNotFoundError{t.project, file})
-                if optionTraceTraversal { t.tracef("%v: traverseFile({%s,%s,%s}): not found",
+                if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found",
                         t.project, file.dir, file.sub, file.name) }
         }
         return
 }
 
-func (t *traversal) traverseTarget(pos Position, target string) (err error) {
-        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.traverseTarget(%v)", target))) }
+func (t *traversal) target(pos Position, target string) (err error) {
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
+        if optionEnableBenchspots { defer bench(spot("traversal.target")) }
+
         var okay bool
         okay, err = t.foreachClosureProject(func(p *Project) (bool, error) {
-                return p.traverseTarget(pos, t, target)
+                return t.targetInProject(pos, p, target)
         })
         if !okay && err == nil {
                 err = wrap(pos, targetNotFoundError{t.project, target})
-                if optionTraceTraversal { t.tracef("%v: `traverseTarget(%s)` not found",
+                if optionTraceTraversal { t.tracef("%v: `target(%s)` not found",
                         t.project, target) }
         }
         if false && err != nil { debug.PrintStack() }
@@ -1365,7 +1366,7 @@ func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *String) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if false { err = t.traverseTarget(p.Position(), p.string) }
+        if false { err = t.target(p.Position(), p.string) }
         return
 }
 func (p *String) cmp(v Value) (res cmpres) {
@@ -1403,7 +1404,7 @@ func (p *Bareword) Integer() (int64, error) { return strconv.ParseInt(p.string, 
 func (p *Bareword) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *Bareword) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        err = t.traverseTarget(p.position, p.string)
+        err = t.target(p.position, p.string)
         return
 }
 func (p *Bareword) cmp(v Value) (res cmpres) {
@@ -1431,7 +1432,7 @@ func (p *Qualiword) Integer() (int64, error) { return int64(len(p.words)), nil }
 func (p *Qualiword) Float() (float64, error) { return float64(len(p.words)), nil }
 func (p *Qualiword) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        err = t.traverseTarget(p.position, p.String())
+        err = t.target(p.position, p.String())
         return
 }
 func (p *Qualiword) cmp(v Value) (res cmpres) {
@@ -1569,7 +1570,7 @@ func (p *Barecomp) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         var target string
         if target, err = p.Strval(); err == nil {
-                err = t.traverseTarget(p.Position(), target)
+                err = t.target(p.Position(), target)
         }
         return
 }
@@ -1630,7 +1631,7 @@ func (p *Barefile) traverse(t *traversal) (err error) {
         } else {
                 var target string
                 if target, err = p.Strval(); err == nil {
-                        err = t.traverseTarget(p.Position(),target)
+                        err = t.target(p.Position(),target)
                 }
         }
         return
@@ -2374,7 +2375,7 @@ func (p *File) traverse(t *traversal) (err error) {
                 }
         }
 
-        if err = t.traverseFile(p); err != nil {
+        if err = t.file(p); err != nil {
                 return
         }
 
@@ -3623,7 +3624,7 @@ func (p *PercPattern) traverse(t *traversal) (err error) {
                 // oops...
         } else if len(rest) > 0 || target == "" {
                 // just relax
-        } else if err = t.traverseTarget(p.position, target); err == nil {
+        } else if err = t.target(p.position, target); err == nil {
                 //t.addNewTarget(&String{trivial{p.position},target})
         }
         return
@@ -3750,7 +3751,7 @@ func (p *GlobPattern) traverse(t *traversal) (err error) {
         } else if len(rest) > 0 || target == "" {
                 // just relax
         } else {
-                err = t.traverseTarget(p.position, target)
+                err = t.target(p.position, target)
         }
         return
 }

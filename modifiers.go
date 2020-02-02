@@ -429,8 +429,11 @@ func modifierClosure(pos Position, t *traversal, args... Value) (result Value, e
         if c := t.caller; c != nil {
                 t.project, t.closure = c.project, c.closure
         }
+
         if false {
                 if len(cloctx) > 0 { cloctx = cloctx[1:] }
+        } else if len(cloctx) > 0 && cloctx[0] == t.program.scope {
+                setclosure(append(cloctx[1:], cloctx[0]))
         } else if len(cloctx) == 0 || cloctx[0] != t.closure {
                 setclosure(cloctx.unshift(t.closure))
         }
@@ -1912,6 +1915,11 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
 func modifierAssert(pos Position, t *traversal, args... Value) (result Value, err error) {
         var ( res bool; sco breaksco; msg string )
         if res, sco, msg, err = predict(pos, t, args...); !res && err == nil {
+                if msg == "" {
+                        msg = fmt.Sprintf("%v", args)
+                } else {
+                        msg = fmt.Sprintf("%v: %v", args, msg)
+                }
                 err = &breaker{ pos:pos, what:breakFail, message:msg, scope:sco }
         }
         return

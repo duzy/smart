@@ -79,6 +79,8 @@ func (ctx *Context) run() (result []Value, err error) {
                 return
         }
 
+        defer setclosure(setclosure(cloctx.unshift(main.scope)))
+
         var goals []Value
         for _, goal := range merge(ctx.goals.value) {
                 switch t := goal.(type) {
@@ -114,7 +116,6 @@ func (ctx *Context) run() (result []Value, err error) {
                         }
                 }
         } else {
-                defer setclosure(setclosure(cloctx.unshift(main.scope)))
                 for _, goal := range goals {
                         var ( entry *RuleEntry; ok bool )
                         if entry, ok = goal.(*RuleEntry); !ok || entry == nil {

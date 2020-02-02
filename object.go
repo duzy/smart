@@ -34,6 +34,8 @@ type Object interface {
         
 	// redecl the object.
 	redecl(*Scope)
+
+        tryTraverse(t *traversal) (okay bool, err error)
 }
 
 type trivialobject struct { // generally unnamed objects
@@ -50,6 +52,7 @@ func (p *trivialobject) String() string { return fmt.Sprintf("{unknown %p}", p) 
 func (p *trivialobject) Get(name string) (Value, error) { return nil, fmt.Errorf("no such property `%s`", name) }
 func (p *trivialobject) redecl(scope *Scope) { panic("redeclaring unknown object") }
 func (p *trivialobject) exists() existence { return existenceMatterless }
+func (p *trivialobject) tryTraverse(t *traversal) (okay bool, err error) { return false, nil }
 func (p *trivialobject) cmp(v Value) (res cmpres) {
         if a, ok := v.(*trivialobject); ok {
                 assert(ok, "value is not trivialobject")
@@ -93,7 +96,7 @@ type unresolvedobject struct { // named callable/executable objects
         trivialobject
         name Value // name could be closured
 }
-func (p *unresolvedobject) traverse(pc *traversal) (err error) { return }
+func (p *unresolvedobject) traverse(t *traversal) (err error) { return }
 func (p *unresolvedobject) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *unresolvedobject) True() (bool, error) { return false, nil }
 func (p *unresolvedobject) Name() string {
@@ -172,15 +175,15 @@ func (p *ProjectName) Call(pos Position, a... Value) (value Value, err error) {
         }
         return
 }
-func (p *ProjectName) traverse(pc *traversal) (err error) {
-        _, err = p.traverse2(pc)
+func (p *ProjectName) traverse(t *traversal) (err error) {
+        _, err = p.tryTraverse(t)
         return
 }
-func (p *ProjectName) traverse2(pc *traversal) (okay bool, err error) {
-        if optionTraceTraversal { defer un(tt(pc, p)) }
+func (p *ProjectName) tryTraverse(t *traversal) (okay bool, err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
         var entry = p.project.DefaultEntry()
         if entry != nil && entry.class != UseRuleEntry {
-                okay, err = true, entry.traverse(pc)
+                okay, err = true, entry.traverse(t)
         }
         return
 }
@@ -442,8 +445,8 @@ func (d *Def) Get(name string) (Value, error) {
         }
         return nil, fmt.Errorf("no such property `%s' (Def)", name)
 }
-func (d *Def) traverse(pc *traversal) (err error) {
-        if d.value != nil { err = d.value.traverse(pc) }
+func (d *Def) traverse(t *traversal) (err error) {
+        if d.value != nil { err = d.value.traverse(t) }
         return
 }
 func (d *Def) mod(t *traversal) (res time.Time, err error) {
@@ -474,9 +477,9 @@ func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *undetermined) traverse(pc *traversal) (err error) { return }
+func (p *undetermined) traverse(t *traversal) (err error) { return }
 func (p *undetermined) Position() Position { return p.identifier.Position() }
-func (p *undetermined) stamp(pc *traversal) (files []*File, err error) { return }
+func (p *undetermined) stamp(t *traversal) (files []*File, err error) { return }
 func (p *undetermined) exists() existence { return existenceMatterless }
 func (p *undetermined) True() (bool, error) { return false, nil }
 func (p *undetermined) String() (s string) {
@@ -558,7 +561,7 @@ type RuleEntry struct {
 }
 
 func (entry *RuleEntry) Position() Position { return entry.position/*entry.target.Position()*/ }
-func (entry *RuleEntry) stamp(pc *traversal) (files []*File, err error) { return entry.target.stamp(pc) }
+func (entry *RuleEntry) stamp(t *traversal) (files []*File, err error) { return entry.target.stamp(t) }
 func (entry *RuleEntry) exists() existence { return entry.target.exists() }
 func (entry *RuleEntry) True() (bool, error) { return entry.target.True() }
 func (entry *RuleEntry) Float() (float64, error) { return 0, nil }
@@ -729,12 +732,17 @@ func (entry *RuleEntry) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (entry *RuleEntry) traverse(pc *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(pc, entry.target)) }
-        //if optionEnableBenchmarks { defer bench(mark("RuleEntry.traverse")) }
+func (entry *RuleEntry) tryTraverse(t *traversal) (okay bool, err error) {
+        if err = entry.traverse(t); err == nil { okay = true }
+        return
+}
+func (entry *RuleEntry) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, entry.target)) }
+        if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
+        if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
 ForPrograms:
         for _, prog := range entry.programs {
-                var e = pc.execute(entry, prog)
+                var e = t.execute(entry, prog)
                 if e == nil { continue }
 
                 var brks, errs = extractBreakers(e)

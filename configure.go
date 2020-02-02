@@ -71,9 +71,11 @@ func init_configuration(paths searchlist) (err error) {
         if optionTraceLaunch { defer un(trace(t_launch, "init_configuration")) }
 
         var pos Position
+        pos.Filename = context.workdir
         configuration.scope = NewScope(pos, context.globe.scope, nil, "configuration")
         configuration.paths = paths
 
+        var filename = filepath.Join(context.workdir, "~.smart")
         var l = &loader{
                 Context: &context,
                 scope:    configuration.scope,
@@ -81,7 +83,9 @@ func init_configuration(paths searchlist) (err error) {
                 paths:    configuration.paths,
                 loaded:   make(map[string]*Project),
         }
-        var filename = filepath.Join(context.workdir, "~.smart")
+
+        // Restore cloctx (remove "~.smart" from cloctx)
+        defer setclosure(cloctx) // FIXME: "~.smart" should not be in cloctx
 
         if err = l.loadFile(filename, configurationInitFile); err != nil {
                 return
