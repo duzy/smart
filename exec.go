@@ -255,7 +255,7 @@ func (p *ExecBuffer) skips(tag string) (result bool) {
         return
 }
 
-func (p *ExecBuffer) processKnownErrors(pos Position, pc *traversal, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
+func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
         var retry bool
         var tag string
         for _, m := range p.matches {
@@ -291,18 +291,18 @@ func (p *ExecBuffer) processKnownErrors(pos Position, pc *traversal, dock *Proje
                 if p.report { fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num) }
                 c := exec.Command(sh.Path, sh.Args...)
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                _, err = p.runAndProcessKnownErrors(pos, pc, dock, c, x, num+1) // retry
+                _, err = p.runAndProcessKnownErrors(pos, t, dock, c, x, num+1) // retry
         } else if err != nil {
                 // ends with error
         } else if tag == "" {
                 err = &exitstatus{ status }
         } else if skip := p.skips(tag); !skip && dock != nil && num < maxRetries {
                 p.retried[tag] = true // save it to skip next time
-                if err = x.runContainer(pc, dock); err == nil {
-                        if p.report { fmt.Fprintf(stderr, "smart: started %s\n", tag) }
+                if err = x.runContainer(t, dock); err == nil {
+                        if p.report { fmt.Fprintf(stderr, "smart: %s started %s\n", container, tag) }
                         c := exec.Command(sh.Path, sh.Args...)
                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                        _, err = p.runAndProcessKnownErrors(pos, pc, dock, c, x, num+1) // retry
+                        _, err = p.runAndProcessKnownErrors(pos, t, dock, c, x, num+1) // retry
                 } else {
                         //err = errorf(pos, "`%s` no such container", tag)
                 }
@@ -310,7 +310,7 @@ func (p *ExecBuffer) processKnownErrors(pos Position, pc *traversal, dock *Proje
         return
 }
 
-func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, pc *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
+func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, num int) (status int, err error) {
         p.matches = nil
         if err = sh.Run(); err == nil {
                 // It's good!
@@ -326,7 +326,7 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, pc *traversal, dock 
                         pos.Column = 0
                         err = wrap(pos, err)
                 }
-                if e := p.processKnownErrors(pos, pc, dock, sh, x, status, num); e != nil {
+                if e := p.processKnownErrors(pos, t, dock, sh, x, status, num); e != nil {
                         err = wrap(pos, e, err)
                 }
                 //if p.report { fmt.Fprintf(stderr, "%v\n", err) }
@@ -375,28 +375,22 @@ func (p *ExecResult) String() string {
 
 type executor struct {
         cmd, opt string
-        bare bool
+        contained bool
 }
 
-func (p *executor) runContainer(pc *traversal, dock *Project) (err error) {
-        if run, _ := dock.resolveEntry("run"); run != nil {
-                if run.OwnerProject() != dock {
-                        err = fmt.Errorf("'%v' must have 'run' rule", dock)
-                        fmt.Fprintf(stderr, "%v: %v\n", dock.absPath, err)
-                } else {
-                        _, err = run.Execute(pc.program.position)
+func (p *executor) runContainer(t *traversal, container *Project) (err error) {
+        if run, _ := container.resolveEntry("run"); run != nil && len(run.programs) > 0 {
+                defer setclosure(setclosure(cloctx.unshift(container.scope)))
+                if err = t.execute(run, run.programs[0]); err != nil {
+                        fmt.Fprintf(stderr, "%v: %v\n", t.program.position, err)
                 }
-                if err != nil {
-                        fmt.Fprintf(stderr, "%v: %v\n", pc.program.position, err)
-                }
-
         } else {
-                err = fmt.Errorf("dock⇒run undefined")
+                err = errorf(t.program.position, "%s⇒run undefined", container)
         }
         return
 }
 
-func (p *executor) ensureContainerRunning(pc *traversal, dock *Project, container string) (err error) {
+func (p *executor) ensureContainerRunning(t *traversal, dock *Project, container string) (err error) {
         var (
                 stdoutR, stdoutW = io.Pipe()
                 stderrR, stderrW = io.Pipe()
@@ -440,40 +434,30 @@ func (p *executor) ensureContainerRunning(pc *traversal, dock *Project, containe
         } (stderrR)
 
         if err = cmd.Run(); err == nil && foundID == "" {
-                if err = p.runContainer(pc, dock); err == nil {
+                if err = p.runContainer(t, dock); err == nil {
                         time.Sleep(time.Second)
                 }
         }
         return
 }
 
-func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err error) {
+func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error) {
         if optionTraceExecutor {
-                var t = pc.def.target.value
+                var t = t.def.target.value
                 defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
         }
-        if false {
-                var recursion int
-                for c := pc.caller; c != nil; c = c.caller {
-                        if c.def.target.value == pc.def.target.value {
-                                recursion += 1
-                        }
-                }
-                if recursion > 1 {
-                        if false {
-                                var pos = pc.caller.program.Position()
-                                err = errorf(pos, "%v: too many recursion (%d)", pc.def.target.value, recursion)
-                        }
-                        return
-                }
-        }
 
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-        var prompt, verbout, verberr, buffout, bufferr, stdin, silent, nocd bool
-        var cmd, promStr, logFileName = p.cmd, "", ""
-        var optPath bool
-        var aa []string
-        if args, err = parseFlags(args, []string{
+        var (
+                optPrompt, optVerbout, optVerberr bool
+                optBuffOut, optBuffErr, optStdin bool
+                optSilent, optNoCD, optPath bool
+                optScanStderr bool = true
+                promStr, logFileName string
+                cmd = p.cmd
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
                 "c,cmd", // replaces -p, -prompt
                 "d,dump", // verbout, verberr
                 "e,stderr",
@@ -488,21 +472,21 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
         }, func(ru rune, v Value) {
                 var s string
                 switch ru {
-                case 'i': stdin   = true
-                case 'o': buffout = true
-                case 'e': bufferr = true
-                case 'v': verbout = true
-                case 'w': verberr = true
-                case 's': silent  = true
+                case 'i': optStdin   = true
+                case 'o': optBuffOut = true
+                case 'e': optBuffErr = true
+                case 'v': optVerbout = true
+                case 'w': optVerberr = true
+                case 's': optSilent  = true
                 case 'p': optPath = trueVal(v, false)
                         if p, ok := v.(*Pair); ok {
                                 fmt.Printf("%s: -p=xxx has been replaced with -c (-cmd), -p is no -path", p.Value.Position())
                         }
                 case 'c':
                         if v == nil {
-                                prompt = true
+                                optPrompt = true
                         } else if s, err = v.Strval(); err == nil {
-                                prompt, promStr = true, s
+                                optPrompt, promStr = true, s
                         } else {
                                 return
                         }
@@ -516,26 +500,27 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         }
                 case 'd': // -dump=xxx or -d=xxx
                         if v == nil {
-                                verbout, verberr = true, true
+                                optVerbout, optVerberr = true, true
                         } else if s, err = v.Strval(); err == nil {
                                 switch s {
-                                case "stdout": verbout = true
-                                case "stderr": verberr = true
+                                case "stdout": optVerbout = true
+                                case "stderr": optVerberr = true
                                 case "all":
-                                        verbout = true
-                                        verberr = true
+                                        optVerbout = true
+                                        optVerberr = true
                                 }
                         } else {
                                 return
                         }
                 case 'n':
-                        nocd = true
+                        optNoCD = true
                 }
         }); err != nil { return }
 
+        var aa []string
         for i, v := range args {
                 var s string
-                if !p.bare && i == 0 {
+                if p.contained && i == 0 {
                         if s, err = v.Strval(); err != nil { return }
                         if s == "shell" { cmd = defaultShell }
                         continue
@@ -545,54 +530,52 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                 }
         }
 
-        var dock *Project
-        if !p.bare {
-                if pc.program.project.name == ".dock" {
-                        dock = pc.program.project
+        var container *Project
+        if p.contained {
+                if t.program.project.name == dotContainer {
+                        container = t.program.project
                 } else if false {
                         for _, scope := range cloctx {
-                                if _, sym := scope.Find(".dock"); sym != nil {
+                                if _, sym := scope.Find(dotContainer); sym != nil {
                                         if p, ok := sym.(*ProjectName); ok && p != nil {
-                                                dock = p.NamedProject()
+                                                container = p.NamedProject()
                                                 break
                                         }
                                 }
                         }
-                        if dock == nil {
-                                if _, dockSym := pc.program.project.scope.Find(".dock"); dockSym != nil {
-                                        if pn, _ := dockSym.(*ProjectName); pn != nil {
-                                                dock = pn.NamedProject()
+                        if container == nil {
+                                if _, containerSym := t.program.project.scope.Find(dotContainer); containerSym != nil {
+                                        if pn, _ := containerSym.(*ProjectName); pn != nil {
+                                                container = pn.NamedProject()
                                         }
                                 }
                         }
                 } else {
-                        if _, dockSym := pc.program.project.scope.Find(".dock"); dockSym != nil {
-                                if pn, _ := dockSym.(*ProjectName); pn != nil {
-                                        dock = pn.NamedProject()
+                        if _, containerSym := t.program.project.scope.Find(dotContainer); containerSym != nil {
+                                if pn, _ := containerSym.(*ProjectName); pn != nil {
+                                        container = pn.NamedProject()
                                 }
                         }
                 }
 
-                // fmt.Fprintf(stderr, "%v: %v\n", dock, dock.absPath)
-
-                if dock == nil {
-                        err = fmt.Errorf("docking unavailable (in %s)", pc.program.Project().Name())
+                if container == nil {
+                        err = fmt.Errorf("container unavailable (in %s)", t.program.Project().Name())
                         return
                 }
 
                 var strval = func(name string) (str string, err error) {
                         if false {
-                                defer setclosure(scoping(dock)) //(scoping(docks...))
+                                defer setclosure(scoping(container))
                         } else {
                                 defer setclosure(cloctx)
-                                cloctx = append(closurecontext{dock.Scope()}, cloctx...)
+                                cloctx = append(closurecontext{container.Scope()}, cloctx...)
                         }
-                        if obj, _ := dock.resolveObject(name); obj != nil {
+                        if obj, _ := container.resolveObject(name); obj != nil {
                                 if def, _ := obj.(*Def); def != nil {
                                         var v Value
                                         if v, err = def.DiscloseValue(); err == nil && v != nil {
                                                 if str, err = v.Strval(); str == "-" {
-                                                        /*if v, err = def.DiscloseValue(dock); err == nil && v != nil {
+                                                        /*if v, err = def.DiscloseValue(container); err == nil && v != nil {
                                                         if str, err = v.Strval(); str == "" { str = "-" }
                                                         fmt.Fprintf(stderr, "%v: %v (%v)\n", name, str, def)
                                                         }*/
@@ -603,57 +586,50 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         return
                 }
 
-                var container, image string
-                if container, err = strval("container"); err != nil { return }
-                if container == "" { err = fmt.Errorf("container undefined"); return }
-                if image, err = strval("image"); err != nil { return }
-                if image == "" { err = fmt.Errorf("image undefined"); return }
+                var containerName, containerImage string
+                if containerName, err = strval("container"); err != nil { return }
+                if containerName == "" { err = fmt.Errorf(".container.name undefined"); return }
+                if containerImage, err = strval("image"); err != nil { return }
+                if containerImage == "" { err = fmt.Errorf(".container.image undefined"); return }
 
-                fmt.Fprintf(stderr, "%v: %v (%v)\n", dock, container, image)
+                fmt.Fprintf(stderr, "%v: %v (%v)\n", container, containerName, containerImage)
 
-                aa = append(aa, "exec", container, cmd)
+                aa = append(aa, "exec", containerName, cmd)
                 cmd = "docker"
 
                 if false {
-                        if err = p.ensureContainerRunning(pc, dock, container); err != nil {
+                        if err = p.ensureContainerRunning(t, container, containerName); err != nil {
                                 return
                         }
                 }
         }
 
         var cwd string
-        if v, e := pc.program.scope.Lookup("CWD").(*Def).Call(pc.program.position); e != nil {
-                err = e; return
-        } else if v != nil {
-                if cwd, err = v.Strval(); err != nil { return }
-        } else if v, e := pc.program.scope.Lookup("/").(*Def).Call(pc.program.position); e != nil {
-                err = e; return
-        } else if v != nil {
-                if cwd, err = v.Strval(); err != nil { return }
-        }
+        if v, e := t.program.scope.Lookup("CWD").(*Def).Call(t.program.position); e != nil { err = e; return } else
+        if v != nil {if cwd, err = v.Strval(); err != nil { return }} else
+        if v, e := t.program.scope.Lookup("/").(*Def).Call(t.program.position); e != nil { err = e; return } else
+        if v != nil {if cwd, err = v.Strval(); err != nil { return }}
 
         // Fixes work directory conflicts. It happens
         // sometimes even the 'sh.Dir' is set to cwd.
         // Because the current work directory is not
         // thread safe.
         var dir = cwd
-        if pc.program.changedWD != "" {
-                if filepath.IsAbs(pc.program.changedWD) {
-                        dir = pc.program.changedWD
+        if t.program.changedWD != "" {
+                if filepath.IsAbs(t.program.changedWD) {
+                        dir = t.program.changedWD
                 } else {
-                        dir = filepath.Join(pc.program.project.absPath, pc.program.changedWD)
+                        dir = filepath.Join(t.program.project.absPath, t.program.changedWD)
                 }
         }
 
         var targetName string
-        var target = pc.def.target.value
-        if targetName, err = target.Strval(); err != nil {
-                return
-        }
+        var target = t.def.target.value
+        if targetName, err = target.Strval(); err != nil { return }
 
         if optPath {
                 var s string
-                if s, err = pc.def.target.value.Strval(); err != nil { return }
+                if s, err = t.def.target.value.Strval(); err != nil { return }
                 if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
                         err = os.MkdirAll(s, os.FileMode(0755))
                         if err != nil { return }
@@ -661,7 +637,7 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
         }
 
         var envars []*Pair // disclosed values
-        if def, _ := pc.program.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
+        if def, _ := t.program.Scope().Lookup(TheShellEnvarsDef).(*Def); def != nil {
                 if l, _ := def.value.(*List); l != nil {
                         for _, v := range l.Elems {
                                 if v, err = v.expand(expandClosure); err != nil {
@@ -676,13 +652,17 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                 }
         }
 
-        var recipes []Value
-        if recipes, err = mergeresult(ExpandAll(pc.program.recipes...)); err != nil { return }
 
-        var pos Position
-        var source, str string
-        var sources []string
-        var positions []Position
+        var (
+                recipes []Value
+                source, str string
+                sources []string
+                positions []Position
+                pos Position
+        )
+        if recipes, err = mergeresult(ExpandAll(t.program.recipes...)); err != nil {
+                return
+        }
         for _, recipe := range recipes {
                 if !pos.IsValid() { pos = recipe.Position() }
                 if str, err = recipe.Strval(); err != nil { return }
@@ -719,20 +699,18 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
 
         var log ExecLog
         var logfile *os.File
-        var exeres = new(ExecResult)
-        exeres.position = pc.program.position
-
-        if buffout { exeres.Stdout.Buf = new(bytes.Buffer) }
-        if bufferr { exeres.Stderr.Buf = new(bytes.Buffer) }
-        if verbout { exeres.Stdout.Tie = stdout }
-        if verberr { exeres.Stderr.Tie = stderr }
+        var exeres = &ExecResult{trivial:trivial{t.program.position}}
+        if optBuffOut { exeres.Stdout.Buf = new(bytes.Buffer) }
+        if optBuffErr { exeres.Stderr.Buf = new(bytes.Buffer) }
+        if optVerbout { exeres.Stdout.Tie = stdout }
+        if optVerberr { exeres.Stderr.Tie = stderr }
         if logFileName == "" {
                 // no log required
         } else if err = os.MkdirAll(filepath.Dir(logFileName), os.FileMode(0755)); err != nil {
-                err = wrap(pc.program.position, err)
+                err = wrap(t.program.position, err)
                 return // FIXME: err for outer func
         } else if logfile, err = os.Create(logFileName); err != nil {
-                err = wrap(pc.program.position, err)
+                err = wrap(t.program.position, err)
                 return // FIXME: err for outer func
         } else {
                 cmdline := strings.Join(sources, "\n")
@@ -741,15 +719,14 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                 exeres.Stderr.log = &log
         }
 
-        //exeres.Stderr.Line = rxKnownErrors // the line filter
-        exeres.Stderr.scanerr = true
+        exeres.Stderr.scanerr = optScanStderr
         log.filename = logFileName
 
         var run = func() {
                 var targetStr string
                 defer func(start time.Time) {
                         if err == nil {
-                                err = stamp(pc, target, start, /*!prompt*/true)
+                                err = stamp(t, target, start, /*!optPrompt*/true)
                         }
                         if log.writer != nil {
                                 if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
@@ -761,9 +738,9 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                                         logfile.Close()
                                 }
                         }
-                        if c := pc.caller; c != nil { c.calleeDone(err) }
-                        if prompt {
-                                if pc.caller == nil {
+                        if c := t.caller; c != nil { c.calleeDone(err) }
+                        if optPrompt {
+                                if t.caller == nil {
                                         if err == nil {
                                                 fmt.Fprintf(stderr, "… ok\n")
                                         } else if _, ok := err.(*scanner.Error); ok {
@@ -782,7 +759,7 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                                 }
                         }
                 } (time.Now())
-                if prompt {
+                if optPrompt {
                         if a := strings.Split(targetName, PathSep); len(a) > 3 {
                                 targetStr = filepath.Join(a[len(a)-3:]...)
                                 targetStr = filepath.Join("…", targetStr)
@@ -794,7 +771,7 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         } else {
                                 promStr += ": "
                         }
-                        if pc.caller == nil {
+                        if t.caller == nil {
                                 fmt.Fprintf(stderr, "%s%s …\n", promStr, targetStr)
                         } else {
                                 fmt.Fprintf(stderr, "%s%s ……\n", promStr, targetStr)
@@ -804,7 +781,7 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         var pos = positions[i]
                         if strings.HasPrefix(src, "@") {
                                 src = src[1:]
-                        } else if !prompt {
+                        } else if !optPrompt {
                                 var s string
                                 s = strings.Replace(src, "\n", "\\n", -1)
                                 s = strings.Replace(s, "\\\\n", "\\\n", -1)
@@ -812,7 +789,7 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         }
                         if src = strings.TrimSpace(src); src == "" {
                                 continue
-                        } else if dir != "" && !nocd /*&& pc.program.changedWD == ""*/ {
+                        } else if dir != "" && !optNoCD /*&& t.program.changedWD == ""*/ {
                                 if strings.HasPrefix(src, "#") {
                                         src = fmt.Sprintf("cd '%s' %s", dir, src)
                                 } else {
@@ -838,16 +815,16 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
                         sh.Env = envs
                         sh.Stdout = &exeres.Stdout
                         sh.Stderr = &exeres.Stderr
-                        if stdin {
+                        if optStdin {
                                 sh.Stdin = os.Stdin
                                 sh.Args = append(sh.Args, "-ti")
                         }
                         sh.Args = append(sh.Args, p.opt, src)
 
-                        exeres.Stderr.report = !silent
-                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pos, pc, dock, sh, p, 1)
-                        if err != nil { err = wrap(pc.program.position, err)
-                                if !silent { fmt.Fprintf(stderr, "%v\n", err) }
+                        exeres.Stderr.report = !optSilent
+                        exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pos, t, container, sh, p, 1)
+                        if err != nil { err = wrap(t.program.position, err)
+                                if !optSilent { fmt.Fprintf(stderr, "%v\n", err) }
                                 return
                         }
                 }
@@ -855,8 +832,8 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
 
         printEnteringDirectory()
 
-        if pc.caller != nil {
-                pc.caller.calleeStart()
+        if t.caller != nil {
+                t.caller.calleeStart()
                 go run()
         } else {
                 run()
@@ -868,14 +845,11 @@ func (p *executor) Evaluate(pc *traversal, args []Value) (result Value, err erro
         return
 }
 
-func stamp(pc *traversal, target Value, start time.Time, verb bool) (err error) {
-        var t Value
-        if t, err = target.expand(expandAll); err != nil {
-                return
-        }
-
+func stamp(t *traversal, target Value, start time.Time, verb bool) (err error) {
+        var v Value
         var files []*File
-        if files, err = t.stamp(pc); err == nil && verb {
+        if v, err = target.expand(expandAll); err != nil { return } else
+        if files, err = v.stamp(t); err == nil && verb {
                 for _, file := range files {
                         d := file.info.ModTime().Sub(start);
                         fmt.Printf("smart: Updated %v (%v)\n", file, d)

@@ -440,14 +440,19 @@ func modifierClosure(pos Position, t *traversal, args... Value) (result Value, e
                 setclosure(cloctx.unshift(t.closure))
         }
 
-        var optDump bool
+        var (
+                optDump bool
+                optVerbose bool
+        )
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
         } else if args, err = parseFlags(args, []string{
                 "d,dump",
+                "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'd': optDump = trueVal(v, false)
+                case 'v': optVerbose = trueVal(v, false)
                 }
         }); err != nil { return }
 
@@ -456,6 +461,8 @@ func modifierClosure(pos Position, t *traversal, args... Value) (result Value, e
                 for _, cc := range cloctx {
                         fmt.Fprintf(stderr, "    %s: %s\n", cc.position, cc.comment)
                 }
+        } else if optVerbose {
+                fmt.Fprintf(stderr, "%s: %v\n", pos, cloctx)
         }
 
         var dir string // closure work directory

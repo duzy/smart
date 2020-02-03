@@ -77,6 +77,8 @@ const (
         parsingDir
 )
 
+const dotContainer = ".container"
+
 var parseMode = DeclarationErrors //|Trace
 
 type searchlist []string
@@ -1644,7 +1646,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 
 func (l *loader) loadDotDock(ident *ast.Bareword, file *File) (err error) {
         if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotDock")) }
-        if err = l.loadDir(".dock", file.fullname(), nil); err != nil {
+        if err = l.loadDir(dotContainer, file.fullname(), nil); err != nil {
                 l.error(ident.Pos(), "dock: %v", err)
         } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
                 name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
@@ -1816,20 +1818,25 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 l.isIncludingConf = false
         }
 
-        if optNoDock || l.project.name == ".dock" {
+        if optNoDock || l.project.name == dotContainer {
                 return
         }
 
-        // Looking for project specific ".dock" module
-        file := stat(pos, ".dock", "", l.project.absPath)
+        if _, e := os.Stat(".dock"); e == nil {
+                err = errorf(pos, "Must rename .dock into .container !")
+                return
+        }
+
+        // Looking for project specific dotContainer module
+        file := stat(pos, dotContainer, "", l.project.absPath)
         if exists(file) {
                 err = l.loadDotDock(ident, file)
                 return
         }
 
-        // Looking for .smart/.dock
+        // Looking for .smart/.container
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
-                file := stat(pos, ".dock", "", filepath.Join(s, ".smart"))
+                file := stat(pos, dotContainer, "", filepath.Join(s, ".smart"))
                 if !exists(file) {
                         // no docking enabled
                 } else if err = l.loadDotDock(ident, file); err != nil {
