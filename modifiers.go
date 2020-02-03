@@ -224,9 +224,11 @@ func (g *modifiergroup) handle(t *traversal, e error) (done bool, err error) {
                 defer bench(mark(s))
         }
 
+        if e == nil { return }
+
         var brks, errs = extractBreakers(e)
         if len(errs) > 0 {
-                if false { err = wrap(g.position, errs...) }
+                err = wrap(g.position, errs...)
                 return
         }
 
