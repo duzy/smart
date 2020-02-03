@@ -299,7 +299,7 @@ func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, dock *Projec
         } else if skip := p.skips(tag); !skip && dock != nil && num < maxRetries {
                 p.retried[tag] = true // save it to skip next time
                 if err = x.runContainer(t, dock); err == nil {
-                        if p.report { fmt.Fprintf(stderr, "smart: %s started %s\n", container, tag) }
+                        if p.report { fmt.Fprintf(stderr, "smart: container %s started\n", tag) }
                         c := exec.Command(sh.Path, sh.Args...)
                         c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
                         _, err = p.runAndProcessKnownErrors(pos, t, dock, c, x, num+1) // retry
