@@ -67,15 +67,16 @@ var configurationOps = map[string] func(pos Position, prog *Program, def *Def, a
         "package": configurePackage,
 }
 
+
+var confinitSource, confinitFilename = configurationInitFile()
 func init_configuration(paths searchlist) (err error) {
         if optionTraceLaunch { defer un(trace(t_launch, "init_configuration")) }
 
         var pos Position
-        pos.Filename = context.workdir
+        pos.Filename = confinitFilename
         configuration.scope = NewScope(pos, context.globe.scope, nil, "configuration")
         configuration.paths = paths
 
-        var filename = filepath.Join(context.workdir, "~.smart")
         var l = &loader{
                 Context: &context,
                 scope:    configuration.scope,
@@ -87,16 +88,16 @@ func init_configuration(paths searchlist) (err error) {
         // Restore cloctx (remove "~.smart" from cloctx)
         defer setclosure(cloctx) // FIXME: "~.smart" should not be in cloctx
 
-        if err = l.loadFile(filename, configurationInitFile); err != nil {
+        if err = l.loadFile(confinitFilename, confinitSource); err != nil {
                 return
-        } else if project, ok := l.loaded[filename]; ok {
+        } else if project, ok := l.loaded[confinitFilename]; ok {
                 configuration.project = project
         } else {
-                err = fmt.Errorf("configuration: `%v` not loaded\n", filename)
+                err = errorf(pos, "configuration: `%v` not loaded\n", confinitFilename)
         }
 
         if configuration.project == nil {
-                panic("configuration.project still nil")
+                panic("configuration.project is nil")
         }
 
         // Define configuration entries.

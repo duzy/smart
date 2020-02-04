@@ -1,4 +1,5 @@
-package smart; const configurationInitFile = `project ~ (-nodock -final)
+package smart; import "runtime/debug"; import "strings"; func configurationInitFile() (string, string) { source := `# confinit
+project ~ (-nodock -final)
 OUTDIR := &(CTD)/.configure
 
 files (
@@ -143,3 +144,16 @@ pthreads.c:[(closure) (plain c) (update-file -sp)]
 	$(_VALUE_)
 	
 `
+        var num int
+        var filename string
+        var lines = strings.Split(string(debug.Stack()), "\n")
+        for _, line := range lines {
+                if !strings.HasPrefix(line, "\t") { continue }
+                if i := strings.Index(line, ":"); num == 1 && i > 0 {
+                        filename = line[1:i]
+                        break
+                }
+                num += 1
+        }
+        return source, filename
+}

@@ -2367,8 +2367,10 @@ func (p *parser) parseFile() *ast.File {
                         // TODO: validate basename as identifier
                         ident = &ast.Bareword{ ValuePos: pos, Value: s }
                 } else if p.tok == token.TILDE {
-                        if ext := filepath.Ext(filename); ext != ".smart" {
-                                p.error(p.pos, "`%v` not smart file", filepath.Base(filename))
+                        if filename == confinitFilename {
+                                ident = &ast.Bareword{ ValuePos:pos, Value:"~" }
+                        } else if ext := filepath.Ext(filename); ext != ".smart" {
+                                p.error(p.pos, "`%v` not a smart file", filepath.Base(filename))
                         } else if s := strings.TrimSuffix(filepath.Base(filename), ext); s == "~" {
                                 ident = &ast.Bareword{ ValuePos: pos, Value: s }
                         } else {
