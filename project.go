@@ -68,7 +68,8 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
         }
         for _, path := range filemap.Paths {
                 if path == nil {
-                        panic(fmt.Sprintf("`%v` nil", filemap.Paths))
+                        var pos = filemap.Pattern.Position()
+                        panic(errorf(pos, "mapping nil path (base=%s, pre=%s, name=%s)", base, pre, name))
                 }
 
                 var ( dir, sub string ; err error )

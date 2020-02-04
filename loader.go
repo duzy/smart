@@ -1610,7 +1610,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 
                 if specName, err = elem.Strval(); err != nil { return }
                 if specName == "" {
-                        err = fmt.Errorf("%v: empty base name `%v` (%T)", l.project, elem, elem)
+                        err = errorf(elem.Position(), "%v: empty base name `%v` (%T)", l.project, elem, elem)
                         break ParamsLoop
                 }
                 if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
@@ -1623,16 +1623,16 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
                         err = l.loadWithArgs(specName, absPath, args, nil)
                 }
 
+                if err != nil {
+                        err = wrap(elem.Position(), err)
+                        break ParamsLoop
+                }
+
                 // chain loaded base project, note that err might not be nil
                 if loaded, yes := l.loaded[absPath]; yes && loaded != nil {
                         l.project.Chain(loaded)
                 } else {
-                        err = fmt.Errorf("project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath)
-                        break ParamsLoop
-                }
-
-                // check err after chainning
-                if err != nil {
+                        err = errorf(elem.Position(), "project `%v`(%T: %s) not loaded (%s)", elem, elem, specName, absPath)
                         break ParamsLoop
                 }
         }
@@ -1694,7 +1694,8 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         }
 
         var (
-                pos = Position(l.parser.file.Position(l.parser.pos))
+                //pos = Position(l.parser.file.Position(l.parser.pos))
+                pos = Position(l.parser.file.Position(ident.Pos()))
                 name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
                 dec, declared = linfo.declares[name]
@@ -1799,8 +1800,10 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         // no bases or docking for external packages
         if keyword == token.PACKAGE { return }
         if !optFinal {
-                err = l.loadBases(linfo, bases)
-                if err != nil { return }
+                if err = l.loadBases(linfo, bases); err != nil {
+                        err = wrap(pos, err)
+                        return
+                }
         }
 
         // FIXES: set cloctx immediately to ensure the right configuration
@@ -2071,10 +2074,14 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                                 } else {
                                         fmt.Fprintf(stderr, "%s: run failure (%T)\n", filename, failure)
                                 }
-                                fmt.Fprintf(stderr, "failure: %v\n", failure)
+                                if _, ok := e.(*scanner.Error); ok {
+                                        fmt.Fprintf(stderr, "%s\n", e)
+                                } else {
+                                        fmt.Fprintf(stderr, "%s: failure: %v\n", filename, failure)
+                                }
                                 if optionPrintStack { debug.PrintStack() }
                                 if e = recover(); e != nil {
-                                        fmt.Fprintf(stderr, "\n----\n")
+                                        fmt.Fprintf(stderr, "\n--------\n")
                                 }
 			}
 		}
