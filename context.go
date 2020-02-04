@@ -257,12 +257,12 @@ func (ctx *Context) loadwork() (err error) {
                 "e,bench-builtins",
                 "v,verbose",
                 "i,verbose-import",
-                "k,verbose-checks",
+                "c,verbose-checks",
                 "l,verbose-loading",
                 "p,verbose-parsing",
                 "u,verbose-using",
                 "r,reconfigure",
-                "c,configure",
+                "g,configure",
                 "d,debug",
         }, func(ru rune, v Value) {
                 switch ru {
@@ -273,11 +273,11 @@ func (ctx *Context) loadwork() (err error) {
                 case 'e': optionBenchBuiltin = trueVal(v, true)
                 case 'v': optionVerbose = trueVal(v, true)
                 case 'i': optionVerboseImport = trueVal(v, true)
-                case 'k': optionVerboseChecks = trueVal(v, true)
+                case 'c': optionVerboseChecks = trueVal(v, true)
                 case 'p': optionVerboseParsing = trueVal(v, true)
                 case 'l': optionVerboseLoading = trueVal(v, true)
                 case 'u': optionVerboseUsing = trueVal(v, true)
-                case 'c': optionConfigure = trueVal(v, true)
+                case 'g': optionConfigure = trueVal(v, true)
                 case 'r':
                         optionReconfig = trueVal(v, true)
                         optionConfigure = optionReconfig
