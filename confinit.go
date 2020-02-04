@@ -1,19 +1,21 @@
-package smart; import "runtime/debug"; import "strings"; func configurationInitFile() (string, string) { source := `# confinit
+package smart; import "runtime/debug"; import "strings"; func configurationInitFile() (string, string) { source := `# confinit -*- smart -*-
 project ~ (-nodock -final)
+
 OUTDIR := &(CTD)/.configure
 
 files (
     (*.c.include *.c++.include *.symbol *.variable *.function \
-     *.structmember *.sizeof *.type *.c *.c++ *.log) => $(OUTDIR)
+     *.structmember *.sizeof *.type *.c *.c++ *.log) ⇒ $(OUTDIR)
 )
 
-SHELL := shell -s
 CC := gcc
 CFLAGS :=
 LDFLAGS :=
 LOADLIBES :=
 LIBS :=
 LANG := c++
+SHELL := shell -s
+
 _INCLUDES_ :=
 _FLAGS_ :=
 _VALUE_ :=

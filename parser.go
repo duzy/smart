@@ -2275,26 +2275,30 @@ func (p *parser) parseFile() *ast.File {
 
 	// Don't bother parsing the rest if we had errors scanning the first token.
 	// Likely not a Go source file at all.
-	if p.errors.Len() != 0 {
-		return nil
-	}
+	if p.errors.Len() != 0 { return nil }
 
-        var abs string
-        var filename = p.file.Name()
-        if p.mode&Flat != 0 {
-                abs = p.project.absPath
+        var (
+                filename = p.file.Name()
+                abs, rel, tmp string
+        )
+        if filename == confinitFilename {
+                abs, rel = context.workdir, "."
+                tmp = joinTmpPath(context.workdir, rel)
         } else {
-                abs = filepath.Dir(filename)
+                if p.mode&Flat != 0 {
+                        abs = p.project.absPath
+                } else {
+                        abs = filepath.Dir(filename)
+                }
+                rel, _ = filepath.Rel(p.workdir, abs)
+                tmp = joinTmpPath(p.workdir, rel)
         }
 
         var (
-                rel, _ = filepath.Rel(p.workdir, abs)
-                tmp = joinTmpPath(p.workdir, rel)
                 doc = p.leadComment
                 pos = p.pos
+                ls = p.openScope(fmt.Sprintf("file %s", filename))
         )
-
-        ls := p.openScope(fmt.Sprintf("file %s", filename))
         if ls.scope != nil {
                 defer p.closeScope(ls)
                 var ( def *Def ; s = ls.scope )
