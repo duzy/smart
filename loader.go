@@ -413,8 +413,8 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                 }
         }
 
-        if breakUseLoop {
-                /*if loadedValid {
+        /*if breakUseLoop {
+                if loadedValid {
                         _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
                         if a != nil {
                                 if v, ok := a.(*ProjectName); !ok || v == nil {
@@ -422,8 +422,8 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                                 }
                         }
                 }
-                return*/
-        }
+                return
+        }*/
 
         defer func(a []*Project) { l.loadStack = a } (l.loadStack)
         l.loadStack = append(l.loadStack, l.project) // build the load path
@@ -1420,11 +1420,6 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 return
         }
         
-        /*var modifiers []Value
-        if clause.Modifiers != nil {
-                modifiers = l.exprs(clause.Modifiers.Elems)
-        }*/
-
         var configure = false
         var prog = &Program{
                 mutex:    new(sync.Mutex),
@@ -1765,13 +1760,23 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         l.useesExecuted = nil
         l.project = dec.project
         l.scope = l.project.scope
-
-        if isMainProj && l.preargs != "" {
-                err = l.loadCommandArguments(l.preargs)
-                if err != nil {
-                        return
+        if isMainProj {
+                for _, t := range context.pairs {
+                        switch k := t.Key.(type) {
+                        case *Bareword:
+                                if proj := l.project; proj != nil {
+                                        def, alt := l.def(k.string)
+                                        if def == nil && alt != nil {
+                                                def = alt.(*Def)
+                                        }
+                                        def.set(DefDefault, t.Value)
+                                }
+                        default:
+                                fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, l.project)
+                        }
                 }
         }
+
         for _, arg := range merge(l.loadArgs...) {
                 switch t := arg.(type) {
                 case *Pair:
@@ -2054,7 +2059,6 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
 
 	l.tracing.enabled = l.mode&Trace != 0 // for convenience (l.trace is used frequently)
 	defer func(saved *parser) {
-                var dbPrintStack = optionPrintStack || true
                 var e = recover()
 		for e != nil {
 			// resume same panic if it's not a bailout
@@ -2063,12 +2067,12 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                         default:
                                 if l.parser != nil && l.parser.file != nil {
                                         position := l.parser.file.Position(l.pos)
-                                        fmt.Fprintf(stderr, "%s: parse failure %T\n", position, failure)
+                                        fmt.Fprintf(stderr, "%s: parse failure (%T)\n", position, failure)
                                 } else {
-                                        fmt.Fprintf(stderr, "%s: run failure %T\n", filename, failure)
+                                        fmt.Fprintf(stderr, "%s: run failure (%T)\n", filename, failure)
                                 }
                                 fmt.Fprintf(stderr, "failure: %v\n", failure)
-                                if dbPrintStack { debug.PrintStack() }
+                                if optionPrintStack { debug.PrintStack() }
                                 if e = recover(); e != nil {
                                         fmt.Fprintf(stderr, "\n----\n")
                                 }
@@ -2096,7 +2100,7 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
                 // ParseFile API and return a valid (but) empty
                 // *ast.File
                 ls := l.openScope(fmt.Sprintf("file %s", filename))
-                f = &ast.File{ Name: new(ast.Bareword), Scope: ls.scope }
+                f = &ast.File{ Name:new(ast.Bareword), Scope:ls.scope }
                 l.closeScope(ls)
         }
 	return
@@ -2346,11 +2350,9 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         // Check already loaded project.
         if loaded, valid := l.loaded[absDir]; valid {
                 _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
-                if a != nil {
-                        if v, ok := a.(*ProjectName); !ok || v == nil {
-                                err = fmt.Errorf("`%s' name already taken (%T).", loaded.Name(), a)
-                        }
-                }
+                if a != nil { if v, ok := a.(*ProjectName); !ok || v == nil {
+                        err = fmt.Errorf("`%s' name already taken (%T).", loaded.Name(), a)
+                }}
                 return
         }
 
@@ -2386,7 +2388,7 @@ func (l *loader) loadDirWithArgs(specName, absPath string, args []Value, filter 
 }
 
 func (l *loader) loadFile(filename string, source interface{}) error {
-        if optionTraceLaunch { defer un(trace(t_launch, "loader.load_file")) }
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadFile")) }
         s, _ := filepath.Split(filename)
         s, _  = filepath.Rel(l.workdir, s)
         return l.load(s, filename, source)
@@ -2401,16 +2403,19 @@ func (l *loader) loadPath(path string, filter func(os.FileInfo) bool) (err error
 
 func (l *loader) loadText(filename string, text string) []Value {
         if optionTraceLaunch { defer un(trace(t_launch, "loader.loadText")) }
-        if l.globe.main == nil { return nil }
 
 	defer func(saved *parser) {
                 l.parser.loader = nil
                 l.parser = saved
 	} (l.parser)
 
-        l.useesExecuted = nil
-        l.project = l.globe.main
+        if l.globe.main == nil {
+                l.project = l.globe.os
+        } else {
+                l.project = l.globe.main
+        }
         l.scope = l.project.scope
+        l.useesExecuted = nil
 
         l.parser = new(parser)
         l.parser.init(l, filename, []byte(text))

@@ -2427,16 +2427,14 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinFile(pos Position, args... Value) (res Value, err error) {
-        var va []Value
         var optCallerContext bool
         var optReportMissing bool
-        var opts = []string{
-                "c,caller", // in the caller context
-                "e,report", // report if not exists
-        }
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if va, err = parseFlags(args, opts, func(ru rune, v Value) {
+        } else if args, err = parseFlags(args, []string{
+                "c,caller", // in the caller context
+                "e,report", // report if not exists
+        }, func(ru rune, v Value) {
                 switch ru {
                 case 'c': optCallerContext = trueVal(v, true)
                 case 'e': optReportMissing = trueVal(v, true)
@@ -2447,7 +2445,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
         if optCallerContext {
                 proj = cloctx[0].project
         } else if proj = current(); proj == nil {
-                err = fmt.Errorf("unknown current context")
+                err = errorf(pos, "unknown current context")
                 return
         } else if false {
                 // Ensure that we're in the right closure context
@@ -2455,7 +2453,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
         }
 
         var list []Value
-        for _, a := range va {
+        for _, a := range args {
                 var str string
                 if file, ok := a.(*File); ok {
                         list = append(list, file)
@@ -2473,7 +2471,6 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                                 fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
                         }
                 } else {
-                        //fmt.Fprintf(stderr, "%s: `%v` is not a file (%v)\n", pos, a, proj)
                         err = errorf(pos, "`%v` is not a file", a)
                 }
         }

@@ -52,11 +52,11 @@ const (
 
 type Context struct {
         workdir string
-        preargs string // pre-loading command arguments (evaluated on the first project declaration)
         prefix  string // FIXME: prefix for distribution
         globe   *Globe
-        loader  *loader
         goals   *Def
+        pairs []*Pair
+        loader  *loader
 }
 
 var context Context
@@ -206,59 +206,6 @@ func joinTmpPath(base, rel string) string {
         return filepath.Join(baseTmpPath, ".smart", "tmp", rel)
 }
 
-func processCommandOption(args... Value) (err error) {
-        return
-}
-
-func (ctx *Context) loadCommandArguments(text string) (err error) {
-        var args = ctx.loader.loadText("@", text)
-        if args, err = parseFlags(args, []string{
-                "h,help",
-                "b,build-plugins",
-                "n,bench-import",
-                "v,verbose",
-                "i,verbose-import",
-                "k,verbose-checks",
-                "r,reconfigure",
-                "c,configure",
-        }, func(ru rune, v Value) {
-                switch ru {
-                case 'h': optionHelp = trueVal(v, true)
-                case 'b': optionAlwaysBuildPlugins = trueVal(v, true)
-                case 'n': optionBenchImport = trueVal(v, true)
-                case 'v': optionVerbose = trueVal(v, true)
-                case 'i': optionVerboseImport = trueVal(v, true)
-                case 'k': optionVerboseChecks = trueVal(v, true)
-                case 'c': optionConfigure = trueVal(v, true)
-                case 'r':
-                        optionReconfig = trueVal(v, true)
-                        optionConfigure = optionReconfig
-                }
-        }); err != nil { return }
-        for _, target := range args {
-                switch t := target.(type) {
-                case *Pair:
-                        switch k := t.Key.(type) {
-                        case *Bareword:
-                                if proj := ctx.loader.project; proj != nil {
-                                        def, alt := ctx.loader.def(k.string)
-                                        if def == nil && alt != nil {
-                                                def = alt.(*Def)
-                                        }
-                                        def.set(DefDefault, t.Value)
-                                }
-                        default:
-                                fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, ctx.loader.project)
-                        }
-                case *Bareword, *delegate:
-                        ctx.goals.append(t)
-                default:
-                        fmt.Fprintf(stderr, "unknown target `%s` (of %T)\n", target, target)
-                }
-        }
-        return
-}
-
 // loadwork loads smart files, making it as individual func to avoid being
 // abused by loaders.
 func (ctx *Context) loadwork() (err error) {
@@ -298,41 +245,49 @@ func (ctx *Context) loadwork() (err error) {
                 ctx.loader.AddSearchPaths(sp)
         }
 
-        var args []string
-        var commandText string
-        for _, a := range os.Args[1:] {
-                switch a {
-                case "-b", "-build-plugins": // TODO: -build=plugins
-                        optionAlwaysBuildPlugins = true
-                case "-bi", "-bench-import": // TODO: -bench=import
-                        optionBenchImport = true
-                case "-bb", "-bench-builtins": // TODO: -bench=builtins
-                        optionBenchBuiltin = true
-                case "-v", "-verbose":
-                        optionVerbose = true
-                case "-vp", "-verbose-parsing": // TODO: -verbose=parsing
-                        optionVerboseParsing = true
-                case "-vl", "-verbose-loading": // TODO: -verbose=loading
-                        optionVerboseLoading = true
-                case "-vu", "-verbose-using": // TODO: -verbose=using
-                        optionVerboseUsing = true
-                case "-vi", "-verbose-import": // TODO: -verbose=import
-                        optionVerboseImport = true
-                case "-vc", "-verbose-checks":  // TODO: -verbose=checks
-                        optionVerboseChecks = true
-                default:
-                        args = append(args, a)
+        var args []Value
+        if text := strings.Join(os.Args[1:], " "); text == "" {
+                // Relax!
+        } else if args = ctx.loader.loadText("@", text); err != nil {
+                // ...
+        } else if args, err = parseFlags(args, []string{
+                "h,help",
+                "b,build-plugins",
+                "n,bench-import",
+                "e,bench-builtins",
+                "v,verbose",
+                "i,verbose-import",
+                "k,verbose-checks",
+                "l,verbose-loading",
+                "p,verbose-parsing",
+                "u,verbose-using",
+                "r,reconfigure",
+                "c,configure",
+                "d,debug",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'h': optionHelp = trueVal(v, true)
+                case 'b': optionAlwaysBuildPlugins = trueVal(v, true)
+                case 'd': optionPrintStack = trueVal(v, true)
+                case 'n': optionBenchImport = trueVal(v, true)
+                case 'e': optionBenchBuiltin = trueVal(v, true)
+                case 'v': optionVerbose = trueVal(v, true)
+                case 'i': optionVerboseImport = trueVal(v, true)
+                case 'k': optionVerboseChecks = trueVal(v, true)
+                case 'p': optionVerboseParsing = trueVal(v, true)
+                case 'l': optionVerboseLoading = trueVal(v, true)
+                case 'u': optionVerboseUsing = trueVal(v, true)
+                case 'c': optionConfigure = trueVal(v, true)
+                case 'r':
+                        optionReconfig = trueVal(v, true)
+                        optionConfigure = optionReconfig
                 }
-        }
-        for i, s := range args {
-                if s == "-" {
-                        ctx.preargs = strings.Join(args[:i], " ")
-                        commandText = strings.Join(args[i:], " ")
-                        break
+        }); err != nil { return }
+        for _, target := range args {
+                switch t := target.(type) {
+                case *Pair: ctx.pairs = append(ctx.pairs, t)
+                default:    ctx.goals.append(t)
                 }
-        }
-        if ctx.preargs == "" && commandText == "" && len(args) > 0 {
-                ctx.preargs = strings.Join(args, " ")
         }
 
         defer func(t time.Time) {
@@ -350,11 +305,6 @@ func (ctx *Context) loadwork() (err error) {
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
         if ctx.loader.globe.main == nil {
                 fmt.Fprintf(stderr, "no projects loaded\n")
-                return
-        }
-
-        if commandText != "" {
-                err = ctx.loadCommandArguments(commandText)
         }
         return
 }
