@@ -109,6 +109,7 @@ type Value interface {
         refs(v Value) bool
 
         closured() bool
+        refdef(origin DefOrigin) bool
 
         // &(...) -> $(...)
         // $(...) -> ......
@@ -496,17 +497,6 @@ func (t *traversal) target(pos Position, target string) (err error) {
         return
 }
 
-func (t *traversal) execute(entry *RuleEntry, prog *Program) (err error) {
-        // Execute the updating program.
-        var res Value
-        if res, err = prog.execute(t, entry, t.arguments); err == nil {
-                if res != nil {
-                        // TODO: deal with res...
-                }
-        }
-        return
-}
-
 func (t *traversal) appendUpdated(target *updatedtarget) {
         t.updated = append(t.updated, target)
         if c := t.caller; c != nil { c.appendUpdated(
@@ -625,12 +615,13 @@ func elementString(o Object, elem Value, k elemkind) (s string) {
 type trivial struct { position Position }
 func (_ *trivial) refs(_ Value) (res bool) { return }
 func (_ *trivial) closured() (res bool) { return }
+func (_ *trivial) refdef(origin DefOrigin) (res bool) { return }
 func (_ *trivial) expand(_ expandwhat) (v Value, err error) { return }
 func (_ *trivial) cmp(_ Value) (res cmpres) { return }
 func (_ *trivial) mod(t *traversal) (res time.Time, err error) { return }
 func (_ *trivial) exists() existence { return existenceMatterless }
 func (_ *trivial) stamp(t *traversal) (file []*File, err error) { return }
-func (p *trivial) Position() (res Position) { return p.position }
+func (t *trivial) Position() (res Position) { return t.position }
 func (_ *trivial) True() (res bool, err error) { return }
 func (_ *trivial) Integer() (i int64, err error) { return }
 func (_ *trivial) Float() (f float64, err error) { return }
@@ -661,6 +652,9 @@ func (p *Argumented) closured() bool {
         }
         return false
 }
+func (p *Argumented) refdef(origin DefOrigin) bool {
+        return p.value.refdef(origin)
+}
 func (p *Argumented) expand(w expandwhat) (res Value, err error) {
         var (v Value; args []Value)
         if v, err = p.value.expand(w); err == nil {
@@ -679,9 +673,8 @@ func (p *Argumented) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Argumented) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Argumented); ok {
-                assert(ok, "value is not Argumented")
                 if res = p.value.cmp(a.value); res == cmpEqual {
-                        // FIXME: check p.args, a.args too
+                        // FIXME: check p.args against a.args?
                 }
         }
         return
@@ -726,13 +719,9 @@ func (p *Argumented) Strval() (s string, err error) {
         }
         s += "("
         for i, a := range p.args {
-                if i > 0 {
-                        s += ","
-                }
+                if i > 0 { s += "," }
                 var v string
-                if v, err = a.Strval(); err == nil {
-                        s += v
-                } else {
+                if v, err = a.Strval(); err == nil { s += v } else {
                         break
                 }
         }
@@ -767,7 +756,7 @@ func (_ *None) cmp(v Value) (res cmpres) {
         return
 }
 
-type Nil struct { None }
+type Nil struct { trivial }
 func (p *Nil) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Nil) cmp(v Value) (res cmpres) {
         if _, ok := v.(*Nil); ok { res = cmpEqual }
@@ -824,6 +813,10 @@ func (p *Any) refs(o Value) (res bool) {
         if v, ok := p.value.(Value); ok { res = v.refs(o) }
         return
 }
+func (p *Any) refdef(origin DefOrigin) (res bool) {
+        if v, ok := p.value.(Value); ok { res = v.refdef(origin) }
+        return
+}
 func (p *Any) closured() (res bool) {
         if v, ok := p.value.(Value); ok { res = v.closured() }
         return
@@ -878,15 +871,6 @@ func (p *Any) traverse(t *traversal) (err error) {
         return 
 }
 
-// Boxing any value
-/*func Box(v interface{}) (any *Any) {
-        if any, _ = v.(*Any); any == nil {
-                any = &Any{v}
-        }
-        return
-}
-func Unbox(any *Any) interface{} { return any.value }*/
-
 type negative struct { trivial; x Value }
 func (p *negative) refs(o Value) bool { return p.x.refs(o) }
 func (p *negative) closured() bool { return p.x.closured() }
@@ -897,10 +881,7 @@ func (p *negative) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *negative) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*negative); ok {
-                assert(ok, "value is not negative")
-                res = p.x.cmp(a.x)
-        }
+        if a, ok := v.(*negative); ok { res = p.x.cmp(a.x) }
         return
 }
 func (p *negative) True() (res bool, err error) {
@@ -960,7 +941,6 @@ func (p *boolean) Integer() (v int64, err error) {
 }
 func (p *boolean) cmp(v Value) (res cmpres) {
         if a, ok := v.(*boolean); ok {
-                assert(ok, "value is not boolean")
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
@@ -969,7 +949,6 @@ func (p *boolean) cmp(v Value) (res cmpres) {
                         res = cmpGreater
                 }
         } else if a, ok := v.(*answer); ok {
-                assert(ok, "value is not answer")
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
@@ -1002,7 +981,6 @@ func (p *answer) Integer() (v int64, err error) {
 }
 func (p *answer) cmp(v Value) (res cmpres) {
         if a, ok := v.(*answer); ok {
-                assert(ok, "value is not answer")
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
@@ -1011,7 +989,6 @@ func (p *answer) cmp(v Value) (res cmpres) {
                         res = cmpGreater
                 }
         } else if a, ok := v.(*boolean); ok {
-                assert(ok, "value is not boolean")
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
@@ -1290,7 +1267,6 @@ func (p *URL) Integer() (i int64, err error) {
 func (p *URL) Float() (float64, error) { i, e := p.Integer(); return float64(i), e }
 func (p *URL) cmp(v Value) (res cmpres) {
         if a, ok := v.(*URL); ok {
-                assert(ok, "value is not URL")
                 if p.Scheme == nil || a.Scheme == nil { return }
                 if p.Scheme.cmp(a.Scheme) != cmpEqual { return }
                 if p.Username != nil {
@@ -1341,11 +1317,8 @@ func (p *Raw) Strval() (string, error) { return p.string, nil }
 func (p *Raw) Integer() (int64, error) { return strconv.ParseInt(p.string, 10, 64) }
 func (p *Raw) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *Raw) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*Raw); ok {
-                assert(ok, "value is not Raw")
-                if p.string == a.string {
-                        res = cmpEqual
-                }
+        if a, ok := v.(*Raw); ok && p.string == a.string {
+                res = cmpEqual
         }
         return
 }
@@ -1371,7 +1344,6 @@ func (p *String) traverse(t *traversal) (err error) {
 }
 func (p *String) cmp(v Value) (res cmpres) {
         if a, ok := v.(*String); ok {
-                assert(ok, "value is not String")
                 if p.string == a.string {
                         res = cmpEqual
                 } else if p.string < a.string {
@@ -1502,6 +1474,12 @@ func (p *elements) closured() bool {
         }
         return false 
 }
+func (p *elements) refdef(origin DefOrigin) bool {
+        for _, elem := range p.Elems {
+                if elem.refdef(origin) { return true }
+        }
+        return false 
+}
 func (p *elements) cmpElems(elems []Value) (res cmpres) {
         if len(p.Elems) == len(elems) {
                 for i, elem := range p.Elems {
@@ -1519,6 +1497,7 @@ func (p *elements) cmpElems(elems []Value) (res cmpres) {
 
 type Barecomp struct { trivial ; elements }
 func (p *Barecomp) refs(v Value) bool { return p.elements.refs(v) }
+func (p *Barecomp) refdef(origin DefOrigin) bool { return p.elements.refdef(origin) }
 func (p *Barecomp) closured() bool { return p.elements.closured() }
 func (p *Barecomp) Strval() (s string, e error) {
         for _, elem := range p.Elems {
@@ -1568,17 +1547,15 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Barecomp) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
+
         var target string
         if target, err = p.Strval(); err == nil {
-                err = t.target(p.Position(), target)
+                err = t.target(p.position, target)
         }
         return
 }
 func (p *Barecomp) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*Barecomp); ok {
-                assert(ok, "value is not Barecomp")
-                res = p.cmpElems(a.Elems)
-        }
+        if a, ok := v.(*Barecomp); ok { res = p.cmpElems(a.Elems) }
         return
 }
 
@@ -1628,11 +1605,15 @@ func (p *Barefile) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if p.File != nil {
                 err = p.File.traverse(t)
-        } else {
-                var target string
-                if target, err = p.Strval(); err == nil {
-                        err = t.target(p.Position(),target)
-                }
+                /*if e := extractFileNotFoundError(err); e != nil {
+                        // ...
+                }*/
+                return
+        }
+
+        var target string
+        if target, err = p.Strval(); err == nil {
+                err = t.target(p.position,target)
         }
         return
 }
@@ -1653,11 +1634,7 @@ func (p *Barefile) mod(t *traversal) (res time.Time, err error) {
         return
 }
 func (p *Barefile) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*Barefile); ok {
-                assert(ok, "value is not Barefile")
-                // FIXME: check p.File.filebase == a.File.filebase first
-                res = p.Name.cmp(a.Name)
-        }
+        if a, ok := v.(*Barefile); ok { res = p.Name.cmp(a.Name) }
         return
 }
 
@@ -1669,11 +1646,8 @@ func (p *GlobMeta) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *GlobMeta) String() string { return p.Token.String() }
 func (p *GlobMeta) Strval() (string, error) { return p.Token.String(), nil }
 func (p *GlobMeta) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*GlobMeta); ok {
-                assert(ok, "value is not GlobMeta")
-                if p.Token == a.Token {
-                        res = cmpEqual
-                }
+        if a, ok := v.(*GlobMeta); ok && p.Token == a.Token {
+                res = cmpEqual
         }
         return
 }
@@ -1704,10 +1678,7 @@ func (p *GlobRange) Strval() (s string, err error) {
         return
 }
 func (p *GlobRange) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*GlobRange); ok {
-                assert(ok, "value is not GlobRange")
-                res = p.Chars.cmp(a.Chars)
-        }
+        if a, ok := v.(*GlobRange); ok { res = p.Chars.cmp(a.Chars) }
         return
 }
 
@@ -1765,6 +1736,7 @@ func (p *Path) True() (t bool, err error) {
 }
 func (p *Path) refs(v Value) (res bool) { return p.elements.refs(v) }
 func (p *Path) closured() (res bool) { return p.elements.closured() }
+func (p *Path) refdef(origin DefOrigin) bool { return p.refdef(origin) }
 func (p *Path) expand(w expandwhat) (res Value, err error) {
         var (elems []Value; num int)
         if elems, num, err = expandall(w, p.Elems...); err != nil { return }
@@ -1863,10 +1835,7 @@ func (p *Path) isPattern() (result bool) {
         return
 }
 func (p *Path) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*Path); ok {
-                assert(ok, "value is not Path")
-                res = p.cmpElems(a.Elems)
-        }
+        if a, ok := v.(*Path); ok { res = p.cmpElems(a.Elems) }
         return
 }
 func (p *Path) match(i interface{}) (result string, stems []string, err error) {
@@ -2513,7 +2482,6 @@ func (p *File) cmp(v Value) (res cmpres) {
         if v == nil {
                 // ...
         } else if a, ok := v.(*File); ok {
-                assert(ok, "value is not File")
                 if a == nil {
                         //assert(a != nil, "nil file")
                 } else if p.filebase == a.filebase {
@@ -2585,19 +2553,16 @@ func (p *Flag) Strval() (s string, e error) {
         }
         return
 }
-func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
+func (p *Flag) opts(try bool, opts ...string) (runes []rune, names []string, err error) {
         switch t := p.name.(type) {
         case *Flag:
-                runes, names, err = t.opts(opts...)
+                runes, names, err = t.opts(try, opts...)
         case *String:
                 for _, opt := range opts {
-                        if t.string == opt {
-                                names = append(names, opt)
-                        }
+                        if t.string == opt { names = append(names, opt) }
                 }
-                if len(names) == 0 {
-                        err = errorf(p.Position(), "unknown flag (check: %s)",
-                                strings.Join(opts, ", "))
+                if !try && len(names) == 0 {
+                        err = errorf(p.Position(), "unknown flag (known: %s)", strings.Join(opts, ", "))
                 }
         case *Bareword:
                 for _, opt := range opts {
@@ -2615,9 +2580,8 @@ func (p *Flag) opts(opts ...string) (runes []rune, names []string, err error) {
                                 }
                         }
                 }
-                if len(runes) == 0 || len(names) == 0 {
-                        err = errorf(p.Position(), "unknown flag (check: %s)",
-                                strings.Join(opts, ", "))
+                if !try && (len(runes) == 0 || len(names) == 0) {
+                        err = errorf(p.Position(), "unknown flag (known: %s)", strings.Join(opts, ", "))
                 }
         }
         if enable_assertions {
@@ -2711,9 +2675,9 @@ func (p *Compound) Integer() (i int64, err error) {
 func (p *Compound) True() (bool, error) { return p.elements.True() }
 func (p *Compound) refs(v Value) bool { return p.elements.refs(v) }
 func (p *Compound) closured() bool { return p.elements.closured() }
+func (p *Compound) refdef(origin DefOrigin) bool { return p.refdef(origin) }
 func (p *Compound) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Compound); ok {
-                assert(ok, "value is not Compound")
                 s1, e := p.Strval()
                 if e != nil { return }
                 s2, e := a.Strval()
@@ -2822,10 +2786,7 @@ func (p *List) mod(t *traversal) (res time.Time, err error) {
 }
 
 func (p *List) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*List); ok {
-                assert(ok, "value is not List")
-                res = p.cmpElems(a.Elems)
-        }
+        if a, ok := v.(*List); ok { res = p.cmpElems(a.Elems) }
         return
 }
 
@@ -2867,10 +2828,7 @@ func (p *Group) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *Group) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*Group); ok {
-                assert(ok, "value is not Group")
-                res = p.cmpElems(a.Elems)
-        }
+        if a, ok := v.(*Group); ok { res = p.cmpElems(a.Elems) }
         return
 }
 
@@ -2925,7 +2883,6 @@ func (p *Pair) SetKey(k Value) {
 }
 func (p *Pair) cmp(v Value) (res cmpres) {
         if a, ok := v.(*Pair); ok {
-                assert(ok, "value is not Pair")
                 if p.Key.cmp(a.Key) == cmpEqual {
                         if p.Value.cmp(a.Value) == cmpEqual {
                                 res = cmpEqual
@@ -3045,7 +3002,7 @@ func (p *delegate) reveal() (res Value, err error) {
         if err != nil {
                 //fmt.Fprintf(stderr, "%v: %v\n", p.p, err)
         } else if res == nil {
-                res = &None{}
+                res = &None{trivial{p.Position()}}
         }
         return
 }
@@ -3094,6 +3051,10 @@ func (p *delegate) closured() bool {
         }
         return false
 }
+func (p *delegate) refdef(origin DefOrigin) (res bool) {
+        if d, ok := p.o.(*Def); ok { res = d.origin == origin }
+        return
+}
 func (p *delegate) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         var val Value
@@ -3111,7 +3072,6 @@ func (p *delegate) mod(t *traversal) (res time.Time, err error) {
 }
 func (p *delegate) cmp(v Value) (res cmpres) {
         if a, ok := v.(*delegate); ok {
-                assert(ok, "value is not delegate")
                 // FIXME: compare the expanded value instead??
                 if p.o.cmp(a.o) == cmpEqual && len(p.a) == len(a.a) {
                         for i, t := range p.a {
@@ -3311,7 +3271,6 @@ func (p *closure) mod(t *traversal) (res time.Time, err error) {
 }
 func (p *closure) cmp(v Value) (res cmpres) {
         if a, ok := v.(*closure); ok {
-                assert(ok, "value is not closure")
                 // FIXME: compare the expanded value instead??
                 if p.o.cmp(a.o) == cmpEqual && len(p.a) == len(a.a) {
                         for i, t := range p.a {
@@ -3468,7 +3427,6 @@ func (p *selection) mod(t *traversal) (res time.Time, err error) {
 }
 func (p *selection) cmp(v Value) (res cmpres) {
         if a, ok := v.(*selection); ok {
-                assert(ok, "value is not selection")
                 if p.o.cmp(a.o) == cmpEqual && p.s.cmp(a.s) == cmpEqual {
                         if p.t == a.t { res = cmpEqual }
                 }
@@ -3631,7 +3589,6 @@ func (p *PercPattern) traverse(t *traversal) (err error) {
 }
 func (p *PercPattern) cmp(v Value) (res cmpres) {
         if a, ok := v.(*PercPattern); ok {
-                assert(ok, "value is not PercPattern")
                 if p.Prefix.cmp(a.Prefix) == cmpEqual {
                         if p.Suffix.cmp(a.Suffix) == cmpEqual {
                                 res = cmpEqual
@@ -3757,7 +3714,6 @@ func (p *GlobPattern) traverse(t *traversal) (err error) {
 }
 func (p *GlobPattern) cmp(v Value) (res cmpres) {
         if a, ok := v.(*GlobPattern); ok {
-                assert(ok, "value is not GlobPattern")
                 if len(p.Components) == len(a.Components) {
                         for i, c := range p.Components {
                                 if c.cmp(a.Components[i]) != cmpEqual {
@@ -3786,7 +3742,6 @@ func (p *RegexpPattern) stencil(stems []string) (s string, rest []string, err er
 }
 func (p *RegexpPattern) cmp(v Value) (res cmpres) {
         if a, ok := v.(*RegexpPattern); ok {
-                assert(ok, "value is not RegexpPattern")
                 if a != nil { /* FIXME: ... */ }
         }
         return
@@ -4143,4 +4098,19 @@ func ParseURL(pos Position, s string) *URL {
         } else {
                 panic(e)
         }
+}
+
+func get_filename(n int) string {
+        var num int
+        var filename string
+        var lines = strings.Split(string(debug.Stack()), "\n")
+        for _, line := range lines {
+                if !strings.HasPrefix(line, "\t") { continue }
+                if i := strings.Index(line, ":"); num == n && i > 0 {
+                        filename = line[1:i]
+                        break
+                }
+                num += 1
+        }
+        return filename
 }

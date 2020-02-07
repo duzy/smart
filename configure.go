@@ -59,14 +59,13 @@ var configuration = &struct{
         done: make(map[*Def]bool),
 }
 
-var configurationOps = map[string] func(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
+var configurationOps = map[string] func(pos Position, t *traversal, def *Def, args... Value) (result Value, err error) {
         "answer":  configureAnswer,
         "bool":    configureBool,
         "dump":    configureDump,
         "option":  configureOption,
         "package": configurePackage,
 }
-
 
 var confinitSource, confinitFilename = configurationInitFile()
 func init_configuration(paths searchlist) (err error) {
@@ -488,14 +487,15 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
         return
 }
 
-func configureDump(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
+// -dump
+func configureDump(pos Position, t *traversal, def *Def, params... Value) (result Value, err error) {
         result = def.value
         return
 }
 
-// (configure -bool)
-// (configure -bool(opt_true,opt_false))
-func configureBool(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
+// -bool
+// -bool(opt_true,opt_false)
+func configureBool(pos Position, t *traversal, def *Def, params... Value) (result Value, err error) {
         var positive bool
         var previous Value
         if previous, err = def.Call(pos); err != nil {
@@ -535,13 +535,14 @@ func configureBool(pos Position, prog *Program, def *Def, params... Value) (resu
         return
 }
 
-// (configure -answer)
-// (configure -answer(opt_true,opt_false))
-func configureAnswer(pos Position, prog *Program, def *Def, params... Value) (result Value, err error) {
-        return configureBool(pos, prog, def, params[0], &answer{trivial{pos},true}, &answer{trivial{pos},false})
+// -answer
+// -answer(opt_true,opt_false)
+func configureAnswer(pos Position, t *traversal, def *Def, params... Value) (result Value, err error) {
+        return configureBool(pos, t, def, params[0], &answer{trivial{pos},true}, &answer{trivial{pos},false})
 }
 
-func configureOption(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
+// -option('message...')
+func configureOption(pos Position, t *traversal, def *Def, args... Value) (result Value, err error) {
         if result, err = def.Call(pos); err == nil {
                 if result == nil { result = &answer{trivial{pos},false} }
         } else if result != nil {
@@ -591,7 +592,7 @@ func loadPackageConfigInfo(pos Position, name string) (info *packageinfo, err er
 //}
 
 // -package finds system package in a way similar to cmake.find_package
-func configurePackage(pos Position, prog *Program, def *Def, args... Value) (result Value, err error) {
+func configurePackage(pos Position, t *traversal, def *Def, args... Value) (result Value, err error) {
         var names []string
         var optType packagetype = packageSmart
         for _, arg := range args {
@@ -639,57 +640,58 @@ func configurePackage(pos Position, prog *Program, def *Def, args... Value) (res
         return
 }
 
-func scanCommandFailedError(err error) (n, en int, tag string) {
+func scanExitStatus(err error) (n, status int) {
         switch e := err.(type) {
         case *scanner.Error:
                 for _, t := range e.Errs {
-                        n, en, tag = scanCommandFailedError(t)
-                        if n == 2 { return }
+                        if n, status = scanExitStatus(t); n == 1 { return }
                 }
         default:
-                var s = err.Error()
-                n, _ = fmt.Sscanf(s, exitstatusFmt, &tag, &en)
+                n, _ = fmt.Sscanf(err.Error(), exitstatusFmt, &status)
         }
         return
 }
 
-func configureEntry(pos Position, prog *Program, s string, params... Value) (configured bool, result Value, err error) {
-        var res []Value
+func configureExec(pos Position, t *traversal, s string, params... Value) (configured bool, result Value, err error) {
         var entry *RuleEntry
         if entry, err = configuration.project.resolveEntry("-"+s); err != nil {
                 err = errorf(pos, "resolve %v: %v", s, err)
+                return
         } else if entry == nil {
                 err = errorf(pos, "unknown configuration `%v` (no such entry)", s)
-        } else if res, err = Executer(entry).Execute(pos, params...); err != nil {
-                n, _, _ := scanCommandFailedError(err)
-                if n == 2 {
-                        configured, err = true, nil
+                return
+        }
+
+        //defer setclosure(setclosure(cloctx.unshift(t.program.scope)))
+        if false { fmt.Fprintf(stderr, "%v: configureExec(%v): %v, %v\n", pos, entry, params, cloctx) }
+        if result, err = entry.programs[0].execute(t, entry, params); err != nil {
+                if n, status := scanExitStatus(err); n == 1 {
+                        if status == 0 { err = nil }
+                        configured = true
                 } else {
                         err = wrap(pos, err)
                 }
         } else {
-                if res != nil { result = MakeListOrScalar(pos, res) }
                 configured = true
         }
         return
 }
 
-// (configure -xxx)
-// (configure -xxx=yyy)
-// (configure -xxx(...))
-func configureAction(pos Position, prog *Program, target Value, def, pipe *Def, name Value, args []Value) (configured bool, result Value, err error) {
+func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name Value, args []Value) (configured bool, result Value, err error) {
         var strName string
         if strName, err = name.Strval(); err != nil { return }
         if strName == "" {
-                err = fmt.Errorf("`%v` empty configuration (%T)", name, name)
+                err = errorf(pos, "`%v` empty configuration (%T)", name, name)
                 return
         }
 
+        var none = &None{trivial{pos}}
         var params = []Value{ target }
-        var fields = map[string]Value{ "name": name }
+        var fields = map[string]Value{ "name":name }
 ForArgs:
         for _, arg := range args {
-                if list := arg.(*List); list != nil && list.Len() > 0 {
+                var list, ok = arg.(*List)
+                if ok && list != nil && len(list.Elems) > 0 {
                         var key string
                         switch t := list.Elems[0].(type) {
                         case *Pair:
@@ -753,7 +755,7 @@ ForArgs:
         if config, ok := configurationOps[strName]; ok {
                 err = configMessageHead(pos, strName, fields, params...)
                 if err == nil {
-                        result, err = config(pos, prog, pipe, params...)
+                        result, err = config(pos, t, pipe, params...)
                         if err == nil { configured = true }
                 }
                 return
@@ -768,7 +770,7 @@ ForArgs:
         //   ...
 
         var value = configuration.project.scope.Lookup("_VALUE_").(*Def)
-        if err = value.set(DefSimple, &None{trivial{pos}}); err != nil { return }
+        if err = value.set(DefSimple, none); err != nil { return }
         if pipe.value != nil {
                 if _, ok := pipe.value.(*None); !ok {
                         value.value = pipe.value
@@ -777,7 +779,7 @@ ForArgs:
 
         var includesValues []Value
         var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
-        if err = includes.set(DefSimple, &None{trivial{pos}}); err != nil { return }
+        if err = includes.set(DefSimple, none); err != nil { return }
         if strName == "include" && len(params) > 1 {
                 // -include('<xxx.h>',...)
                 for _, value := range params[1:] {
@@ -819,7 +821,7 @@ ForArgs:
 
         var loadlibsValues []Value
         var loadlibs = configuration.project.scope.Lookup("_LOADLIBES_").(*Def)
-        if err = loadlibs.set(DefSimple, &None{trivial{pos}}); err != nil { return }
+        if err = loadlibs.set(DefSimple, none); err != nil { return }
         if value, ok := fields["load"]; ok { loadlibsValues = append(loadlibsValues, value) }
         if value, ok := fields["loadlib"]; ok { loadlibsValues = append(loadlibsValues, value) }
         if value, ok := fields["loadlibs"]; ok { loadlibsValues = append(loadlibsValues, value) }
@@ -846,7 +848,7 @@ ForArgs:
 
         var libsValues []Value
         var libs = configuration.project.scope.Lookup("_LIBS_").(*Def)
-        if err = libs.set(DefSimple, &None{trivial{pos}}); err != nil { return }
+        if err = libs.set(DefSimple, none); err != nil { return }
         if value, ok := fields["lib"]; ok { libsValues = append(libsValues, value) }
         if value, ok := fields["libs"]; ok { libsValues = append(libsValues, value) }
         for _, value := range libsValues {
@@ -869,7 +871,10 @@ ForArgs:
                 value = &String{trivial{pos},strings.Join(lines, " ")}
                 if err = libs.set(DefExpand, value); err != nil { return }
         }
-        /*
+        if err = configMessageHead(pos, strName, fields, params...); err == nil {
+                configured, result, err = configureExec(pos, t, strName, params...)
+        }
+
         delete(fields, "include")
         delete(fields, "includes")
         delete(fields, "load")
@@ -877,10 +882,6 @@ ForArgs:
         delete(fields, "loadlibs")
         delete(fields, "lib")
         delete(fields, "libs")
-        */
-        if err = configMessageHead(pos, strName, fields, params...); err == nil {
-                configured, result, err = configureEntry(pos, prog, strName, params...)
-        }
         return 
 }
 
@@ -1238,35 +1239,42 @@ ForSources:
 }
 
 // configure - configures a variable, example usage:
-func modifierConfigure(pos Position, pc *traversal, args... Value) (result Value, err error) {
-        // don't configure in compare mode
-        //if m := pc.program.pc.mode; m == compareMode { return }
-
+//     (configure -answer)
+//     (configure -option(info='...'))
+//     (configure -package(xxx))
+//     (configure -include('xxx.h'))
+//     (configure -function(function,include='<xxx.h>'))
+//     (configure -library(lib,function))
+//     (configure -library(lib,function,include='<xxx.h>'))
+//     (configure -symbol(symbol,include='<xxx.h>'))
+//     (configure -compiles(info="..."))
+func modifierConfigure(pos Position, t *traversal, args... Value) (result Value, err error) {
         var optAccumulate bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil {
                 return
-        } else if args, err = parseFlags(args, []string{
+        } else if args, err = tryParseFlags(args, []string{
                 "a,accumulate",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'a': optAccumulate = true
+                case 'a': optAccumulate = trueVal(v, true)
                 }
         }); err != nil { return }
 
+        var target = t.def.target.value
+
         var name string
-        var target = pc.def.target.value
         if name, err = target.Strval(); err != nil { return }
 
-        var def, alt = pc.program.project.scope.define(pc.program.project, name, nil)
+        var def, alt = t.program.project.scope.define(t.program.project, name, nil)
         if alt != nil { def, _ = alt.(*Def) }
         if def == nil {
-                err = scanner.Errorf(token.Position(pos), "cannot define configuration `%s`", name)
+                err = errorf(pos, "cannot define configuration `%s`", name)
                 return
+        } else {
+                result = def // Set result above all!
         }
 
-        result = def // Set result above all.
-
-        if def.value != nil { // if it's already configured
+        if def.value != nil { // Check if it's already configured?
                 // reconfigure the def or return it
                 if !optionReconfig { return }
                 if done, found := configuration.done[def]; done && found {
@@ -1275,15 +1283,12 @@ func modifierConfigure(pos Position, pc *traversal, args... Value) (result Value
         }
 
         var value Value
-        var configured bool
-        if len(args) == 0 { // zero configuration: (configure)
-                if value, err = pc.def.buffer.Call(pos); err != nil {
+        if len(args) == 0 { // Empty configuration: (configure)
+                if value, err = t.def.buffer.Call(pos); err != nil {
                         err = wrap(pos, err)
                         return
-                }
-                if value == nil {
-                        err = fmt.Errorf("`%v` not configured (%v)", target, value)
-                        err = wrap(pos, err)
+                } else if value == nil {
+                        err = errorf(pos, "`%v` not configured (%v)", target, value)
                         return
                 }
                 switch v := value.(type) {
@@ -1301,73 +1306,63 @@ func modifierConfigure(pos Position, pc *traversal, args... Value) (result Value
                 // TODO: case *JSON
                 // TODO: case *XML
                 }
-                if err != nil {
-                        err = wrap(pos, err)
-                }
+                if err != nil { err = wrap(pos, err) }
                 return
-        }
-
-        // Reset configuration value to nil
-        if err = def.set(DefExecute, nil); err != nil {
+        } else if err = def.set(DefExecute, nil); err != nil {
                 err = wrap(pos, err)
                 return
         }
 
+        var configured bool
 ForConfig:
         for i, a := range args {
-                var ( name Value ; para []Value )
                 if def.value == nil && i > 0 { break ForConfig }
+
+                var ( name Value ; para []Value )
                 switch arg := a.(type) {
-                case *Pair: // Set def
-                        /*switch k := arg.Key.(type) {
-                        case *Bareword:
-                                def, alt := pc.program.project.scope.define(pc.program.project, k.string, &None{trivial{pos}})
-                                if alt != nil {
-                                        if p, _ := alt.(*Def); p != nil && p != def { def = p }
-                                }
-                                err = def.set(DefSimple, arg.Value)
-                                if err == nil { continue ForConfig }
-                        }*/
-                        err = scanner.Errorf(token.Position(pos), "`%v` is useless for assignment\n", a)
                 case *Argumented:
-                        if flag, okay := arg.value.(*Flag); okay {
-                                name = flag.name
-                                para = arg.args
+                        if flag, okay := arg.value.(*Flag); !okay {
+                                err = wrap(pos, errorf(a.Position(), "`%v` is unsupported\n", arg.value), err)
+                                return
+                        } else {
+                                name, para = flag.name, arg.args
                         }
                 case *Flag:
-                        if arg.name != nil {
-                                if _, ok := arg.name.(*None); ok {
-                                        name = arg.name
-                                }
+                        if isNil(arg.name) || isNone(arg.name) {
+                                err = wrap(pos, errorf(a.Position(), "`%v` is unsupported\n", arg.name), err)
+                                return
+                        } else {
+                                name = arg.name
                         }
+                default:
+                        err = wrap(pos, errorf(a.Position(), "`%v` is unsupported\n", a), err)
+                        return
                 }
-                if err == nil && name != nil {
-                        configured, value, err = configureAction(pos, pc.program, target, def, pc.def.buffer, name, para)
-                        if err != nil { err = wrap(pos, err) }
-                } else if err == nil {
-                        err = errorf(pos, ") unknown configure action `%v` (%T)\n", a, a)
+                if name == nil {
+                        err = wrap(pos, errorf(a.Position(), "unknown configure `%v` (%T)\n", a, a))
+                        return
                 }
-                if err != nil { break ForConfig }
+
+                configured, value, err = configureDo(pos, t, target, def, t.def.buffer, name, para)
+                if err != nil { err = wrap(pos, err); return } else
                 if configured {
-                        if value == nil { value = &Nil{None{trivial{pos}}} }
+                        if value == nil { value = &Nil{trivial{a.Position()}} }
                         if optAccumulate {
                                 err = def.append(value)
                         } else {
                                 err = def.set(DefSimple, value)
                         }
-                        if err != nil {
+                        if err == nil {
+                                // Marks done (needed for reconfiguring)!
+                                configuration.done[def] = true
+                        } else {
                                 err = wrap(pos, err)
                                 return
                         }
-                        // marking it done (needed for reconfiguring)
-                        configuration.done[def] = true
                 }
         }
-        if !configured {
-                if err == nil {
-                        err = fmt.Errorf("`%v` not configured", target)
-                }
-                err = wrap(pos, err)
+        if !configured && err == nil {
+                err = errorf(pos, "`%v` not configured", target)
         }
         return
 }

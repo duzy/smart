@@ -94,7 +94,7 @@ type parser struct {
 	// Ordinary identifier scopes
 	imports []*ast.UseSpec // list of imports
 
-        params []string // parameters of current rule
+        params []*Def // parameters of current rule
         dialect string // recipe dialect of current rule
 }
 
@@ -1420,17 +1420,6 @@ func (p *parser) parseIncludeSpec(doc *ast.CommentGroup, generic *genericoptions
         return spec
 }
 
-/*
-func (p *parser) parseUseSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
-        spec := &ast.UseSpec{ p.parseDirectiveSpec() }
-        if !generic.dontOperate {
-                p.use(spec)
-        }
-        return spec
-
-}
-*/
-
 func (p *parser) parseInstanceSpec(doc *ast.CommentGroup, generic *genericoptions, _ int) ast.Spec {
         return &ast.InstanceSpec{ p.parseDirectiveSpec() }
 }
@@ -1773,148 +1762,6 @@ SwitchDialect:
         }
 }
 
-func (p *parser) parseModifiersExpr() (string, []string, *ast.ModifiersExpr) {
-        var (
-                lpos = p.expect(token.LBRACK)
-                elems []ast.Expr
-                params []string
-                dialect string
-        )
-ForModifiersExpr:
-        for p.tok != token.RBRACK && p.tok != token.EOF {
-                switch p.tok {
-                case token.COMMA:
-                        p.next() // TODO: grouping modifiers
-                        continue ForModifiersExpr
-                case token.BAR:
-                        pos := p.pos
-                        p.next()
-                        bar := &ast.BasicLit{ pos, token.BAR, "|", p.pos }
-                        elems = append(elems, bar)
-                        continue ForModifiersExpr
-                }
-                
-                var (
-                        x = p.checkExpr(p.parseExpr(false))
-                        name string
-                        pos token.Pos
-                        err error
-                )
-
-                group, ok := x.(*ast.GroupExpr)
-                if !ok {
-                        p.error(x.Pos(), "unsupported modifier")
-                        goto next
-                } else if l, ok := group.Elems[0].(*ast.ListExpr); ok {
-                        group.Elems = append([]ast.Expr{l.Elems[0]},
-                                append(l.Elems[1:], group.Elems[1:]...)...)
-                }
-
-                switch n := group.Elems[0].(type) {
-                case *ast.Bareword:
-                        if name, pos = n.Value, n.Pos(); name != "var" { goto checkName }
-                        // Parsing (var a=xxx,b=yyy) definitions
-                        for _, elem := range group.Elems[1:] {
-                                var kv, ok = elem.(*ast.KeyValueExpr)
-                                if !ok || kv == nil {
-                                        p.error(elem.Pos(), "bad var form (%T)", elem)
-                                        continue
-                                }
-                                var name string
-                                var k, v = p.expr(kv.Key), p.expr(kv.Value)
-                                if name, err = k.Strval(); err != nil {
-                                        p.error(kv.Key.Pos(), "%s", err)
-                                } else if name == "" {
-                                        p.error(kv.Key.Pos(), "'%v' name is empty ", kv.Key)
-                                }
-                                if def, alt := p.def(name); alt != nil {
-                                        p.error(kv.Key.Pos(), "%T '%s' already existed", alt, name)
-                                } else if def != nil {
-                                        if g, ok := v.(*Group); ok {
-                                                def.set(DefDefault, g.ToList())
-                                        } else {
-                                                def.set(DefDefault, v)
-                                        }
-                                }
-                        }
-                        goto next
-                case *ast.GroupExpr: // parameters: ((foo bar))
-                        for _, elem := range n.Elems {
-                                switch elem.(type) {
-                                case *ast.Bareword, *ast.Barecomp:
-                                        var v = p.expr(elem)
-                                        var s string
-                                        if s, err = v.Strval(); err != nil {
-                                                p.error(elem.Pos(), "%s", err)
-                                        }
-                                        if def, alt := p.def(s); alt != nil {
-                                                var ok bool
-                                                if def, ok = alt.(*Def); !ok {
-                                                        p.error(elem.Pos(), "%T '%s' already taken the name, no such parameter", alt, s)
-                                                }
-                                        } else if def != nil {
-                                                //def.set(DefDefault, nil)
-                                        } else {
-                                                // TODO: errors
-                                        }
-                                        params = append(params, s)
-                                default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
-                                        p.error(elem.Pos(), "bad parameter form (%T)", elem)
-                                }
-                        }
-                        goto next
-                case *ast.DelegateExpr, *ast.ClosureExpr, *ast.Barecomp, *ast.BasicLit:
-                        var v []Value
-                        if v, err = mergeresult(ExpandAll(p.expr(n))); err != nil {
-                                p.error(n.Pos(), "%v", err)
-                        } else if name, err = v[0].Strval(); err != nil {
-                                p.error(n.Pos(), "%v", err)
-                                goto next
-                        } else if name == "" {
-                                p.error(n.Pos(), "empty name (%v)", n)
-                                goto next
-                        }
-                        pos = x.Pos()
-                        goto checkName
-                default:
-                        p.error(n.Pos(), "unsupported dialect or modifier (%T): %v", group.Elems[0], group.Elems[0])
-                        goto next
-                }
-
-                goto addModifier
-
-        checkName:
-                if _, ok = dialects[name]; ok {
-                        if dialect == "" { dialect = name } else {
-                                p.error(pos, "multi-dialects unsupported, already defined '%s'", dialect)
-                                goto next
-                        }
-                } else if _, ok = modifiers[name]; !ok {
-                        p.error(pos, "`%s` no such dialect or modifier", name)
-                        goto next
-                }
-                
-        addModifier:
-                elems = append(elems, x)
-
-        next:
-                /*switch p.tok {
-                case token.COMMA:
-                        p.next() // TODO: grouping modifiers
-                case token.BAR:
-                        p.next()
-                        bar := &ast.BasicLit{ pos, token.BAR, "|", p.pos }
-                        elems = append(elems, bar)
-                }*/
-        }
-        rpos := p.expect(token.RBRACK)
-        return dialect, params, &ast.ModifiersExpr{
-                Lbrack: lpos,
-                Elems: elems,
-                Rbrack: rpos,
-        }
-}
-
 func (p *parser) parseModifiersExpr2() *ast.ModifiersExpr {
 	if p.tracing.enabled { defer un(trace(p, "Modifiers")) }
 
@@ -1967,9 +1814,9 @@ ForModifiersExpr:
                                         p.error(kv.Key.Pos(), "%T '%s' already existed", alt, name)
                                 } else if def != nil {
                                         if g, ok := v.(*Group); ok {
-                                                def.set(DefDefault, g.ToList())
+                                                def.setval(g.ToList())
                                         } else {
-                                                def.set(DefDefault, v)
+                                                def.setval(v)
                                         }
                                 }
                         }
@@ -1983,17 +1830,20 @@ ForModifiersExpr:
                                         if s, err = v.Strval(); err != nil {
                                                 p.error(elem.Pos(), "%s", err)
                                         }
-                                        if def, alt := p.def(s); alt != nil {
+                                        var def, alt = p.def(s)
+                                        if alt != nil {
                                                 var ok bool
                                                 if def, ok = alt.(*Def); !ok {
                                                         p.error(elem.Pos(), "%T '%s' already taken the name, no such parameter", alt, s)
                                                 }
-                                        } else if def != nil {
-                                                //def.set(DefDefault, nil)
-                                        } else {
-                                                // TODO: errors
                                         }
-                                        p.params = append(p.params, s)
+                                        if def != nil {
+                                                def.set(DefArg, nil)
+                                        } else {
+                                                p.error(elem.Pos(), "'%s' is not defined", s)
+                                        }
+                                        p.params = append(p.params, def)
+                                        p.scope.replace(strconv.Itoa(len(p.params)), def)
                                 default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
                                         p.error(elem.Pos(), "bad parameter form (%T)", elem)
                                 }
@@ -2094,17 +1944,23 @@ func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, 
 
         ls := p.openScope(scopeComment)
         for _, s := range automatics {
-                if sym, alt := p.def(s); alt != nil {
+                var def, alt = p.def(s)
+                if alt != nil {
                         p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
-                } else if sym == nil {
-                        // TODO: errors
+                } else if def == nil {
+                        p.error(p.pos, "'%s' is not defined", s)
+                } else {
+                        def.origin = DefAuto
                 }
         }
         for i := 1; i < 10; i += 1 {
-                if sym, alt := p.def(strconv.Itoa(i)); alt != nil {
+                var def, alt = p.def(strconv.Itoa(i))
+                if alt != nil {
                         p.error(p.pos, "name `%v` already taken, not numberred (%T).", i, alt)
-                } else if sym == nil {
-                        // TODO: errors
+                } else if def == nil {
+                        p.error(p.pos, "'$%d' is not defined", i)
+                } else {
+                        def.origin = DefAuto
                 }
         }
 
@@ -2144,6 +2000,9 @@ func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, 
                 }
         }
 
+        var params []string
+        for _, d := range p.params { params = append(params, d.name) }
+
         clause := &ast.RuleClause{
                 Doc: doc,
                 TokPos: pos,
@@ -2153,7 +2012,7 @@ func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, 
                 Ordered: p.convertBarefiles(ordered),
                 Program: &ast.ProgramExpr{
                         Lang: 0, // FIXME: language definition
-                        Params: p.params,
+                        Params: params,
                         Recipes: recipes,
                         Scope: ls.scope,
                 },
@@ -2163,9 +2022,7 @@ func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, 
         // Close the rule scope and go back to project scope. The current
         // scope must be project scope befor Rule.
         p.closeScope(ls)
-        if special != specialRuleRec {
-                p.rule(clause, special, options)
-        }
+        if special != specialRuleRec { p.rule(clause, special, options) }
         return clause
 }
 
@@ -2306,16 +2163,16 @@ func (p *parser) parseFile() *ast.File {
                         var pos = Position(p.file.Position(p.pos))
 
                         def, _ = p.def("/")
-                        def.set(DefExpand, MakePathStr(pos,abs))
+                        def.set(DefAuto, MakePathStr(pos,abs))
 
                         def, _ = p.def(".")
-                        def.set(DefExpand, MakePathStr(pos,rel))
+                        def.set(DefAuto, MakePathStr(pos,rel))
 
                         def, _ = p.def("CTD") // Current Temp Directory
-                        def.set(DefExpand, MakePathStr(pos,tmp))
+                        def.set(DefAuto, MakePathStr(pos,tmp))
 
                         def, _ = p.def("CWD") // Current Work Directory
-                        def.set(DefExpand, MakePathStr(pos,abs))
+                        def.set(DefAuto, MakePathStr(pos,abs))
                 } else if def = s.FindDef("/"); def == nil {
                         p.error(p.pos, "/ not in the scope (%v)", s.comment)
                 } else if def = s.FindDef("."); def == nil {

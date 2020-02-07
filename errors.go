@@ -103,6 +103,51 @@ func (e fileNotFoundError) Error() string {
         return fmt.Sprintf("%s: `%v` file not found (%s)", e.project.name, e.file.name, e.file.fullname())
 }
 
+func extractTargetNotFoundError(err error) (res *targetNotFoundError) {
+        if err != nil {
+                switch t := err.(type) {
+                case *scanner.Error:
+                        for _, e := range t.Errs {
+                                res = extractTargetNotFoundError(e)
+                                if res != nil { break }
+                        }
+                case targetNotFoundError:
+                        res = &t
+                }
+        }
+        return
+}
+
+func extractPathNotFoundError(err error) (res *pathNotFoundError) {
+        if err != nil {
+                switch t := err.(type) {
+                case *scanner.Error:
+                        for _, e := range t.Errs {
+                                res = extractPathNotFoundError(e)
+                                if res != nil { break }
+                        }
+                case pathNotFoundError:
+                        res = &t
+                }
+        }
+        return
+}
+
+func extractFileNotFoundError(err error) (res *fileNotFoundError) {
+        if err != nil {
+                switch t := err.(type) {
+                case *scanner.Error:
+                        for _, e := range t.Errs {
+                                res = extractFileNotFoundError(e)
+                                if res != nil { break }
+                        }
+                case fileNotFoundError:
+                        res = &t
+                }
+        }
+        return
+}
+
 func report(err error) error {
         if err != nil {
                 if false { debug.PrintStack() }

@@ -27,7 +27,6 @@ import (
 const exitstatusFmt = "exit status %d"
 
 type exitstatus struct { code int }
-
 func (e *exitstatus) Error() string {
         return fmt.Sprintf(exitstatusFmt, e.code)
 }
@@ -381,7 +380,7 @@ type executor struct {
 func (p *executor) runContainer(t *traversal, container *Project) (err error) {
         if run, _ := container.resolveEntry("run"); run != nil && len(run.programs) > 0 {
                 defer setclosure(setclosure(cloctx.unshift(container.scope)))
-                if err = t.execute(run, run.programs[0]); err != nil {
+                if _, err = run.programs[0].execute(t, run, nil); err != nil {
                         fmt.Fprintf(stderr, "%v: %v\n", t.program.position, err)
                 }
         } else {

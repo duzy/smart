@@ -829,7 +829,7 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
                                 return
                         } else if o == nil {
                                 if x.Tok == token.SELECT_PROG2 {
-                                        v = &Nil{None{trivial{pos}}} // ignore
+                                        v = &Nil{trivial{pos}} // ignore
                                 } else {
                                         l.error(x.Lhs.Pos(), "`%v` is undefined", obj)
                                 }
@@ -842,12 +842,12 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
 
         if prop := l.expr(x.Rhs); prop == nil {
                 if x.Tok == token.SELECT_PROG2 {
-                        v = &Nil{None{trivial{pos}}} // ignore
+                        v = &Nil{trivial{pos}} // ignore
                 } else {
                         l.error(x.Rhs.Pos(), "`%s` invalid property expression (%T)", x, x.Rhs)
                 }
         } else {
-                v = &selection{ trivial{pos}, x.Tok, obj, prop }
+                v = &selection{trivial{pos}, x.Tok, obj, prop}
         }
         return
 }
@@ -855,8 +855,7 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
 func (l *loader) exprBasicLit(x *ast.BasicLit) (v Value) {
         var pos = Position(l.parser.file.Position(x.Pos()))
         switch x.Kind {
-        case token.BAR:
-                l.error(x.Pos(), "`|` is deprecated, changed the modifiers!")
+        case token.BAR: l.error(x.Pos(), "`|` is deprecated, changed the modifiers!")
         case token.BIN:      v = ParseBin(pos,x.Value)
         case token.OCT:      v = ParseOct(pos,x.Value)
         case token.INT:      v = ParseInt(pos,x.Value)
@@ -930,6 +929,7 @@ func (l *loader) convertBarefiles(targets []ast.Expr) []ast.Expr {
                         }
                 case *ast.Barecomp:
                         var value = l.exprBarecomp(t)
+                        if value.closured() || value.refdef(DefArg) { break }
                         target = &ast.EvaluatedExpr{target, value}
                         if s, err := value.Strval(); err != nil {
                                 l.error(t.Pos(), "%v: %v", value, err)
@@ -940,8 +940,6 @@ func (l *loader) convertBarefiles(targets []ast.Expr) []ast.Expr {
                 case *ast.ArgumentedExpr:
                         vals := l.convertBarefiles(append([]ast.Expr{t.X},t.Arguments...))
                         t.X, t.Arguments = vals[0], vals[1:]
-                default:
-                        //fmt.Fprintf(stderr, "%T: %v\n", t, t)
                 }
         }
         return targets
@@ -1388,7 +1386,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 ordered []Value
                 recipes []Value
                 progScope *Scope
-                params []string
+                params []*Def
         )
         for _, depend := range clause.Depends {
                 switch dep := l.expr(depend).(type) {
@@ -1414,7 +1412,10 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 if p.Recipes != nil {
                         recipes = l.exprs(p.Recipes)
                 }
-                params = p.Params
+                for _, name := range p.Params {
+                        def := progScope.Lookup(name).(*Def)
+                        params = append(params, def)
+                }
         } else {
                 l.error(clause.Program.Pos(), "unsupported program type (%T)", clause.Program)
                 return
@@ -1431,20 +1432,6 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 recipes:  recipes,
                 position: Position(clause.Position),
         }
-        /*for i, m := range modifiers {
-                position := l.parser.file.Position(clause.Modifiers.Elems[i].Pos())
-                if p, err := prog.pipe(Position(position), m); err != nil {
-                        l.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
-                        return
-                } else if !configure {
-                        if s, err := p.name.Strval(); err != nil {
-                                l.error(clause.Program.Pos(), "modifier `%v`: %v", m, err)
-                                return
-                        } else if s == "configure" {
-                                configure = true
-                        }
-                }
-        }*/
 
         var optionVals = l.exprs(options)
         for n, target := range l.exprs(clause.Targets) {
@@ -1481,9 +1468,14 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         }
                 } else if configure {
                         configuration.entries = append(configuration.entries, entry)
-                        if def, alt := l.def(name); alt != nil {
-                                // TODO: configure option already defined
-                        } else /*if def != nil*/ {
+                        var def, alt = l.def(name)
+                        if alt != nil {
+                                var ok bool
+                                if def, ok = alt.(*Def); ok {
+                                        l.error(clause.Targets[n].Pos(), "'%v' is not a Def (%T)", alt, alt)
+                                }
+                        }
+                        if def != nil {
                                 def.set(DefExecute, nil)
                         }
                 }
@@ -1770,7 +1762,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                                         if def == nil && alt != nil {
                                                 def = alt.(*Def)
                                         }
-                                        def.set(DefDefault, t.Value)
+                                        def.set(DefDecl, t.Value)
                                 }
                         default:
                                 fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, l.project)
@@ -1787,11 +1779,14 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
                         var def, alt = l.def(name)
                         if alt != nil {
-                                def, _ = alt.(*Def)
+                                var ok bool
+                                def, ok = alt.(*Def)
+                                if !ok {
+                                        err = errorf(pos, "'%v' is not a Def (%T)", alt, alt)
+                                        return
+                                }
                         }
-                        if def != nil {
-                                def.set(DefDefault, t.Value)
-                        }
+                        if def != nil { def.setval(t.Value) }
                 }
         }
 
@@ -2167,7 +2162,7 @@ ListLoop:
                                 break ListLoop
                         }
                         var pos = Position(l.parser.file.Position(l.pos))
-                        def.set(DefExpand, &String{trivial{pos},s})
+                        def.set(DefConfDir, &String{trivial{pos},s})
                 } else if s != nil {
                         err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
                         break ListLoop

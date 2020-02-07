@@ -27,7 +27,7 @@ type Program struct {
         mutex *sync.Mutex // execution mutex
         project *Project
         scope   *Scope
-        params  []string
+        params  []*Def
         depends []Value // normal
         ordered []Value // order-only
         recipes []Value
@@ -44,23 +44,13 @@ func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
         if auto, alt = prog.scope.define(prog.project, name, value); alt != nil {
                 var found = false
                 if auto, found = alt.(*Def); found {
-                        auto.set(DefDefault, value)
+                        auto.setval(value)
                 } else {
                         err = fmt.Errorf("`%v` name already taken (%T)", name, alt)
                 }
         }
         if enable_assertions {
                 assert(auto.value == value, "wrong auto value")
-        }
-        return
-}
-
-func (prog *Program) setUser(proj *Project) (saved *Project) {
-        if obj := prog.scope.Lookup(userproj); obj != nil {
-                if name, ok := obj.(*ProjectName); ok && name != nil {
-                        saved = name.project
-                        name.project = proj
-                }
         }
         return
 }
@@ -78,7 +68,7 @@ func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err
 
         var value Value
         if value, err = i.Evaluate(t, params); err == nil {
-                if value != nil { t.def.buffer.set(DefDefault, value) }
+                if value != nil { t.def.buffer.setval(value) }
                 _, _, err = t.updateRecipesHash()
         }
 
@@ -114,7 +104,7 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
                 var value Value
                 if value, err = f(m.position, t, v...); err == nil && value != nil {
                         if value != t.def.buffer && value != t.def.buffer.value {
-                                err = t.def.buffer.set(DefDefault, value)
+                                err = t.def.buffer.setval(value)
                         }
                 }
         } else if i, _ := dialects[name]; i != nil {
@@ -184,26 +174,24 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
 }
 
 func (prog *Program) setParams(args []Value) (params []*Def, err error) {
+        /*var none = &None{trivial{prog.position}}
         for i, param := range prog.params {
-                var def *Def
-                if def, err = prog.auto(param, &None{}); err != nil {
-                        err = wrap(prog.position, err)
-                        return
-                }
-                prog.scope.replace(strconv.Itoa(i+1), def)
-                params = append(params, def)
-        }
+                param.setval(none)
+                prog.scope.replace(strconv.Itoa(i+1), param)
+                params = append(params, param)
+                assert(param.origin == DefArg, "wrong arg")
+                fmt.Fprintf(stderr, "param: %v (%v)\n", param, param.origin)
+        }*/
         var argnum int // setup named/number parameters ($1, $2, etc.)
         for _, a := range args {
                 //<!IMPORTANT: Don't translate Flag, Flag values are valid
-                //             regular arguments. Don't Pair values are
-                //             special.
+                //             regular arguments. Pair values are special.
                 switch t := a.(type) {
                 case *Pair:
                         var s string
                         if s, err = t.Key.Strval(); err == nil {
                                 if o := prog.scope.Lookup(s); o != nil {
-                                        o.(*Def).set(DefDefault, t.Value)
+                                        o.(*Def).set(DefArg, t.Value)
                                 } else {
                                         err = scanner.Errorf(token.Position(prog.position), "`%s` no such named parameter", s)
                                 }
@@ -212,11 +200,12 @@ func (prog *Program) setParams(args []Value) (params []*Def, err error) {
                         var def *Def
                         if argnum < len(params) {
                                 def = params[argnum]
-                                def.set(DefDefault, a)
+                                def.set(DefArg, a)
                         } else {
                                 name := strconv.Itoa(argnum+1)
                                 if def, err = prog.auto(name, a); err == nil {
                                         params = append(params, def)
+                                        def.origin = DefArg
                                 }
                         }
                         argnum += 1
@@ -234,7 +223,6 @@ const maxRecursion  = 16 //32 //64
 func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, err error) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
         if optionEnableBenchspots { defer bench(spot("Program.execute")) }
-
         if false {
                 // Execution can be nested, a program.mutex.lock may
                 // cause dead-lock in such case.
@@ -326,7 +314,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         // because the target could be overrided by parameters.
         switch a := t.entry.target.(type) {
         case *File:
-                t.def.target.set(DefDefault, a)
+                t.def.target.setval(a)
                 fileTarget = a
         default:
                 var name string
@@ -339,7 +327,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         fileTarget = file
                         target = file
                 }
-                t.def.target.set(DefDefault, target)
+                t.def.target.setval(target)
         }
         if fileTarget != nil && fileTarget.info != nil && fileTarget.updated {
                 if optionVerbose {

@@ -248,7 +248,27 @@ const (
 
         // !=
         DefExecute // executed result
+
+        DefAuto // automatic: $1, $2, $3, etc.
+        DefArg  // ((arg))
+        DefDecl // 
+        DefConfDir
 )
+
+func (o DefOrigin) String() (s string) {
+        switch o {
+        case DefDefault: s = "Default"
+        case DefSimple:  s = "Simple"
+        case DefExpand:  s = "Expand"
+        case DefExecute: s = "Execute"
+        case DefAuto:    s = "Auto"
+        case DefArg:     s = "Arg"
+        case DefDecl:    s = "Decl"
+        case DefConfDir: s = "ConfDir"
+        default: s = fmt.Sprintf("Origin<%d>", o)
+        }
+        return
+}
 
 // A Def represents a definition, it's a Caller but mustn't be a Valuer.
 type Def struct {
@@ -310,7 +330,7 @@ func (d *Def) String() (s string) {
         case DefSimple:  s += ":="
         case DefExpand:  s += "::="
         case DefExecute: s += "!="
-        default: s += " = "
+        default:         s += " = "
         }
         if d.value != nil {
                 s += elementString(d, d.value, 0)
@@ -326,21 +346,18 @@ func (d *Def) Strval() (s string, e error) {
         return
 }
 
+func (d *Def) setval(value Value) (err error) { return d.set(d.origin, value) }
 func (d *Def) set(origin DefOrigin, value Value) (err error) {
         if origin != DefSimple && value != nil && value.refs(d) {
                 err = errorf(d.position, "value refers `%s`: %v (%T)", d.name, value, value)
-                if true || optionVerbose {
-                        fmt.Fprintf(stderr, "%v\n", err)
-                        debug.PrintStack()
-                }
+                if optionVerbose { fmt.Fprintf(stderr, "%v\n", err) }
+                if optionPrintStack { debug.PrintStack() }
                 return
         } else if origin != DefExecute && value == nil {
                 value = &None{trivial{d.position}}
         }
 
         switch d.origin = origin; origin {
-        case DefDefault: // Keeps delegates and closures.
-                d.value = value
         case DefSimple: // Eval expands delegates in the value.
                 if d.value, err = value.expand(expandDelegate); err != nil { return }
         case DefExpand:
@@ -361,10 +378,12 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                         stderr.Reset()
                         d.value = value
                 } else {
-                        d.value = &None{}
+                        var pos = value.Position()
+                        if !pos.IsValid() { pos = d.Position() }
+                        d.value = &None{trivial{pos}}
                 }
-        default:
-                unreachable()
+        default: // DefDefault, DefArg: keeps delegates and closures.
+                d.value = value
         }
         return
 }
@@ -396,17 +415,17 @@ func (d *Def) append(va... Value) (err error) {
                 list = &List{elements{ elems }}
         }
         if list != nil {
-                var origin = d.origin
-                if origin == DefExecute { origin = DefDefault }
-                err = d.set(origin, list)
+                if d.origin == DefExecute {
+                        err = d.set(DefDefault, list)
+                } else {
+                        err = d.setval(list)
+                }
         }
         return
 }
 
 func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
         switch d.origin {
-        case DefSimple, DefExpand, DefExecute:
-                res = d.value
         case DefDefault:
                 // TODO: parameterization, e.g. $1, $2, $3, $4, $5 (see foreach)
                 for i := 0; i < len(a) && i < maxNumVarVal; i += 1 {
@@ -415,14 +434,14 @@ func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
                         def.value = a[i]
                 }
                 res, err = d.value.expand(expandClosure|expandDelegate)
-        default:
-                unreachable()
+        default: // DefArg, DefSimple, DefExpand, DefExecute:
+                res = d.value
         }
         if res == nil {
                 // ...
         } else if list, ok := res.(*List); ok {
                 if n := len(list.Elems); n == 0 {
-                        res = &None{}
+                        res = &None{trivial{d.position}}
                 } else if n == 1 {
                         res = list.Elems[0] 
                 }
@@ -465,6 +484,7 @@ func (p *undetermined) refs(v Value) bool {
 func (p *undetermined) closured() bool {
         return p.identifier.closured() || p.value.closured()
 }
+func (p *undetermined) refdef(origin DefOrigin) bool { return false }
 func (p *undetermined) expand(w expandwhat) (res Value, err error) {
         var i, v Value
         res = p // set the original value
@@ -689,6 +709,9 @@ func (entry *RuleEntry) refs(v Value) bool {
         }
         return false
 }
+func (entry *RuleEntry) refdef(origin DefOrigin) bool {
+        return entry.target.refdef(origin)
+}
 func (entry *RuleEntry) closured() bool {
         if entry.target.closured() { return true }
         
@@ -696,11 +719,6 @@ func (entry *RuleEntry) closured() bool {
         return false // only check closured agaist target
 
         for _, prog := range entry.programs {
-                /*for _, m := range prog.pipline {
-                        for _, a := range m.args {
-                                if a.closured() { return true }
-                        }
-                }*/
                 for _, depend := range prog.depends {
                         if depend.closured() { return true }
                 }
@@ -742,7 +760,7 @@ func (entry *RuleEntry) traverse(t *traversal) (err error) {
         if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
 ForPrograms:
         for _, prog := range entry.programs {
-                var e = t.execute(entry, prog)
+                var _, e = prog.execute(t, entry, t.arguments)
                 if e == nil { continue }
 
                 var brks, errs = extractBreakers(e)

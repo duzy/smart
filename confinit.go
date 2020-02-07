@@ -1,4 +1,4 @@
-package smart; import "runtime/debug"; import "strings"; func configurationInitFile() (string, string) { source := `# confinit -*- smart -*-
+package smart; func configurationInitFile() (string, string) { return `# confinit -*- smart -*-
 project ~ (-nodock -final)
 
 OUTDIR := &(CTD)/.configure
@@ -41,7 +41,7 @@ _LOADLIBES_ :=
 -compiles:[((TARGET)) (closure)] $(TARGET).$(LANG) [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 
-%.c.include:[(closure) (plain c) (update-file -sp)]
+%.c.include:[(closure) (plain c) (update-file -p)]
 	$(_INCLUDES_)
 	#ifdef __CLASSIC_C__
 	int main() { return 0; }
@@ -49,11 +49,11 @@ _LOADLIBES_ :=
 	int main(void) { return 0; }
 	#endif
 	
-%.c++.include:[(closure) (plain c++) (update-file -sp)]
+%.c++.include:[(closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	int main() { return 0; }
 	
-%.symbol:[((SYMBOL)) (closure) (plain text) (update-file -sp)]
+%.symbol:[((SYMBOL)) (closure) (plain text) (update-file -p)]
 	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
@@ -66,7 +66,7 @@ _LOADLIBES_ :=
 	#endif
 	}
 	
-%.type:[((TYPE)) (closure) (plain text) (update-file -sp)]
+%.type:[((TYPE)) (closure) (plain text) (update-file -p)]
 	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
@@ -76,7 +76,7 @@ _LOADLIBES_ :=
 	  return 0;
 	}
 	
-%.variable:[((VARIABLE)) (closure) (plain text) (update-file -sp)]
+%.variable:[((VARIABLE)) (closure) (plain text) (update-file -p)]
 	$(_INCLUDES_)
 	extern int $(VARIABLE)
 	#ifdef __CLASSIC_C__
@@ -86,7 +86,7 @@ _LOADLIBES_ :=
 	#endif
 	{ (void)argv; return $(VARIABLE); }
 	
-%.function:[((FUNCTION)) (closure) (plain text) (update-file -sp)]
+%.function:[((FUNCTION)) (closure) (plain text) (update-file -p)]
 	$(_INCLUDES_)
 	#ifdef __cplusplus
 	extern "C"
@@ -99,11 +99,11 @@ _LOADLIBES_ :=
 	#endif
 	{ $(FUNCTION)(); return 0; }
 	
-%.structmember:[((STRUCT MEMBER)) (closure) (plain text) (update-file -sp)]
+%.structmember:[((STRUCT MEMBER)) (closure) (plain text) (update-file -p)]
 	$(_INCLUDES_)
 	int main() { (void)sizeof((($(STRUCT) *)0)->$(MEMBER)); return 0; }
 	
-%.sizeof:[((TYPE)) (closure) (plain text) (update-file -sp)]
+%.sizeof:[((TYPE)) (closure) (plain text) (update-file -p)]
 	#undef ARCH
 	#if defined(__i386)
 	#   define ARCH "__i386"
@@ -129,7 +129,7 @@ _LOADLIBES_ :=
 	{ (void)argv; return SIZE; }
 	
 #$(OUTDIR)/pthreads.c
-pthreads.c:[(closure) (plain c) (update-file -sp)]
+pthreads.c:[(closure) (plain c) (update-file -p)]
 	#include <pthread.h>
 	void* routine(void* args) { return args; }
 	int main(void) {
@@ -139,23 +139,10 @@ pthreads.c:[(closure) (plain c) (update-file -sp)]
 	  return 0;
 	}
 	
-%.c:[(closure) (plain c) (update-file -sp)]
+%.c:[(closure) (plain c) (update-file -p)]
 	$(_VALUE_)
 	
-%.c++:[(closure) (plain c++) (update-file -sp)]
+%.c++:[(closure) (plain c++) (update-file -p)]
 	$(_VALUE_)
 	
-`
-        var num int
-        var filename string
-        var lines = strings.Split(string(debug.Stack()), "\n")
-        for _, line := range lines {
-                if !strings.HasPrefix(line, "\t") { continue }
-                if i := strings.Index(line, ":"); num == 1 && i > 0 {
-                        filename = line[1:i]
-                        break
-                }
-                num += 1
-        }
-        return source, filename
-}
+`, get_filename(2) }

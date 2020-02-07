@@ -242,28 +242,41 @@ ForArgs:
                 var ( runes []rune ; names []string )
                 switch a := v.(type) {
                 case *Flag:
-                        if runes, names, err = a.opts(opts...); err != nil { return }
+                        if runes, names, err = a.opts(false, opts...); err != nil { return }
                 case *Pair:
-                        if flag, ok := a.Key.(*Flag); ok && flag != nil {
-                                if runes, names, err = flag.opts(opts...); err != nil {
-                                        return
-                                } else {
-                                        v = a.Value // use flag value
-                                }
-                        } else {
-                                va = append(va, a)
-                                continue ForArgs
-                        }
+                        var flag, ok = a.Key.(*Flag)
+                        if !ok { va = append(va, a); continue ForArgs }
+                        if runes, names, err = flag.opts(false, opts...); err != nil { return }
+                        v = a.Value // use flag value
                 default:
                         va = append(va, a)
                         continue ForArgs
                 }
-                if enable_assertions {
-                        assert(len(runes) == len(names), "Flag.opts(...) error")
+                if enable_assertions { assert(len(runes) == len(names), "Flag.opts(...) error") }
+                for _, ru := range runes { opt(ru, v) }
+        }
+        return
+}
+
+func tryParseFlags(args []Value, opts []string, opt func(ru rune, v Value)) (va []Value, err error) {
+ForArgs:
+        for _, v := range args {
+                var ( runes []rune ; names []string )
+                switch a := v.(type) {
+                case *Flag:
+                        if runes, names, err = a.opts(true, opts...); err != nil { return }
+                case *Pair:
+                        var flag, ok = a.Key.(*Flag)
+                        if !ok { va = append(va, a); continue ForArgs }
+                        if runes, names, err = flag.opts(true, opts...); err != nil { return }
+                        if len(runes) > 0 { v = a.Value } // use flag value
+                default:
+                        va = append(va, a)
+                        continue ForArgs
                 }
-                for _, ru := range runes {
-                        opt(ru, v)
-                }
+                if enable_assertions { assert(len(runes) == len(names), "Flag.opts(...) error") }
+                if len(runes) > 0 { for _, ru := range runes { opt(ru, v) }
+                } else { va = append(va, v) }
         }
         return
 }

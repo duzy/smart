@@ -27,6 +27,7 @@ func (p *using) refs(v Value) bool {
         }
         return false
 }
+func (p *using) refdef(origin DefOrigin) bool { return false }
 func (p *using) closured() bool {
         for _, a := range p.params {
                 if a.closured() { return true }
@@ -115,6 +116,7 @@ func (p *usinglist) refs(v Value) bool {
         }
         return false
 }
+func (p *usinglist) refdef(origin DefOrigin) bool { return false }
 func (p *usinglist) closured() bool {
         for _, a := range p.list {
                 if a.closured() { return true }
