@@ -40,6 +40,7 @@ const (
         rxFileNotFound_i
         rxArNoSuchFile_i
         rxBashNoSuchFile_i
+        rxClangNoSuchFile_i
 )
 var (
         defaultShell = "bash"
@@ -53,6 +54,7 @@ var (
         errFileNotFound = `(.+?):(\d+):(\d+): fatal error: '(.+?)' file not found`
         errArNoSuchFile = `ar: (.+?): No such file or directory`
         errBashNoSuchFile = `bash: (.+?): No such file or directory`
+        errClangNoSuchFile = `clang-(.+?): error: no such file or directory: '(.+?)'`
 
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
@@ -62,16 +64,18 @@ var (
         rxFileNotFound = regexp.MustCompile(errFileNotFound)
         rxArNoSuchFile = regexp.MustCompile(errArNoSuchFile)
         rxBashNoSuchFile = regexp.MustCompile(errBashNoSuchFile)
+        rxClangNoSuchFile = regexp.MustCompile(errClangNoSuchFile)
 
         knownerrors = []*regexp.Regexp{
-                rxNotTTYDevice_i:   rxNotTTYDevice,
-                rxNoContainer_i:    rxNoContainer,
-                rxNoNetwork_i:      rxNoNetwork,
-                rxCompilation_i:    rxCompilation,
-                rxIncludedFrom_i:   rxIncludedFrom,
-                rxFileNotFound_i:   rxFileNotFound,
-                rxArNoSuchFile_i:   rxArNoSuchFile,
-                rxBashNoSuchFile_i: rxBashNoSuchFile,
+                rxNotTTYDevice_i:    rxNotTTYDevice,
+                rxNoContainer_i:     rxNoContainer,
+                rxNoNetwork_i:       rxNoNetwork,
+                rxCompilation_i:     rxCompilation,
+                rxIncludedFrom_i:    rxIncludedFrom,
+                rxFileNotFound_i:    rxFileNotFound,
+                rxArNoSuchFile_i:    rxArNoSuchFile,
+                rxBashNoSuchFile_i:  rxBashNoSuchFile,
+                rxClangNoSuchFile_i: rxClangNoSuchFile,
         }
 
         workingMutex = new(sync.Mutex)
@@ -255,6 +259,11 @@ func (p *ExecBuffer) skips(tag string) (result bool) {
 }
 
 func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
+        /*var logPos Position
+        logPos.Filename = p.log.filename
+        logPos.Offset = 0 // FIXME: what should be the offset?
+        logPos.Line = p.log.lines
+        logPos.Column = 0*/
         var retry bool
         var tag string
         for _, m := range p.matches {
@@ -278,6 +287,8 @@ func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, dock *Projec
                                 err = wrap(pos, fmt.Errorf("`%v` file not found", filepath.Base(string(v[1]))), err)
                         case rxBashNoSuchFile_i:
                                 err = wrap(pos, fmt.Errorf("%v: no such command", string(v[1])), err)
+                        case rxClangNoSuchFile_i:
+                                err = wrap(pos, fmt.Errorf("clang-%s: no such source file: %s", string(v[1]), string(v[2])), err)
                         }
                 }
         }

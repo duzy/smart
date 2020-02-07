@@ -1603,18 +1603,21 @@ func (p *Barefile) Float() (float64, error) {
 }
 func (p *Barefile) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if p.File != nil {
-                err = p.File.traverse(t)
-                /*if e := extractFileNotFoundError(err); e != nil {
-                        // ...
-                }*/
-                return
+        if p.File == nil {
+                var target string
+                if target, err = p.Strval(); err != nil { return }
+                
+                var okay bool
+                okay, err = t.foreachClosureProject(func(project *Project) (bool, error) {
+                        p.File = project.matchFile(target)
+                        return p.File != nil, nil
+                })
+                if !okay || p.File == nil {
+                        err = errorf(p.position, "barefile '%s' not found", target)
+                        return
+                }
         }
-
-        var target string
-        if target, err = p.Strval(); err == nil {
-                err = t.target(p.position,target)
-        }
+        if p.File != nil { err = p.File.traverse(t) }
         return
 }
 func (p *Barefile) stamp(t *traversal) (files []*File, err error) {
