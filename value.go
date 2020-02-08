@@ -293,6 +293,7 @@ func (t *traversal) dispatch(i interface{}) (err error) {
         } else if value == nil { // this could happen
                 err = errorf(pos, "updating nil prerequisite")
         } else {
+                if false { fmt.Fprintf(stderr, "dispatch: %T %v\n", value, value) }
                 err = value.traverse(t)
         }
         return
@@ -305,7 +306,7 @@ func (t *traversal) fileInProject(p *Project, file *File) (okay bool, err error)
         var names = make(map[string]bool)
         for stub := file.filestub; true; stub = stub.other {
                 names[stub.name] = true // mark to avoid trying many times
-                okay, err = t.filestub(p, stub)
+                okay, err = t.filestub(p, file, stub)
                 if err != nil || okay { file.filestub = stub; return }
                 if stub.other == file.filestub { break }
         }
@@ -329,7 +330,7 @@ func (t *traversal) fileInProject(p *Project, file *File) (okay bool, err error)
                         }
                         file.filestub.other = stub
 
-                        okay, err = t.filestub(p, stub)
+                        okay, err = t.filestub(p, file, stub)
                         if err != nil || okay {
                                 file.filestub = stub
                                 return
@@ -337,6 +338,7 @@ func (t *traversal) fileInProject(p *Project, file *File) (okay bool, err error)
                 }
                 i = strings.LastIndex(s, PathSep)
         }
+
         names = nil // clean names cache
 
         if exists(file) {
@@ -349,7 +351,7 @@ func (t *traversal) fileInProject(p *Project, file *File) (okay bool, err error)
         return
 }
 
-func (t *traversal) filestub(p *Project, stub *filestub) (okay bool, err error) {
+func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool, err error) {
         if optionEnableBenchspots { defer bench(spot("traversal.filestub")) }
 
         /// Searching entries from the most derived project.
@@ -363,9 +365,7 @@ func (t *traversal) filestub(p *Project, stub *filestub) (okay bool, err error) 
 
         /// Searching patterns from the most derived project.
         var ses []*StemmedEntry
-        if ses, err = p.resolvePatterns(stub); err != nil {
-                return
-        }
+        if ses, err = p.resolvePatterns(stub); err != nil { return }
 
 ForPatterns:
         for _, se := range ses {
@@ -375,11 +375,8 @@ ForPatterns:
                         if err != nil { break ForPatterns }
                         if !ok { continue ForPatterns }
                 }
-                // Associate StemmedEntry with the filestub.
-                //se.stub = stub
-                if err = se.traverse(t); err == nil {
-                        okay = true; return
-                }
+                if err = se.file(t, file); err == nil { okay = true }
+                return
         }
         return
 }
@@ -408,8 +405,7 @@ func (t *traversal) targetInProject(pos Position, p *Project, target string) (ok
                 }
                 if optionTraceTraversal {
                         t.tracef("%s: traverseTarget(file{%s,%s,%s}): okay=%v, err=%v",
-                                p.name, file.dir, file.sub, file.name,
-                                okay, err)
+                                p.name, file.dir, file.sub, file.name, okay, err)
                 }
                 return
         }
@@ -1502,13 +1498,8 @@ func (p *Barecomp) closured() bool { return p.elements.closured() }
 func (p *Barecomp) Strval() (s string, e error) {
         for _, elem := range p.Elems {
                 var v string
-                if elem == nil {
-                        continue
-                } else if v, e = elem.Strval(); e == nil {
-                        s += v
-                } else {
-                        break
-                }
+                if elem == nil { continue } else
+                if v, e = elem.Strval(); e == nil { s += v } else { break }
         }
         return
 }
@@ -1603,7 +1594,7 @@ func (p *Barefile) Float() (float64, error) {
 }
 func (p *Barefile) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if p.File == nil {
+        if p.File == nil { // it happens if p.Name refers argument
                 var target string
                 if target, err = p.Strval(); err != nil { return }
                 
@@ -2347,9 +2338,7 @@ func (p *File) traverse(t *traversal) (err error) {
                 }
         }
 
-        if err = t.file(p); err != nil {
-                return
-        }
+        if err = t.file(p); err != nil { return }
 
         if optionTraceTraversal {
                 var a = t.def.target.value
@@ -2385,7 +2374,7 @@ func checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog 
                 // no need to set arguments
         } else {
                 var params []*Def
-                if params, err = prog.setParams(t.arguments); err != nil { return } else
+                if params, err = prog.args(t.arguments); err != nil { return } else
                 if len(params) > 0 {
                         defer func(none *None) {
                                 for _, param := range params {

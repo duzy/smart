@@ -7,8 +7,8 @@
 package smart
 
 import (
-        "extbit.io/smart/scanner"
-        "extbit.io/smart/token"
+        //"extbit.io/smart/scanner"
+        //"extbit.io/smart/token"
         "runtime/debug" // debug.PrintStack()
         "strconv"
         //"strings"
@@ -173,17 +173,10 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
         return
 }
 
-func (prog *Program) setParams(args []Value) (params []*Def, err error) {
-        /*var none = &None{trivial{prog.position}}
-        for i, param := range prog.params {
-                param.setval(none)
-                prog.scope.replace(strconv.Itoa(i+1), param)
-                params = append(params, param)
-                assert(param.origin == DefArg, "wrong arg")
-                fmt.Fprintf(stderr, "param: %v (%v)\n", param, param.origin)
-        }*/
+func (prog *Program) args(args []Value) (params []*Def, err error) {
         var argnum int // setup named/number parameters ($1, $2, etc.)
         for _, a := range args {
+                var def *Def
                 //<!IMPORTANT: Don't translate Flag, Flag values are valid
                 //             regular arguments. Pair values are special.
                 switch t := a.(type) {
@@ -191,16 +184,19 @@ func (prog *Program) setParams(args []Value) (params []*Def, err error) {
                         var s string
                         if s, err = t.Key.Strval(); err == nil {
                                 if o := prog.scope.Lookup(s); o != nil {
-                                        o.(*Def).set(DefArg, t.Value)
+                                        def = o.(*Def)
+                                        def.set(DefArg, t.Value)
+                                        params = append(params, def)
                                 } else {
-                                        err = scanner.Errorf(token.Position(prog.position), "`%s` no such named parameter", s)
+                                        err = errorf(prog.position, "`%s` no such named parameter", s)
+                                        return
                                 }
                         }
                 default:
-                        var def *Def
-                        if argnum < len(params) {
-                                def = params[argnum]
+                        if argnum < len(prog.params) {
+                                def = prog.params[argnum]
                                 def.set(DefArg, a)
+                                params = append(params, def)
                         } else {
                                 name := strconv.Itoa(argnum+1)
                                 if def, err = prog.auto(name, a); err == nil {
@@ -281,7 +277,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if t.def.grepped, err = prog.auto("~", none); err != nil { return }
         if t.def.updated, err = prog.auto("?", none); err != nil { return }
         if t.def.buffer,  err = prog.auto("-", none); err != nil { return }
-        if t.def.params,  err = prog.setParams(args); err != nil { return }
+        if t.def.params,  err = prog.args(args); err != nil { return }
         // Flag targets (-foo) turn off printing automatically
         if _, ok := t.entry.target.(*Flag); ok { t.print = false }
         if t.print && t.entry.class == UseRuleEntry { t.print = false }

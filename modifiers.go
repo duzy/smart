@@ -1672,16 +1672,14 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 case 'd': optDebug = trueVal(v, true)
                 case 'p': optPath = trueVal(v, true)
                 case 'v': optVerbose = trueVal(v, true)
-                case 'm':
-                        if v != nil {
-                                var num int64
-                                if num, err = v.Integer(); err != nil {
-                                        return
-                                } else {
-                                        optMode = os.FileMode(num & 0777)
-                                }
+                case 'm': if v != nil {
+                        var num int64
+                        if num, err = v.Integer(); err != nil {
+                                return
+                        } else if num != 0 {
+                                optMode = os.FileMode(num & 0777)
                         }
-                }
+                }}
         }); err != nil { return }
 
         var target Value
@@ -1693,33 +1691,26 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
         }
 
         // Get target filename
-        var project = t.project
         switch p := target.(type) {
         case *File, *Path:
-                if filename, err = p.Strval(); err != nil {
-                        return
-                }
+                if filename, err = p.Strval(); err != nil { return }
         default:
                 if filename, err = target.Strval(); err != nil { return } else
-                if file := project.matchFile(filename); file != nil {
-                        if filename, err = file.Strval(); err != nil {
-                                return
-                        } else {
+                if file := t.project.matchFile(filename); file != nil {
+                        if filename, err = file.Strval(); err != nil { return } else {
                                 target = file
                         }
                 }
         }
 
         if optDebug {
-                fmt.Fprintf(stderr, "%s:debug: update-file: %v\n", pos, filename)
+                fmt.Fprintf(stderr, "%s:debug: update-file: %v (%v) (%v, %v)\n", pos, target, filename, t.project, cloctx)
         }
 
-        // Make path (mkdir -p)
-        if optPath {
+        if optPath { // Make path (mkdir -p)
                 if p := filepath.Dir(filename); p != "." && p != "/" {
-                        if err = os.MkdirAll(p, os.FileMode(0755)); err != nil {
-                                return
-                        }
+                        err = os.MkdirAll(p, os.FileMode(0755))
+                        if err != nil { return }
                 }
         }
 

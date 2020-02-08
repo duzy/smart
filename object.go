@@ -884,3 +884,18 @@ func (p *StemmedEntry) traverse(t *traversal) (err error) {
         }
         return
 }
+func (p *StemmedEntry) file(t *traversal, file *File) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.file(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("StemmedEntry.file")) }
+
+        defer func(a Value) { p.target = a } (p.target)
+        defer func(stems []string) { t.stems = stems } (t.stems)
+        t.stems = p.Stems // set stems for the traversal
+        p.target = file
+
+        if err = p.RuleEntry.traverse(t); err != nil {
+                err = wrap(p.position, err)
+        }
+        return
+}
