@@ -35,6 +35,7 @@ const (
         rxNotTTYDevice_i int = iota
         rxNoContainer_i
         rxNoNetwork_i
+        rxContainerNotRunning_i
         rxCompilation_i
         rxIncludedFrom_i
         rxFileNotFound_i
@@ -48,6 +49,7 @@ var (
         errNotTTYDevice = `the input device is not a TTY`
         errNoContainer = `Error.*: No such container: (.*)`
         errNoNetwork = `Error.*: network (.*) not found\.`
+        errContainerNotRunning = `Error response from daemon: Container (.*?) is not running`
 
         errCompilation = `(.+?):(\d+):(\d+): error: (.+)`
         errIncludedFrom = `In file included from (.+?):(\d+):(\d+):`
@@ -59,6 +61,7 @@ var (
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
         rxNoNetwork = regexp.MustCompile(errNoNetwork)
+        rxContainerNotRunning = regexp.MustCompile(errContainerNotRunning)
         rxCompilation = regexp.MustCompile(errCompilation)
         rxIncludedFrom = regexp.MustCompile(errIncludedFrom)
         rxFileNotFound = regexp.MustCompile(errFileNotFound)
@@ -67,15 +70,16 @@ var (
         rxClangNoSuchFile = regexp.MustCompile(errClangNoSuchFile)
 
         knownerrors = []*regexp.Regexp{
-                rxNotTTYDevice_i:    rxNotTTYDevice,
-                rxNoContainer_i:     rxNoContainer,
-                rxNoNetwork_i:       rxNoNetwork,
-                rxCompilation_i:     rxCompilation,
-                rxIncludedFrom_i:    rxIncludedFrom,
-                rxFileNotFound_i:    rxFileNotFound,
-                rxArNoSuchFile_i:    rxArNoSuchFile,
-                rxBashNoSuchFile_i:  rxBashNoSuchFile,
-                rxClangNoSuchFile_i: rxClangNoSuchFile,
+                rxNotTTYDevice_i:        rxNotTTYDevice,
+                rxNoContainer_i:         rxNoContainer,
+                rxNoNetwork_i:           rxNoNetwork,
+                rxCompilation_i:         rxCompilation,
+                rxIncludedFrom_i:        rxIncludedFrom,
+                rxFileNotFound_i:        rxFileNotFound,
+                rxArNoSuchFile_i:        rxArNoSuchFile,
+                rxBashNoSuchFile_i:      rxBashNoSuchFile,
+                rxClangNoSuchFile_i:     rxClangNoSuchFile,
+                rxContainerNotRunning_i: rxContainerNotRunning,
         }
 
         workingMutex = new(sync.Mutex)
@@ -248,74 +252,83 @@ func (p *ExecBuffer) Write(b []byte) (n int, err error) {
         return
 }
 
-func (p *ExecBuffer) skips(tag string) (result bool) {
-        if p.retried == nil {
-                p.retried = make(map[string]bool)
-        } else {
-                a, b := p.retried[tag]
-                result = a && b
+func (p *ExecBuffer) skips(tag string) bool {
+        if p.retried == nil { p.retried = make(map[string]bool) }
+        var a, b = p.retried[tag]
+        return a && b
+}
+
+func (p *ExecBuffer) startContainerAndRetry(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int) (err error) {
+        if container != nil && num < maxRetries {
+                if err = x.runContainer(t, container); err != nil { return }
+                //c := exec.Command(sh.Path, sh.Args...)
+                //c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
+                //sh = c
+                //_, err = p.runAndProcessKnownErrors(pos, t, container, sh, x, num+1)
         }
         return
 }
 
-func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, dock *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
-        /*var logPos Position
-        logPos.Filename = p.log.filename
-        logPos.Offset = 0 // FIXME: what should be the offset?
-        logPos.Line = p.log.lines
-        logPos.Column = 0*/
-        var retry bool
-        var tag string
-        for _, m := range p.matches {
-                for _, v := range m.v { // captures
-                        switch m.i {
-                        case rxNotTTYDevice_i:
-                                retry = true
-                        case rxNoContainer_i:
-                                tag = string(v[1])
-                        case rxNoNetwork_i:
-                                // TODO: ...
-                        case rxCompilation_i:
-                                // TODO: ...
-                        case rxIncludedFrom_i:
-                                if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
-                        case rxFileNotFound_i:
-                                if p.report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4]) }
-                                err = wrap(pos, fmt.Errorf("`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1]))), err)
-                        case rxArNoSuchFile_i:
-                                if p.report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1]) }
-                                err = wrap(pos, fmt.Errorf("`%v` file not found", filepath.Base(string(v[1]))), err)
-                        case rxBashNoSuchFile_i:
-                                err = wrap(pos, fmt.Errorf("%v: no such command", string(v[1])), err)
-                        case rxClangNoSuchFile_i:
-                                err = wrap(pos, fmt.Errorf("clang-%s: no such source file: %s", string(v[1]), string(v[2])), err)
+func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, status, num int, m *knownMatch) (err error) {
+        for _, v := range m.v { // captures
+                switch m.i {
+                case rxNotTTYDevice_i:
+                        err = fmt.Errorf("Needs TTY (input device)")
+                case rxNoContainer_i:
+                        if tag := string(v[1]); p.skips(tag) {
+                                err = fmt.Errorf("No such container (%v)", string(v[1]))
+                        } else {
+                                err = p.startContainerAndRetry(pos, t, container, sh, x, num)
+                                p.retried[tag] = true // save it to skip next time
                         }
+                case rxContainerNotRunning_i:
+                        err = fmt.Errorf("Container not running (%v)", string(v[1]))
+                case rxNoNetwork_i:
+                        err = fmt.Errorf("Network not found (%v)", string(v[1]))
+                case rxCompilation_i:
+                        var pos Position
+                        pos.Filename = string(v[1])
+                        pos.Line, _ = strconv.Atoi(string(v[2]))
+                        pos.Column, _ = strconv.Atoi(string(v[3]))
+                        err = errorf(pos, "%s", string(v[4]))
+                case rxIncludedFrom_i:
+                        if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
+                case rxFileNotFound_i:
+                        err = fmt.Errorf("`%v` file not found, required by `%s` (exec)", v[4], filepath.Base(string(v[1])))
+                        if p.report { fmt.Fprintf(stderr, "%s:%s:%s: exec: `%s` file not found\n", v[1], v[2], v[3], v[4]) }
+                case rxArNoSuchFile_i:
+                        err = fmt.Errorf("`%v` file not found", filepath.Base(string(v[1])))
+                        if p.report { fmt.Fprintf(stderr, "exec: (ar): '%s' not found (as '%s')", filepath.Base(string(v[1])), v[1]) }
+                case rxBashNoSuchFile_i:
+                        err = fmt.Errorf("%v: no such command", string(v[1]))
+                case rxClangNoSuchFile_i:
+                        err = fmt.Errorf("clang-%s: no such source file: %s", string(v[1]), string(v[2]))
                 }
+                if err != nil { break }
         }
-        if err != nil { return }
-        if !p.scanerr || p.matches == nil {
-                //err = fmt.Errorf(...)
-        }
+        return
+}
 
-        if err == nil && retry && num < maxRetries {
+func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, status, num int) (err error) {
+        for _, m := range p.matches {
+                err = p.processKnownError(pos, t, container, sh, x, status, num, &m)
+                if err != nil { err = wrap(pos, err); break }
+        }
+        //if err != nil { return } else if !p.scanerr || p.matches == nil {
+        //        //err = fmt.Errorf(...)
+        //}
+        if err == nil && num < maxRetries {
                 if p.report { fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num) }
+                /*
                 c := exec.Command(sh.Path, sh.Args...)
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                _, err = p.runAndProcessKnownErrors(pos, t, dock, c, x, num+1) // retry
+                sh = c
+                _, err = p.runAndProcessKnownErrors(pos, t, container, sh, x, num+1) // retry
+                */
         } else if err != nil {
                 // ends with error
-        } else if tag == "" {
+        } else if status != 0 {
                 err = &exitstatus{ status }
-        } else if skip := p.skips(tag); !skip && dock != nil && num < maxRetries {
-                p.retried[tag] = true // save it to skip next time
-                if err = x.runContainer(t, dock); err == nil {
-                        if p.report { fmt.Fprintf(stderr, "smart: container %s started\n", tag) }
-                        c := exec.Command(sh.Path, sh.Args...)
-                        c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                        _, err = p.runAndProcessKnownErrors(pos, t, dock, c, x, num+1) // retry
-                } else {
-                        //err = errorf(pos, "`%s` no such container", tag)
-                }
         }
         return
 }
@@ -662,7 +675,6 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
                 }
         }
 
-
         var (
                 recipes []Value
                 source, str string
@@ -735,9 +747,7 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
         var run = func() {
                 var targetStr string
                 defer func(start time.Time) {
-                        if err == nil {
-                                err = stamp(t, target, start, /*!optPrompt*/true)
-                        }
+                        if err == nil { err = stamp(t, target, start, optPrompt) }
                         if log.writer != nil {
                                 if false && exeres.Stdout.wrote == 0 && exeres.Stderr.wrote == 0 {
                                         // Discard log buffer.

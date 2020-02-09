@@ -98,20 +98,6 @@ func init_configuration(paths searchlist) (err error) {
         if configuration.project == nil {
                 panic("configuration.project is nil")
         }
-
-        // Define configuration entries.
-        /*for _, entry := range configuration.entries {
-                var name string
-                if name, err = entry.target.Strval(); err != nil { return }
-                var project = entry.OwnerProject()
-                def, alt := project.scope.define(project, name, nil) // unconfigured
-                if alt != nil {
-                        err = fmt.Errorf("configure: `%v` already existed", name)
-                        return
-                } else if def == nil {
-                        unreachable()
-                }
-        }*/
         return
 }
 
@@ -129,6 +115,8 @@ func do_configuration() (err error) {
                 if writer != nil { if err := writer.Flush(); err != nil {} }
                 if file != nil { if err := file.Close(); err != nil {} }
         } ()
+
+        fmt.Fprintf(stderr, "configuration.entries: %v\n", len(configuration.entries))
 
         var defs = make(map[string]Value)
         for _, entry := range configuration.entries {
@@ -1290,7 +1278,7 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                 } else if value == nil {
                         err = errorf(pos, "`%v` not configured (%v)", target, value)
                         return
-                }
+                } else if value == def || value.refs(def) { return }
                 switch v := value.(type) {
                 default: err = def.set(DefExpand, value)
                 case *None: err = def.set(DefExecute, nil)

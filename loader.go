@@ -1405,6 +1405,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 }
         }
 
+        var configure bool
         if p, ok := clause.Program.(*ast.ProgramExpr); ok && p != nil {
                 if progScope, _ = p.Scope.(*Scope); progScope == nil {
                         l.error(clause.Pos(), "undefined program scope (%T).", p.Scope)
@@ -1416,12 +1417,12 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         def := progScope.Lookup(name).(*Def)
                         params = append(params, def)
                 }
+                configure = p.Configure
         } else {
                 l.error(clause.Program.Pos(), "unsupported program type (%T)", clause.Program)
                 return
         }
         
-        var configure = false
         var prog = &Program{
                 mutex:    new(sync.Mutex),
                 project:  l.project,
@@ -1471,13 +1472,11 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         var def, alt = l.def(name)
                         if alt != nil {
                                 var ok bool
-                                if def, ok = alt.(*Def); ok {
-                                        l.error(clause.Targets[n].Pos(), "'%v' is not a Def (%T)", alt, alt)
+                                if def, ok = alt.(*Def); !ok {
+                                        l.error(clause.Targets[n].Pos(), "Configure target name '%v' is taken and not a Def (%T %v)", name, alt, alt)
                                 }
                         }
-                        if def != nil {
-                                def.set(DefExecute, nil)
-                        }
+                        if def != nil { def.set(DefExecute, nil) }
                 }
         }
         return
@@ -1821,9 +1820,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 l.isIncludingConf = false
         }
 
-        if optNoDock || l.project.name == dotContainer {
-                return
-        }
+        if optNoDock || l.project.name == dotContainer { return }
 
         if _, e := os.Stat(".dock"); e == nil {
                 err = errorf(pos, "Must rename .dock into .container !")
