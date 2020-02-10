@@ -43,6 +43,7 @@ const (
         optionTraceExecutor = false
         optionTraceExec = false
         optionTraceEntering = optionTraceTraversal && false
+        optionTraceConfig = false
 
         // Return error if wildcard files not found.
         optionWildcardMissingError = false
@@ -55,6 +56,7 @@ type Context struct {
         prefix  string // FIXME: prefix for distribution
         globe   *Globe
         goals   *Def
+        mode    *Def
         pairs []*Pair
         loader  *loader
 }
@@ -108,35 +110,32 @@ func (ctx *Context) run() (result []Value, err error) {
                 }
         }
 
+        var v []Value
         var updated int
+        //for _, a := range args { v = append(v, &String{a}) }
+
         if len(goals) == 0 {
                 if entry := main.DefaultEntry(); entry != nil {
-                        if result, err = entry.Execute(entry.position); err == nil {
-                                updated += 1
-                        }
+                        goals = append(goals, main.DefaultEntry())
                 }
-        } else {
-                for _, goal := range goals {
-                        var ( entry *RuleEntry; ok bool )
-                        if entry, ok = goal.(*RuleEntry); !ok || entry == nil {
-                                fmt.Fprintf(stderr, "`%v` is not an entry", goal)
-                                break
-                        }
-
-                        var v []Value
-                        /*for _, a := range args {
-                                v = append(v, &String{a})
-                        }*/
-
-                        // The the base project scope as execution context. For
-                        // example of 'base.test', the entry 'test' can resolve
-                        // '&(FOO)', '&(BAR)', etc.
-                        if result, err = entry.Execute(entry.position, v...); err == nil {
-                                updated += 1
-                        } else {
-                                break
-                        }
+        }
+        for _, goal := range goals {
+                var res []Value
+                if res, err = updateGoal(goal, v); err != nil { break } else {
+                        result = append(result, res...)
+                        updated += 1
                 }
+        }
+        return
+}
+
+func updateGoal(goal Value, args []Value) (result []Value, err error) {
+        if goal == nil { return }
+        switch g := goal.(type) {
+        case *RuleEntry:
+                result, err = g.Execute(g.position, args...)
+        default:
+                err = fmt.Errorf("'%v' is not an entry (%T)", goal, goal)
         }
         return
 }
@@ -210,9 +209,15 @@ func joinTmpPath(base, rel string) string {
 // abused by loaders.
 func (ctx *Context) loadwork() (err error) {
         if optionTraceLaunch { defer un(trace(t_launch, "Context.loadwork")) }
-
-        var pos Position // FIXME: find a useful position
         defer func(l *loader) { ctx.loader = l } (ctx.loader)
+
+        var (
+                base, _ = os.Getwd()
+                sp = filepath.Join(base, ".smart", "modules")
+                pos Position // FIXME: find a useful position
+                args []Value
+                flags []*Flag
+        )
         ctx.loader = &loader{
                 Context:  ctx,
                 fset:     token.NewFileSet(), 
@@ -221,15 +226,15 @@ func (ctx *Context) loadwork() (err error) {
                 scope:    ctx.globe.scope,
         }
         ctx.goals = &Def{
-                knownobject{
-                        trivialobject{
-                                scope: ctx.globe.scope,
-                                owner: nil,
-                        }, ":goals:",
-                },
+                knownobject{trivialobject{scope:ctx.globe.scope}, "goals"},
+                DefDefault, &None{trivial{pos}},
+        }
+        ctx.mode = &Def{
+                knownobject{trivialobject{scope:ctx.globe.scope}, "mode"},
                 DefDefault, &None{trivial{pos}},
         }
 
+        if _, e := os.Stat(sp); e == nil { ctx.loader.AddSearchPaths(sp) }
         if optionVerbose || optionBenchImport {
                 defer func(t time.Time) {
                         var d = time.Now().Sub(t)
@@ -237,20 +242,11 @@ func (ctx *Context) loadwork() (err error) {
                 } (time.Now())
         }
 
-        var (
-                base, _ = os.Getwd()
-                sp = filepath.Join(base, ".smart", "modules")
-        )
-        if _, e := os.Stat(sp); e == nil {
-                ctx.loader.AddSearchPaths(sp)
-        }
-
-        var args []Value
         if text := strings.Join(os.Args[1:], " "); text == "" {
                 // Relax!
         } else if args = ctx.loader.loadText("@", text); err != nil {
                 // ...
-        } else if args, err = parseFlags(args, []string{
+        } else if args, err = tryParseFlags(args, []string{
                 "h,help",
                 "b,build-plugins",
                 "n,bench-import",
@@ -278,17 +274,21 @@ func (ctx *Context) loadwork() (err error) {
                 case 'l': optionVerboseLoading = trueVal(v, true)
                 case 'u': optionVerboseUsing = trueVal(v, true)
                 case 'g': optionConfigure = trueVal(v, true)
-                case 'r':
-                        optionReconfig = trueVal(v, true)
+                case 'r': optionReconfig = trueVal(v, true)
                         optionConfigure = optionReconfig
                 }
         }); err != nil { return }
         for _, target := range args {
                 switch t := target.(type) {
+                case *Flag: flags = append(flags, t)
                 case *Pair: ctx.pairs = append(ctx.pairs, t)
                 default:    ctx.goals.append(t)
                 }
         }
+
+        var mode string
+        if optionConfigure { mode = "configure" } else { mode = "goals" }
+        context.mode.value = &Bareword{string:mode}
 
         defer func(t time.Time) {
                 var d = time.Now().Sub(t)
@@ -303,9 +303,7 @@ func (ctx *Context) loadwork() (err error) {
         if optionVerboseImport { fmt.Fprintf(stderr, "┌→%s\n", base) }
 
         if err = ctx.loader.loadPath(base, nil); err != nil { return }
-        if ctx.loader.globe.main == nil {
-                fmt.Fprintf(stderr, "no projects loaded\n")
-        }
+        if ctx.loader.globe.main == nil { fmt.Fprintf(stderr, "nothing loaded\n") }
         return
 }
 

@@ -18,13 +18,12 @@ import (
 
 var (
         ErrorIllImport  = errors.New("illegal import spec")
+        ErrorIllJson    = errors.New("illegal json format")
         ErrorIllName    = errors.New("illegal name")
-
-        ErrorUpdated   = errors.New("target updated")
-        ErrorNilExec   = errors.New("execute nil program")
-        ErrorNoEntry   = errors.New("no matched rule")
-        ErrorIllXml    = errors.New("illegal xml format")
-        ErrorIllJson   = errors.New("illegal json format")
+        ErrorIllXml     = errors.New("illegal xml format")
+        ErrorNilExec    = errors.New("execute nil program")
+        ErrorNoEntry    = errors.New("no matched rule")
+        ErrorUpdated    = errors.New("target updated")
 )
 
 type AssertionFailed string

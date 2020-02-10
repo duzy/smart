@@ -33,6 +33,7 @@ type Program struct {
         recipes []Value
         position Position
         changedWD string
+        configure bool
 }
 
 func (prog *Program) Position() Position { return prog.position }
@@ -111,19 +112,6 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
                 err = prog.interpret(t, i, v)
         } else {
                 err = errorf(m.position, "unknown modifier '%s'", name)
-        }
-        return
-}
-
-func (prog *Program) modifier(name string) (res *modifier) {
-        for _, d := range prog.depends {
-                if g, ok := d.(*modifiergroup); ok {
-                        for _, m := range g.modifiers {
-                                if s, _ := m.name.Strval(); s == name {
-                                        return m
-                                }
-                        }
-                }
         }
         return
 }
@@ -281,7 +269,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         // Flag targets (-foo) turn off printing automatically
         if _, ok := t.entry.target.(*Flag); ok { t.print = false }
         if t.print && t.entry.class == UseRuleEntry { t.print = false }
-        if t.print && prog.modifier("configure") != nil { t.print = false }
+        if t.print && prog.configure { t.print = false }
 
         // cd before setting cloctx
         var enterStop *enterec

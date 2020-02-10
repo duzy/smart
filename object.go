@@ -253,6 +253,7 @@ const (
         DefArg  // ((arg))
         DefDecl // 
         DefConfDir
+        DefConfig
 )
 
 func (o DefOrigin) String() (s string) {
@@ -349,7 +350,9 @@ func (d *Def) Strval() (s string, e error) {
 func (d *Def) setval(value Value) (err error) { return d.set(d.origin, value) }
 func (d *Def) set(origin DefOrigin, value Value) (err error) {
         if origin != DefSimple && value != nil && value.refs(d) {
-                err = errorf(d.position, "value refers `%s`: %v (%T)", d.name, value, value)
+                var pos = d.position
+                if !pos.IsValid() && d.value != nil { pos = d.value.Position() }
+                err = errorf(pos, "value refers `%s`: %v (%T)", d.name, value, value)
                 if optionVerbose { fmt.Fprintf(stderr, "%v\n", err) }
                 if optionPrintStack { debug.PrintStack() }
                 return
@@ -364,15 +367,15 @@ func (d *Def) set(origin DefOrigin, value Value) (err error) {
                 if d.value, err = value.expand(expandAll); err != nil { return }
         case DefExecute:
                 var ( stdout, stderr bytes.Buffer; s string )
-                if value == nil {
-                        d.value = nil // undef
-                } else if _, ok := value.(*None); ok {
-                        d.value = nil // undef
-                } else if s, err = value.Strval(); err == nil {
+                if isNone(value) || isNil(value) { d.value = nil } else
+                if s, err = value.Strval(); err == nil {
                         sh := exec.Command("sh", "-c", s)
                         sh.Stdout, sh.Stderr = &stdout, &stderr
-                        if err = sh.Run(); err != nil { value = &None{} } else {
-                                value = &String{trivial{d.value.Position()},strings.TrimSpace(stdout.String())}
+
+                        var pos = value.Position()
+                        if !pos.IsValid() { pos = d.Position() }
+                        if err = sh.Run(); err != nil { value = &None{trivial{pos}} } else {
+                                value = &String{trivial{pos},strings.TrimSpace(stdout.String())}
                         }
                         stdout.Reset()
                         stderr.Reset()
@@ -639,13 +642,12 @@ func (entry *RuleEntry) SetExplicitPath(path *Path) {
 func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err error) {
         switch entry.class {
         case PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
-                err = errorf(pos, "executing pattern entry '%s'", entry.Name())
+                err = errorf(pos, "executing pattern entry '%v'", entry.target)
                 return
         }
 
         var caller *traversal
-ForPrograms:
-        for _, program := range entry.programs {
+        ForPrograms: for _, program := range entry.programs {
                 var ( val Value ; e error )
                 if val, e = program.execute(caller, entry, a); e == nil {
                         result = append(result, val)

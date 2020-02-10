@@ -696,6 +696,7 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                 //case "arch": obj = context.globe.arch
                 case "os": obj = context.globe.os.self
                 case "goals": obj = context.goals
+                case "mode": obj = context.mode
                 case "self": obj = l.project.self
                 case "usee": obj = l.project.using
                 default:
@@ -1385,23 +1386,19 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 depends []Value
                 ordered []Value
                 recipes []Value
+                params  []*Def
                 progScope *Scope
-                params []*Def
         )
         for _, depend := range clause.Depends {
                 switch dep := l.expr(depend).(type) {
-                case *List:
-                        depends = append(depends, dep.Elems...)
-                default:
-                        depends = append(depends, dep)
+                case *List: depends = append(depends, dep.Elems...)
+                default:    depends = append(depends, dep)
                 }
         }
         for _, depend := range clause.Ordered {
                 switch dep := l.expr(depend).(type) {
-                case *List:
-                        ordered = append(ordered, dep.Elems...)
-                default:
-                        ordered = append(ordered, dep)
+                case *List: ordered = append(ordered, dep.Elems...)
+                default:    ordered = append(ordered, dep)
                 }
         }
 
@@ -1410,9 +1407,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 if progScope, _ = p.Scope.(*Scope); progScope == nil {
                         l.error(clause.Pos(), "undefined program scope (%T).", p.Scope)
                 }
-                if p.Recipes != nil {
-                        recipes = l.exprs(p.Recipes)
-                }
+                if p.Recipes != nil { recipes = l.exprs(p.Recipes) }
                 for _, name := range p.Params {
                         def := progScope.Lookup(name).(*Def)
                         params = append(params, def)
@@ -1431,6 +1426,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                 depends:  depends,
                 ordered:  ordered,
                 recipes:  recipes,
+                configure: configure,
                 position: Position(clause.Position),
         }
 
@@ -1537,7 +1533,7 @@ func (l *loader) includeFile(pos token.Pos, spec Value) {
                 return
         }
 
-        var mode = l.mode
+        var mode = l.tracemode
         var absDir, baseName = filepath.Split(fullname)
         defer restoreLoadingInfo(saveLoadingInfo(l, specName, absDir, baseName))
         if _, err = l.ParseFile(fullname, nil, parseMode|Flat); err != nil {
@@ -1546,7 +1542,7 @@ func (l *loader) includeFile(pos token.Pos, spec Value) {
         } else {
                 // The parse mode could still be 'Flat' here as ParseFile
                 // changed it, so we have to restore the previous parse mode.
-                l.mode = mode
+                l.tracemode = mode
         }
         return
 }
@@ -1935,7 +1931,7 @@ func (l *loader) find(target Value) (obj Object, err error) {
 
 func (l *loader) def(name string) (def *Def, alt Object) {
         var scope = l.scope
-        if strings.HasPrefix(scope.comment, "file ") && l.mode&Flat != 0 {
+        if strings.HasPrefix(scope.comment, "file ") && l.tracemode&Flat != 0 {
                 // use project scope if defining in flat file (aka. include)
                 // to ensure that the symbol is valid in the project
                 scope = l.project.scope
@@ -2047,12 +2043,12 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
         var text []byte
 	if text, err = readSource(filename, src); err != nil { return }
 
-	l.mode = mode
+	l.tracemode = mode
         if optionTraceParsing {
-                l.mode |= Trace
+                l.tracemode |= Trace
         }
 
-	l.tracing.enabled = l.mode&Trace != 0 // for convenience (l.trace is used frequently)
+	l.tracing.enabled = l.tracemode&Trace != 0 // for convenience (l.trace is used frequently)
 	defer func(saved *parser) {
                 var e = recover()
 		for e != nil {

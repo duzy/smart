@@ -314,22 +314,7 @@ func (p *ExecBuffer) processKnownErrors(pos Position, t *traversal, container *P
                 err = p.processKnownError(pos, t, container, sh, x, status, num, &m)
                 if err != nil { err = wrap(pos, err); break }
         }
-        //if err != nil { return } else if !p.scanerr || p.matches == nil {
-        //        //err = fmt.Errorf(...)
-        //}
-        if err == nil && num < maxRetries {
-                if p.report { fmt.Fprintf(stderr, "smart: good to retry (num = %d)\n", num) }
-                /*
-                c := exec.Command(sh.Path, sh.Args...)
-                c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                sh = c
-                _, err = p.runAndProcessKnownErrors(pos, t, container, sh, x, num+1) // retry
-                */
-        } else if err != nil {
-                // ends with error
-        } else if status != 0 {
-                err = &exitstatus{ status }
-        }
+        if err == nil && status != 0 { err = &exitstatus{ status }}
         return
 }
 
@@ -362,6 +347,7 @@ func (p *ExecBuffer) runAndProcessKnownErrors(pos Position, t *traversal, dock *
 
 type ExecResult struct {
         trivial
+        wg *sync.WaitGroup
         Stdout ExecBuffer
         Stderr ExecBuffer
         Status int
@@ -378,20 +364,14 @@ func (p *ExecResult) True() (bool, error) { return p.Status == 0 && p.Stderr.Buf
 func (p *ExecResult) Integer() (int64, error) { return int64(p.Status), nil }
 func (p *ExecResult) Float() (float64, error) { return float64(p.Status), nil }
 func (p *ExecResult) Strval() (s string, err error) {
-        if p.Stdout.Buf != nil {
-                s = p.Stdout.Buf.String()
-        }
+        if p.Stdout.Buf != nil { s = p.Stdout.Buf.String() }
         return
 }
 func (p *ExecResult) String() string {
         var s bytes.Buffer
         fmt.Fprintf(&s, "(ExecResult status=%d", p.Status)
-        if p.Stdout.Buf != nil {
-                fmt.Fprintf(&s, " stdout=%S", p.Stdout.Buf)
-        }
-        if p.Stderr.Buf != nil {
-                fmt.Fprintf(&s, " stdout=%S", p.Stderr.Buf)
-        }
+        if p.Stdout.Buf != nil { fmt.Fprintf(&s, " stdout=%S", p.Stdout.Buf) }
+        if p.Stderr.Buf != nil { fmt.Fprintf(&s, " stdout=%S", p.Stderr.Buf) }
         fmt.Fprintf(&s, ")")
         return s.String()
 }
@@ -483,13 +463,13 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
         } else if args, err = parseFlags(args, []string{
                 "c,cmd", // replaces -p, -prompt
                 "d,dump", // verbout, verberr
+                "o,stdout",
                 "e,stderr",
                 "i,stdin",
                 "l,log",
                 "n,nocd",
-                "o,stdout",
                 "p,path",
-                "s,silent",
+                "s,silent", // report nothing, discard errors
                 "v,verbout",
                 "w,verberr",
         }, func(ru rune, v Value) {
@@ -682,9 +662,7 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
                 positions []Position
                 pos Position
         )
-        if recipes, err = mergeresult(ExpandAll(t.program.recipes...)); err != nil {
-                return
-        }
+        if recipes, err = mergeresult(ExpandAll(t.program.recipes...)); err != nil { return }
         for _, recipe := range recipes {
                 if !pos.IsValid() { pos = recipe.Position() }
                 if str, err = recipe.Strval(); err != nil { return }
@@ -721,7 +699,7 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
 
         var log ExecLog
         var logfile *os.File
-        var exeres = &ExecResult{trivial:trivial{t.program.position}}
+        var exeres = &ExecResult{trivial:trivial{t.program.position},wg:new(sync.WaitGroup)}
         if optBuffOut { exeres.Stdout.Buf = new(bytes.Buffer) }
         if optBuffErr { exeres.Stderr.Buf = new(bytes.Buffer) }
         if optVerbout { exeres.Stdout.Tie = stdout }
@@ -778,6 +756,7 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
                                         }
                                 }
                         }
+                        exeres.wg.Done()
                 } (time.Now())
                 if optPrompt {
                         if a := strings.Split(targetName, PathSep); len(a) > 3 {
@@ -843,24 +822,24 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
 
                         exeres.Stderr.report = !optSilent
                         exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pos, t, container, sh, p, 1)
-                        if err != nil { err = wrap(t.program.position, err)
-                                if !optSilent { fmt.Fprintf(stderr, "%v\n", err) }
-                                return
+                        if err != nil {
+                                if optSilent { err = nil } else {
+                                        err = wrap(pos, err)
+                                        //fmt.Fprintf(stderr, "%v\n", err)
+                                        return
+                                }
                         }
                 }
         }
 
-        printEnteringDirectory()
-
-        if t.caller != nil {
-                t.caller.calleeStart()
-                go run()
-        } else {
-                run()
-        }
+        if !optSilent { printEnteringDirectory() }
+        if t.caller != nil { t.caller.calleeStart() }
+        exeres.wg.Add(1); go run()
+        if t.caller == nil { exeres.wg.Wait() }
 
         // The execution is performed asynchronously, the result can't
-        // be obtained at this point.
+        // be fetched immediately. Caller should t.wait(...) or
+        // exeres.wait() before using the result.
         result = exeres
         return
 }

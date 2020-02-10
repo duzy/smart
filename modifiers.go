@@ -1174,15 +1174,19 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
 func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
-        var value Value = t.def.buffer.value
-        var optBreak breakind // breaking with good results
-        var optSilent bool // don't break on failures
-        var makeResult func(Position,bool) Value // returns results only if non-nil
-        var values []Value
-        var pairs []*Pair
+        var (
+                optBreak breakind // breaking with good results
+                optVerbose bool // verbose more details
+                optSilent bool // don't break on failures
+                makeResult func(Position,bool) Value // returns results only if non-nil
+                value Value = t.def.buffer.value
+                values []Value
+                pairs []*Pair
+        )
         if args, err = parseFlags(args, []string{
                 "a,answer",
                 "r,result",
+                "v,verbose",
                 "s,silent",
                 "g,good",
         }, func(ru rune, v Value) {
@@ -1190,25 +1194,22 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 case 'a': makeResult = MakeAnswer
                 case 'r': makeResult = MakeBoolean
                 case 'g': optBreak = breakDone
-                case 's': optSilent = trueVal(v, false)
+                case 'v': optVerbose = trueVal(v, true)
+                case 's': optSilent = trueVal(v, true)
                 }
         }); err != nil { return }
-
         for _, arg := range args {
                 switch t := arg.(type) {
                 case *Pair: pairs = append(pairs, t)
-                default:
-                        err = scanner.Errorf(token.Position(pos), "unknown check '%v' (%T)", arg, arg)
+                default: err = errorf(pos, "unknown check '%v' (%T)", arg, arg)
                 return
                 }
         }
-
         if optSilent && makeResult == nil {
                 makeResult = MakeBoolean
         }
 
-ForPairs:
-        for _, p := range pairs {
+        ForPairs: for _, p := range pairs {
                 var key, str string
                 if key, err = p.Key.Strval(); err != nil { return }
                 switch key {
@@ -1217,7 +1218,8 @@ ForPairs:
                         if exeres == nil {
                                 err = break_with(pos, optBreak, "not an exec result (%T)", value)
                                 return
-                        }
+                        } else { exeres.wg.Wait() }
+                        if optVerbose { fmt.Printf("(status=%d)", exeres.Status) }
 
                         var num int64
                         if num, err = p.Value.Integer(); err != nil { return }
@@ -1232,7 +1234,8 @@ ForPairs:
                         if exeres == nil {
                                 err = break_with(pos, optBreak, "not an exec result (%T)", value)
                                 return
-                        }
+                        } else { exeres.wg.Wait() }
+                        if optVerbose { fmt.Printf("(status=%d)", exeres.Status) }
 
                         var v *bytes.Buffer
                         switch key {
@@ -1257,7 +1260,7 @@ ForPairs:
                         var file *File
                         var project = t.project
                         if str, err = p.Value.Strval(); err != nil { return }
-                        if file := project./*searchFile*/matchFile(str); !exists(file) {
+                        if file := project.matchFile(str); !exists(file) {
                                 err = break_with(pos, optBreak, "`%v` no such file or directory", p.Value)
                                 break ForPairs
                         }
@@ -1279,7 +1282,7 @@ ForPairs:
                         default: unreachable()
                         }
                 case "var":
-                        g, ok := p.Value.(*Group)
+                        var g, ok = p.Value.(*Group)
                         if !ok {
                                 err = break_with(pos, optBreak, "`%v` is not a group value", p.Value)
                                 break ForPairs
@@ -1311,7 +1314,7 @@ ForPairs:
                                 }
                         }
                 default:
-                        err = scanner.Errorf(token.Position(pos), "unknown check '%v'", p.Key)
+                        err = errorf(pos, "unknown check '%v'", p.Key)
                         break ForPairs
                 }
         }

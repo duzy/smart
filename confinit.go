@@ -24,30 +24,30 @@ _LOADLIBES_ :=
 
 # -l=$(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).log
 # -o $(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).out
--include:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).out)] $(TARGET).$(LANG).include \
-    [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
-	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $@
--symbol:[((TARGET SYMBOL)) (closure) (set @=$(OUTDIR)/$(TARGET).out)] $(TARGET).symbol($(SYMBOL)) \
-    [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
-	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $@
--function:[((TARGET FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).out)] $(TARGET).function($(FUNCTION)) \
-    [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
-	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $@
--type:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).out)] $(TARGET).type($(TYPE)) \
-    [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
-	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $@
--library:[((TARGET LIBRARY FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).out)] $(TARGET).function($(FUNCTION)) \
-    [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
-	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o $@
--struct-member:[((TARGET STRUCT MEMBER)) (closure) (set @=$(OUTDIR)/$(TARGET).out)] $(TARGET).structmember($(STRUCT),$(MEMBER)) \
-    [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
-	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $@
--sizeof:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).out)] $(TARGET).sizeof($(TYPE)) \
-    [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
-	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $@
--compiles:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).out)] $(TARGET).$(LANG) \
-    [($(SHELL) -l=$(OUTDIR)/$(TARGET).$(LANG).log) (check -a status=0)]
-	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $@
+-include:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).$(LANG).include \
+    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).$(LANG).out
+-symbol:[((TARGET SYMBOL)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).symbol($(SYMBOL)) \
+    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-function:[((TARGET FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).function($(FUNCTION)) \
+    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-type:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).type($(TYPE)) \
+    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-library:[((TARGET LIBRARY FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).function($(FUNCTION)) \
+    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o $(OUTDIR)/$(TARGET).out
+-struct-member:[((TARGET STRUCT MEMBER)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).structmember($(STRUCT),$(MEMBER)) \
+    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-sizeof:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).sizeof($(TYPE)) \
+    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-compiles:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).$(LANG) \
+    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 
 %.c.include:[(closure) (plain c) (update-file -p)]
 	$(_INCLUDES_)

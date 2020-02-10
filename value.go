@@ -1479,12 +1479,9 @@ func (p *elements) refdef(origin DefOrigin) bool {
 func (p *elements) cmpElems(elems []Value) (res cmpres) {
         if len(p.Elems) == len(elems) {
                 for i, elem := range p.Elems {
-                        if elem == nil { continue }
-                        if other := elems[i]; other == nil {
-                                continue
-                        } else if r := elem.cmp(other); r != cmpEqual {
-                                return cmpUnknown
-                        }
+                        if elem == nil { continue } else
+                        if other := elems[i]; other == nil { continue } else
+                        if elem.cmp(other) != cmpEqual { return cmpUnknown }
                 }
                 res = cmpEqual
         }
@@ -3073,6 +3070,8 @@ func (p *delegate) cmp(v Value) (res cmpres) {
                         }
                         res = cmpEqual
                 }
+        } else if d, ok := p.o.(*Def); ok && len(p.a) == 0 {
+                res = d.value.cmp(v)
         }
         return
 }

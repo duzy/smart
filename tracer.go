@@ -19,6 +19,7 @@ var (
         t_parse = new(tracing) // UNUSED
         t_traverse = new(tracing) // UNUSED
         t_exec = new(tracing)
+        t_config = new(tracing)
 )
 
 type tracer interface {
@@ -42,7 +43,7 @@ type tracing struct {
         errors scanner.Errors
 
 	// Tracing/debugging
-	mode   Mode // parsing mode
+	tracemode Mode // parsing mode
 	enabled bool // (mode&Trace != 0)
 	indent int  // indentation used for tracing output
 }
@@ -51,7 +52,7 @@ func (p *tracing) errorAt(pos token.Position, err interface{}, a ...interface{})
 	// If AllErrors is not set, discard errors reported on the same line
 	// as the last recorded error and stop parsing if there are more than
 	// 10 errors.
-	if p.mode&AllErrors == 0 {
+	if p.tracemode&AllErrors == 0 {
 		n := len(p.errors)
 		if n > 0 && p.errors[n-1].Pos.Line == pos.Line {
 			return // discard - likely a spurious error

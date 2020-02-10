@@ -104,7 +104,7 @@ func (p *parser) init(l *loader, filename string, src []byte) {
         p.file = l.fset.AddFile(filename, -1, len(src))
         
 	var m scanner.Mode
-	if p.mode&ParseComments != 0 {
+	if p.tracemode&ParseComments != 0 {
 		m = scanner.ScanComments
 	}
         
@@ -2175,7 +2175,7 @@ func (p *parser) parseFile() *ast.File {
                 abs, rel = context.workdir, "."
                 tmp = joinTmpPath(context.workdir, rel)
         } else {
-                if p.mode&Flat != 0 {
+                if p.tracemode&Flat != 0 {
                         abs = p.project.absPath
                 } else {
                         abs = filepath.Dir(filename)
@@ -2191,7 +2191,7 @@ func (p *parser) parseFile() *ast.File {
         if ls.scope != nil {
                 defer p.closeScope(ls)
                 var ( def *Def ; s = ls.scope )
-                if p.mode&Flat == 0 {
+                if p.tracemode&Flat == 0 {
                         var pos = Position(p.file.Position(p.pos))
 
                         def, _ = p.def("/")
@@ -2237,7 +2237,7 @@ func (p *parser) parseFile() *ast.File {
                         p.error(p.pos, "unknown configuration '%v', currently only 'configure .' is supported", p.tok)
                 }
         case token.PROJECT, token.PACKAGE, token.MODULE:
-                if p.mode&Flat != 0 {
+                if p.tracemode&Flat != 0 {
                         p.error(p.pos, "forbidden `%v` in flat file", p.tok)
                 }
 
@@ -2277,7 +2277,7 @@ func (p *parser) parseFile() *ast.File {
                         }
                 }
                 
-                if ident.Value == "_" && p.mode&DeclarationErrors != 0 {
+                if ident.Value == "_" && p.tracemode&DeclarationErrors != 0 {
                         p.error(p.pos, "invalid package name _")
                 }
 
@@ -2292,20 +2292,20 @@ func (p *parser) parseFile() *ast.File {
                 // Likely not a Go source file at all.
                 if p.errors.Len() != 0 { return nil }
 
-                if p.mode&Flat == 0 {
+                if p.tracemode&Flat == 0 {
                         if err := p.declare(keyword, ident, options, params); err != nil {
                                 p.error(ident.Pos(), err)
                         } else {
                                 defer p.closeCurrent(ident)
                         }
                 }
-        default:if p.mode&Flat == 0 {
+        default:if p.tracemode&Flat == 0 {
                 p.errorExpected(pos, "configure, project, module or package keyword")
         }}
 
 	var clauses []ast.Clause
-	if p.mode&ModuleClauseOnly == 0 {
-                if p.mode&Flat == 0 {
+	if p.tracemode&ModuleClauseOnly == 0 {
+                if p.tracemode&Flat == 0 {
                 ForInit:
                         for p.tok != token.EOF {
                                 switch p.tok {
@@ -2338,7 +2338,7 @@ func (p *parser) parseFile() *ast.File {
                                 }
                         }
                 }
-		if p.mode&ImportsOnly == 0 {
+		if p.tracemode&ImportsOnly == 0 {
 			// rest of module body
 			for p.tok != token.EOF {
                                 switch p.tok {

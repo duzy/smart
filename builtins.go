@@ -433,16 +433,13 @@ func builtinAnd(pos Position, args... Value) (res Value, err error) {
 func builtinNot(pos Position, args... Value) (res Value, err error) {
         var t bool
         for _, a := range args {
-                if t, err = a.True(); err != nil {
-                        break
-                } else if t {
+                if t, err = a.True(); err != nil { return } else
+                if t {
                         res = &boolean{trivial{pos},false}
-                        break
+                        return
                 }
         }
-        if res == nil && err == nil {
-                res = &boolean{trivial{pos},true}
-        }
+        if err == nil {res = &boolean{trivial{pos},true}}
         return
 }
 
@@ -458,7 +455,7 @@ func builtinNotEqual(pos Position, args... Value) (res Value, err error) {
 func builtinEqual(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n != 2 {
                 err = errorf(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
-        } else if args[0].cmp(args[1]) == cmpEqual {
+        } else if cmp := args[0].cmp(args[1]); cmp == cmpEqual {
                 res = &boolean{trivial{pos},true}
         }
         return

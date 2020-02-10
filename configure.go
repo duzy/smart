@@ -116,8 +116,6 @@ func do_configuration() (err error) {
                 if file != nil { if err := file.Close(); err != nil {} }
         } ()
 
-        fmt.Fprintf(stderr, "configuration.entries: %v\n", len(configuration.entries))
-
         var defs = make(map[string]Value)
         for _, entry := range configuration.entries {
                 if p := entry.OwnerProject(); p != project && p != nil {
@@ -630,6 +628,7 @@ func configurePackage(pos Position, t *traversal, def *Def, args... Value) (resu
 
 func scanExitStatus(err error) (n, status int) {
         switch e := err.(type) {
+        case *exitstatus: n, status = 1, e.code
         case *scanner.Error:
                 for _, t := range e.Errs {
                         if n, status = scanExitStatus(t); n == 1 { return }
@@ -641,6 +640,8 @@ func scanExitStatus(err error) (n, status int) {
 }
 
 func configureExec(pos Position, t *traversal, s string, params... Value) (configured bool, result Value, err error) {
+        if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configureExec(%s %v)", s, t.entry.target))) }
+
         var entry *RuleEntry
         if entry, err = configuration.project.resolveEntry("-"+s); err != nil {
                 err = errorf(pos, "resolve %v: %v", s, err)
@@ -650,22 +651,23 @@ func configureExec(pos Position, t *traversal, s string, params... Value) (confi
                 return
         }
 
-        //defer setclosure(setclosure(cloctx.unshift(t.program.scope)))
-        if false { fmt.Fprintf(stderr, "%v: configureExec(%v): %v, %v\n", pos, entry, params, cloctx) }
-        if result, err = entry.programs[0].execute(t, entry, params); err != nil {
+        if false { defer setclosure(setclosure(cloctx.unshift(t.program.scope))) }
+        if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v, %v\n", pos, entry, t.entry, params, cloctx) }
+        if result, err = entry.programs[0].execute(t, entry, params); err == nil { err = t.wait(pos) }
+        if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v (%T), %v\n", pos, entry, t.entry, result, result, err) }
+        if err == nil { configured = true } else {
                 if n, status := scanExitStatus(err); n == 1 {
                         if status == 0 { err = nil }
                         configured = true
-                } else {
-                        err = wrap(pos, err)
                 }
-        } else {
-                configured = true
         }
+        if err != nil { err = wrap(pos, err) }
         return
 }
 
 func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name Value, args []Value) (configured bool, result Value, err error) {
+        if optionTraceConfig { defer un(trace(t_config, "configureDo")) }
+
         var strName string
         if strName, err = name.Strval(); err != nil { return }
         if strName == "" {
@@ -796,12 +798,10 @@ ForArgs:
                         default:
                                 if s, err = elem.Strval(); err != nil { return }
                         }
-                        if strings.HasPrefix(s, `<`) || strings.HasPrefix(s, `"`) {
-                                s = fmt.Sprintf(`#include %s`, s)
-                        } else {
-                                s = fmt.Sprintf(`#include "%s"`, s)
+                        if !(strings.HasPrefix(s, `<`) || strings.HasPrefix(s, `"`)) {
+                                s = `"`+s+`"`
                         }
-                        lines = append(lines, s)
+                        lines = append(lines, `#include `+s)
                 }
                 value = &String{trivial{pos},strings.Join(lines, "\n")}
                 if err = includes.set(DefExpand, value); err != nil { return }
@@ -825,9 +825,7 @@ ForArgs:
                 for _, elem := range merge(elems...) {
                         var s string
                         if s, err = elem.Strval(); err != nil { return }
-                        if !strings.HasPrefix(s, "lib") {
-                                s = fmt.Sprintf("lib%s.a", s)
-                        }
+                        if !strings.HasPrefix(s, "lib") { s = "lib"+s+".a" }
                         lines = append(lines, s)
                 }
                 value = &String{trivial{pos},strings.Join(lines, " ")}
@@ -851,9 +849,7 @@ ForArgs:
                 for _, elem := range merge(elems...) {
                         var s string
                         if s, err = elem.Strval(); err != nil { return }
-                        if !strings.HasPrefix(s, "-l") {
-                                s = fmt.Sprintf("-l%s", s)
-                        }
+                        if !strings.HasPrefix(s, "-l") { s = "-l" + s }
                         lines = append(lines, s)
                 }
                 value = &String{trivial{pos},strings.Join(lines, " ")}
@@ -1248,7 +1244,13 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                 }
         }); err != nil { return }
 
+        if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v)", t.entry.target))) }
+
         var target = t.def.target.value
+        if isNil(target) || isNone(target) {
+                err = errorf(pos, "target is nil for entry '%s'", t.entry.target)
+                return
+        }
 
         var name string
         if name, err = target.Strval(); err != nil { return }
@@ -1258,11 +1260,9 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
         if def == nil {
                 err = errorf(pos, "cannot define configuration `%s`", name)
                 return
-        } else {
-                result = def // Set result above all!
-        }
+        } else { result = def } // Set result above all!
 
-        if def.value != nil { // Check if it's already configured?
+        if !isNil(def.value) { // Check if it's already configured?
                 // reconfigure the def or return it
                 if !optionReconfig { return }
                 if done, found := configuration.done[def]; done && found {
@@ -1280,30 +1280,22 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                         return
                 } else if value == def || value.refs(def) { return }
                 switch v := value.(type) {
-                default: err = def.set(DefExpand, value)
-                case *None: err = def.set(DefExecute, nil)
-                case *Plain: err = def.set(DefExecute, &String{trivial{pos},v.Value})
+                default: err = def.set(DefConfig, value)
                 case *ExecResult:
                         var s string
-                        if v.Status == 0 && v.Stdout.Buf != nil {
+                        if v.wg.Wait(); v.Status == 0 && v.Stdout.Buf != nil {
                                 s = v.Stdout.Buf.String()
                         } else if v.Stderr.Buf != nil {
                                 s = v.Stderr.Buf.String()
                         }
-                        err = def.set(DefExecute, &String{trivial{pos},s})
-                // TODO: case *JSON
-                // TODO: case *XML
+                        err = def.set(DefConfig, &String{trivial{pos},s})
                 }
                 if err != nil { err = wrap(pos, err) }
                 return
-        } else if err = def.set(DefExecute, nil); err != nil {
-                err = wrap(pos, err)
-                return
-        }
+        } else if err = def.set(DefConfig, nil); err != nil { return }
 
         var configured bool
-ForConfig:
-        for i, a := range args {
+        ForConfig: for i, a := range args {
                 if def.value == nil && i > 0 { break ForConfig }
 
                 var ( name Value ; para []Value )
@@ -1334,11 +1326,14 @@ ForConfig:
                 configured, value, err = configureDo(pos, t, target, def, t.def.buffer, name, para)
                 if err != nil { err = wrap(pos, err); return } else
                 if configured {
+                        if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configured(%v %v)", def.origin,value))) }
                         if value == nil { value = &Nil{trivial{a.Position()}} }
-                        if optAccumulate {
+                        if value == def || value.refs(def) {
+                                // Value is the Def, does nothing!
+                        } else if optAccumulate {
                                 err = def.append(value)
                         } else {
-                                err = def.set(DefSimple, value)
+                                err = def.set(DefConfig, value)
                         }
                         if err == nil {
                                 // Marks done (needed for reconfiguring)!
