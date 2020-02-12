@@ -1470,16 +1470,6 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         }
                 } else if configure {
                         configuration.entries = append(configuration.entries, entry)
-                        /* Already did it in parser.go:parseRuleClause
-
-                        var def, alt = l.def(clause.Targets[n].Pos(), name)
-                        if alt != nil {
-                                var ok bool
-                                if def, ok = alt.(*Def); !ok {
-                                        l.error(clause.Targets[n].Pos(), "Configure target name '%v' is taken and not a Def (%T %v)", name, alt, alt)
-                                }
-                        } else if def != nil { def.set(DefExecute, nil) }
-                        */
                 }
         }
         return
