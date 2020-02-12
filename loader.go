@@ -680,15 +680,10 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
         }
 
         var ( resolved Object; err error )
-        if x.Resolved != nil {
-                resolved = x.Resolved.(Object)
-        }
+        if x.Resolved != nil { resolved = x.Resolved.(Object) }
 
         s, err := name.Strval()
-        if err != nil {
-                l.error(x.Name.Pos(), err)
-                return
-        }
+        if err != nil { l.error(x.Name.Pos(), err); return }
 
         switch tok {
         case token.LCOLON:
@@ -719,8 +714,11 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                                 return
                         }
                 } else if l.isIncludingConf {
-                        // Create the empty Def if it's in configuration.sm.
-                        obj, _ = l.def(s)
+                        // Create an empty Def if it's referred in
+                        // configuration.sm.
+                        def, _ := l.def(x.Name.Pos(), s)
+                        def.origin = DefConfRef
+                        obj = def
                 }
         case token.LBRACE:
                 if resolved == nil { // if not resolved at parse time
@@ -1285,21 +1283,28 @@ func (l *loader) determine(pos token.Pos, tok token.Token, identifier, value Val
                 var prev Object
                 prev, err = l.project.resolveObject(name)
                 if err != nil { l.error(pos, "%v", err) }
-                if def, alt = l.def(name); alt == nil {
+                if def, alt = l.def(pos, name); alt == nil {
                         // does nothing...
                 } else if alt != nil && (tok == token.ASSIGN || tok == token.EXC_ASSIGN) {
-                        if alt.OwnerProject() == l.project {
-                                l.error(pos, "`%v` already defined (%T)", identifier, alt)
+                        var ( okay bool; ad *Def )
+                        if ad, okay = alt.(*Def); !okay {
+                                l.error(pos, "`%v` already defined (%T) (%v,%v)", identifier, alt, alt.OwnerProject(), l.project)
+                                if optionPrintStack {
+                                        fmt.Fprintf(stderr, "%s: `%v` already defined here\n", alt.Position(), alt)
+                                        debug.PrintStack()
+                                }
                                 return
-                        }
-                        // Overrides the previous definition.
-                        if def, alt = l.def(alt.Name()); alt != nil {
-                                l.error(pos, "`%v` already defined (%T)", identifier, alt)
+                        } else if ad.owner == l.project && ad.origin != DefConfRef {
+                                l.error(pos, "`%v` already defined (%T) (%v)", identifier, alt, l.project)
+                                if optionPrintStack {
+                                        fmt.Fprintf(stderr, "%s: `%v` already defined here\n", alt.Position(), alt)
+                                        debug.PrintStack()
+                                }
                                 return
+                        } else {
+                                def = ad
                         }
-                } else if alt != nil {
-                        def = alt.(*Def)
-                }
+                } else if alt != nil { def = alt.(*Def) }
 
                 if prev == nil {
                         // no derived value
@@ -1465,7 +1470,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         }
                 } else if configure {
                         configuration.entries = append(configuration.entries, entry)
-                        var def, alt = l.def(name)
+                        var def, alt = l.def(clause.Targets[n].Pos(), name)
                         if alt != nil {
                                 var ok bool
                                 if def, ok = alt.(*Def); !ok {
@@ -1753,7 +1758,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         switch k := t.Key.(type) {
                         case *Bareword:
                                 if proj := l.project; proj != nil {
-                                        def, alt := l.def(k.string)
+                                        def, alt := l.def(l.pos, k.string)
                                         if def == nil && alt != nil {
                                                 def = alt.(*Def)
                                         }
@@ -1772,7 +1777,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         name, err = t.Key.Strval()
                         if err != nil { return }
 
-                        var def, alt = l.def(name)
+                        var def, alt = l.def(l.pos, name)
                         if alt != nil {
                                 var ok bool
                                 def, ok = alt.(*Def)
@@ -1928,18 +1933,21 @@ func (l *loader) find(target Value) (obj Object, err error) {
         return
 }
 
-func (l *loader) def(name string) (def *Def, alt Object) {
+func (l *loader) def(pos token.Pos, name string) (def *Def, alt Object) {
         var scope = l.scope
         if strings.HasPrefix(scope.comment, "file ") && l.tracemode&Flat != 0 {
                 // use project scope if defining in flat file (aka. include)
                 // to ensure that the symbol is valid in the project
                 scope = l.project.scope
         }
-        var pos = Position(l.parser.file.Position(l.pos))
-        return scope.define(l.project, name, &None{trivial{pos}})
+        var position = Position(l.parser.file.Position(pos))
+        def, alt = scope.define(l.project, name, &None{trivial{position}})
+        if def != nil { def.position = position }
+        return
 }
 
 func (l *loader) assign(pos token.Pos, tok token.Token, def *Def, alt Object, value Value) (err error) {
+        def.position = Position(l.parser.file.Position(pos))
         switch tok {
         case token.ASSIGN: // =
                 err = def.set(DefDefault, value)
@@ -2128,9 +2136,7 @@ ListLoop:
                 if strings.HasPrefix(name, "~") || 
                    strings.HasSuffix(name, ".#") || 
                    strings.HasSuffix(name, ".smart") ||
-                   strings.HasSuffix(name, ".sm") {
-                        continue ListLoop
-                }
+                   strings.HasSuffix(name, ".sm") { continue ListLoop }
 
                 var fullname = filepath.Join(linked, name)
                 if d.Mode()&os.ModeSymlink != 0 {
@@ -2141,22 +2147,22 @@ ListLoop:
                         if t.IsDir() { continue ListLoop }
                 }
 
+                var pos = Position(l.parser.file.Position(l.pos))
                 if d.IsDir() {
                         if err = l.ParseConfigDir(filepath.Join(pathname, name), fullname); err != nil { break ListLoop }
-                } else if s, a := l.def(name); a != nil {
-                        err = fmt.Errorf("declare project: %v", err)
+                } else if s, a := l.def(l.pos, name); a != nil {
+                        err = errorf(pos, "declare project: %v", err)
                         break ListLoop
                 } else if def = s; def != nil {
                         var ( v []byte; s string )
                         if v, err = ioutil.ReadFile(fullname); err != nil { break ListLoop }
                         if s = string(v); !utf8.ValidString(s) {
-                                err = fmt.Errorf("%s: invalid UTF8 content", fullname)
+                                err = errorf(pos, "%s: invalid UTF8 content", fullname)
                                 break ListLoop
                         }
-                        var pos = Position(l.parser.file.Position(l.pos))
                         def.set(DefConfDir, &String{trivial{pos},s})
                 } else if s != nil {
-                        err =  fmt.Errorf("Name `%s' already taken, not def (%T).", name, s)
+                        err =  errorf(pos, "Name `%s' already taken, not def (%T).", name, s)
                         break ListLoop
                 }
         }

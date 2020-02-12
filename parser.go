@@ -1774,7 +1774,7 @@ func (p *parser) parseModifySetVar(args []ast.Expr) (err error) {
                 } else if name == "" {
                         p.error(kv.Key.Pos(), "'%v' name is empty ", kv.Key)
                 }
-                if def, alt := p.def(name); alt != nil {
+                if def, alt := p.def(elem.Pos(), name); alt != nil {
                         p.error(kv.Key.Pos(), "%T '%s' already existed", alt, name)
                 } else if def != nil {
                         if g, ok := v.(*Group); ok {
@@ -1796,7 +1796,7 @@ func (p *parser) parseModifyParms(args []ast.Expr) (err error) {
                         if s, err = v.Strval(); err != nil {
                                 p.error(elem.Pos(), "%s", err)
                         }
-                        var def, alt = p.def(s)
+                        var def, alt = p.def(elem.Pos(), s)
                         if alt != nil {
                                 var ok bool
                                 if def, ok = alt.(*Def); !ok {
@@ -1952,7 +1952,7 @@ func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, 
 
         ls := p.openScope(scopeComment)
         for _, s := range automatics {
-                var def, alt = p.def(s)
+                var def, alt = p.def(p.pos, s)
                 if alt != nil {
                         p.error(p.pos, "Name `%s' already taken, not automatic (%T).", s, alt)
                 } else if def == nil {
@@ -1962,7 +1962,7 @@ func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, 
                 }
         }
         for i := 1; i < 10; i += 1 {
-                var def, alt = p.def(strconv.Itoa(i))
+                var def, alt = p.def(p.pos, strconv.Itoa(i))
                 if alt != nil {
                         p.error(p.pos, "name `%v` already taken, not numberred (%T).", i, alt)
                 } else if def == nil {
@@ -2190,16 +2190,16 @@ func (p *parser) parseFile() *ast.File {
                 if p.tracemode&Flat == 0 {
                         var pos = Position(p.file.Position(p.pos))
 
-                        def, _ = p.def("/")
+                        def, _ = p.def(p.pos, "/")
                         def.set(DefAuto, MakePathStr(pos,abs))
 
-                        def, _ = p.def(".")
+                        def, _ = p.def(p.pos, ".")
                         def.set(DefAuto, MakePathStr(pos,rel))
 
-                        def, _ = p.def("CTD") // Current Temp Directory
+                        def, _ = p.def(p.pos, "CTD") // Current Temp Directory
                         def.set(DefAuto, MakePathStr(pos,tmp))
 
-                        def, _ = p.def("CWD") // Current Work Directory
+                        def, _ = p.def(p.pos, "CWD") // Current Work Directory
                         def.set(DefAuto, MakePathStr(pos,abs))
                 } else if def = s.FindDef("/"); def == nil {
                         p.error(p.pos, "/ not in the scope (%v)", s.comment)

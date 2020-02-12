@@ -253,6 +253,7 @@ const (
         DefArg  // ((arg))
         DefDecl // 
         DefConfDir
+        DefConfRef // referred by config
         DefConfig
 )
 

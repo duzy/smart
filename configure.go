@@ -407,7 +407,7 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
                 if len(mems) > 1 {
                         s, err = mems[0].Strval()
                         if err != nil { return }
-                        str += "Checking struct member (" + s + ") "
+                        str += "Checking (" + s + ") " // struct member
 
                         s, err = mems[1].Strval()
                         if err != nil { return }
@@ -974,7 +974,22 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
 
         var filename string
         if filename, err = file.Strval(); err != nil { err = wrap(pos, err); return } else
-        if filename == "" { err = errorf(pos, "`%v` has empty filename", file); return }
+        if filename == "" { err = errorf(pos, "`%v` has empty filename", file); return } else
+        if !filepath.IsAbs(filename) {
+                // FIXES: match file map to have the full filename.
+                t.foreachClosureProject(func(p *Project) (ok bool, err error) {
+                        if f := p.matchFile(filename); f != nil {
+                                var s string
+                                ok, file = true, f
+                                s, err = f.Strval()
+                                t.def.target.value = file // reset target file
+                                filename = s // using full filename
+                                if optDebug { fmt.Fprintf(stderr, "%s: %v: file %s->%s\n", pos, p, filename, s) }
+                        }
+                        return
+                })
+                if err != nil { err = wrap(pos, err); return }
+        }
         if file.info == nil {if f := stat(pos, filename, "", ""); f != nil { file.info = f.info }}
         if optDebug {
                 var s, _ = file.Strval()
@@ -987,14 +1002,9 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                 var str string
                 if str, err = arg.Strval(); err != nil { return }
                 if str == "" { continue }
-                if err = configure(pos, &data, t.closure, str); err != nil {
-                        return
-                }
+                if err = configure(pos, &data, t.closure, str); err != nil { return }
         }
-        if data.Len() == 0 {
-                err = errorf(pos, "no input data")
-                return
-        }
+        if data.Len() == 0 { err = errorf(pos, "no input data"); return }
 
         if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
         if file.info != nil {
@@ -1024,7 +1034,10 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                         }
                 }
         } else if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
-                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
+                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                        err = wrap(pos, err)
+                        return
+                }
         }
         if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
 
@@ -1040,15 +1053,17 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                 } ()
         }
 
-        if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err == nil {
-                if file.info != nil { result = file } else {
-                        if file.info, err = os.Stat(filename); err == nil {
-                                context.globe.stamp(filename, file.info.ModTime())
-                                result = file
-                        }
-                }
-                status = fmt.Sprintf("updated (%d bytes).", data.Len())
+        if err = ioutil.WriteFile(filename, data.Bytes(), optMode); err != nil {
+                err = wrap(pos, err)
+                return
         }
+        if file.info != nil { result = file } else {
+                if file.info, err = os.Stat(filename); err == nil {
+                        context.globe.stamp(filename, file.info.ModTime())
+                        result = file
+                }
+        }
+        status = fmt.Sprintf("Updated (%d bytes) (%s)", data.Len(), filename)
         return
 }
 
