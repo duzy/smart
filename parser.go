@@ -11,6 +11,7 @@ import (
         "extbit.io/smart/token"
         "extbit.io/smart/scanner"
         "path/filepath"
+        "runtime/debug"
         "strconv"
         "strings"
         "unicode"
@@ -166,6 +167,10 @@ func (p *parser) next0() {
 	}
 
         p.pos, p.tok, p.lit = p.scanner.Scan()
+        if false && p.tok == token.EOF {
+                fmt.Printf("parser.next0: %v, %v, %v\n", p.pos, p.tok, p.lit)
+                debug.PrintStack()
+        }
 }
 
 // Consume a comment and return it and the line on which it ends.
@@ -556,9 +561,9 @@ func (p *parser) parseExprList(lhs bool) (list []ast.Expr) {
                 list = append(list, x)
                 // If there's a comment right after the parsed expression, we break
                 // the expression list to treat the end-of-line comment like a LINEND.
-                if p.lineComment != nil {
-                        break
-                }
+                if p.lineComment != nil { break }
+                if p.tok == token.LINEND { break }
+                if p.tok == token.EOF { break }
         }
 	return
 }
@@ -809,7 +814,13 @@ func (p *parser) parseCompoundLit(lhs bool) ast.Expr {
                 rpos token.Pos
         )
         p.next()
-        for p.tok != token.COMPOSED && p.tok != token.EOF {
+        ForCompound: for p.tok != token.EOF {
+                switch p.tok {
+                case token.COMPOSED: break ForCompound
+                case token.LINEND:
+                        p.error(p.pos, "unexpected end of line for compound string")
+                        break ForCompound
+                }
                 elems = append(elems, p.checkExpr(p.parseExpr(false)))
         }
         rpos = p.expect(token.COMPOSED)
@@ -878,8 +889,7 @@ func (p *parser) parsePathExpr(lhs bool, start ast.Expr) ast.Expr {
                 path = &ast.PathExpr{ Segments:[]ast.Expr{ start } }
         }
 
-BuildPath:
-        for p.tok == token.PCON {
+        BuildPath: for p.tok == token.PCON {
                 var pos = p.pos
                 for p.next(); p.tok == token.PCON && pos+1 == p.pos; {
                         pos = p.pos; p.next() // skips repeated '/' sequence
@@ -901,15 +911,6 @@ BuildPath:
                         break BuildPath
                 }
         }
-
-        /*
-        if n := len(path.Segments); n > 1 {
-                var name = path.Segments[n-1]
-                if file := p.File(name); file != nil {
-                        
-                }
-        }
-        */
         return path
 }
 
@@ -1002,9 +1003,7 @@ func (p *parser) parseURLExpr(lhs bool, scheme ast.Expr) (res ast.Expr) {
 }
 
 func (p *parser) parseClosureDelegateName(tok token.Token) (name ast.Expr) {
-	if p.tracing.enabled {
-		defer un(trace(p, "ClosureDelegateName"))
-	}
+	if p.tracing.enabled {	defer un(trace(p, "ClosureDelegateName")) }
 
         /*
         if tok == token.LCOLON {
@@ -1022,9 +1021,7 @@ func (p *parser) parseClosureDelegateName(tok token.Token) (name ast.Expr) {
 }
 
 func (p *parser) parseClosureDelegate() ast.Expr {
-	if p.tracing.enabled {
-		defer un(trace(p, "ClosureDelegate"))
-	}
+	if p.tracing.enabled {	defer un(trace(p, "ClosureDelegate")) }
         
         // FIXME: push p.bits before entering a $(...) or &(...)
         defer func(a parsingBits) { p.bits = a }(p.bits)
@@ -1078,6 +1075,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                                 rest = append(rest, p.parseListExpr(false))
                         }
                 }
+
                 switch tokLp {
                 case token.LPAREN: rpos = p.expect(token.RPAREN)
                 case token.LBRACE: rpos = p.expect(token.RBRACE)
@@ -1623,9 +1621,7 @@ GoodEnd:
 }
 
 func (p *parser) parseDefineClause(tok token.Token, ident ast.Expr) *ast.DefineClause {
-	if p.tracing.enabled {
-		defer un(trace(p, "Define"))
-	}
+	if p.tracing.enabled { defer un(trace(p, fmt.Sprintf("Define(%s)", ident))) }
 
         // Only accept scoped identifiers if it's ":user:" program
         if p.scope.comment == usecomment {

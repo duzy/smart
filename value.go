@@ -600,11 +600,8 @@ type elemstrer interface {
 }
 
 func elementString(o Object, elem Value, k elemkind) (s string) {
-        if p, ok := elem.(elemstrer); ok {
-                s = p.elemstr(o, k)
-        } else if elem != nil {
-                s = elem.String()
-        }
+        if p, ok := elem.(elemstrer); ok { s = p.elemstr(o, k) } else
+        if elem != nil { s = elem.String() }
         return
 }
 
@@ -1767,7 +1764,7 @@ func (p *Path) stamp(t *traversal) (files []*File, err error) {
         if fullname, err = p.Strval(); err == nil {
                 if fullname == "" {
                         err = errorf(p.position, "no fullname for `%s`", p)
-                } else if file := stat(p.position, fullname,"","",nil); file != nil {
+                } else if file := stat(p.position,fullname,"","",nil); file != nil {
                         files, err = file.stamp(t)
                 }
         }
@@ -1864,8 +1861,7 @@ func (p *Path) match1(i interface{}) (result string, retained, stems []string, e
                 default: unreachable("path.match1: %T %v", i, i)
                 }
         }
-ForPathSegs:
-        for n, seg := range segs {
+        ForPathSegs: for n, seg := range segs {
                 if len(srcs) <= idx { break ForPathSegs }
 
                 var ( s string ; r []string )
@@ -2017,15 +2013,13 @@ func (p *PathSeg) Strval() (s string, e error) {
         case '~': s = "~"
         case '.': s = "."
         case '^': s = ".."
-        case 0: s = "" // empty segment after the last '/', e.g. /foo/bar/ 
-        default: e = fmt.Errorf("unknown pathseg (%s)", p.rune)
+        case 0:   s = "" // empty segment after the last '/', e.g. /foo/bar/ 
+        default:  e = fmt.Errorf("unknown pathseg (%s)", p.rune)
         }
         return
 }
 func (p *PathSeg) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*PathSeg); ok && p.rune == a.rune {
-                res = cmpEqual
-        }
+        if a, ok := v.(*PathSeg); ok && p.rune == a.rune { res = cmpEqual }
         return
 }
 
@@ -2603,16 +2597,18 @@ func (p *Compound) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Compound) elemstr(o Object, k elemkind) (s string) {
         var tk = k|elemNoQuote
-        for _, elem := range p.Elems {
-                s += elementString(o, elem, tk)
-        }
+        for _, elem := range p.Elems { s += elementString(o, elem, tk) }
         if k&elemNoQuote != 0 { return }
         var err error
         var buf bytes.Buffer
-        buf.WriteString(`"`); defer buf.WriteString(`"`)
+        buf.WriteString(`"`)
+        defer func() {
+                buf.WriteString(`"`)
+                s = buf.String()
+        } ()
         for i := strings.IndexAny(s, escapedChars); i != -1; {
 		if _, err = buf.WriteString(s[:i]); err != nil {
-                        // TODO: errors...
+                        err = wrap(p.position, err)
 			return
 		}
                 var esc string
@@ -2623,16 +2619,14 @@ func (p *Compound) elemstr(o Object, k elemkind) (s string) {
                 }
                 s = s[i+1:]
                 if _, err = buf.WriteString(esc); err != nil {
-                        // TODO: errors...
+                        err = wrap(p.position, err)                        
 			return
                 }
                 i = strings.IndexAny(s, escapedChars)
         }
         if _, err = buf.WriteString(s); err != nil {
-                // TODO: errors...
-                return
+                err = wrap(p.position, err)
         }
-        s = buf.String()
         return
 }
 func (p *Compound) String() string { return p.elemstr(nil, 0) }

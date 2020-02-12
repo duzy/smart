@@ -6,11 +6,11 @@
 package scanner
 
 import (
+        "extbit.io/smart/token"
 	"path/filepath"
 	"unicode"
 	"unicode/utf8"
         "fmt"
-        "extbit.io/smart/token"
 )
 
 // A Scanner holds the scanner's internal state while processing
@@ -41,6 +41,7 @@ type Scanner struct {
 	ErrorCount int // number of errors encountered
 
         DontScanComment bool // don't next scanComment
+        Debug bool
 }
 
 const bom = 0xFEFF // byte order mark, only permitted as very first character
@@ -206,26 +207,26 @@ func (s *Scanner) skipUselessWhitespace(lf bool) {
                 }
 		s.next()
 	}*/
-        loopSkip: for s.readOffset < len(s.src) {
+        skip: for s.readOffset < len(s.src) {
                 switch s.ch {
-                default: break loopSkip
+                default: break skip
                 case ' ', '\r': s.next()
                 case '\n':
                         if s.lineOffset == s.offset || s.skipPostLineFeeds /*|| s.parenDepth > 0*/ || lf {
                                 s.next()
                         } else {
-                                break loopSkip
+                                break skip
                         }
                 case '\t':
                         if s.lineOffset < s.offset {
                                 s.next()
                         } else {
-                                break loopSkip
+                                break skip
                         }
                 case '\\':
                         if s.next(); s.ch == '\n' { // continual line
                                 if i := s.offset+1; i < len(s.src) && s.src[i] == '\n' {
-                                        break loopSkip // Avoid skipping \\\n\n 
+                                        break skip // Avoid skipping \\\n\n 
                                 }
                                 //fmt.Printf("\\: %v %s\n", (s.context&isCompoundLine), string(s.src[s.offset:s.offset+20]))
                                 if s.context&isCompoundLine == 0 {
@@ -234,11 +235,11 @@ func (s *Scanner) skipUselessWhitespace(lf bool) {
                                         for s.ch == '\t' { s.next() }
                                 } else {
                                         // preserves the '\n'
-                                        break loopSkip
+                                        break skip
                                 }
                         } else {
                                 // TODO: escape character
-                                s.next()//; break loopSkip
+                                s.next()//; break skip
                         }
                 }
         }
@@ -249,9 +250,7 @@ func (s *Scanner) scanComment() string {
 	// initial '#' already consumed
 	offs := s.offset - 1 // position of initial '#'
 
-        for s.ch != '\n' && s.ch >= 0 {
-                s.next()
-        }
+        for s.ch != '\n' && s.ch >= 0 { s.next() }
 
         if offs == s.lineOffset {
                 // comment starts at the beginning of the current line
@@ -332,6 +331,11 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                 s.context &= ^isCompoundString
                 s.next() // take the ending '"'
                 return
+        case '\n': // compound string terminated by line feed (mistake)
+                tok = token.LINEND
+                s.context &= ^isCompoundString
+                s.next() // take the ending '\n'
+                return
         case '&', '$': // Escapes '&', '$', but '&&' or '$$' is not escaped.
                 if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
                         s.next() //! The first & or $
@@ -344,9 +348,9 @@ func (s *Scanner) scanCompoundString() (tok token.Token, lit string) {
                 }
                 return
         }
-        LoopChar: for s.ch != '"' {
+        LoopChar: for s.readOffset < len(s.src) {
                 switch s.ch {
-                case '\\', '$', '&':
+                case '\\', '$', '&', '"', '\n':
                         // just break it out, further scanning will decide escape
                         break LoopChar
                 default:
@@ -393,7 +397,7 @@ func (s *Scanner) scanCompoundLine() (tok token.Token, lit string) {
                 }
                 return
         }
-        LoopChar: for s.ch != '\n' {
+        LoopChar: for s.ch != '\n' && s.readOffset < len(s.src){
                 switch s.ch {
                 case '\\', '$', '&':
                         // just break it out, further scanning will decide
@@ -569,9 +573,7 @@ checkNumOffset:
         o += 5 // consume 00:00
 
 success:
-        for i := s.offset; i < o; i++ {
-                s.next()
-        }
+        for i := s.offset; i < o; i++ { s.next() }
         switch {
         case hasDate && hasTime: tok = token.DATETIME
         case hasDate && !hasTime: tok = token.DATE
@@ -685,24 +687,18 @@ exit:
 func (s *Scanner) scanRawString(ml bool) string {
 	// '\'' opening already consumed
 	offs := s.offset - 1
-        if ml {
-                offs -= 1
-        }
+        if ml { offs -= 1 }
 
-	for {
+	for s.readOffset < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 { // if ch < 0 {
 			s.error(offs, "raw string literal not terminated")
 			break
 		}
-                if ch == '\\' { // escapes anything
-                        s.next()
-                }
+                if ch == '\\' { s.next() } // escapes
 		s.next()
 		if ch == '\'' { 
-                        if !ml {
-                                break
-                        }
+                        if !ml { break }
                         if s.ch == '\'' {                                
                                 if s.next(); s.ch == '\'' {
                                         s.next()
@@ -777,7 +773,7 @@ func (s *Scanner) scanString(ml bool) string {
                 offs -= 1
         }
 
-	for {
+	for s.readOffset < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 {
 			s.error(offs, "string literal not terminated")
@@ -810,7 +806,11 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
 	// current token start
 	pos = s.file.Pos(s.offset)
 
-        if s.context&(isCompoundLine|isCompoundString) != 0 {
+        //fmt.Printf("scan: [%v], %s (%v), %v, %v\n", s.context, string(s.ch), s.ch, s.offset, len(s.src))
+
+        if s.offset >= len(s.src) || s.ch == -1 {
+                tok = token.EOF; return
+        } else if s.context&(isCompoundLine|isCompoundString) != 0 {
                 // FIXME: this plain compound failed!
                 // 
                 //yaml:[((name port hosts)) (plain yaml)]
@@ -823,15 +823,14 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                         case s.context&isCompoundString != 0:
                                 tok, lit = s.scanCompoundString()
                         }
-                        
                         switch tok {
                         case token.DELEGATE, token.CLOSURE:
                                 // escape from '$', '&'
                         case token.COMPOSED:
                                 // skip spaces after composing: "..."
-                                loopSkip: for s.readOffset < len(s.src) {
+                                skip: for s.readOffset < len(s.src) {
                                         switch s.ch {
-                                        default: break loopSkip
+                                        default: break skip
                                         case ' ', '\t': s.next()
                                         case '\\': 
                                                 if s.next(); s.ch == '\n' {
@@ -841,7 +840,7 @@ func (s *Scanner) Scan() (pos token.Pos, tok token.Token, lit string) {
                                                 }
                                         }
                                 }
-                                fallthrough
+                                return
                         default:
                                 return
                         }

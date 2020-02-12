@@ -1807,9 +1807,9 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
                 if optionVerboseImport || true {
                         full, _ := file.Strval()
-                        fmt.Fprintf(stderr, "smart: Load configuration for %s (%s): %s\n", l.project, l.project.relPath, full)
+                        fmt.Fprintf(stderr, "smart: Configuration for %s (%s): %s\n", l.project, l.project.relPath, full)
                 } else {
-                        fmt.Fprintf(stderr, "smart: Load configuration for %s (%s)\n", l.project, l.project.relPath)
+                        fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.relPath)
                 }
                 l.isIncludingConf = true
                 l.includeFile(ident.Pos(), file)
@@ -1817,7 +1817,6 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         }
 
         if optNoDock || l.project.name == dotContainer { return }
-
         if _, e := os.Stat(".dock"); e == nil {
                 err = errorf(pos, "Must rename .dock into .container !")
                 return
