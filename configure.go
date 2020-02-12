@@ -983,7 +983,7 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                                 ok, file = true, f
                                 s, err = f.Strval()
                                 t.def.target.value = file // reset target file
-                                filename = s // using full filename
+                                filename = s // using full filename instead
                                 if optDebug { fmt.Fprintf(stderr, "%s: %v: file %s->%s\n", pos, p, filename, s) }
                         }
                         return
