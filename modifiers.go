@@ -864,6 +864,7 @@ type grepctx struct {
         debug, verbose bool
         discard, report bool // discard or report missing greps
         rxs []*greprex
+        target Value
         targetDir string // see splitTargetFileName
         targetFileName string // see splitTargetFileName
         savedGrepFileName string
@@ -1159,33 +1160,12 @@ ForScan:
         return
 }
 
-func (t *traversal) splitTargetFileName() (targetDir, targetFileName string, err error) {
-        var target = t.def.target.value
-        var targetName string
-        switch v := target.(type) {
-        case *File:
-                targetName = v.name
-                targetFileName = v.fullname()
-                targetDir = filepath.Dir(targetFileName)
-        default:
-                targetDir = t.project.absPath
-                if targetName, err = v.Strval(); err != nil { return }
-                if filepath.IsAbs(targetName) {
-                        targetFileName = targetName
-                } else {
-                        targetFileName = filepath.Join(targetDir, targetName)
-                }
-        }
-        return
-}
-
-func (t *traversal) isTargetFile(file *File, targetFileName string) (res bool) {
-        var target = t.def.target.value
-        if target == file {
+func (gc *grepctx) isTargetFile(file *File) (res bool) {
+        if gc.target == file {
                 res = true
-        } else if s, _ := file.Strval(); s == targetFileName {
+        } else if s, _ := file.Strval(); s == gc.targetFileName {
                 res = true
-        } else if t, ok := target.(*File); ok && t.name == file.name {
+        } else if t, ok := gc.target.(*File); ok && t.name == file.name {
                 res = true
         }
         return
@@ -1260,7 +1240,7 @@ func (t *traversal) searchGreppedName(pos Position, gc *grepctx, sys bool, linum
                         sys = isNone(f.name) || isNil(f.name)
                 }
         }
-        if!sys && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v (exists=%v, sys=%v, from %v)\n", pos, t.entry.target, name, exists(file), sys, t.project) }
+        if!sys && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v → %v (exists=%v, sys=%v, from %v)\n", pos, t.entry.target, gc.target, name, exists(file), sys, t.project) }
         if sys || exists(file) { return }
 
         // relative to target directory
@@ -1294,7 +1274,7 @@ func (t *traversal) searchGrepped(pos Position, gc *grepctx, sys bool, linum, co
                 // The 'name' is not matching the files database.
                 if gc.discard { return }
                 // FIXME: missing-file error
-        } else if t.isTargetFile(file, gc.targetFileName) {
+        } else if gc.isTargetFile(file) {
                 return
         } else if !exists(file) && gc.discard {
                 return
@@ -1352,7 +1332,7 @@ func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err
                                 var name string
                                 if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
                                         file := t.searchGrepped(pos, gc, sys == 1, linum, colnum, name)
-                                        if file != nil && t.isTargetFile(file, gc.targetFileName) {
+                                        if file != nil && gc.isTargetFile(file) {
                                                 continue
                                         }
                                 }
@@ -1391,7 +1371,7 @@ func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
                                         fmt.Fprintf(gc.save, "%d %d %d %s\n", d, linum, colnum, name)
                                 }
                                 var file = t.searchGrepped(pos, gc, x.bool/*system files*/, linum, colnum, name)
-                                if file == nil || t.isTargetFile(file, gc.targetFileName) { continue }
+                                if file == nil || gc.isTargetFile(file) { continue }
                                 continue ForScan // found one
                         }
                 }
@@ -1400,7 +1380,21 @@ func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
 }
 
 func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
-        gc.targetDir, gc.targetFileName, err = t.splitTargetFileName()
+        var targetName string
+        switch v := gc.target.(type) {
+        case *File:
+                targetName = v.name
+                gc.targetFileName = v.fullname()
+                gc.targetDir = filepath.Dir(gc.targetFileName)
+        default:
+                gc.targetDir = t.project.absPath
+                if targetName, err = v.Strval(); err != nil { return }
+                if filepath.IsAbs(targetName) {
+                        gc.targetFileName = targetName
+                } else {
+                        gc.targetFileName = filepath.Join(gc.targetDir, targetName)
+                }
+        }
         if err != nil { err = wrap(pos, err); return } else
         if !filepath.IsAbs(gc.targetFileName) {
                 err = errorf(pos, "grep: '%s' is not abs", gc.targetFileName)
@@ -1488,11 +1482,13 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 } (time.Now())
         }
 
-        if err = t.grepFiles(pos, &gc); err == nil {
-                result = MakeListOrScalar(pos, t.grepped)
-        } else {
-                err = wrap(pos, err)
+        if len(args) == 0 { args = append(args, t.def.target.value) }
+        for _, target := range args {
+                gc.target = target
+                err = t.grepFiles(pos, &gc)
+                if err != nil { err = wrap(pos, err); break }
         }
+        if err == nil { result = MakeListOrScalar(pos, t.grepped) }
         return
 }
 

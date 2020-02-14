@@ -495,8 +495,9 @@ func (t *traversal) target(pos Position, target string) (err error) {
 
 func (t *traversal) appendUpdated(target *updatedtarget) {
         t.updated = append(t.updated, target)
-        if c := t.caller; c != nil { c.appendUpdated(
-                newUpdatedTarget(t.def.target.value, target))}
+        if c := t.caller; c != nil {
+                c.appendUpdated(newUpdatedTarget(t.def.target.value, target))
+        }
 }
 
 func (t *traversal) hashDir(k []byte) string {
