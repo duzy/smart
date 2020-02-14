@@ -1892,6 +1892,7 @@ ForModifiersExpr:
                 elems = append(elems, x)
         }
         rpos := p.expect(token.RBRACK)
+        if p.tok == token.COLON { p.error(p.pos, "unexpected colon after modifer") }
         return &ast.ModifiersExpr{
                 Lbrack: lpos,
                 Elems: elems,

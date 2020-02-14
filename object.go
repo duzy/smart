@@ -407,9 +407,7 @@ func (d *Def) append(va... Value) (err error) {
         var list *List
         if num := len(va); num == 0 {
                 // Does nothing...
-        } else if d.value == nil {
-                list = &List{elements{ merge(va...) }}
-        } else if _, okay := d.value.(*None); okay {
+        } else if isNone(d.value) || isNil(d.value) {
                 list = &List{elements{ merge(va...) }}
         } else if list, _ = d.value.(*List); list != nil {
                 list.Append(merge(va...)...)
@@ -429,6 +427,7 @@ func (d *Def) append(va... Value) (err error) {
 }
 
 func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
+        if isNil(d.value) { return }
         switch d.origin {
         case DefDefault:
                 // TODO: parameterization, e.g. $1, $2, $3, $4, $5 (see foreach)

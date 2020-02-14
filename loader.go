@@ -1804,9 +1804,9 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
                 if optionVerboseImport || true {
                         full, _ := file.Strval()
-                        fmt.Fprintf(stderr, "smart: Configuration for %s (%s): %s\n", l.project, l.project.relPath, full)
+                        fmt.Fprintf(stderr, "smart: Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
                 } else {
-                        fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.relPath)
+                        fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.spec)
                 }
                 l.isIncludingConf = true
                 l.includeFile(ident.Pos(), file)

@@ -8,7 +8,6 @@ package smart
 
 import (
         "extbit.io/smart/scanner"
-        "extbit.io/smart/token"
         "crypto/sha256"
         "path/filepath"
         "hash/crc64"
@@ -533,7 +532,7 @@ func modifierCD(pos Position, t *traversal, args... Value) (result Value, err er
                         t.program.changedWD = dir
                 }
         } else {
-                err = scanner.Errorf(token.Position(pos), "cd: wrong number of args (%v)", args)
+                err = errorf(pos, "cd: wrong number of args (%v)", args)
         }
         return
 }
@@ -566,7 +565,7 @@ func parseDependList(pos Position, t *traversal, dependList *List) (depends *Lis
                         case GeneralRuleEntry, PercRuleEntry, GlobRuleEntry, RegexpRuleEntry, PathPattRuleEntry:
                                 depends.Append(d)
                         default:
-                                err = scanner.Errorf(token.Position(pos), "unsupported entry depend `%v' (%v)", d, d.Class())
+                                err = errorf(pos, "unsupported entry depend `%v' (%v)", d, d.Class())
                         }
                 case *String:
                         /*if t.program.project.IsFile(d.Strval()) {
@@ -577,7 +576,7 @@ func parseDependList(pos Position, t *traversal, dependList *List) (depends *Lis
                 case *File:
                         depends.Append(d)
                 default:
-                        err = scanner.Errorf(token.Position(pos), "unsupported entry depend `%v' (%v)", depend, t.program.depends)
+                        err = errorf(pos, "unsupported entry depend `%v' (%v)", depend, t.program.depends)
                 }
         }
         return
@@ -649,7 +648,7 @@ func parseGrepOption(pos Position, t *traversal, optGrep Value) (result []Value,
                 group *Group
         )
         if g, ok := optGrep.(*Group); !ok {
-                err = scanner.Errorf(token.Position(pos), "`%T` non-group grep option", optGrep)
+                err = errorf(pos, "`%T` non-group grep option", optGrep)
                 return
         } else {
                 group = g
@@ -702,7 +701,7 @@ func parseGrepOption(pos Position, t *traversal, optGrep Value) (result []Value,
                                                                 top = merge(v)
                                                         }
                                                 default:
-                                                        err = scanner.Errorf(token.Position(pos), "`%s` unknown regexp (%v)", s, p.Value)
+                                                        err = errorf(pos, "`%s` unknown regexp (%v)", s, p.Value)
                                                         return
                                                 }
                                         } else {
@@ -796,14 +795,24 @@ func parseGrepOption(pos Position, t *traversal, optGrep Value) (result []Value,
                 def.append(result...)
                 result = nil
         } else {
-                err = scanner.Errorf(token.Position(pos), "`%s` no such Def", s)
+                err = errorf(pos, "`%s` no such Def", s)
         }
         return
 }
 
+type grepctx struct {
+        debug, verbose bool
+        discard, report bool // discard or report missing greps
+        rxs []*greprex
+        targetDir string // see splitTargetFileName
+        targetFileName string // see splitTargetFileName
+        savedGrepFileName string
+        save *bufio.Writer
+}
 type greprex struct{ string ; bool ; *regexp.Regexp }
-var grepcache = make(map[string][]Value)
+func (g *greprex) String() string { return g.string }
 
+var grepcache = make(map[string][]Value)
 func loadGrepCache() {
         s := joinTmpPath("", "cache")
         f, err := os.Open(s)
@@ -874,7 +883,7 @@ func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*gr
                 defer func() { grepcache[targetFileName] = result } ()
         }
 
-        var isSameAsTarget = func(file *File) (res bool) {
+        var isTargetFile = func(file *File) (res bool) {
                 if target == file {
                         res = true
                 } else if s, _ := file.Strval(); s == targetFileName {
@@ -955,7 +964,7 @@ func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*gr
                         // The 'name' is not matching the files database.
                         if discard { return }
                         // FIXME: missing-file error
-                } else if isSameAsTarget(file) {
+                } else if isTargetFile(file) {
                         return
                 } else if !exists(file) && discard {
                         return
@@ -1008,7 +1017,7 @@ func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*gr
                                 var name string
                                 if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
                                         file := searchName(sys == 1, linum, colnum, name)
-                                        if file != nil && isSameAsTarget(file) {
+                                        if file != nil && isTargetFile(file) {
                                                 continue //unreachable("same as target: ", file)
                                         }
                                 }
@@ -1071,7 +1080,7 @@ ForScan:
 
                                 file := searchName(sys, linum, colnum, name)
                                 if file != nil {
-                                        if isSameAsTarget(file) {
+                                        if isTargetFile(file) {
                                                 continue //unreachable("same as target: %s", file)
                                         }
                                         continue ForScan
@@ -1090,26 +1099,592 @@ ForScan:
         return
 }
 
+func (t *traversal) grepFiles0(pos Position, rxs []*greprex, report, discard bool) (result []Value, err error) {
+        var targetDir, targetName, targetFileName string
+        var target Value = t.def.target.value
+        switch v := target.(type) {
+        case *File:
+                targetName = v.name
+                targetFileName = v.fullname()
+                targetDir = filepath.Dir(targetFileName)
+        default:
+                targetDir = t.project.absPath
+                if targetName, err = v.Strval(); err != nil { return }
+                if filepath.IsAbs(targetName) {
+                        targetFileName = targetName
+                } else {
+                        targetFileName = filepath.Join(targetDir, targetName)
+                }
+        }
+        if !filepath.IsAbs(targetFileName) {
+                err = errorf(pos, "grep: '%s' is not abs", targetFileName)
+                return
+        }
+
+        var cached bool
+        if result, cached = grepcache[targetFileName]; cached { return }
+        defer func() { grepcache[targetFileName] = result } ()
+
+        var isTargetFile = func(file *File) (res bool) {
+                if target == file {
+                        res = true
+                } else if s, _ := file.Strval(); s == targetFileName {
+                        res = true
+                } else if t, ok := target.(*File); ok && t.name == file.name {
+                        res = true
+                }
+                return
+        }
+
+        var searchName = func(sys bool, linum, colnum int, name string) (file *File) {
+                var isAbs, isRel bool
+                if isAbs = filepath.IsAbs(name); isAbs {
+                        file = stat(pos, name, "", "", nil)
+                } else if isRel = isRelPath(name); isRel { // relative to target dir
+                        file = stat(pos, name, "", targetDir, nil)
+                        if !exists(file) {
+                                var f = t.project.matchFile(name)
+                                if f != nil { file = f }
+                        }
+                } else if file = t.project.matchFile(name); file == nil {
+                        // file not found
+                }
+
+                if !sys && file != nil && file.match != nil && len(file.match.Paths) == 1 {
+                        // mark system files defined by `files ((foo.xxx) => -)`
+                        if f, ok := file.match.Paths[0].(*Flag); ok {
+                                _, sys = f.name.(*None)
+                        }
+                }
+
+                // System files are not treated as missing nor collected
+                // for further updating, just discard them immediately.
+                if sys { return }
+
+                if !isAbs && !isRel && (file == nil || !exists(file)) {
+                        // relative to target directory
+                        var alt = stat(pos, name, "", targetDir)
+                        if alt != nil { file = alt }
+
+                        // Check for bare non-system sub-paths:
+                        //   foo/bar/name.xxx
+                        // We search base name 'name.xxx' again:
+                        if alt == nil {// got sub-name like 'foo/bar'
+                                var s = filepath.Dir(name)
+
+                                /* FIXME: try all names
+                                s, i := file.name, strings.LastIndex(file.name, PathSep)
+                                for ; s != "" && i > 0; {
+                                        name = filepath.Join(s[i+1:], name)
+                                        s = s[:i] // slice out the prefix 
+                                        // matchFile(name)
+                                        i = strings.LastIndex(s, PathSep)
+                                }
+                                */
+
+                                // Search 'name.xxx' and check dir for
+                                // 'foo/bar' suffix. We use it if found.
+                                alt = t.project.matchFile(filepath.Base(name))
+                                if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
+                                        dir := strings.TrimSuffix(alt.dir, PathSep+s)
+                                        ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
+                                        ok2 := alt.change(dir, "", name) // <dir>, "", foo/bar/name.xxx
+                                        file = alt
+                                        if enable_assertions {
+                                                assert(ok1, "unchanged: %s %s %s", dir, s, alt.name)
+                                                assert(ok2, "unchanged: %s %s", dir, alt.name)
+                                        }
+                                }
+                        }
+                }
+
+                if file == nil {
+                        // The 'name' is not matching the files database.
+                        if discard { return }
+                        // FIXME: missing-file error
+                } else if isTargetFile(file) {
+                        return
+                } else if !exists(file) && discard {
+                        return
+                } else {
+                        result = append(result, file)
+                }
+
+                // Report missing files, but system files are not treated
+                // as missing.
+                if report {
+                        if file == nil {
+                                fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", targetFileName, linum, colnum, t.project.name, name)
+                        } else if !exists(file) {
+                                fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", targetFileName, linum, colnum, t.project.name, name)
+                        }
+                }
+                return
+        }
+
+        var targetOSFile *os.File
+        var savedGrepOSFile *os.File
+        var savedGrepFileName string
+
+        var nameHash = sha256.New() //[sha256.Size]byte
+        fmt.Fprintf(nameHash, "%s", targetFileName)
+
+        // Make names like .grep/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
+        var nameSum = nameHash.Sum(nil)
+        var savedGrepFile = t.project.matchTempFile(pos, filepath.Join(".grep",
+                fmt.Sprintf("%x", nameSum[ :1]),
+                fmt.Sprintf("%x", nameSum[1:2]),
+                fmt.Sprintf("%x", nameSum[2: ]),
+        ))
+        savedGrepFileName, _ = savedGrepFile.Strval()
+
+        if file1 := stat(pos, savedGrepFileName, "", ""); file1 != nil {
+                if file2 := stat(pos, targetFileName, "", ""); file2 != nil {
+                        if file2.info.ModTime().After(file1.info.ModTime()) {
+                                goto GrepTargetFile
+                        }
+                }
+                var e error
+                if savedGrepOSFile, e = os.Open(savedGrepFileName); e == nil {
+                        defer savedGrepOSFile.Close()
+                        scanner := bufio.NewScanner(savedGrepOSFile)
+                        scanner.Split(bufio.ScanLines)
+                        for scanner.Scan() {
+                                var s = scanner.Text()
+                                var sys, linum, colnum int
+                                var name string
+                                if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
+                                        file := searchName(sys == 1, linum, colnum, name)
+                                        if file != nil && isTargetFile(file) {
+                                                continue //unreachable("same as target: ", file)
+                                        }
+                                }
+                        }
+                        file1.info, _ = savedGrepOSFile.Stat()
+                        return
+                }
+        }
+
+GrepTargetFile:
+        if targetOSFile, err = os.Open(targetFileName); err != nil {
+                if discard { err = nil }
+                return
+        }
+        defer func() { err = targetOSFile.Close() } ()
+
+        if dir := filepath.Dir(savedGrepFileName); dir != "." && dir != ".." {
+                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
+        }
+
+        if savedGrepOSFile, err = os.Create(savedGrepFileName); err != nil { return }
+        defer savedGrepOSFile.Close()
+
+        if optionSaveGrepSourceName {
+                var perm = os.FileMode(0600)
+                var data = []byte(targetFileName)
+                var name = savedGrepFileName + ".src"
+                if err = ioutil.WriteFile(name, data, perm); err != nil { return }
+        }
+
+        var save = bufio.NewWriter(savedGrepOSFile)
+        defer save.Flush()
+
+        for _, x := range rxs {
+                x.Regexp, err = regexp.Compile(x.string)
+                if err != nil { return }
+        }
+
+        var linum int
+        scanner := bufio.NewScanner(targetOSFile)
+        scanner.Split(bufio.ScanLines)
+        ForScan: for scanner.Scan() {
+                linum += 1
+                var s = scanner.Text()
+                for _, x := range rxs {
+                        if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
+                                var name = sm[1]
+                                var colnum = strings.Index(s, name) //strings.IndexFunc(s, isNotSpace)
+                                var sys = x.bool // System files defined by `sys=xxx` arguments
+         
+                                var d = 0 ; if sys { d = 1 }
+                                fmt.Fprintf(save, "%d %d %d %s\n", d, linum, colnum, name)
+
+                                if file := searchName(sys, linum, colnum, name); file != nil {
+                                        if isTargetFile(file) { continue }
+                                        continue ForScan
+                                }
+                        }
+                }
+        }
+        if enable_assertions {
+                for _, v := range result {
+                        if v == nil { unreachable() }
+                        if f, ok := v.(*File); ok && f == nil {
+                                unreachable()
+                        }
+                }
+        }
+        return
+}
+
+func (t *traversal) splitTargetFileName() (targetDir, targetFileName string, err error) {
+        var target = t.def.target.value
+        var targetName string
+        switch v := target.(type) {
+        case *File:
+                targetName = v.name
+                targetFileName = v.fullname()
+                targetDir = filepath.Dir(targetFileName)
+        default:
+                targetDir = t.project.absPath
+                if targetName, err = v.Strval(); err != nil { return }
+                if filepath.IsAbs(targetName) {
+                        targetFileName = targetName
+                } else {
+                        targetFileName = filepath.Join(targetDir, targetName)
+                }
+        }
+        return
+}
+
+func (t *traversal) isTargetFile(file *File, targetFileName string) (res bool) {
+        var target = t.def.target.value
+        if target == file {
+                res = true
+        } else if s, _ := file.Strval(); s == targetFileName {
+                res = true
+        } else if t, ok := target.(*File); ok && t.name == file.name {
+                res = true
+        }
+        return
+}
+
+func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linum, colnum int, name string) (file *File) {
+        var isAbs, isRel bool
+        if isAbs = filepath.IsAbs(name); isAbs {
+                file = stat(pos, name, "", "", nil)
+        } else if isRel = isRelPath(name); isRel { // relative to target dir
+                file = stat(pos, name, "", gc.targetDir, nil)
+                if !exists(file) {
+                        var f = t.project.matchFile(name)
+                        if f != nil { file = f }
+                }
+        } else if file = t.project.matchFile(name); file == nil {
+                return // file not found
+        } else if !sys && file.match != nil && len(file.match.Paths) == 1 {
+                // mark system files defined by `files ((foo.xxx) => -)`
+                if f, ok := file.match.Paths[0].(*Flag); ok {
+                        sys = isNone(f.name) || isNil(f.name)
+                }
+        }
+
+        //fmt.Fprintf(stderr, "%v: %v %v %v %v\n", pos, t.entry.target, name, sys, t.project)
+
+        // System files are not treated as missing nor collected
+        // for further updating, just discard them immediately.
+        if sys || isAbs || isRel || exists(file) { return }
+
+        // relative to target directory
+        var alt = stat(pos, name, "", gc.targetDir)
+        if alt != nil { file = alt; return }
+
+        // Check for bare non-system sub-paths:
+        //   foo/bar/name.xxx
+        // We search base name 'name.xxx' again:
+        var s = filepath.Dir(name) // e.g: foo/bar
+
+        // Search 'name.xxx' and check dir for
+        // 'foo/bar' suffix. We use it if found.
+        alt = t.project.matchFile(filepath.Base(name))
+        if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
+                dir := strings.TrimSuffix(alt.dir, PathSep+s)
+                ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
+                ok2 := alt.change(dir, "", name) // <dir>, "", foo/bar/name.xxx
+                file = alt
+                if enable_assertions {
+                        assert(ok1, "unchanged: %s %s %s", dir, s, alt.name)
+                        assert(ok2, "unchanged: %s %s", dir, alt.name)
+                }
+        }
+        return
+}
+
+func (t *traversal) searchGreppedName(pos Position, gc *grepctx, sys bool, linum, colnum int, name string) (file *File) {
+        var isAbs, isRel bool
+        if file = t.project.matchFile(name); file != nil && exists(file) {
+                return // found existed file
+        } else if isAbs = filepath.IsAbs(name); isAbs {
+                file = stat(pos, name, "", "", nil)
+        } else if isRel = isRelPath(name); isRel { // relative to targetDir
+                file = stat(pos, name, "", gc.targetDir, nil)
+        }
+
+        // System files are not treated as missing nor collected
+        // for further updating, just discard them immediately.
+        if !sys && file != nil && file.match != nil && len(file.match.Paths) == 1 {
+                // system files defined by `files ((foo.xxx) ⇒ -)`
+                if f, ok := file.match.Paths[0].(*Flag); ok {
+                        sys = isNone(f.name) || isNil(f.name)
+                }
+        }
+        if!sys && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v (exists=%v, sys=%v, from %v)\n", pos, t.entry.target, name, exists(file), sys, t.project) }
+        if sys || exists(file) { return }
+
+        // relative to target directory
+        var alt = stat(pos, name, "", gc.targetDir)
+        if alt != nil { file = alt; return }
+
+        // Check for bare non-system sub-paths:
+        //   foo/bar/name.xxx
+        // We search base name 'name.xxx' again:
+        var s = filepath.Dir(name) // e.g: foo/bar
+
+        // Search 'name.xxx' and check dir for
+        // 'foo/bar' suffix. We use it if found.
+        alt = t.project.matchFile(filepath.Base(name))
+        if alt != nil && strings.HasSuffix(alt.dir, PathSep+s) {
+                dir := strings.TrimSuffix(alt.dir, PathSep+s)
+                ok1 := alt.change(dir, s, alt.name) // <dir>, foo/bar, name.xxx
+                ok2 := alt.change(dir, "", name) // <dir>, "", foo/bar/name.xxx
+                file = alt
+                if enable_assertions {
+                        assert(ok1, "unchanged: %s %s %s", dir, s, alt.name)
+                        assert(ok2, "unchanged: %s %s", dir, alt.name)
+                }
+        }
+        return
+}
+
+func (t *traversal) searchGrepped(pos Position, gc *grepctx, sys bool, linum, colnum int, name string) (file *File) {
+        file = t.searchGreppedName(pos, gc, sys, linum, colnum, name)
+        if file == nil {
+                // The 'name' is not matching the files database.
+                if gc.discard { return }
+                // FIXME: missing-file error
+        } else if t.isTargetFile(file, gc.targetFileName) {
+                return
+        } else if !exists(file) && gc.discard {
+                return
+        } else {
+                t.grepped = append(t.grepped, file)
+        }
+
+        // Report missing files, but system files are not treated
+        // as missing.
+        if gc.report {
+                if file == nil {
+                        fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", gc.targetFileName, linum, colnum, t.project.name, name)
+                } else if !exists(file) {
+                        fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", gc.targetFileName, linum, colnum, t.project.name, name)
+                }
+        }
+        return
+}
+
+func (t *traversal) savedGrepFileName(pos Position, targetFileName string) (filename string, err error) {
+        var nameHash = sha256.New() //[sha256.Size]byte
+        fmt.Fprintf(nameHash, "%s", targetFileName)
+
+        // Make names like .grep/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
+        var nameSum = nameHash.Sum(nil)
+        var savedGrepFile = t.project.matchTempFile(pos, filepath.Join(".grep",
+                fmt.Sprintf("%x", nameSum[ :1]),
+                fmt.Sprintf("%x", nameSum[1:2]),
+                fmt.Sprintf("%x", nameSum[2: ]),
+        ))
+        filename, err = savedGrepFile.Strval()
+        return
+}
+
+func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err error) {
+        gc.savedGrepFileName, err = t.savedGrepFileName(pos, gc.targetFileName)
+        if err != nil { return }
+
+        // Check into previously saved grep file.
+        if file1 := stat(pos, gc.savedGrepFileName, "", ""); file1 != nil {
+                if file2 := stat(pos, gc.targetFileName, "", ""); file2 != nil {
+                        if file2.info.ModTime().After(file1.info.ModTime()) {
+                                return
+                        }
+                }
+                var e error
+                var savedGrepOSFile *os.File
+                if savedGrepOSFile, e = os.Open(gc.savedGrepFileName); e == nil {
+                        defer savedGrepOSFile.Close()
+                        scanner := bufio.NewScanner(savedGrepOSFile)
+                        scanner.Split(bufio.ScanLines)
+                        for scanner.Scan() {
+                                var s = scanner.Text()
+                                var sys, linum, colnum int
+                                var name string
+                                if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
+                                        file := t.searchGrepped(pos, gc, sys == 1, linum, colnum, name)
+                                        if file != nil && t.isTargetFile(file, gc.targetFileName) {
+                                                continue
+                                        }
+                                }
+                        }
+                        file1.info, _ = savedGrepOSFile.Stat()
+                        okay = true
+                }
+        }
+        return
+}
+
+func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
+        var targetOSFile *os.File
+        if targetOSFile, err = os.Open(gc.targetFileName); err != nil { return }
+        defer func() { err = targetOSFile.Close() } ()
+
+        for _, x := range gc.rxs {
+                if x.Regexp == nil {
+                        x.Regexp, err = regexp.Compile(x.string)
+                        if err != nil { return }
+                }
+        }
+
+        var linum int
+        scanner := bufio.NewScanner(targetOSFile)
+        scanner.Split(bufio.ScanLines)
+        ForScan: for scanner.Scan() {
+                linum += 1
+                var s = scanner.Text()
+                for _, x := range gc.rxs {
+                        if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
+                                var name = sm[1]
+                                var colnum = strings.Index(s, name) //strings.IndexFunc(s, isNotSpace)
+                                if gc.save != nil {
+                                        var d = 0 ; if x.bool { d = 1 } // system files
+                                        fmt.Fprintf(gc.save, "%d %d %d %s\n", d, linum, colnum, name)
+                                }
+                                var file = t.searchGrepped(pos, gc, x.bool/*system files*/, linum, colnum, name)
+                                if file == nil || t.isTargetFile(file, gc.targetFileName) { continue }
+                                continue ForScan // found one
+                        }
+                }
+        }
+        return
+}
+
+func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
+        gc.targetDir, gc.targetFileName, err = t.splitTargetFileName()
+        if err != nil { err = wrap(pos, err); return } else
+        if !filepath.IsAbs(gc.targetFileName) {
+                err = errorf(pos, "grep: '%s' is not abs", gc.targetFileName)
+                return
+        }
+        if files, cached := grepcache[gc.targetFileName]; cached {
+                fmt.Fprintf(stderr, "grep: %v\n", files)
+                t.grepped = append(t.grepped, files...)
+                return
+        }
+        defer func() { grepcache[gc.targetFileName] = t.grepped } ()
+
+        var savedGrepFile *os.File
+        var savedGrepFileLoaded bool
+        savedGrepFileLoaded, err = t.loadSavedGrepFile(pos, gc)
+        if err != nil || savedGrepFileLoaded { return } else
+        if dir := filepath.Dir(gc.savedGrepFileName); dir != "." && dir != ".." {
+                if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
+        }
+        if optionSaveGrepSourceName {
+                var perm = os.FileMode(0600)
+                var data = []byte(gc.targetFileName)
+                var name = gc.savedGrepFileName + ".src"
+                if err = ioutil.WriteFile(name, data, perm); err != nil { return }
+        }
+        if savedGrepFile, err = os.Create(gc.savedGrepFileName); err != nil { return }
+        gc.save = bufio.NewWriter(savedGrepFile)
+        defer func() { gc.save.Flush(); savedGrepFile.Close() } ()
+
+        err = t.grepTargetFile(pos, gc)
+        if err != nil {if gc.discard { err = nil } else { err = wrap(pos, err) }}
+        return
+}
+
 // grep-files - grep files from target, example usage:
 //
 //      (grep-files '\s*#\s*include\s*<(.*)>')
 //      
 // https://github.com/google/re2/wiki/Syntax
 func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
-        var top []Value
-        var rxs []*greprex
-        var optReportMissing = true // TODO: option "e,report" 
-        var optDiscardMissing = false // TODO: option "i,ignore"
+        var gc grepctx
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
-                "d,discard-missing",
+                "c,discard-missing",
+                "c,discard",
                 "s,system",
                 "s,sys",
-                "t,top",
+                "x,regex",
+                "l,lang",
+                "v,verbose",
+                "d,debug",
         }, func(ru rune, v Value) {
                 var s string
                 switch ru {
+                case 'c': gc.discard = trueVal(v,true)
+                case 'd': gc.debug = trueVal(v,true)
+                case 'v': gc.verbose = trueVal(v,true)
+                case 's', 'x': if v != nil {
+                        if s, err = v.Strval(); err != nil { return }
+                        gc.rxs = append(gc.rxs, &greprex{s, ru=='s', nil})
+                }
+                case 'l': if v != nil {
+                        if s, err = v.Strval(); err != nil { return } else
+                        if info, ok := langInfos[s]; !ok || info == nil {
+                                err = errorf(v.Position(), "unknown lang: %s", s)
+                                return
+                        } else {
+                                for _, re := range info.rxs { gc.rxs = append(gc.rxs, &greprex{re, false, nil}) }
+                                for _, re := range info.sys { gc.rxs = append(gc.rxs, &greprex{re, true, nil}) }
+                        }
+                }}
+        }); err != nil { return }
+        if len(gc.rxs) == 0 {
+                err = errorf(pos, "no grep expressions")
+                return
+        }
+
+        var files []Value
+        if gc.verbose {
+                if gc.debug { fmt.Fprintf(stderr, "%s: grep-files: %v %v %v\n", pos, t.def.target.value, gc.rxs, args) }
+                fmt.Fprintf(stderr, "smart: Grep %v …", t.def.target.value)
+                defer func(t time.Time) {
+                        d := time.Now().Sub(t)
+                        fmt.Fprintf(stderr, "… (%d files, %v)\n", len(files), d)
+                } (time.Now())
+        }
+
+        if err = t.grepFiles(pos, &gc); err == nil {
+                result = MakeListOrScalar(pos, t.grepped)
+        } else {
+                err = wrap(pos, err)
+        }
+        return
+}
+
+func _modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var (
+                optReportMissing = true // TODO: option "e,report" 
+                optDiscardMissing = false // TODO: option "i,ignore"
+                optDebug, optVerbose bool
+                top []Value
+                rxs []*greprex
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "c,discard-missing",
+                "s,system",
+                "s,sys",
+                "t,top",
+                "l,lang",
+                "v,verbose",
+                "d,debug",
+        }, func(ru rune, v Value) {
+                var s string
+                switch ru {
+                case 'd': optDebug = trueVal(v,true)
+                case 'v': optVerbose = trueVal(v,true)
                 case 's':
                         // FIXME: if v.(*Group) ...
                         if v == nil { return }
@@ -1122,19 +1697,18 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                         } else {
                                 top = merge(v)
                         }
-                default:
-                        err = scanner.Errorf(token.Position(pos), "`%v` unsupported argument (%s)", v, s)
-                        return
+                case 'l':
+                        
                 }
         }); err != nil { return }
-        
+
         for _, arg := range args {
                 var s string
                 if s, err = arg.Strval(); err != nil { return }
                 rxs = append(rxs, &greprex{s, false, nil})
         }
         if len(rxs) == 0 {
-                err = scanner.Errorf(token.Position(pos), "no grep expressions")
+                err = errorf(pos, "no grep expressions")
                 return
         }
 
@@ -1147,6 +1721,15 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
 
         var list []Value
         var target = t.def.target.value
+        if optDebug { fmt.Fprintf(stderr, "%s: grep-files: %v %v %v %v\n", pos, target, rxs, tops, args) }
+        if optVerbose {
+                fmt.Fprintf(stderr, "smart: Grep %v …", target)
+                defer func(t time.Time) {
+                        d := time.Now().Sub(t)
+                        fmt.Fprintf(stderr, "… (%d files, %v)\n", len(list), d)
+                } (time.Now())
+        }
+
         list, err = t.project.grepFiles(pos, target, tops, rxs, optReportMissing, optDiscardMissing)
         result = MakeListOrScalar(pos, list)
         return
@@ -1163,7 +1746,7 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
 //      
 // https://github.com/google/re2/wiki/Syntax
 func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err error) {
-        err = scanner.Errorf(token.Position(pos), "unimplemented grep %v", args)
+        err = errorf(pos, "unimplemented grep %v", args)
         return
 }
 
@@ -1172,8 +1755,6 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
 // (check dir=directory)
 // (check var=(NAME,VALUE))
 func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
         var (
                 optBreak breakind // breaking with good results
                 optVerbose bool // verbose more details
@@ -1183,6 +1764,7 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
                 values []Value
                 pairs []*Pair
         )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
                 "a,answer",
                 "r,result",
@@ -2061,9 +2643,8 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
                 optDump bool
                 optSilent bool
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "c,closure",
                 "d,debug-trace", // debug-trace
                 "d,debug", // debug-trace
@@ -2076,7 +2657,7 @@ func modifierTargetMaxVisit(pos Position, t *traversal, args... Value) (result V
                 case 's': optSilent = trueVal(v, true)
                 }
         }); err != nil { return }
-        
+
         var nth int64
         for _, a := range args {
                 if nth, err = a.Integer(); err != nil {
@@ -2127,9 +2708,8 @@ func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err 
         var (
                 optVerbose bool
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
