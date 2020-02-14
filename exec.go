@@ -629,11 +629,9 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
         var targetName string
         var target = t.def.target.value
         if targetName, err = target.Strval(); err != nil { return }
-
         if optPath {
                 var s string
-                if s, err = t.def.target.value.Strval(); err != nil { return }
-                if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
+                if s = filepath.Dir(targetName); s != "" && s != "." && s != "/" {
                         err = os.MkdirAll(s, os.FileMode(0755))
                         if err != nil { return }
                 }
