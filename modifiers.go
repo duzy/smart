@@ -234,8 +234,9 @@ func (g *modifiergroup) handle(t *traversal, e error) (done bool, err error) {
         for _, e := range brks {
                 // Save all breakers for (dirty) and interpreters.
                 t.breakers = append(t.breakers, e)
-
-                if e.what == breakDone && e.scope == breakGroup {
+                if e.what == breakCase {
+                        continue // case selected
+                } else if e.what == breakDone && e.scope == breakGroup {
                         done = true
                 } else {
                         // return the breakers

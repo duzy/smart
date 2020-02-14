@@ -629,15 +629,15 @@ func (entry *RuleEntry) SetExplicitFile(file *File) {
         }
         return
 }
-func (entry *RuleEntry) SetExplicitPath(path *Path) {
-        /*if path.File != nil && path.File.dir == "" {
-                path.File.dir = entry.OwnerProject().absPath
-        }*/
-        //if path, ok := entry.target.(*Path); ok && path != nil {
-        //        path
-        //}
-        return
-}
+// func (entry *RuleEntry) SetExplicitPath(path *Path) {
+//         /*if path.File != nil && path.File.dir == "" {
+//                 path.File.dir = entry.OwnerProject().absPath
+//         }*/
+//         //if path, ok := entry.target.(*Path); ok && path != nil {
+//         //        path
+//         //}
+//         return
+// }
 // RuleEntry.Execute executes the rule program only if the target is outdated.
 func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err error) {
         switch entry.class {
@@ -659,7 +659,7 @@ func (entry *RuleEntry) Execute(pos Position, a... Value) (result []Value, err e
                         err = wrap(program.position, errs...)
                         break
                 }
-
+                
                 for _, brk := range brks {
                         switch brk.what {
                         case breakNext: continue ForPrograms
