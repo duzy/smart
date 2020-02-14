@@ -1140,12 +1140,13 @@ func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linu
                 }
         } else if file = t.project.matchFile(name); file == nil {
                 return // file not found
+                /*
         } else if !sys && file.match != nil && len(file.match.Paths) == 1 {
                 // mark system files defined by `files ((foo.xxx) => -)`
                 if f, ok := file.match.Paths[0].(*Flag); ok {
                         sys = isNone(f.name) || isNil(f.name)
-                }
-        }
+                }*/
+        } else if !sys && file.isSysFile() { sys = true }
 
         //fmt.Fprintf(stderr, "%v: %v %v %v %v\n", pos, t.entry.target, name, sys, t.project)
 
@@ -2024,7 +2025,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                         result = stat(pos, filename, "", "")
                         return
                 }
-                if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
+                if optVerbose { fmt.Fprintf(stderr, "… Outdated (%s)\n", filename) }
         }
 
         if optVerbose {

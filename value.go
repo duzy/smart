@@ -2299,9 +2299,27 @@ func (p *File) exists() existence {
                 return existenceNegated
         }
 }
+func (p *File) isSysFile() (res bool) {
+        if p.match != nil && len(p.match.Paths) == 1 {
+                // system files defined by:
+                //     files (
+                //         (foo.xxx) ⇒ -
+                //     )
+                if f, ok := p.match.Paths[0].(*Flag); ok {
+                        res = isNone(f.name) || isNil(f.name)
+                        //fmt.Fprintf(stderr, "sys: %v %v %v\n", p, res, p.match)
+                }
+        }
+        return
+}
 func (p *File) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
+
+        if p.isSysFile() {
+                //fmt.Fprintf(stderr, "%v: %v\n", p, p.isSysFile())
+                return
+        }
 
         // Add new file target, no matter it's going to be updated or not.
         t.addNewTarget(p)

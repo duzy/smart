@@ -260,7 +260,6 @@ func configPrintMessageHead(pos Position, fields map[string]Value, args... Value
         str += " …"
         configPrintf(pos, str, ints...)
 }
-
 func configMessageHead(pos Position, op string, fields map[string]Value, params... Value) (err error) {
         var str = "configure: "
         if v, ok := fields["info"]; ok {
@@ -484,14 +483,10 @@ func configureDump(pos Position, t *traversal, def *Def, params... Value) (resul
 func configureBool(pos Position, t *traversal, def *Def, params... Value) (result Value, err error) {
         var positive bool
         var previous Value
-        if previous, err = def.Call(pos); err != nil {
-                return
-        } else {
+        if previous, err = def.Call(pos); err != nil { return } else {
                 var res Value
                 res, err = previous.expand(expandAll)
-                if err == nil && res != previous {
-                        previous = res
-                }
+                if err == nil && res != previous { previous = res }
         }
 
         for i, v := range merge(previous) {
@@ -708,17 +703,12 @@ ForArgs:
 
         defer func() {
                 var t bool
-                if err == nil && result != nil {
-                        t, err = result.True()
-                }
-                if configured && err == nil && t && strName != "compiles" {
-                        if v := pipe.value; v != nil {
-                                if _, ok := v.(*None); !ok {
-                                        result = v
-                                }
+                if err == nil && result != nil { t, err = result.True() }
+                if err == nil && t && configured && strName != "compiles" {
+                        if !(isNil(pipe.value) || isNone(pipe.value)) {
+                                result = pipe.value
                         }
                 }
-
                 if err == nil {
                         if result == nil {
                                 configMessageDone(pos, "… <nil>")
@@ -920,6 +910,8 @@ func walkFiles(pos Position, root string, pats []Value, fn filewalkFunc) error {
         })
 }
 
+var configuredFiles = make(map[string]*Scope,8)
+
 // configure-file modifier (see also builtinConfigureFile), example usage:
 // 
 //     config.h: config.h.in [(configure-file)]
@@ -929,20 +921,22 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                 optPath = false
                 optDebug = false
                 optVerbose = false
+                optReconfig = false
                 optMode = os.FileMode(0600)
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
-                "d,debug",
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "m,mode",
                 "p,path",
+                "r,reconfig",
                 "v,verbose",
+                "d,debug",
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'd': optDebug = trueVal(v, true)
                 case 'p': optPath = trueVal(v, true)
                 case 'v': optVerbose = trueVal(v, true)
+                case 'r': optReconfig = trueVal(v, true)
                 case 'm': if v != nil {
                         var num int64
                         if num, err = v.Integer(); err != nil { return } else {
@@ -951,6 +945,8 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                 }}
         }); err != nil { err = wrap(pos, err); return }
 
+        var project *Project
+        var filename string
         var file *File
         if file, _ = t.def.target.value.(*File); file == nil {
                 var s string
@@ -961,7 +957,7 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
 
                 var okay bool
                 okay, err = t.foreachClosureProject(func(p *Project) (ok bool, err error) {
-                        if file = p.matchFile(s); file != nil { ok = true }
+                        if file = p.matchFile(s); file != nil { project, ok = p, true }
                         if optDebug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
                         return
                 })
@@ -971,11 +967,9 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                 }
         }
         if file == nil { err = errorf(pos, "no file target"); return }
-
-        var filename string
         if filename, err = file.Strval(); err != nil { err = wrap(pos, err); return } else
         if filename == "" { err = errorf(pos, "`%v` has empty filename", file); return } else
-        if !filepath.IsAbs(filename) {
+        if!filepath.IsAbs(filename) {
                 // FIXES: match file map to have the full filename.
                 t.foreachClosureProject(func(p *Project) (ok bool, err error) {
                         if f := p.matchFile(filename); f != nil {
@@ -983,26 +977,43 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                                 ok, file = true, f
                                 s, err = f.Strval()
                                 t.def.target.value = file // reset target file
-                                filename = s // using full filename instead
-                                if optDebug { fmt.Fprintf(stderr, "%s: %v: file %s->%s\n", pos, p, filename, s) }
+                                project, filename = p, s // using full filename instead
+                                if optDebug { fmt.Fprintf(stderr, "%s: configure-file: %v: %s->%s\n", pos, p, f, s) }
                         }
                         return
                 })
                 if err != nil { err = wrap(pos, err); return }
         }
-        if file.info == nil {if f := stat(pos, filename, "", ""); f != nil { file.info = f.info }}
-        if optDebug {
+        if file.info == nil { if f := stat(pos, filename, "", ""); f != nil { file.info = f.info }}
+        if project == nil { project = t.project }
+        if optDebug && file != nil {
                 var s, _ = file.Strval()
                 var target = t.def.target.value
-                fmt.Fprintf(stderr, "%s:debug: configure-file: %s %v (%s)\n", pos, typeof(target), target, s)
+                fmt.Fprintf(stderr, "%s: configure-file: %v: %v (%s) (%v, %v) (%v)\n", pos,
+                        project, target, s, t.project, t.closure.comment, cloctx)
         }
+
+        // Check previously configured files, we only configure once unless
+        // optReconfig is true.
+        var closure *Scope
+        if configuredFiles != nil {
+                var okay bool
+                closure, okay = configuredFiles[filename]
+                if okay && closure != nil && !optReconfig { return }
+        }
+        if closure == nil { closure = t.closure }
+        defer func(s string, c *Scope) {
+                if err == nil { configuredFiles[s] = c } else {
+                        err = wrap(pos, err)
+                }
+        } (filename, closure)
 
         var data bytes.Buffer
         for _, arg := range append(args, t.def.buffer.value) {
                 var str string
                 if str, err = arg.Strval(); err != nil { return }
                 if str == "" { continue }
-                if err = configure(pos, &data, t.closure, str); err != nil { return }
+                if err = configure(pos, &data, closure, str); err != nil { return }
         }
         if data.Len() == 0 { err = errorf(pos, "no input data"); return }
 
@@ -1039,7 +1050,7 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                         return
                 }
         }
-        if optVerbose { fmt.Fprintf(stderr, "… Outdated\n") }
+        if optVerbose { fmt.Fprintf(stderr, "… Outdated (%s)\n", filename) }
 
         var status string
         if optVerbose {
@@ -1063,7 +1074,7 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                         result = file
                 }
         }
-        status = fmt.Sprintf("Updated (%d bytes) (%s)", data.Len(), filename)
+        status = fmt.Sprintf("Updated (%s, %d bytes)", filename, data.Len())
         return
 }
 

@@ -2839,7 +2839,9 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                 var verb = str[m[2]:m[3]]
                 var name = str[m[4]:m[5]]
                 var hasv = m[6] > m[0] && m[7] > m[6]
-                switch def := scope.FindDef(name); verb {
+                var def = scope.FindDef(name)
+                //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
+                switch verb {
                 case "define":
                         if hasv && !(def == nil || def.value == nil) {
                                 v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
