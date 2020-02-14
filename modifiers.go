@@ -268,12 +268,13 @@ var (
                 `closure`:      modifierClosure,
 
                 `cd`:           modifierCD,
+                `mkdir`:        modifierMkdir,
+                `path`:         modifierPath,
+
                 `sudo`:         modifierSudo,
 
                 `grep`:         modifierGrep,
                 `grep-files`:   modifierGrepFiles,
-
-                `path`:         modifierPath,
 
                 `copy-file`:      modifierCopyFile,
                 `write-file`:     modifierWriteFile,
@@ -481,11 +482,12 @@ func modifierClosure(pos Position, t *traversal, args... Value) (result Value, e
 }
 
 func modifierCD(pos Position, t *traversal, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
-        var optPath bool
-        var optPrintEnter bool
-        var optPrintLeave bool
+        var (
+                optPath bool
+                optPrintEnter bool
+                optPrintLeave bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
                 "p,path",
                 "e,print-enter",
@@ -493,9 +495,9 @@ func modifierCD(pos Position, t *traversal, args... Value) (result Value, err er
                 //"-",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'p': optPath = trueVal(v, false)
-                case 'e': optPrintEnter = trueVal(v, false)
-                case 'l': optPrintLeave = trueVal(v, false)
+                case 'p': optPath = trueVal(v, true)
+                case 'e': optPrintEnter = trueVal(v, true)
+                case 'l': optPrintLeave = trueVal(v, true)
                 /*case '-':
                         var dir = findBacktrackDir()
                         // Back to main project if no backtracks.
@@ -531,6 +533,66 @@ func modifierCD(pos Position, t *traversal, args... Value) (result Value, err er
                 }
         } else {
                 err = errorf(pos, "cd: wrong number of args (%v)", args)
+        }
+        return
+}
+
+func modifierMkdir(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var (
+                optMode = os.FileMode(0755)
+                optVerbose bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "m,mode",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'v': optVerbose = trueVal(v, true)
+                case 'm': if v != nil {
+                        var num int64
+                        if num, err = v.Integer(); err != nil { return } else {
+                                optMode = os.FileMode(num & 0777)
+                        }
+                }}
+        }); err != nil { return }
+        if len(args) == 0 {
+                var s string
+                if s, err = t.def.target.value.Strval(); err != nil { err = wrap(pos, err) } else
+                if err = os.MkdirAll(filepath.Dir(s), optMode); err != nil { err = wrap(pos, err) }
+                return
+        }
+        for _, a := range args {
+                var s string
+                if s, err = a.Strval(); err != nil { err = wrap(pos, err); return }
+                if err = os.MkdirAll(s, optMode); err != nil { err = wrap(pos, err); return }
+        }
+        return
+}
+// (path $(dir $@))
+// (path /example/path)
+func modifierPath(pos Position, t *traversal, args... Value) (result Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil {
+                return
+        } else if args, err = parseFlags(args, []string{
+                // ...
+        }, func(ru rune, v Value) {
+                // ...
+        }); err != nil { return }
+        if len(args) == 0 {
+                var s string
+                if s, err = t.def.target.value.Strval(); err != nil { return }
+                if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
+                        err = os.MkdirAll(s, os.FileMode(0755))
+                }
+                return
+        }
+        for _, arg := range args {
+                var s string
+                if s, err = arg.Strval(); err != nil { return }
+                if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
+                        return
+                }
         }
         return
 }
@@ -1698,34 +1760,6 @@ func copyFile(pos Position, srcFi os.FileInfo, src, dst string, opts *copyopts) 
         return
 }
 
-// (path $(dir $@))
-// (path /example/path)
-func modifierPath(pos Position, t *traversal, args... Value) (result Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
-                // ...
-        }, func(ru rune, v Value) {
-                // ...
-        }); err != nil { return }
-        if len(args) == 0 {
-                var s string
-                if s, err = t.def.target.value.Strval(); err != nil { return }
-                if s = filepath.Dir(s); s != "" && s != "." && s != "/" {
-                        err = os.MkdirAll(s, os.FileMode(0755))
-                }
-                return
-        }
-        for _, arg := range args {
-                var s string
-                if s, err = arg.Strval(); err != nil { return }
-                if err = os.MkdirAll(s, os.FileMode(0755)); err != nil {
-                        return
-                }
-        }
-        return
-}
-
 // (copy-file -vp)
 // (copy-file -p,filename)
 // (copy-file -p,filename,source)
@@ -2230,9 +2264,8 @@ func modifierCase(pos Position, t *traversal, args... Value) (result Value, err 
 func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err error) {
         var optDebug bool
         var optSilent bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "d,debug",
                 "s,silent",
         }, func(ru rune, v Value) {
@@ -2264,7 +2297,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         if optDebug {
                 var a = typeof(t.def.target.value)
                 var s, _ = t.def.target.value.Strval()
-                fmt.Fprintf(stderr, "%s: %s %s (dirty=%v)\n", pos, a, s, dirty)
+                fmt.Fprintf(stderr, "%s: %s %s (dirty=%v) (updated=%v)\n", pos, a, s, dirty, t.updated)
         }
 
         if optionTraceTraversal {
