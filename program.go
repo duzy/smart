@@ -56,7 +56,7 @@ func (prog *Program) auto(name string, value Value) (auto *Def, err error) {
         return
 }
 
-func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err error) {
+func (prog *Program) interpret(pos Position, t *traversal, i interpreter, params []Value) (err error) {
         if optionEnableBenchmarks {
                 s := fmt.Sprintf("Program.interpret(%s)", typeof(i))
                 defer bench(mark(s))
@@ -70,7 +70,7 @@ func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err
         if false { debug.PrintStack() }
 
         var value Value
-        if value, err = i.Evaluate(t, params); err == nil {
+        if value, err = i.Evaluate(pos, t, params...); err == nil {
                 if value != nil { t.def.buffer.setval(value) }
                 _, _, err = t.updateRecipesHash()
         }
@@ -95,7 +95,7 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
                 if name == "configure" && t.interpreted == nil {
                         // Evaluate for configure modifier
                         if i, ok := dialects["eval"]; ok && i != nil {
-                                if err = prog.interpret(t, i, v); err != nil {
+                                if err = prog.interpret(m.Position(), t, i, v); err != nil {
                                         return
                                 }
                         }
@@ -108,7 +108,7 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
                         }
                 }
         } else if i, _ := dialects[name]; i != nil {
-                err = prog.interpret(t, i, v)
+                err = prog.interpret(m.Position(), t, i, v)
         } else {
                 err = errorf(m.position, "unknown modifier '%s'", name)
         }
@@ -351,26 +351,18 @@ func (t *traversal) exec(prog *Program) (result Value, err error) {
         var pos = prog.position
 
         // Update normal prerequisites
-        if err = t.traverseNormalPrerequisites(pos); err != nil {
-                return
-        }
+        if err = t.traverseNormalPrerequisites(pos); err != nil { return }
 
         // Update order-only prerequisites
-        if err = t.traverseOrderOnlyPrerequisites(pos); err != nil {
-                return
-        }
+        if err = t.traverseOrderOnlyPrerequisites(pos); err != nil { return }
 
         // Update grapped files
-        if err = t.traverseGreppedFiles(pos); err != nil {
-                return
-        }
+        if err = t.traverseGreppedFiles(pos); err != nil { return }
 
         if len(t.interpreted) == 0 {
                 // Using the default statements interpreter.
                 if i, ok := dialects["eval"]; ok && i != nil {
-                        if err = prog.interpret(t, i, nil); err != nil {
-                                err = wrap(pos, err)
-                        }
+                        if err = prog.interpret(pos, t, i, nil); err != nil { err = wrap(pos, err) }
                 } else {
                         err = errorf(pos, "no default dialect")
                 }

@@ -13,7 +13,7 @@ import (
 )
 
 type XML struct { Value }
-func (p *XML) String() string { return "(json " + p.Value.String() + ")" }
+func (p *XML) String() string { return "(xml " + p.Value.String() + ")" }
 func (p *XML) cmp(v Value) (res cmpres) {
         if a, ok := v.(*XML); ok {
                 assert(ok, "value is not XML")
@@ -117,17 +117,14 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
         return
 }
 
-type xml struct {
-        whitespace bool
-}
-
-func (t *xml) Evaluate(pc *traversal, args []Value) (result Value, err error) {
+type xml struct { whitespace bool }
+func (p *xml) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(pc.program.recipes...); err != nil { return }
-        if result, err = DecodeXML(source, t.whitespace); err == nil {
+        if source, err = joinRecipesString(t.program.recipes...); err != nil { return }
+        if result, err = DecodeXML(source, p.whitespace); err == nil {
                 result = &XML{ result }
         } else {
-                result = &XML{ &None{trivial{pc.program.position}} }
+                result = &XML{ &None{trivial{t.program.position}} }
         }
         return
 }

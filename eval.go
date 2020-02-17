@@ -7,15 +7,13 @@
 package smart
 
 // evaluer evaluates smart statements
-type evaluer struct {
-        accumulation bool
-}
+type evaluer struct { accumulation bool }
 
-func (t *evaluer) Evaluate(pc *traversal, args []Value) (result Value, err error) {
+func (p *evaluer) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var list []Value
 ForRecipes:
-        for _, recipe := range pc.program.recipes {
-                if t.accumulation {
+        for _, recipe := range t.program.recipes {
+                if p.accumulation {
                         var v Value
                         // Expand both closures and delegates to ensure that
                         // the right recipe value is returned.
@@ -31,16 +29,16 @@ ForRecipes:
                         if stmt.Len() == 0 { continue ForRecipes }
 
                         var v = stmt.Get(0)
-                        switch t := v.(type) {
+                        switch tv := v.(type) {
                         case *undetermined:
                                 // Noop, just return v to the caller.
 
                         case Caller:
-                                v, err = t.Call(pc.program.position, stmt.Slice(1)...)
+                                v, err = tv.Call(t.program.position, stmt.Slice(1)...)
 
                         case Executer:
                                 var a []Value
-                                if a, err = t.Execute(pc.program.Position(), stmt.Slice(1)...); err == nil {
+                                if a, err = tv.Execute(t.program.Position(), stmt.Slice(1)...); err == nil {
                                         if n := len(a); n == 1 {
                                                 v = a[0]
                                         } else if n > 1 {
@@ -49,7 +47,7 @@ ForRecipes:
                                 }
 
                         default:
-                                v, err = t.expand(expandClosure)
+                                v, err = tv.expand(expandClosure)
                         }
 
                         if err != nil {
@@ -82,6 +80,6 @@ ForRecipes:
                         return
                 }
         }
-        result = MakeListOrScalar(pc.program.position, list)
+        result = MakeListOrScalar(t.program.position, list)
         return
 }

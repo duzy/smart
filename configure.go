@@ -1350,25 +1350,23 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                 }
 
                 configured, value, err = configureDo(pos, t, target, def, t.def.buffer, name, para)
-                if err != nil { err = wrap(pos, err); return } else
-                if configured {
-                        if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configured(%v %v)", def.origin,value))) }
-                        if value == nil { value = &Nil{trivial{a.Position()}} }
-                        if value == def || value.refs(def) {
-                                // Value is the Def, does nothing!
-                        } else if optAccumulate {
-                                err = def.append(value)
-                        } else {
-                                err = def.set(DefConfig, value)
-                        }
-                        if err == nil {
-                                // Marks done (needed for reconfiguring)!
-                                configuration.done[def] = true
-                        } else {
-                                err = wrap(pos, err)
-                                return
-                        }
+                if err != nil { err = wrap(pos, err); return } else if !configured {
+                        //err = errorf(pos, "%s not configured", name)
+                        return
                 }
+                if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configured(%v %v)", def.origin,value))) }
+                if value == nil { value = &Nil{trivial{a.Position()}} }
+                if value == def || value.refs(def) {
+                        // Value is the Def, does nothing!
+                } else if optAccumulate {
+                        err = def.append(value)
+                } else {
+                        err = def.set(DefConfig, value)
+                }
+                if false { fmt.Fprintf(stderr, "%s: %v: %s %v\n", pos, target, typeof(value), value) }
+                if err != nil { err = wrap(pos, err); return }
+                // Marks done (needed for reconfiguring)!
+                configuration.done[def] = true
         }
         if !configured && err == nil {
                 err = errorf(pos, "`%v` not configured", target)

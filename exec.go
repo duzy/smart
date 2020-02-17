@@ -450,7 +450,7 @@ func (p *executor) ensureContainerRunning(t *traversal, dock *Project, container
         return
 }
 
-func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error) {
+func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         if optionTraceExecutor {
                 var t = t.def.target.value
                 defer un(trace(t_exec, fmt.Sprintf("executor(%s %v)", typeof(t), t)))
@@ -664,11 +664,11 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
                 source, str string
                 sources []string
                 positions []Position
-                pos Position
+                rp Position
         )
         if recipes, err = mergeresult(ExpandAll(t.program.recipes...)); err != nil { return }
         for _, recipe := range recipes {
-                if !pos.IsValid() { pos = recipe.Position() }
+                if !rp.IsValid() { rp = recipe.Position() }
                 if str, err = recipe.Strval(); err != nil { return }
                 if source += str; strings.HasSuffix(source, "\\") {
                         source += "\n" // append the line feed
@@ -684,10 +684,10 @@ func (p *executor) Evaluate(t *traversal, args []Value) (result Value, err error
                 // Duplicates all %
                 //source = strings.Replace(source, "%", "%%", -1)
 
-                positions = append(positions, pos)
+                positions = append(positions, rp)
                 sources = append(sources, source)
                 source = ""
-                pos = Position{}
+                rp = Position{}
         }
 
         var envstr string

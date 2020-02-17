@@ -2834,6 +2834,24 @@ func (p *Group) cmp(v Value) (res cmpres) {
         return
 }
 
+func parseGroupValue(g *Group) (result Value) {
+        if len(g.Elems) == 0 { return g }
+        var word *Bareword
+        switch kind := g.Elems[0].(type) {
+        case *Bareword: word = kind
+        case *Group: if len(kind.Elems) > 0 {
+                word, _ = kind.Elems[0].(*Bareword)
+        }}
+        if word != nil {
+                switch word.string {
+                case "plain", "json", "yaml", "xml":
+                        result = &List{elements{g.Elems[1:]}}
+                }
+        }
+        if result == nil { result = g }
+        return
+}
+
 type Pair struct { // key=value
         trivial
         Key Value

@@ -2803,16 +2803,19 @@ func (scope *Scope) configExpand(pos Position, s string) string {
                 }
 
                 if def := scope.FindDef(name); def != nil {
-                        val, err := def.Call(pos)
-                        if err != nil {
-                                fmt.Fprintf(stderr, "%s: %v", pos, err)
-                        } else if val == nil {
-                                continue
-                        }
+                        var val, err = def.Call(pos)
+                        if false { fmt.Printf("%s: %v: %s %v\n", pos, name, typeof(val), val) }
+                        if err != nil { fmt.Fprintf(stderr, "%s: %v", pos, err) } else
+                        if isNil(val) || isNone(val) { continue }
                         switch t := val.(type) {
+                        case *Plain: fmt.Fprintf(res, "%s", t.Value)
                         case *answer, *boolean:
                                 if v, e := t.Integer(); e == nil {
                                         fmt.Fprintf(res, "%d", v)
+                                }
+                        case *Group:
+                                if v, e := parseGroupValue(t).Strval(); e == nil {
+                                        fmt.Fprintf(res, "%s", v)
                                 }
                         default:
                                 if v, e := val.Strval(); e == nil {
@@ -2821,9 +2824,7 @@ func (scope *Scope) configExpand(pos Position, s string) string {
                         }
                 }
         }
-        if index < len(s) {
-                fmt.Fprint(res, s[index:])
-        }
+        if index < len(s) { fmt.Fprint(res, s[index:]) }
         return res.String()
 }
 

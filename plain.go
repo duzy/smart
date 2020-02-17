@@ -21,7 +21,7 @@ func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Plain) True() (bool, error) { return strings.TrimSpace(p.Value) != "", nil }
 func (p *Plain) String() (s string) {
         if p.Name == "" {
-                s = fmt.Sprintf("((plain) %s)", p.Value)
+                s = fmt.Sprintf("(plain %s)", p.Value)
         } else {
                 s = fmt.Sprintf("((plain %s) %s)", p.Name, p.Value)
         }
@@ -42,13 +42,13 @@ func (p *Plain) cmp(v Value) (res cmpres) {
 
 type plain struct {}
 
-func (t *plain) Evaluate(pc *traversal, args []Value) (result Value, err error) {
+func (_ *plain) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var str, name string
         if len(args) > 0 {
                 if name, err = args[0].Strval(); err != nil { return }
         }
-        if str, err = joinRecipesString(pc.program.recipes...); err != nil { return }
+        if str, err = joinRecipesString(t.program.recipes...); err != nil { return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{trivial{pc.program.position},name,str}
+        result = &Plain{trivial{t.program.position},name,str}
         return
 }

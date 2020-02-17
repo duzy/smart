@@ -14,7 +14,7 @@ import (
 )
 
 type YAML struct { Value }
-func (p *YAML) String() string { return "(json " + p.Value.String() + ")" }
+func (p *YAML) String() string { return "(yaml " + p.Value.String() + ")" }
 func (p *YAML) cmp(v Value) (res cmpres) {
         if a, ok := v.(*YAML); ok {
                 assert(ok, "value is not YAML")
@@ -28,17 +28,14 @@ func DecodeYAML(source string, ws bool) (result Value, err error) {
         return 
 }
 
-type yaml struct {
-        whitespace bool
-}
-
-func (t *yaml) Evaluate(pc *traversal, args []Value) (result Value, err error) {
+type yaml struct { whitespace bool }
+func (p *yaml) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(pc.program.recipes...); err != nil { return }
-        if result, err = DecodeYAML(source, t.whitespace); err == nil {
+        if source, err = joinRecipesString(t.program.recipes...); err != nil { return }
+        if result, err = DecodeYAML(source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
-                result = &YAML{ &None{trivial{pc.program.position}} }
+                result = &YAML{ &None{trivial{t.program.position}} }
         }
         return
 }
