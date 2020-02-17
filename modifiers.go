@@ -1399,7 +1399,7 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                 return
         }
         if files, cached := grepcache[gc.targetFileName]; cached {
-                fmt.Fprintf(stderr, "grep: %v\n", files)
+                if gc.debug { fmt.Fprintf(stderr, "%s: grepcache: %v\n", pos, files) }
                 t.grepped = append(t.grepped, files...)
                 return
         }

@@ -20,10 +20,11 @@ type Plain struct {
 func (p *Plain) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *Plain) True() (bool, error) { return strings.TrimSpace(p.Value) != "", nil }
 func (p *Plain) String() (s string) {
+        var value = strings.Replace(p.Value, "'", "\\'", -1)
         if p.Name == "" {
-                s = fmt.Sprintf("(plain %s)", p.Value)
+                s = fmt.Sprintf("(plain '%s')", value)
         } else {
-                s = fmt.Sprintf("((plain %s) %s)", p.Name, p.Value)
+                s = fmt.Sprintf("((plain %s) '%s')", p.Name, value)
         }
         return
 }
@@ -49,6 +50,6 @@ func (_ *plain) Evaluate(pos Position, t *traversal, args ...Value) (result Valu
         }
         if str, err = joinRecipesString(t.program.recipes...); err != nil { return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
-        result = &Plain{trivial{t.program.position},name,str}
+        result = &Plain{trivial{pos},name,str}
         return
 }
