@@ -232,11 +232,9 @@ func (g *modifiergroup) handle(t *traversal, e error) (done bool, err error) {
         }
 
         for _, e := range brks {
-                // Save all breakers for (dirty) and interpreters.
-                t.breakers = append(t.breakers, e)
-                if e.what == breakCase {
-                        continue // case selected
-                } else if e.what == breakDone && e.scope == breakGroup {
+                t.breakers = append(t.breakers, e) // for (dirty) and interpreters.
+                if e.what == breakCase { continue /* case selected */ }
+                if e.what == breakDone && e.scope == breakGroup {
                         done = true
                 } else {
                         // return the breakers
@@ -1974,9 +1972,8 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 optMode = os.FileMode(0640) // sys default 0666
                 filename, content string
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "d,debug",
                 "p,path",
                 "v,verbose",
@@ -2030,6 +2027,9 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
 
         // Check existed file content checksum
         if content, err = t.def.buffer.value.Strval(); err != nil { return }
+        if content == "" && (optVerbose || optDebug) {
+                fmt.Fprintf(stderr, "%s: empty content\n", pos)
+        }
 
         var f *os.File
         if f, err = os.Open(filename); err == nil && f != nil {

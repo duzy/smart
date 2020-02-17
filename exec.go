@@ -42,6 +42,7 @@ const (
         rxArNoSuchFile_i
         rxBashNoSuchFile_i
         rxClangNoSuchFile_i
+        rxClangError_i
 )
 var (
         defaultShell = "bash"
@@ -57,6 +58,7 @@ var (
         errArNoSuchFile = `ar: (.+?): No such file or directory`
         errBashNoSuchFile = `bash: (.+?): No such file or directory`
         errClangNoSuchFile = `clang-(.+?): error: no such file or directory: '(.+?)'`
+        errClangError = `clang-(.+?): error: (.+?)`
 
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
@@ -68,6 +70,7 @@ var (
         rxArNoSuchFile = regexp.MustCompile(errArNoSuchFile)
         rxBashNoSuchFile = regexp.MustCompile(errBashNoSuchFile)
         rxClangNoSuchFile = regexp.MustCompile(errClangNoSuchFile)
+        rxClangError = regexp.MustCompile(errClangError)
 
         knownerrors = []*regexp.Regexp{
                 rxNotTTYDevice_i:        rxNotTTYDevice,
@@ -79,6 +82,7 @@ var (
                 rxArNoSuchFile_i:        rxArNoSuchFile,
                 rxBashNoSuchFile_i:      rxBashNoSuchFile,
                 rxClangNoSuchFile_i:     rxClangNoSuchFile,
+                rxClangError_i:          rxClangError,
                 rxContainerNotRunning_i: rxContainerNotRunning,
         }
 
@@ -303,6 +307,8 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
                         err = fmt.Errorf("%v: no such command", string(v[1]))
                 case rxClangNoSuchFile_i:
                         err = fmt.Errorf("clang-%s: no such source file: %s", string(v[1]), string(v[2]))
+                case rxClangError_i:
+                        err = fmt.Errorf("clang-%s: %s", string(v[1]), string(v[2]))
                 }
                 if err != nil { break }
         }

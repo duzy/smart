@@ -1745,11 +1745,10 @@ SwitchDialect:
 
         default:
                 p.next() // skip RECIPE or SEMICOLON and parse in line-string mode
-                for !p.isEndOfLine() {
-                        elems = append(elems, p.parseExpr(false))
-                }
+                for !p.isEndOfLine() { elems = append(elems, p.parseExpr(false)) }
         }
         if p.tok != token.EOF { p.expectLinend() }
+        if len(elems) > 0 { pos = elems[0].Pos() }
         return &ast.RecipeExpr{
                 Dialect: p.dialect,
                 Doc:     doc,

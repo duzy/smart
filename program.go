@@ -62,10 +62,12 @@ func (prog *Program) interpret(t *traversal, i interpreter, params []Value) (err
                 defer bench(mark(s))
         }
 
-        if len(t.breakers) > 0 { return }
-        if err = t.wait(prog.position); err != nil {
-                return
-        } else if false { debug.PrintStack() }
+        for _, e := range t.breakers {
+                if e.what != breakCase { return }
+        }
+
+        if err = t.wait(prog.position); err != nil { return } else
+        if false { debug.PrintStack() }
 
         var value Value
         if value, err = i.Evaluate(t, params); err == nil {
@@ -83,11 +85,8 @@ func (prog *Program) modify(t *traversal, m *modifier) (err error) {
         //       [ foo.baaaar ]
         var name string
         var v []Value
-        if v, err = mergeresult(ExpandAll(m.name)); err != nil {
-                return
-        } else if name, err = v[0].Strval(); err != nil {
-                return
-        } else {
+        if v, err = mergeresult(ExpandAll(m.name)); err != nil { return } else
+        if name, err = v[0].Strval(); err != nil { return } else {
                 v = append(v[1:], m.args...)
         }
 
