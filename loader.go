@@ -646,7 +646,7 @@ func (l *loader) exprArgumented(x *ast.ArgumentedExpr) Value {
         }
 }
 
-func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Object) {
+func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Value) {
         if name = l.expr(x.Name); name == nil {
                 l.error(x.Name.Pos(), "invalid name `%T`", x.Name)
                 return
@@ -679,14 +679,13 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                 return
         }
 
-        var ( resolved Object; err error )
-        if x.Resolved != nil { resolved = x.Resolved.(Object) }
-
-        s, err := name.Strval()
-        if err != nil { l.error(x.Name.Pos(), err); return }
+        var ( resolved Value; err error )
+        if x.Resolved != nil { resolved = x.Resolved.(Value) }
 
         switch tok {
         case token.LCOLON:
+                s, err := name.Strval()
+                if err != nil { l.error(x.Name.Pos(), err); return }
                 switch s {
                 //case "arch": obj = context.globe.arch
                 case "os": obj = context.globe.os.self
@@ -705,15 +704,24 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                                 return
                         }
                 }
+                /*if s := typeof(name); s == "selection" {
+                        var pos = Position(l.parser.file.Position(x.Pos()))
+                        fmt.Fprintf(stderr, "%s: %s %v %v\n", pos, s, name, resolved)
+                }*/
                 if resolved != nil {
-                        if def, _ := resolved.(Caller); def == nil {
-                                l.error(x.Name.Pos(), "uncallable `%s` resolved `%T`", name, resolved)
+                        if sel, ok := resolved.(*selection); ok {
+                                obj = sel
+                        } else if def, _ := resolved.(Caller); def == nil {
+                                l.error(x.Name.Pos(), "uncallable `%s` (%s) resolved", name, typeof(resolved))
                                 return
                         } else if obj = def.(Object); obj == nil {
                                 l.error(x.Name.Pos(), "non-object callable `%s` resolved `%T`", name, def)
                                 return
                         }
                 } else if l.isIncludingConf {
+                        s, err := name.Strval()
+                        if err != nil { l.error(x.Name.Pos(), err); return }
+
                         // Create an empty Def if it's referred in
                         // configuration.sm.
                         def, _ := l.def(x.Name.Pos(), s)
@@ -748,10 +756,12 @@ func (l *loader) exprClosureDelegate(x *ast.ClosureDelegate) (name Value, obj Ob
                                 //resolved = unresolved(l.project, name)
                         }
                 }
-                obj = resolved
+                obj = resolved//.(Object)
         }
         if obj == nil && l.project.plugin != nil {
                 if l.project.pluginScope != nil {
+                        s, err := name.Strval()
+                        if err != nil { l.error(x.Name.Pos(), err); return }
                         obj = l.project.pluginScope.Lookup(s)
                 }
         }
@@ -1890,22 +1900,19 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
         return ls, nil
 }
 
-func (l *loader) resolve(value Value) (obj Object, err error) {
+func (l *loader) resolve(value Value) (obj Value, err error) {
         if sel, ok := value.(*selection); ok {
-                if value, err = sel.value(); err == nil {
+                /*if value, err = sel.value(); err == nil {
                         obj, ok = value.(Object)
-                }
+                }*/
+                obj = sel
                 return
         }
 
         var name string
-        if name, err = value.Strval(); err != nil {
-                return
-        }
+        if name, err = value.Strval(); err != nil { return }
 
-        if l.scope != nil {
-                _, obj = l.scope.Find(name)
-        }
+        if l.scope != nil { _, obj = l.scope.Find(name) }
         if obj == nil && l.project != nil {
                 obj, err = l.project.resolveObject(name)
         }
@@ -2049,35 +2056,32 @@ func (l *loader) ParseFile(filename string, src interface{}, mode Mode) (f *ast.
 
 	l.tracing.enabled = l.tracemode&Trace != 0 // for convenience (l.trace is used frequently)
 	defer func(saved *parser) {
-                var e = recover()
-		for e != nil {
-			// resume same panic if it's not a bailout
-			switch failure := e.(type) {
-                        case bailout: e = nil // Good!
-                        default:
-                                if l.parser != nil && l.parser.file != nil {
-                                        position := l.parser.file.Position(l.pos)
-                                        fmt.Fprintf(stderr, "%s: parse failure (%T)\n", position, failure)
-                                } else {
-                                        fmt.Fprintf(stderr, "%s: run failure (%T)\n", filename, failure)
-                                }
-                                if _, ok := e.(*scanner.Error); ok {
-                                        fmt.Fprintf(stderr, "%s\n", e)
-                                } else {
-                                        fmt.Fprintf(stderr, "%s: failure: %v\n", filename, failure)
-                                }
-                                if optionPrintStack { debug.PrintStack() }
-                                if e = recover(); e != nil {
-                                        fmt.Fprintf(stderr, "\n--------\n")
-                                }
-			}
+		for e := recover(); e != nil; e = recover() {
+                        if _, ok := e.(bailout); ok { continue }
+
+                        var pos Position
+                        if l.parser != nil && l.parser.file != nil {
+                                pos = Position(l.parser.file.Position(l.pos))
+                        } else {
+                                pos.Filename = filename
+                        }
+
+                        var er, ok = e.(error)
+                        if !ok { er = fmt.Errorf("%v", e) }
+                        err = wrap(pos, er, err)
 		}
+                if err != nil && optionPrintStack {
+                        fmt.Fprintf(stderr, "%v\n", err)
+                        debug.PrintStack()
+                }
 
                 if len(l.errors) > 0 {
-                        var e = new(scanner.Error)
-                        e.Pos = l.parser.file.Position(l.pos)
-                        for _, p := range l.errors { e.Merge(p) }
-                        err = e
+                        // var e = new(scanner.Error)
+                        // e.Pos = l.parser.file.Position(l.pos)
+                        // for _, p := range l.errors { e.Merge(p) }
+                        // err = e
+                        var p = Position(l.parser.file.Position(l.pos))
+                        for _, e := range l.errors { err = wrap(p, e, err) }
                 }
 
                 l.parser.loader = nil
@@ -2204,8 +2208,7 @@ func (l *loader) ParseDir(path string, filter func(os.FileInfo) bool, mode Mode)
         defer l.closeScope(ls)
 
 	mods = make(map[string]*ast.Project)
-ListLoop:
-        for _, d := range list {
+        ListLoop: for _, d := range list {
                 var (
                         filename, mo = filepath.Join(path, d.Name()), d.Mode()
                         linked, linkPath = "", path
@@ -2246,8 +2249,17 @@ ListLoop:
 
 		if mo.IsRegular() && (filter == nil || filter(d)) {
 			if src, err := l.ParseFile(filename, nil, mode|parsingDir); err == nil {
-                                if src.Name == nil {
-                                        first = fmt.Errorf("module '%v' has no name", filename)
+                                var pos Position
+                                if l.parser != nil && l.parser.file != nil {
+                                        pos = Position(l.parser.file.Position(l.pos))
+                                } else {
+                                        pos.Filename = filename
+                                }
+                                if src == nil {
+                                        first = errorf(pos, "'%v' not loaded", filename)
+                                        return
+                                } else if src.Name == nil {
+                                        first = errorf(pos, "module '%v' has no name", filename)
                                         return
                                 }
 

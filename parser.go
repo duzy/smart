@@ -1035,7 +1035,7 @@ func (p *parser) parseClosureDelegate() ast.Expr {
                 name   ast.Expr
                 rest   []ast.Expr
                 tokLp  token.Token
-                resolved Object
+                resolved Value // Object or *selection
         )
         switch p.next(); p.tok {
         case token.LPAREN, token.LBRACE, token.LCOLON: // $(...), ${...}, $:...:

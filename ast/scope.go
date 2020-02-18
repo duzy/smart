@@ -14,5 +14,5 @@ type Scope interface {
 }
 
 type Symbol interface {
-        Name() string
+        //Name() string
 }

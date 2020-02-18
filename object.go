@@ -162,9 +162,7 @@ func (p *ProjectName) String() string {
 }
 
 func (p *ProjectName) Get(name string) (value Value, err error) {
-        if p.project != nil {
-                value, err = p.project.resolveObject(name)
-        }
+        if p.project != nil { value, err = p.project.resolveObject(name) }
         return
 }
 
@@ -342,9 +340,7 @@ func (d *Def) String() (s string) {
         return
 }
 func (d *Def) Strval() (s string, e error) {
-        if d.value != nil {
-                s, e = d.value.Strval()
-        }
+        if d.value != nil { s, e = d.value.Strval() }
         return
 }
 

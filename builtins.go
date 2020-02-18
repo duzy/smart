@@ -287,7 +287,7 @@ func typeof(arg interface{}) (s string) {
                 if n := len(a.Elems); n == 1 {
                         switch v := a.Elems[0].(type) {
                         case *delegate: // FIXME: recursively undelegate types
-                                if d, _ := v.o.(*Def); d != nil {
+                                if d, _ := v.x.(*Def); d != nil {
                                         s = fmt.Sprintf("%T", d.value) //s = d.value.Type().String()
                                         s = strings.ReplaceAll(strings.TrimPrefix(s, "*"), "smart.", "")
                                 } else {

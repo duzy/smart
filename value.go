@@ -2914,7 +2914,7 @@ func (p *Pair) cmp(v Value) (res cmpres) {
 
 type closuredelegate struct {
         l token.Token
-        o Object
+        x Value
         a []Value
 }
 func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source representation
@@ -2922,9 +2922,16 @@ func (p *closuredelegate) string(o Object, k elemkind) (s string) { // source re
                 if i == 0 { s = " " } else { s += "," }
                 s += elementString(o, a, k)
         }
-        switch name := p.o.Name(); p.l {
+
+        var name string
+        switch x := p.x.(type) {
+        case *selection: name = x.String()
+        case Object: name = x.Name()
+        }
+
+        switch p.l {
         case token.LCOLON:
-                if p.o == context.globe.os.self {
+                if p.x == context.globe.os.self {
                         s = ":os:"
                 } else {
                         s = fmt.Sprintf(":%s%s:", name, s)
@@ -2974,16 +2981,12 @@ func (p *delegate) Float() (float64, error) { if v, e := p.expand(expandDelegate
 func (p *delegate) expand(w expandwhat) (res Value, err error) {
         switch {
         case w&expandClosure != 0:
-                if res, err = p.disclose(); err != nil {
-                        return
-                }
+                if res, err = p.disclose(); err != nil { return }
                 if res != nil && w&expandDelegate != 0 {
                         res, err = res.expand(expandDelegate)
                 }
         case w&expandDelegate != 0:
-                if res, err = p.reveal(); err != nil {
-                        return
-                }
+                if res, err = p.reveal(); err != nil { return }
                 if res != nil && w&expandClosure != 0 {
                         res, err = res.expand(expandClosure)
                 }
@@ -2992,25 +2995,66 @@ func (p *delegate) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *delegate) reveal() (res Value, err error) {
+        if isNil(p.x) { return nil, nil }
+
+        var selected bool
+        var o Object
+        switch t := p.x.(type) {
+        case Object: o = t
+        case *selection:
+                if n, ok := t.o.(*ProjectName); ok {
+                        defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
+                        if optionPrintStack && false {
+                                fmt.Fprintf(stderr, "%s: %v %v\n", p.position, t, cloctx)
+                                debug.PrintStack()
+                        }
+                }
+
+                var ( v Value; ok bool )
+                if v, err = t.value(); err != nil {
+                        err = wrap(p.position, err)
+                        return
+                } else if o, ok = v.(Object); !ok {
+                        // Does nothing!
+                        return
+                }
+
+                selected = true
+        }
+
         var args []Value
         if args, _, err = expandall(expandClosure, p.a...); err != nil {
                 return
         }
 
-        switch o := p.o.(type) {
-        default: err = fmt.Errorf("%T '%v' is unknown delegation", o, o)
+        switch x := o.(type) {
+        default: err = fmt.Errorf("%T '%v' is unknown delegation", x, x)
         case Caller:
-                if res, err = o.Call(p.Position(), args...); err != nil {
-                        if p.o.Name() != "error" {
-                                err = wrap(p.Position(), err)
+                if res, err = x.Call(p.position, args...); err != nil {
+                        if o, ok := x.(Object); ok && o.Name() != "error" {
+                                err = wrap(p.position, err)
                         } else {
                                 return
                         }
+                } else if selected && res != nil {
+                        var v Value
+                        if v, err = res.expand(expandClosure); err != nil { 
+                                err = wrap(p.position, err)
+                                return
+                        } else if v != nil && v != res {
+                                res = v
+                        }
+
+                        if optionPrintStack && false {
+                                s, _ := o.Strval()
+                                fmt.Fprintf(stderr, "%s: %v %v %v\n", p.position, o, s, res)
+                                debug.PrintStack()
+                        }
                 }
         case Executer:
-                if args, err = o.Execute(p.Position(), args...); err != nil {
-                        if p.o.Name() != "error" {
-                                err = wrap(p.Position(), err)
+                if args, err = x.Execute(p.position, args...); err != nil {
+                        if o, ok := x.(Object); ok && o.Name() != "error" {
+                                err = wrap(p.position, err)
                         } else {
                                 return
                         }
@@ -3019,24 +3063,13 @@ func (p *delegate) reveal() (res Value, err error) {
                 }
         }
 
-        if err != nil {
-                //fmt.Fprintf(stderr, "%v: %v\n", p.p, err)
-        } else if res == nil {
-                res = &None{trivial{p.Position()}}
-        }
+        if err == nil && res == nil { res = &None{trivial{p.position}} }
         return
 }
 func (p *delegate) disclose() (res Value, err error) {
-        var ( o = p.o; v Value; changed bool )
-        if v, err = o.expand(expandClosure); err != nil { return }
-        if v != nil {
-                if o, _ = v.(Object); o != nil {
-                        changed = true
-                } else {
-                        err = fmt.Errorf("invalid delegate %v", v)
-                        return
-                }
-        }
+        var ( x = p.x; v Value; changed bool )
+        if v, err = x.expand(expandClosure); err != nil { return }
+        if v != nil && v != x { changed, x = true, v }
 
         var args []Value
         for _, a := range p.a {
@@ -3046,7 +3079,7 @@ func (p *delegate) disclose() (res Value, err error) {
         }
         if err == nil {
                 if changed {
-                        res = &delegate{p.trivial,closuredelegate{p.l,o,args}}
+                        res = &delegate{p.trivial,closuredelegate{p.l,x,args}}
                 } else {
                         res = p
                 }
@@ -3054,25 +3087,21 @@ func (p *delegate) disclose() (res Value, err error) {
         return
 }
 func (p *delegate) refs(v Value) bool {
-        if p.o == v || p.o.refs(v) {
-                return true
-        }
+        if p.x == v || p.x.refs(v) { return true }
         for _, a := range p.a {
-                if a.refs(v) {
-                        return true
-                }
+                if a.refs(v) { return true }
         }
         return false
 }
 func (p *delegate) closured() bool {
-        if p.o.closured() { return true }
+        if p.x.closured() { return true }
         for _, a := range p.a {
                 if a.closured() { return true }
         }
         return false
 }
 func (p *delegate) refdef(origin DefOrigin) (res bool) {
-        if d, ok := p.o.(*Def); ok { res = d.origin == origin }
+        if d, ok := p.x.(*Def); ok { res = d.origin == origin }
         return
 }
 func (p *delegate) traverse(t *traversal) (err error) {
@@ -3093,15 +3122,13 @@ func (p *delegate) mod(t *traversal) (res time.Time, err error) {
 func (p *delegate) cmp(v Value) (res cmpres) {
         if a, ok := v.(*delegate); ok {
                 // FIXME: compare the expanded value instead??
-                if p.o.cmp(a.o) == cmpEqual && len(p.a) == len(a.a) {
+                if p.x.cmp(a.x) == cmpEqual && len(p.a) == len(a.a) {
                         for i, t := range p.a {
-                                if t.cmp(a.a[i]) != cmpEqual {
-                                        return
-                                }
+                                if t.cmp(a.a[i]) != cmpEqual { return }
                         }
                         res = cmpEqual
                 }
-        } else if d, ok := p.o.(*Def); ok && len(p.a) == 0 {
+        } else if d, ok := p.x.(*Def); ok && len(p.a) == 0 {
                 res = d.value.cmp(v)
         }
         return
@@ -3148,16 +3175,12 @@ func (p *closure) Strval() (s string, err error) {
 func (p *closure) expand(w expandwhat) (res Value, err error) {
         switch {
         case w&expandClosure != 0:
-                if res, err = p.disclose(); err != nil {
-                        return
-                }
+                if res, err = p.disclose(); err != nil { return }
                 if res != nil && w&expandDelegate != 0 {
                         res, err = res.expand(expandDelegate)
                 }
         case w&expandDelegate != 0:
-                if res, err = p.reveal(); err != nil {
-                        return
-                }
+                if res, err = p.reveal(); err != nil { return }
                 if res != nil && w&expandClosure != 0 {
                         res, err = res.expand(expandClosure)
                 }
@@ -3166,16 +3189,11 @@ func (p *closure) expand(w expandwhat) (res Value, err error) {
         return
 }
 func (p *closure) reveal() (res Value, err error) {
-        if p.o == nil { return }
+        if p.x == nil { return }
 
-        var ( t Value; o Object )
-        if t, err = p.o.expand(expandDelegate); err != nil { return }
-        if t != nil {
-                if o, _ = t.(Object); o == nil {
-                        err = fmt.Errorf("closure.reveal: %T '%s' is not object", t, t)
-                        return
-                }
-        }
+        var ( t Value; x = p.x )
+        if t, err = p.x.expand(expandDelegate); err != nil { return }
+        if t != nil && t != x { x = t }
         
         var ( a []Value; num int )
         for _, v := range p.a {
@@ -3184,74 +3202,104 @@ func (p *closure) reveal() (res Value, err error) {
                 a = append(a, t)
         }
 
-        if o != nil || num > 1 {
-                res = &closure{p.trivial,closuredelegate{p.l,o,a}}
+        if x != nil || num > 1 {
+                res = &closure{p.trivial,closuredelegate{p.l,x,a}}
         }
         return
 }
 func (p *closure) disclose() (res Value, err error) {
-        if p.o == nil { return nil, nil }
+        if isNil(p.x) { return nil, nil }
+        
+        var o Object
+        switch t := p.x.(type) {
+        case Object: o = t
+        case *selection:
+                if n, ok := t.o.(*ProjectName); ok {
+                        defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
+                        if optionPrintStack && false {
+                                fmt.Fprintf(stderr, "%s: %v %v\n", p.position, t, cloctx)
+                                debug.PrintStack()
+                        }
+                }
 
-        var ( o Object; v Value; changed bool )
-        SeeL: switch name := p.o.Name(); p.l {
+                var ( v Value; ok bool )
+                if v, err = t.value(); err != nil {
+                        err = wrap(p.position, err)
+                        return
+                } else if o, ok = v.(Object); !ok {
+                        // Does nothing!
+                        return
+                }
+        }
+
+        var changed bool
+        var name = o.Name()
+        ClosureTok: switch p.l {
         case token.LPAREN, token.ILLEGAL:
                 for _, scope := range cloctx {
+                        var s Object
                         if scope.project == nil {
-                                if _, o = scope.Find(name); o != nil {
-                                        changed = true; break SeeL
+                                if _, s = scope.Find(name); !isNil(s) {
+                                        o, changed = s, true
+                                        break ClosureTok
                                 }
                                 continue
                         }
                         if scope != scope.project.scope {
                                 // inquire non-project scope first
-                                if _, o = scope.Find(name); o != nil {
-                                        changed = true; break SeeL
+                                if _, s = scope.Find(name); !isNil(s) {
+                                        o, changed = s, true
+                                        break ClosureTok
                                 }
                         }
-                        if o, err = scope.project.resolveObject(name); err != nil {
-                                return
-                        } else if o != nil {
-                                changed = true; break SeeL
-                        }
+                        if s, err = scope.project.resolveObject(name); err != nil { return }
+                        if !isNil(s) { o, changed = s, true; break ClosureTok }
                 }
         case token.LBRACE, token.STRING, token.COMPOUND:
                 for _, scope := range cloctx {
-                        if o, err = scope.project.resolveEntry(name); err != nil {
-                                return
-                        } else if o != nil {
+                        var s Object
+                        if s, err = scope.project.resolveEntry(name); err != nil { return }
+                        if !isNil(s) {
                                 if p.l == token.LBRACE {
-                                        changed = true; break SeeL
-                                } else {
-                                        // &'xxx' and &"xxx" are resolving
-                                        // objects in the closure context.
-                                        res = o; return
+                                        o, changed = s, true
+                                        break ClosureTok
                                 }
+                                
+                                // &'xxx' and &"xxx" are resolving
+                                // objects in the closure context.
+                                res = s; return
                         }
                 }
         default:
                 err = errorf(p.position, "unknown closure `&%+v%+v`", p.l, name)
                 return
         }
-        if isNil(o) { o = p.o } // assert changed == false
 
-        // Disclose the object, which may contain closures.
-        if v, err = o.expand(expandClosure); err != nil {
+        var v Value
+        if isNil(o) {
+                err = errorf(p.position, "'%s' is nil (%T %v)", name, p.x, p.x)
+                if optionPrintStack {
+                        fmt.Fprintf(stderr, "%v\n%v\n", err, cloctx)
+                        debug.PrintStack()
+                }
+                return
+        } else if v, err = o.expand(expandClosure); err != nil {
                 err = wrap(p.position, err)
                 return
-        } else if v != nil {
-                var ok bool
-                if o, ok = v.(Object); ok && o != nil {
-                        changed = true
-                } else {
-                        err = fmt.Errorf("invalid closure %+v", v)
+        } else if !isNil(v) {
+                var ( s Object; ok bool )
+                if s, ok = v.(Object); !ok || isNil(s) {
+                        err = errorf(p.position, "invalid closure %+v", v)
                         return
                 }
+
+                o, changed = s, true
         }
 
         var args []Value
         for _, a := range p.a {
                 if v, err = a.expand(expandClosure); err != nil { return }
-                if v != nil { a, changed = v, true }
+                if !isNil(v) { a, changed = v, true }
                 args = append(args, a)
         }
 
@@ -3261,24 +3309,18 @@ func (p *closure) disclose() (res Value, err error) {
         return
 }
 func (p *closure) refs(v Value) bool {
-        if p.o == v {
-                return true
-        }
-        for _, a := range p.a {
-                if a.refs(v) {
-                        return true
-                }
-        }
+        if p.x == v { return true }
+        for _, a := range p.a { if a.refs(v) { return true }}
         return false
 }
 func (p *closure) closured() bool { return true }
 func (p *closure) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if v, e := p.expand(expandClosure); e != nil {
-                err = e
-        } else if v == nil {
-                err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
-                fmt.Fprintf(stderr, "%s: closure.prepare: %v\n", p.Position(), err)
+        if v, e := p.expand(expandClosure); e != nil { err = e } else
+        if v == nil {
+                //err = fmt.Errorf("undefined closure target `%v`", p.o.Name())
+                //fmt.Fprintf(stderr, "%s: closure.prepare: %v\n", p.position, err)
+                err = errorf(p.position, "invalid closure (%v)", p.x)
         } else {
                 err = t.dispatch(v)
         }
@@ -3294,11 +3336,9 @@ func (p *closure) mod(t *traversal) (res time.Time, err error) {
 func (p *closure) cmp(v Value) (res cmpres) {
         if a, ok := v.(*closure); ok {
                 // FIXME: compare the expanded value instead??
-                if p.o.cmp(a.o) == cmpEqual && len(p.a) == len(a.a) {
+                if p.x.cmp(a.x) == cmpEqual && len(p.a) == len(a.a) {
                         for i, t := range p.a {
-                                if t.cmp(a.a[i]) != cmpEqual {
-                                        return
-                                }
+                                if t.cmp(a.a[i]) != cmpEqual { return }
                         }
                         res = cmpEqual
                 }
@@ -3345,17 +3385,17 @@ func (p *selection) object() (o Object, err error) {
                 if v, err = s.value(); err != nil {
                         // sth's wrong!
                 } else if o, _ = v.(Object); o == nil {
-                        err = fmt.Errorf("selection.object: `%s` is nil", s.String())
+                        err = errorf(p.position, "selection.object: `%s` is nil", s.String())
                 }
         } else if o, ok = p.o.(Object); !ok {
-                err = fmt.Errorf("selection.object: %T '%v' is not object", p.o, p.o)
+                err = errorf(p.position, "selection.object: %T '%v' is not object", p.o, p.o)
         }
         return
 }
 func (p *selection) value() (v Value, err error) {
         var o Object
         if p.s == nil {
-                err = fmt.Errorf("selection.value: nil prop `%s`", p.String())
+                err = errorf(p.position, "selection.value: nil prop `%s`", p.String())
         } else if o, err = p.object(); err != nil {
                 // sth's wrong!
         } else if s := ""; o != nil {
@@ -3365,7 +3405,7 @@ func (p *selection) value() (v Value, err error) {
                                 if entry, err = pn.project.resolveEntry(s); err != nil {
                                         return
                                 } else if entry == nil {
-                                        err = fmt.Errorf("selection.value: no entry `%s` (%+v)", s, p.String())
+                                        err = errorf(p.position, "selection.value: no entry `%s` (%+v)", s, p.String())
                                 } else {
                                         v = entry
                                 }
@@ -3374,18 +3414,30 @@ func (p *selection) value() (v Value, err error) {
                         }
                 }
         } else /*if o == nil*/ {
-                err = fmt.Errorf("selection.value: nil object `%s`", p.String())
+                err = errorf(p.position, "selection.value: nil object `%s`", p.String())
         }
         return
 }
 func (p *selection) Strval() (s string, err error) {
+        if n, ok := p.o.(*ProjectName); ok && n != nil {
+                defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
+                if optionPrintStack && false {
+                        fmt.Fprintf(stderr, "%s: %v %v\n", p.position, p, cloctx)
+                        debug.PrintStack()
+                }
+        }
+
         var v Value
         if v, err = p.value(); err != nil {
-                // sth's wrong
+                err = wrap(p.position, err)
         } else if v != nil {
-                s, err = v.Strval()
+                if s, err = v.Strval(); err != nil { err = wrap(p.position, err) }
+                if optionPrintStack {
+                        fmt.Fprintf(stderr, "%s: %v → %v\n", p.position, v, s)
+                        debug.PrintStack()
+                }
         } else if false {
-                err = fmt.Errorf("selection.strval: `%s` is nil", p.String())
+                err = errorf(p.position, "selection.strval: `%s` is nil", p.String())
         }
         return
 }
@@ -3406,16 +3458,21 @@ func (p *selection) Float() (float64, error) {
 func (p *selection) refs(v Value) bool { return p.o.refs(v) || p.s.refs(v) }
 func (p *selection) closured() bool { return p.o.closured() || p.s.closured() }
 func (p *selection) expand(w expandwhat) (res Value, err error) {
+        /*if n, ok := p.o.(*ProjectName); ok && n != nil {
+                defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
+                if optionPrintStack {
+                        //fmt.Fprintf(stderr, "%s: %v %v\n", p.position, p, cloctx)
+                        //debug.PrintStack()
+                }
+        }*/
         var o, s Value
         if p.o != nil {
-                if o, err = p.o.expand(w); err != nil {
-                        return
-                } else if o == nil { o = p.o }
+                if o, err = p.o.expand(w); err != nil { return } else
+                if o == nil { o = p.o }
         }
         if p.s != nil {
-                if s, err = p.s.expand(w); err != nil {
-                        return
-                } else if s == nil { s = p.s }
+                if s, err = p.s.expand(w); err != nil { return } else
+                if s == nil { s = p.s }
         }
         if o != p.o || s != p.s {
                 res = &selection{p.trivial,p.t,o,s}
@@ -4008,10 +4065,10 @@ func MakePercPattern(pos Position, prefix, suffix Value) Pattern {
 func MakeGlobPattern(pos Position, components... Value) Pattern {
         return &GlobPattern{trivial:trivial{pos},Components:components}
 }
-func MakeDelegate(pos Position, tok token.Token, obj Object, args... Value) Value {
+func MakeDelegate(pos Position, tok token.Token, obj Value, args... Value) Value {
         return &delegate{trivial{pos},closuredelegate{tok,obj,args}}
 }
-func MakeClosure(pos Position, tok token.Token, obj Object, args... Value) Value {
+func MakeClosure(pos Position, tok token.Token, obj Value, args... Value) Value {
         if obj == nil { panic("closure of nil") }
         return &closure{trivial{pos},closuredelegate{tok,obj,args}}
 }
