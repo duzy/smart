@@ -58,7 +58,7 @@ var (
         errArNoSuchFile = `ar: (.+?): No such file or directory`
         errBashNoSuchFile = `bash: (.+?): No such file or directory`
         errClangNoSuchFile = `clang-(.+?): error: no such file or directory: '(.+?)'`
-        errClangError = `clang-(.+?): error: (.+?)`
+        errClangError = `clang-(.+?): error: (.+)`
 
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)

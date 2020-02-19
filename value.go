@@ -650,7 +650,7 @@ func (p *Argumented) refdef(origin DefOrigin) bool {
         return p.value.refdef(origin)
 }
 func (p *Argumented) expand(w expandwhat) (res Value, err error) {
-        var (v Value; args []Value)
+        var ( v Value; args []Value )
         if v, err = p.value.expand(w); err == nil {
                 if v != p.value {
                         var num int
@@ -660,9 +660,7 @@ func (p *Argumented) expand(w expandwhat) (res Value, err error) {
                         }
                 }
         }
-        if err == nil && res == nil {
-                res = p
-        }
+        if err == nil && res == nil { res = p }
         return
 }
 func (p *Argumented) cmp(v Value) (res cmpres) {
@@ -2975,36 +2973,75 @@ func (p *delegate) elemstr(o Object, k elemkind) (s string) {
         return
 }
 func (p *delegate) String() (s string) { return p.elemstr(nil, 0) }
-func (p *delegate) Strval() (string, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Strval() } else { return "", e }}
-func (p *delegate) Integer() (int64, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Integer() } else { return 0, e }}
-func (p *delegate) Float() (float64, error) { if v, e := p.expand(expandDelegate); e == nil { return v.Float() } else { return 0, e }}
+func (p *delegate) value() (v Value, err error) {
+        if v, err = p.expand(expandDelegate); err == nil {
+                if v == p { // d, ok := v.(*delegate); ok && d == p
+                        err = errorf(p.position, "self delegation (%v)", p)
+                        if optionPrintStack {
+                                fmt.Fprintf(stderr, "%s: %v (%s)\n", p.position, p, typeof(p.x))
+                                debug.PrintStack()
+                        }
+                }
+        } else { err = wrap(p.position, err) }
+        return
+}
+func (p *delegate) Strval() (s string, err error) {
+        var v Value
+        if v, err = p.value(); err == nil { s, err = v.Strval() }
+        return
+}
+func (p *delegate) Integer() (i int64, err error) {
+        var v Value
+        if v, err = p.value(); err == nil { i, err = v.Integer() }
+        return
+}
+func (p *delegate) Float() (f float64, err error) {
+        var v Value
+        if v, err = p.value(); err == nil { f, err = v.Float() }
+        return
+}
 func (p *delegate) expand(w expandwhat) (res Value, err error) {
         switch {
+        default: res = p
         case w&expandClosure != 0:
                 if res, err = p.disclose(); err != nil { return }
                 if res != nil && w&expandDelegate != 0 {
                         res, err = res.expand(expandDelegate)
-                }
+                } else if res == nil { res = p }
         case w&expandDelegate != 0:
                 if res, err = p.reveal(); err != nil { return }
-                if res != nil && w&expandClosure != 0 {
+                if err == nil && res == nil {
+                        if false && optionPrintStack {
+                                s, _ := p.x.Strval()
+                                fmt.Fprintf(stderr, "%s: %v (%s) (%s)\n", p.position, p.x, typeof(p.x), s)
+                                if false { debug.PrintStack() }
+                        }
+                }
+                if res != nil && res == p {
+                        err = errorf(p.position, "self delegation (%v)", p)
+                        if optionPrintStack {
+                                fmt.Fprintf(stderr, "%s\n", err)
+                                debug.PrintStack()
+                        }
+                } else if res != nil && w&expandClosure != 0 {
                         res, err = res.expand(expandClosure)
                 }
+                if err == nil && res == nil {
+                        res = &None{trivial{p.position}}
+                }
         }
-        if err == nil && res == nil { res = p }
         return
 }
 func (p *delegate) reveal() (res Value, err error) {
         if isNil(p.x) { return nil, nil }
 
-        var selected bool
-        var o Object
+        var ( o Object; selected bool )
         switch t := p.x.(type) {
         case Object: o = t
         case *selection:
                 if n, ok := t.o.(*ProjectName); ok {
                         defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
-                        if optionPrintStack && false {
+                        if false && optionPrintStack {
                                 fmt.Fprintf(stderr, "%s: %v %v\n", p.position, t, cloctx)
                                 debug.PrintStack()
                         }
@@ -3015,20 +3052,24 @@ func (p *delegate) reveal() (res Value, err error) {
                         err = wrap(p.position, err)
                         return
                 } else if o, ok = v.(Object); !ok {
-                        // Does nothing!
+                        res = v
                         return
+                }
+
+                if false && optionPrintStack {
+                        fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s)\n", p.position, p.x, v, typeof(v))
+                        if false { debug.PrintStack() }
                 }
 
                 selected = true
         }
 
         var args []Value
-        if args, _, err = expandall(expandClosure, p.a...); err != nil {
-                return
-        }
+        if args, _, err = expandall(expandClosure, p.a...); err != nil { return }
 
+        var v Value
         switch x := o.(type) {
-        default: err = fmt.Errorf("%T '%v' is unknown delegation", x, x)
+        default: err = errorf(p.position, "%s '%v' is unknown delegation", typeof(x), x)
         case Caller:
                 if res, err = x.Call(p.position, args...); err != nil {
                         if o, ok := x.(Object); ok && o.Name() != "error" {
@@ -3037,19 +3078,17 @@ func (p *delegate) reveal() (res Value, err error) {
                                 return
                         }
                 } else if selected && res != nil {
-                        var v Value
                         if v, err = res.expand(expandClosure); err != nil { 
                                 err = wrap(p.position, err)
                                 return
                         } else if v != nil && v != res {
                                 res = v
                         }
-
-                        if optionPrintStack && false {
-                                s, _ := o.Strval()
-                                fmt.Fprintf(stderr, "%s: %v %v %v\n", p.position, o, s, res)
-                                debug.PrintStack()
-                        }
+                }
+                if false && optionPrintStack && selected {
+                        s, _ := o.Strval()
+                        fmt.Fprintf(stderr, "%s: %v; %v; %v (%s)\n", p.position, o, s, res, typeof(res))
+                        if false { debug.PrintStack() }
                 }
         case Executer:
                 if args, err = x.Execute(p.position, args...); err != nil {
@@ -3058,9 +3097,17 @@ func (p *delegate) reveal() (res Value, err error) {
                         } else {
                                 return
                         }
-                } else {
-                        res = &List{elements{args}}
-                }
+                } else { res = &List{elements{args}} }
+        }
+
+        if false && selected && res == nil && err == nil {
+                fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s) (%v)\n", p.position, p.x, res, typeof(res), o)
+                debug.PrintStack()
+        }
+
+        if false && optionPrintStack && selected && (res == nil || res == p) {
+                fmt.Fprintf(stderr, "%s: %v ⇒ %v (%s)\n", p.position, p.x, res, typeof(res))
+                debug.PrintStack()
         }
 
         if err == nil && res == nil { res = &None{trivial{p.position}} }
@@ -3216,7 +3263,7 @@ func (p *closure) disclose() (res Value, err error) {
         case *selection:
                 if n, ok := t.o.(*ProjectName); ok {
                         defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
-                        if optionPrintStack && false {
+                        if false && optionPrintStack {
                                 fmt.Fprintf(stderr, "%s: %v %v\n", p.position, t, cloctx)
                                 debug.PrintStack()
                         }
@@ -3360,8 +3407,10 @@ func (p *selection) True() (t bool, err error) {
         return
 }
 func (p *selection) elemstr(o Object, k elemkind) (s string) {
-        s = elementString(o, p.o, k) + p.t.String()
-        s += elementString(o, p.s, k)
+        if _, ok := p.o.(*usinglist); ok { s = "usee" } else {
+                s = elementString(o, p.o, k)
+        }
+        s += p.t.String() + elementString(o, p.s, k)
         return
 }
 func (p *selection) String() string { return p.elemstr(nil, 0) }
@@ -3410,7 +3459,11 @@ func (p *selection) value() (v Value, err error) {
                                         v = entry
                                 }
                         } else if v, err = o.Get(s); err != nil {
-                                //fmt.Fprintf(stderr, "selection: %v: %v\n", p, err)
+                                err = wrap(p.position, err)
+                                if false && optionPrintStack {
+                                        fmt.Fprintf(stderr, "%s: %v %v\n", p.position, p, cloctx)
+                                        debug.PrintStack()
+                                }
                         }
                 }
         } else /*if o == nil*/ {
@@ -3421,7 +3474,7 @@ func (p *selection) value() (v Value, err error) {
 func (p *selection) Strval() (s string, err error) {
         if n, ok := p.o.(*ProjectName); ok && n != nil {
                 defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
-                if optionPrintStack && false {
+                if false && optionPrintStack {
                         fmt.Fprintf(stderr, "%s: %v %v\n", p.position, p, cloctx)
                         debug.PrintStack()
                 }
@@ -3432,7 +3485,7 @@ func (p *selection) Strval() (s string, err error) {
                 err = wrap(p.position, err)
         } else if v != nil {
                 if s, err = v.Strval(); err != nil { err = wrap(p.position, err) }
-                if optionPrintStack {
+                if false && optionPrintStack {
                         fmt.Fprintf(stderr, "%s: %v → %v\n", p.position, v, s)
                         debug.PrintStack()
                 }
@@ -3458,13 +3511,6 @@ func (p *selection) Float() (float64, error) {
 func (p *selection) refs(v Value) bool { return p.o.refs(v) || p.s.refs(v) }
 func (p *selection) closured() bool { return p.o.closured() || p.s.closured() }
 func (p *selection) expand(w expandwhat) (res Value, err error) {
-        /*if n, ok := p.o.(*ProjectName); ok && n != nil {
-                defer setclosure(setclosure(cloctx.unshift(n.project.scope)))
-                if optionPrintStack {
-                        //fmt.Fprintf(stderr, "%s: %v %v\n", p.position, p, cloctx)
-                        //debug.PrintStack()
-                }
-        }*/
         var o, s Value
         if p.o != nil {
                 if o, err = p.o.expand(w); err != nil { return } else
