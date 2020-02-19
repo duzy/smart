@@ -2072,14 +2072,22 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
         
         f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode)
         if err == nil && f != nil {
-                defer f.Close()
-                if _, err = f.WriteString(content); err == nil {
+                defer func() {
+                        if f.Close(); err != nil {
+                                os.Remove(filename)
+                                return
+                        }
                         var file = stat(pos, filename, "", "")
-                        file.stamp(t)
-                        result = file // resulting the updated file
+                        if  file == nil {
+                                err = errorf(pos, "invalid file '%s'", filename)
+                        } else {
+                                file.stamp(t)
+                                result = file // resulting the updated file
+                        }
+                } ()
+                if _, err = f.WriteString(content); err == nil {
                         if optVerbose { fmt.Fprintf(stderr, "… (ok)\n") }
                 } else {
-                        os.Remove(filename)
                         if optVerbose { fmt.Fprintf(stderr, "… (%s)\n", err) }
                 }
         } else {

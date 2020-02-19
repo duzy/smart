@@ -4,7 +4,7 @@ project ~ (-nodock -final)
 OUTDIR := &(CTD)/.configure
 
 files (
-    (*.c.include *.c++.include *.symbol *.variable *.function \
+    (*.c.include *.c++.include *.symbol *.variable *.function *.library \
      *.structmember *.sizeof *.type *.c *.c++ *.log) ⇒ $(OUTDIR)
 )
 
@@ -36,7 +36,8 @@ _LOADLIBES_ :=
 -type:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).type($(TYPE)) \
     [($(SHELL) -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
--library:[((TARGET LIBRARY FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).function($(FUNCTION)) \
+-library:[((TARGET LIBRARY FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] \
+    $(if $(FUNCTION),$(TARGET).function($(FUNCTION)),$(TARGET).library) \
     [($(SHELL) -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o $(OUTDIR)/$(TARGET).out
 -struct-member:[((TARGET STRUCT MEMBER)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).structmember($(STRUCT),$(MEMBER)) \
@@ -61,7 +62,7 @@ _LOADLIBES_ :=
 	$(_INCLUDES_)
 	int main() { return 0; }
 	
-%.symbol:[((SYMBOL)) (closure) (plain text) (update-file -p)]
+%.symbol:[((SYMBOL)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
@@ -74,7 +75,7 @@ _LOADLIBES_ :=
 	#endif
 	}
 	
-%.type:[((TYPE)) (closure) (plain text) (update-file -p)]
+%.type:[((TYPE)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	int main(int argc, char** argv)
 	{
@@ -84,7 +85,7 @@ _LOADLIBES_ :=
 	  return 0;
 	}
 	
-%.variable:[((VARIABLE)) (closure) (plain text) (update-file -p)]
+%.variable:[((VARIABLE)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	extern int $(VARIABLE)
 	#ifdef __CLASSIC_C__
@@ -94,7 +95,7 @@ _LOADLIBES_ :=
 	#endif
 	{ (void)argv; return $(VARIABLE); }
 	
-%.function:[((FUNCTION)) (closure) (plain text) (update-file -p)]
+%.function:[((FUNCTION)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	#ifdef __cplusplus
 	extern "C"
@@ -107,11 +108,20 @@ _LOADLIBES_ :=
 	#endif
 	{ $(FUNCTION)(); return 0; }
 	
-%.structmember:[((STRUCT MEMBER)) (closure) (plain text) (update-file -p)]
+%.library:[(closure) (plain c++) (update-file -p)]
+	$(_INCLUDES_)
+	#ifdef __CLASSIC_C__
+	int main()
+	#else
+	int main(int ac, char* av[])
+	#endif
+	{ (void) ac; (void) av; return 0; }
+	
+%.structmember:[((STRUCT MEMBER)) (closure) (plain c++) (update-file -p)]
 	$(_INCLUDES_)
 	int main() { (void)sizeof((($(STRUCT) *)0)->$(MEMBER)); return 0; }
 	
-%.sizeof:[((TYPE)) (closure) (plain text) (update-file -p)]
+%.sizeof:[((TYPE)) (closure) (plain c++) (update-file -p)]
 	#undef ARCH
 	#if defined(__i386)
 	#   define ARCH "__i386"

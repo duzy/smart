@@ -346,14 +346,14 @@ func (d *Def) Strval() (s string, e error) {
 
 func (d *Def) setval(value Value) (err error) { return d.set(d.origin, value) }
 func (d *Def) set(origin DefOrigin, value Value) (err error) {
-        if origin != DefSimple && value != nil && value.refs(d) {
+        if origin != DefSimple && !isNil(value) && value.refs(d) {
                 var pos = d.position
                 if !pos.IsValid() && d.value != nil { pos = d.value.Position() }
                 err = errorf(pos, "value refers `%s`: %v (%T)", d.name, value, value)
                 if optionVerbose { fmt.Fprintf(stderr, "%v\n", err) }
                 if optionPrintStack { debug.PrintStack() }
                 return
-        } else if origin != DefExecute && value == nil {
+        } else if origin != DefExecute && isNil(value) {
                 value = &None{trivial{d.position}}
         }
 
