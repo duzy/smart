@@ -2363,7 +2363,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                         s = ", ["
                         for i, v := range t.updated {
                                 if i > 0 { s += " " }
-                                if i > 3 {
+                                if len(s) > 30 {
                                         s += "…"
                                         break
                                 } else { s += v.String() }
