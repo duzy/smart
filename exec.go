@@ -89,7 +89,6 @@ var (
         workingMutex = new(sync.Mutex)
         working atomic.Value // number of working executions
 
-        stdmux = &sync.Mutex{}
         stdout = &stdWriter{ std:os.Stdout }
         stderr = &stdWriter{ std:os.Stderr }
         udots = []byte("…")
@@ -132,11 +131,12 @@ func releaseWork() {
 
 type stdWriter struct {
         std io.Writer
+        mux sync.Mutex
         suffixDots bool
 }
 
 func (w *stdWriter) Write(p []byte) (n int, err error) {
-        stdmux.Lock(); defer stdmux.Unlock()
+        w.mux.Lock(); defer w.mux.Unlock()
         if w.suffixDots {
                 if !bytes.HasPrefix(p, udots) {
                         w.std.Write([]byte("\n"))
@@ -457,18 +457,18 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         }
 
         var (
-                optPrompt, optVerbout, optVerberr bool
+                optPrompt, optVerbout, optVerberr, optDebug bool
                 optBuffOut, optBuffErr, optStdin bool
                 optSilent, optNoCD, optPath bool
                 optScanStderr bool = true
                 promStr, logFileName string
                 cmd = p.cmd
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "c,cmd", // replaces -p, -prompt
                 "d,dump", // verbout, verberr
+                "g,debug",
                 "o,stdout",
                 "e,stderr",
                 "i,stdin",
@@ -481,13 +481,14 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         }, func(ru rune, v Value) {
                 var s string
                 switch ru {
-                case 'i': optStdin   = true
-                case 'o': optBuffOut = true
-                case 'e': optBuffErr = true
-                case 'v': optVerbout = true
-                case 'w': optVerberr = true
-                case 's': optSilent  = true
-                case 'p': optPath = trueVal(v, false)
+                case 'i': optStdin   = trueVal(v, true)
+                case 'o': optBuffOut = trueVal(v, true)
+                case 'e': optBuffErr = trueVal(v, true)
+                case 'v': optVerbout = trueVal(v, true)
+                case 'w': optVerberr = trueVal(v, true)
+                case 's': optSilent  = trueVal(v, true)
+                case 'g': optDebug = trueVal(v, true)
+                case 'p': optPath = trueVal(v, true)
                         if p, ok := v.(*Pair); ok {
                                 fmt.Printf("%s: -p=xxx has been replaced with -c (-cmd), -p is no -path", p.Value.Position())
                         }
@@ -615,9 +616,9 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
         var cwd string
         if v, e := t.program.scope.Lookup("CWD").(*Def).Call(t.program.position); e != nil { err = e; return } else
-        if v != nil {if cwd, err = v.Strval(); err != nil { return }} else
+        if v != nil { if cwd, err = v.Strval(); err != nil { return }} else
         if v, e := t.program.scope.Lookup("/").(*Def).Call(t.program.position); e != nil { err = e; return } else
-        if v != nil {if cwd, err = v.Strval(); err != nil { return }}
+        if v != nil { if cwd, err = v.Strval(); err != nil { return }}
 
         // Fixes work directory conflicts. It happens
         // sometimes even the 'sh.Dir' is set to cwd.
@@ -703,7 +704,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
         var log ExecLog
         var logfile *os.File
-        var exeres = &ExecResult{trivial:trivial{t.program.position},wg:new(sync.WaitGroup)}
+        var exeres = &ExecResult{trivial:trivial{pos},wg:new(sync.WaitGroup)}
         if optBuffOut { exeres.Stdout.Buf = new(bytes.Buffer) }
         if optBuffErr { exeres.Stderr.Buf = new(bytes.Buffer) }
         if optVerbout { exeres.Stdout.Tie = stdout }
@@ -746,26 +747,25 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                                         if err == nil {
                                                 fmt.Fprintf(stderr, "… ok\n")
                                         } else if _, ok := err.(*scanner.Error); ok {
-                                                fmt.Fprintf(stderr, "\n%v\n", err)
+                                                fmt.Fprintf(stderr, " error:\n%v\n", err)
                                         } else {
-                                                fmt.Fprintf(stderr, "%v\n", err)
+                                                fmt.Fprintf(stderr, " error: %v\n", err)
                                         }
                                 } else {
                                         if err == nil {
-                                                //fmt.Fprintf(stderr, "%s%s …… ok\n", promStr, targetStr)
+                                                if false { fmt.Fprintf(stderr, "%s%s, okay.\n", promStr, targetStr) }
                                         } else if _, ok := err.(*scanner.Error); ok {
-                                                fmt.Fprintf(stderr, "%s%s ……\n%v\n", promStr, targetStr, err)
+                                                fmt.Fprintf(stderr, "%s%s, error:\n%v\n", promStr, targetStr, err)
                                         } else {
-                                                fmt.Fprintf(stderr, "%s%s …… %v\n", promStr, targetStr, err)
+                                                fmt.Fprintf(stderr, "%s%s, error: %v\n", promStr, targetStr, err)
                                         }
                                 }
                         }
                         exeres.wg.Done()
                 } (time.Now())
                 if optPrompt {
-                        if a := strings.Split(targetName, PathSep); len(a) > 3 {
-                                targetStr = filepath.Join(a[len(a)-3:]...)
-                                targetStr = filepath.Join("…", targetStr)
+                        if n, m := len(targetName), 32; n > m {
+                                targetStr = "…" + targetName[n-m:]
                         } else {
                                 targetStr = targetName
                         }
@@ -780,8 +780,10 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                                 fmt.Fprintf(stderr, "%s%s ……\n", promStr, targetStr)
                         }
                 }
+                if optDebug { fmt.Fprintf(stderr, "%s: %v (%v)\n", pos, cmd, t.def.target.value) }
                 for i, src := range sources {
                         var pos = positions[i]
+                        if false { fmt.Fprintf(stderr, "%s: %v\n", pos, src) }
                         if strings.HasPrefix(src, "@") {
                                 src = src[1:]
                         } else if !optPrompt {
@@ -823,6 +825,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                                 sh.Args = append(sh.Args, "-ti")
                         }
                         sh.Args = append(sh.Args, p.opt, src)
+
+                        if optDebug { fmt.Fprintf(stderr, "%s: %v\n", pos, sh) }
 
                         exeres.Stderr.report = !optSilent
                         exeres.Status, err = exeres.Stderr.runAndProcessKnownErrors(pos, t, container, sh, p, 1)

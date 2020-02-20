@@ -679,6 +679,7 @@ func init () {
         }
         if info, ok := langInfos["i"]; ok {
                 langInfos["include"] = info
+                langInfos["td"] = info
         }
 }
 
@@ -861,11 +862,15 @@ func _parseGrepOption(pos Position, t *traversal, optGrep Value) (result []Value
 type grepctx struct {
         debug, verbose bool
         discard, report bool // discard or report missing greps
+        recursive bool
         rxs []*greprex
+        done map[string]int
+        files []Value
         target Value
         targetDir string // see splitTargetFileName
-        targetFileName string // see splitTargetFileName
+        targetFullName string // see splitTargetFileName
         savedGrepFileName string
+        savedGrepFile *File
         save *bufio.Writer
 }
 type greprex struct{ string ; bool ; *regexp.Regexp }
@@ -916,36 +921,36 @@ func saveGrepCache() {
 }
 
 func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*greprex, report, discard bool) (result []Value, err error) {
-        var targetDir, targetName, targetFileName string
+        var targetDir, targetName, targetFullName string
         switch t := target.(type) {
         case *File:
                 targetName = t.name
-                targetFileName = t.fullname()
-                targetDir = filepath.Dir(targetFileName)
+                targetFullName = t.fullname()
+                targetDir = filepath.Dir(targetFullName)
         default:
                 targetDir = p.absPath
                 if targetName, err = t.Strval(); err != nil { return }
                 if filepath.IsAbs(targetName) {
-                        targetFileName = targetName
+                        targetFullName = targetName
                 } else {
-                        targetFileName = filepath.Join(targetDir, targetName)
+                        targetFullName = filepath.Join(targetDir, targetName)
                 }
         }
-        if !filepath.IsAbs(targetFileName) {
-                unreachable(targetFileName, " is not abs")
+        if !filepath.IsAbs(targetFullName) {
+                unreachable(targetFullName, " is not abs")
         }
 
         var cached bool
-        if result, cached = grepcache[targetFileName]; cached {
+        if result, cached = grepcache[targetFullName]; cached {
                 return
         } else {
-                defer func() { grepcache[targetFileName] = result } ()
+                defer func() { grepcache[targetFullName] = result } ()
         }
 
         var isTargetFile = func(file *File) (res bool) {
                 if target == file {
                         res = true
-                } else if s, _ := file.Strval(); s == targetFileName {
+                } else if s, _ := file.Strval(); s == targetFullName {
                         res = true
                 } else if t, ok := target.(*File); ok && t.name == file.name {
                         res = true
@@ -1035,9 +1040,9 @@ func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*gr
                 // as missing.
                 if report {
                         if file == nil {
-                                fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", targetFileName, linum, colnum, p.name, name)
+                                fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", targetFullName, linum, colnum, p.name, name)
                         } else if !exists(file) {
-                                fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", targetFileName, linum, colnum, p.name, name)
+                                fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", targetFullName, linum, colnum, p.name, name)
                         }
                 }
                 return
@@ -1048,7 +1053,7 @@ func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*gr
         var savedGrepFileName string
 
         var nameHash = sha256.New() //[sha256.Size]byte
-        fmt.Fprintf(nameHash, "%s", targetFileName)
+        fmt.Fprintf(nameHash, "%s", targetFullName)
 
         // Make names like .grep/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
         var nameSum = nameHash.Sum(nil)
@@ -1060,7 +1065,7 @@ func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*gr
         savedGrepFileName, _ = savedGrepFile.Strval()
 
         if file1 := stat(pos, savedGrepFileName, "", ""); file1 != nil {
-                if file2 := stat(pos, targetFileName, "", ""); file2 != nil {
+                if file2 := stat(pos, targetFullName, "", ""); file2 != nil {
                         if file2.info.ModTime().After(file1.info.ModTime()) {
                                 goto GrepTargetFile
                         }
@@ -1087,7 +1092,7 @@ func (p *Project) grepFiles(pos Position, target Value, tops []string, rxs []*gr
         }
 
 GrepTargetFile:
-        if targetOSFile, err = os.Open(targetFileName); err != nil {
+        if targetOSFile, err = os.Open(targetFullName); err != nil {
                 if discard { err = nil }
                 return
         } else {
@@ -1106,7 +1111,7 @@ GrepTargetFile:
 
         if optionSaveGrepSourceName {
                 var perm = os.FileMode(0600)
-                var data = []byte(targetFileName)
+                var data = []byte(targetFullName)
                 var name = savedGrepFileName + ".src"
                 if err = ioutil.WriteFile(name, data, perm); err != nil {
                         return
@@ -1161,7 +1166,7 @@ ForScan:
 func (gc *grepctx) isTargetFile(file *File) (res bool) {
         if gc.target == file {
                 res = true
-        } else if s, _ := file.Strval(); s == gc.targetFileName {
+        } else if s, _ := file.Strval(); s == gc.targetFullName {
                 res = true
         } else if t, ok := gc.target.(*File); ok && t.name == file.name {
                 res = true
@@ -1277,24 +1282,24 @@ func (t *traversal) searchGrepped(pos Position, gc *grepctx, sys bool, linum, co
         } else if !exists(file) && gc.discard {
                 return
         } else {
-                t.grepped = append(t.grepped, file)
+                gc.files = append(gc.files, file)
         }
 
         // Report missing files, but system files are not treated
         // as missing.
         if gc.report {
                 if file == nil {
-                        fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", gc.targetFileName, linum, colnum, t.project.name, name)
+                        fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` not found\n", gc.targetFullName, linum, colnum, t.project.name, name)
                 } else if !exists(file) {
-                        fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", gc.targetFileName, linum, colnum, t.project.name, name)
+                        fmt.Fprintf(stderr, "%s:%d:%d: %s: `%s` file not existed\n", gc.targetFullName, linum, colnum, t.project.name, name)
                 }
         }
         return
 }
 
-func (t *traversal) savedGrepFileName(pos Position, targetFileName string) (filename string, err error) {
+func (t *traversal) savedGrepFileName(pos Position, targetFullName string) (filename string, err error) {
         var nameHash = sha256.New() //[sha256.Size]byte
-        fmt.Fprintf(nameHash, "%s", targetFileName)
+        fmt.Fprintf(nameHash, "%s", targetFullName)
 
         // Make names like .grep/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
         var nameSum = nameHash.Sum(nil)
@@ -1308,44 +1313,45 @@ func (t *traversal) savedGrepFileName(pos Position, targetFileName string) (file
 }
 
 func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err error) {
-        gc.savedGrepFileName, err = t.savedGrepFileName(pos, gc.targetFileName)
+        gc.savedGrepFileName, err = t.savedGrepFileName(pos, gc.targetFullName)
         if err != nil { return }
 
-        // Check into previously saved grep file.
-        if file1 := stat(pos, gc.savedGrepFileName, "", ""); file1 != nil {
-                if file2 := stat(pos, gc.targetFileName, "", ""); file2 != nil {
-                        if file2.info.ModTime().After(file1.info.ModTime()) {
-                                return
-                        }
+        gc.savedGrepFile = stat(pos, gc.savedGrepFileName, "", "")
+        if gc.savedGrepFile == nil { return } else
+        if file := stat(pos, gc.targetFullName, "", ""); file != nil {
+                // Check previously saved grep file into.
+                if file.info.ModTime().After(gc.savedGrepFile.info.ModTime()) {
+                        return
                 }
-                var e error
-                var savedGrepOSFile *os.File
-                if savedGrepOSFile, e = os.Open(gc.savedGrepFileName); e == nil {
-                        defer savedGrepOSFile.Close()
-                        scanner := bufio.NewScanner(savedGrepOSFile)
-                        scanner.Split(bufio.ScanLines)
-                        for scanner.Scan() {
-                                var s = scanner.Text()
-                                var sys, linum, colnum int
-                                var name string
-                                if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
-                                        file := t.searchGrepped(pos, gc, sys == 1, linum, colnum, name)
-                                        if file != nil && gc.isTargetFile(file) {
-                                                continue
-                                        }
+        }
+
+        var e error
+        var savedGrepOSFile *os.File
+        if savedGrepOSFile, e = os.Open(gc.savedGrepFileName); e == nil {
+                defer savedGrepOSFile.Close()
+                scanner := bufio.NewScanner(savedGrepOSFile)
+                scanner.Split(bufio.ScanLines)
+                for scanner.Scan() {
+                        var s = scanner.Text()
+                        var sys, linum, colnum int
+                        var name string
+                        if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
+                                file := t.searchGrepped(pos, gc, sys == 1, linum, colnum, name)
+                                if file != nil && gc.isTargetFile(file) {
+                                        continue
                                 }
                         }
-                        file1.info, _ = savedGrepOSFile.Stat()
-                        okay = true
                 }
+                gc.savedGrepFile.info, _ = savedGrepOSFile.Stat()
+                okay = true
         }
         return
 }
 
 func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
-        var targetOSFile *os.File
-        if targetOSFile, err = os.Open(gc.targetFileName); err != nil { return }
-        defer func() { err = targetOSFile.Close() } ()
+        var file *os.File
+        if file, err = os.Open(gc.targetFullName); err != nil { return }
+        defer func() { err = file.Close() } ()
 
         for _, x := range gc.rxs {
                 if x.Regexp == nil {
@@ -1355,7 +1361,7 @@ func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
         }
 
         var linum int
-        scanner := bufio.NewScanner(targetOSFile)
+        scanner := bufio.NewScanner(file)
         scanner.Split(bufio.ScanLines)
         ForScan: for scanner.Scan() {
                 linum += 1
@@ -1382,39 +1388,66 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
         switch v := gc.target.(type) {
         case *File:
                 targetName = v.name
-                gc.targetFileName = v.fullname()
-                gc.targetDir = filepath.Dir(gc.targetFileName)
+                gc.targetFullName = v.fullname()
+                gc.targetDir = filepath.Dir(gc.targetFullName)
+                if v.isSysFile() { return }
         default:
                 gc.targetDir = t.project.absPath
                 if targetName, err = v.Strval(); err != nil { return }
                 if filepath.IsAbs(targetName) {
-                        gc.targetFileName = targetName
+                        gc.targetFullName = targetName
                 } else {
-                        gc.targetFileName = filepath.Join(gc.targetDir, targetName)
+                        gc.targetFullName = filepath.Join(gc.targetDir, targetName)
                 }
         }
         if err != nil { err = wrap(pos, err); return } else
-        if !filepath.IsAbs(gc.targetFileName) {
-                err = errorf(pos, "grep: '%s' is not abs", gc.targetFileName)
+        if gc.done == nil { gc.done = make(map[string]int) }
+        if !filepath.IsAbs(gc.targetFullName) {
+                err = errorf(pos, "grep: '%s' is not abs", gc.targetFullName)
+                return
+        } else { gc.done[gc.targetFullName] += 1 }
+        if n, done := gc.done[gc.targetFullName]; done && n > 1 {
+                if gc.debug { fmt.Fprintf(stderr, "%s: %v (done %v)\n", pos, gc.targetFullName, n) }
                 return
         }
-        if files, cached := grepcache[gc.targetFileName]; cached {
-                if gc.debug { fmt.Fprintf(stderr, "%s: grepcache: %v\n", pos, files) }
+
+        if files, cached := grepcache[gc.targetFullName]; cached {
+                if gc.debug { fmt.Fprintf(stderr, "%s: grepcache: %v → %v\n", pos, gc.targetFullName, files) }
                 t.grepped = append(t.grepped, files...)
+                if gc.recursive {
+                        for _, gc.target = range files {
+                                err = t.grepFiles(pos, gc)
+                                if err != nil { break }
+                        }
+                }
                 return
         }
-        defer func() { grepcache[gc.targetFileName] = t.grepped } ()
+        defer func(restore []Value) {
+                var files = gc.files
+                grepcache[gc.targetFullName] = files
+                gc.files = restore
+                if gc.debug { fmt.Fprintf(stderr, "%s: grepped: %s → %v (grepped=%v) (saved=%s)\n", pos, gc.target, files, len(t.grepped), gc.savedGrepFile) }
+                if gc.recursive && len(files) > 0 {
+                        for _, gc.target = range files {
+                                t.grepped = append(t.grepped, gc.target)
+                                err = t.grepFiles(pos, gc)
+                                if err != nil { break }
+                        }
+                }
+        } (gc.files)
+        gc.files = nil
 
         var savedGrepFile *os.File
         var savedGrepFileLoaded bool
         savedGrepFileLoaded, err = t.loadSavedGrepFile(pos, gc)
+        if false && gc.debug { fmt.Fprintf(stderr, "%s: saved: %v → %v (%v)\n", pos, gc.target, gc.files, err) }
         if err != nil || savedGrepFileLoaded { return } else
         if dir := filepath.Dir(gc.savedGrepFileName); dir != "." && dir != ".." {
                 if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
         }
         if optionSaveGrepSourceName {
                 var perm = os.FileMode(0600)
-                var data = []byte(gc.targetFileName)
+                var data = []byte(gc.targetFullName)
                 var name = gc.savedGrepFileName + ".src"
                 if err = ioutil.WriteFile(name, data, perm); err != nil { return }
         }
@@ -1423,7 +1456,8 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
         defer func() { gc.save.Flush(); savedGrepFile.Close() } ()
 
         err = t.grepTargetFile(pos, gc)
-        if err != nil {if gc.discard { err = nil } else { err = wrap(pos, err) }}
+        if false && gc.debug { fmt.Fprintf(stderr, "%s: grepped: %v → %v (%v)\n", pos, gc.target, gc.files, t.grepped) }
+        if err != nil { if gc.discard { err = nil } else { err = wrap(pos, err) }}
         return
 }
 
@@ -1433,15 +1467,17 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
 //      
 // https://github.com/google/re2/wiki/Syntax
 func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var gc grepctx
+        var ( gc grepctx ; optNoTraverse bool )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
                 "c,discard-missing",
                 "c,discard",
+                "r,recursive",
                 "s,system",
                 "s,sys",
                 "x,regex",
                 "l,lang",
+                "n,notraverse",
                 "v,verbose",
                 "d,debug",
         }, func(ru rune, v Value) {
@@ -1450,6 +1486,8 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 case 'c': gc.discard = trueVal(v,true)
                 case 'd': gc.debug = trueVal(v,true)
                 case 'v': gc.verbose = trueVal(v,true)
+                case 'r': gc.recursive = trueVal(v,true)
+                case 'n': optNoTraverse = trueVal(v,true)
                 case 's', 'x': if v != nil {
                         if s, err = v.Strval(); err != nil { return }
                         gc.rxs = append(gc.rxs, &greprex{s, ru=='s', nil})
@@ -1486,7 +1524,17 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 err = t.grepFiles(pos, &gc)
                 if err != nil { err = wrap(pos, err); break }
         }
-        if err == nil { result = MakeListOrScalar(pos, t.grepped) }
+        if !optNoTraverse && len(t.grepped) > 0 && err == nil {
+                if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
+                for _, file := range t.grepped {
+                        //fmt.Fprintf(stderr, "%s: %v\n", file.Position(), file)
+                        if err = t.dispatch(file); err != nil {
+                                err = wrap(pos, err); break
+                        }
+                }
+                t.def.grepped.value = &None{trivial{pos}}
+                t.grepped = nil
+        } else if err == nil { result = MakeListOrScalar(pos, t.grepped) }
         return
 }
 
@@ -2266,15 +2314,20 @@ func modifierCase(pos Position, t *traversal, args... Value) (result Value, err 
 }
 
 func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var optDebug bool
-        var optSilent bool
+        var (
+                optDebug bool
+                optVerbose bool
+                optSilent bool
+        )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
                 "d,debug",
+                "v,verbose",
                 "s,silent",
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'd': optDebug = trueVal(v, true)
+                case 'v': optVerbose = trueVal(v, true)
                 case 's': optSilent = trueVal(v, true)
                 }
         }); err != nil { return }
@@ -2301,7 +2354,13 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         if optDebug {
                 var a = typeof(t.def.target.value)
                 var s, _ = t.def.target.value.Strval()
-                fmt.Fprintf(stderr, "%s: %s %s (dirty=%v) (updated=%v)\n", pos, a, s, dirty, t.updated)
+                fmt.Fprintf(stderr, "%s: %s %s (dirty=%v, updated=%v)\n", pos, a, s, dirty, t.updated)
+        }
+
+        if optVerbose {
+                var s string
+                if len(t.updated) > 0 { s = fmt.Sprintf(", updated=%v", t.updated) }
+                fmt.Fprintf(stderr, "smart: Checking dirty %s (%v%s)\n", t.def.target.value, dirty, s)
         }
 
         if optionTraceTraversal {
@@ -2442,13 +2501,16 @@ var onceMutex sync.Mutex
 var onceCache = make(map[HashBytes]int,64)
 func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err error) {
         var (
+                optDebug bool
                 optVerbose bool
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
+                "d,debug",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
+                case 'd': optDebug = trueVal(v, true)
                 case 'v': optVerbose = trueVal(v, true)
                 }
         }); err != nil { return }
@@ -2472,8 +2534,17 @@ func modifierOnce(pos Position, t *traversal, args... Value) (result Value, err 
 
         onceMutex.Lock(); defer onceMutex.Unlock()
         onceCache[sum] += 1
-        if n := onceCache[sum]; n > 1 {
-                msg := fmt.Sprintf("once (n=%d)", n)
+
+        var num = onceCache[sum]
+
+        if optDebug {
+                fmt.Fprintf(stderr, "%s: %v (once: num=%d)\n", pos, t.def.target.value, num)
+        } else if optVerbose {
+                fmt.Fprintf(stderr, "once: %v (num=%d)\n", t.def.target.value, num)
+        }
+
+        if num > 1 {
+                msg := fmt.Sprintf("once (num=%d)", num)
                 err = &breaker{ pos:pos, what:breakDone, message:msg }
         }
         return

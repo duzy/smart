@@ -366,9 +366,7 @@ func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool,
         /// Searching patterns from the most derived project.
         var ses []*StemmedEntry
         if ses, err = p.resolvePatterns(stub); err != nil { return }
-
-ForPatterns:
-        for _, se := range ses {
+        ForPatterns: for _, se := range ses {
                 for _, prog := range se.programs {
                         var ok bool
                         ok, err = checkPatternDepends(t, p, se, prog)
@@ -440,8 +438,9 @@ func (t *traversal) targetInProject(pos Position, p *Project, target string) (ok
         return
 }
 
-func (t *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay bool, err error) {
-        var projects = []*Project{ t.project }
+func (t *traversal) closureProjects() (projects []*Project) {
+        projects = []*Project{ t.project }
+
         if t.program.project != t.project {
                 projects = append(projects, t.program.project)
         }
@@ -455,7 +454,11 @@ func (t *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay 
                         if proj != nil { projects = append(projects, proj) }
                 }
         }
+        return
+}
 
+func (t *traversal) forClosureProject(f func(*Project) (bool, error)) (okay bool, err error) {
+        var projects = t.closureProjects()
         for _, proj := range projects {
                 if okay, err = f(proj); okay || err != nil { break }
         }
@@ -464,12 +467,56 @@ func (t *traversal) foreachClosureProject(f func(*Project) (bool, error)) (okay 
 
 func (t *traversal) file(file *File) (err error) {
         if optionEnableBenchspots { defer bench(spot("traversal.file")) }
+
+        var projects = t.closureProjects()
+        for _, project := range projects {
+                var entry *RuleEntry
+                entry, err = project.resolveEntry(file.name)
+                if err != nil { err = wrap(file.position, err); return }
+                if entry != nil {
+                        if err = t.dispatch(entry); err != nil {
+                                err = wrap(file.position, err)
+                        }
+                        return
+                }
+        }
+
         var okay bool
-        okay, err = t.foreachClosureProject(func(p *Project) (bool, error) {
-                return t.fileInProject(p, file)
-        })
+        for _, project := range projects {
+                // okay, err = t.fileInProject(project, file)
+                // if err != nil { err = wrap(file.position, err); return }
+                // if okay { break }
+
+                var entries []*StemmedEntry
+                entries, err = project.resolvePatterns(file.name)
+                if err != nil { err = wrap(file.position, err); return }
+                ForEntry: for _, entry := range entries {
+                        for _, prog := range entry.programs {
+                                var good bool
+                                good, err = checkPatternDepends(t, project, entry, prog)
+                                if err != nil { err = wrap(file.position, err); break ForEntry }
+                                if !good { continue ForEntry }
+                        }
+                        if err = entry.file(t, file); err != nil {
+                                err = wrap(file.position, err)
+                                return
+                        }
+                        break ForEntry
+                }
+
+                if exists(file) {
+                        okay = true
+                } else if file != nil && file.match != nil {
+                        okay = file.searchInMatchedPaths(project)
+                } else if alt := project.matchFile(file.name); alt != nil {
+                        okay = true
+                }
+
+                if okay { break }
+        }
+
         if !okay && err == nil {
-                err = wrap(file.Position(), fileNotFoundError{t.project, file})
+                err = wrap(file.position, fileNotFoundError{t.project, file})
                 if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found",
                         t.project, file.dir, file.sub, file.name) }
         }
@@ -480,10 +527,26 @@ func (t *traversal) target(pos Position, target string) (err error) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
         if optionEnableBenchspots { defer bench(spot("traversal.target")) }
 
+        var projects = t.closureProjects()
+        for _, project := range projects {
+                var entry *RuleEntry
+                entry, err = project.resolveEntry(target)
+                if err != nil { err = wrap(pos, err); return }
+                if entry != nil {
+                        if err = t.dispatch(entry); err != nil {
+                                err = wrap(pos, err)
+                        }
+                        return
+                }
+        }
+
         var okay bool
-        okay, err = t.foreachClosureProject(func(p *Project) (bool, error) {
-                return t.targetInProject(pos, p, target)
-        })
+        for _, project := range projects {
+                okay, err = t.targetInProject(pos, project, target)
+                if err != nil { err = wrap(pos, err); return }
+                if okay { break }
+        }
+
         if !okay && err == nil {
                 err = wrap(pos, targetNotFoundError{t.project, target})
                 if optionTraceTraversal { t.tracef("%v: `target(%s)` not found",
@@ -495,6 +558,13 @@ func (t *traversal) target(pos Position, target string) (err error) {
 
 func (t *traversal) appendUpdated(target *updatedtarget) {
         t.updated = append(t.updated, target)
+        for c := t.caller; c != nil; c = c.caller { // clear update loop
+                if false {
+                        if c.def.target.value == t.def.target.value { return }
+                } else {
+                        if c.def.target.value == target.target { return }
+                }
+        }
         if c := t.caller; c != nil {
                 c.appendUpdated(newUpdatedTarget(t.def.target.value, target))
         }
@@ -1592,7 +1662,7 @@ func (p *Barefile) traverse(t *traversal) (err error) {
                 if target, err = p.Strval(); err != nil { return }
                 
                 var okay bool
-                okay, err = t.foreachClosureProject(func(project *Project) (bool, error) {
+                okay, err = t.forClosureProject(func(project *Project) (bool, error) {
                         p.File = project.matchFile(target)
                         return p.File != nil, nil
                 })
@@ -1601,7 +1671,9 @@ func (p *Barefile) traverse(t *traversal) (err error) {
                         return
                 }
         }
-        if p.File != nil { err = p.File.traverse(t) }
+        if p.File != nil { err = p.File.traverse(t) } else {
+                err = errorf(p.position, "barefile '%s' is nil", p)
+        }
         return
 }
 func (p *Barefile) stamp(t *traversal) (files []*File, err error) {
@@ -2314,7 +2386,6 @@ func (p *File) isSysFile() (res bool) {
 func (p *File) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
-
         if p.isSysFile() {
                 //fmt.Fprintf(stderr, "%v: %v\n", p, p.isSysFile())
                 return
@@ -2356,12 +2427,17 @@ func (p *File) traverse(t *traversal) (err error) {
                 t.tracef("%s: %v (%v)", typeof(p), p, t2)
         }
 
+        if p.info == nil { return }
+
         // Note that the file maybe not traversed yet at this point. But we
         // still have to check mod-time.
         var a time.Time
-        if p.info == nil { return }
         if a, err = t.def.target.value.mod(t); err != nil { return }
         if p.info.ModTime().After(a) {
+                /*if strings.HasSuffix(p.name, ".h") {
+                        fmt.Fprintf(stderr, "%s: %v %v : %v, %v\n", t.def.target.value.Position(), 
+                                t.def.target.value, p, a, p.info.ModTime())
+                }*/
                 if optionTraceTraversal { t.tracef("updated: %v", p) }
                 t.appendUpdated(newUpdatedTarget(p))
         }
