@@ -2359,7 +2359,17 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
 
         if optVerbose {
                 var s string
-                if len(t.updated) > 0 { s = fmt.Sprintf(", updated=%v", t.updated) }
+                if len(t.updated) > 0 { //s = fmt.Sprintf(", %v", t.updated)
+                        s = ", ["
+                        for i, v := range t.updated {
+                                if i > 0 { s += " " }
+                                if i > 3 {
+                                        s += "…"
+                                        break
+                                } else { s += v.String() }
+                        }
+                        s += "]"
+                }
                 fmt.Fprintf(stderr, "smart: Checking dirty %s (%v%s)\n", t.def.target.value, dirty, s)
         }
 
