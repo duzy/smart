@@ -75,16 +75,16 @@ var builtins = map[string]BuiltinFunc {
         //`plus`:    builtinPlus,
         //`minus`:   builtinMinus,
 
-        `quote`:        builtinQuote,
-        `quote-join`:   builtinQuoteJoin,
-        `split-string`: builtinSplitString,
-        `split-quote`:  builtinSplitQuote,
-        `split-quote-join`: builtinSplitQuoteJoin,
-        `split-join-quote`: builtinSplitJoinQuote,
-        `unique`:       builtinUnique,
-        `join`:         builtinJoin, // concat
-        `field`:        builtinField,
-        `fields`:       builtinFields,
+        `quote`:                builtinQuote,
+        `quote-join`:           builtinQuoteJoin,
+        `split-string`:         builtinSplitString,
+        `split-quote`:          builtinSplitQuote,
+        `split-quote-join`:     builtinSplitQuoteJoin,
+        `split-join-quote`:     builtinSplitJoinQuote,
+        `unique`:               builtinUnique,
+        `join`:                 builtinJoin, // concat
+        `field`:                builtinField,
+        `fields`:               builtinFields,
 
         //`usee`:       builtinUsee,
         
@@ -807,21 +807,15 @@ func builtinUnique(pos Position, args... Value) (res Value, err error) {
         }
         var optReverse bool
         if len(args) > 0 {
-                var va []Value
-                var opts = []string{
+                var a []Value
+                if a, err = tryParseFlags(merge(args[0]), []string{
                         "r,reverse",
-                }
-                if va, err = parseFlags(merge(args[0]), opts, func(ru rune, val Value) {
+                }, func(ru rune, v Value) {
                         switch ru {
-                        case 'r':
-                                if val != nil { 
-                                        optReverse, _ = val.True()
-                                } else {
-                                        optReverse = true
-                                }
+                        case 'r': optReverse = trueVal(v,true)
                         }
                 }); err != nil { return }
-                args = append(va, args[1:]...)
+                args = append(a, args[1:]...)
         }
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
 
@@ -2169,9 +2163,8 @@ func builtinTruncate(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinLink(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 // TODO: ...
         }, func(ru rune, v Value) {
                 /*switch ru {
