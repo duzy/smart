@@ -557,6 +557,10 @@ func (t *traversal) target(pos Position, target string) (err error) {
 }
 
 func (t *traversal) appendUpdated(target *updatedtarget) {
+        for _, u := range t.updated { // check if already added
+                if u.target == target.target { return }
+                if u.target.cmp(target.target) == cmpEqual { return }
+        }
         t.updated = append(t.updated, target)
         for c := t.caller; c != nil; c = c.caller { // clear update loop
                 if false {

@@ -1821,8 +1821,8 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 "p,path", // prepare paths for files
                 "r,recursive",
                 "v,verbose",
-                "s,silent",
-                "s,silent-existed",
+                "s,silent", // optSilent
+                "s,silent-existed", // optSilent
                 "o,override",
                 "m,mode",
                 "h,head", // insert header content
@@ -1834,8 +1834,8 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 case 'v': optVerbose = trueVal(v, true)
                 case 's': optSilent = trueVal(v, true)
                 case 'o': optOverride = trueVal(v, true)
-                case 'h': if v != nil { optHead = v }
-                case 'f': if v != nil { optFoot = v }
+                case 'h': if !(isNil(v) || isNone(v)) { optHead = v }
+                case 'f': if !(isNil(v) || isNone(v)) { optFoot = v }
                 case 'm':
                         if v != nil {
                                 var num int64
@@ -1987,17 +1987,22 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
         var (
                 optDebug bool
                 optVerbose bool
+                optHead Value
+                optFoot Value
                 filename string
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "d,debug",
                 "v,verbose",
+                "h,head", // insert header content
+                "f,foot", // insert footer content
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'd': optDebug = trueVal(v, true)
                 case 'v': optVerbose = trueVal(v, true)
+                case 'h': if !(isNil(v) || isNone(v)) { optHead = v }
+                case 'f': if !(isNil(v) || isNone(v)) { optFoot = v }
                 }
         }); err != nil { return }
 
@@ -2014,9 +2019,21 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
                 fmt.Fprintf(stderr, "%s:debug: read-file: %v\n", pos, filename)
         }
 
-        var s []byte
-        if s, err = ioutil.ReadFile(filename); err == nil {
-                t.def.buffer.value = &String{trivial{pos},string(s)}
+        var bytes []byte
+        if bytes, err = ioutil.ReadFile(filename); err == nil {
+                var s, v string
+                if optHead != nil {
+                        if v, err = optHead.Strval(); err == nil { s = v } else {
+                                err = wrap(pos, err); return
+                        }
+                }
+                s += string(bytes)
+                if optFoot != nil {
+                        if v, err = optFoot.Strval(); err == nil { s += v } else {
+                                err = wrap(pos, err); return
+                        }
+                }
+                t.def.buffer.value = &String{trivial{pos},s}
         } else {
                 err = &breaker{pos:pos, what:breakFail, message:err.Error()}
         }
@@ -2028,15 +2045,23 @@ func crc64CheckFileModeContent(filename string, content []byte, perm os.FileMode
         if f, err = os.Open(filename); err == nil && f != nil {
                 defer f.Close()
 
-                if s, _ := f.Stat(); perm != 0 && s.Mode().Perm() != perm {
-                        if err = f.Chmod(perm); err != nil { return }
+                if perm != 0 {
+                        if s, _ := f.Stat(); s.Mode().Perm() != perm {
+                                if err = f.Chmod(perm); err != nil { return }
+                        }
                 }
 
                 w1 := crc64.New(crc64Table)
                 w2 := crc64.New(crc64Table)
                 if _, err = io.Copy(w1, f); err != nil { return }
                 if _, err = w2.Write(content); err != nil { return }
-                if w1.Sum64() == w2.Sum64() { same = true }
+                var a, b = w1.Sum64(), w2.Sum64()
+                if a == b { same = true }
+                if false {
+                        var s []byte
+                        if s, err = ioutil.ReadFile(filename); err != nil { return }
+                        fmt.Fprintf(stderr, "crc64CheckFileModeContent: %v %v\n%s\n%s\n", a, b, s, content)
+                }
         }
         return
 }
@@ -2114,34 +2139,11 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 fmt.Fprintf(stderr, "%s: empty content\n", pos)
         }
 
-        /*var f *os.File
-        if f, err = os.Open(filename); err == nil && f != nil {
-                defer f.Close()
-                if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", target) }
-                if st, _ := f.Stat(); st.Mode().Perm() != optMode {
-                        if err = f.Chmod(optMode); err != nil {
-                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                                return
-                        }
-                }
-                w1 := crc64.New(crc64Table)
-                w2 := crc64.New(crc64Table)
-                if _, err = io.Copy(w1, f); err != nil {
-                        fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                        return
-                }
-                if _, err = io.WriteString(w2, content); err != nil {
-                        fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                        return
-                }
-                if w1.Sum64() == w2.Sum64() {
-                        if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
-                        result = stat(pos, filename, "", "")
-                        return
-                }
-                if optVerbose { fmt.Fprintf(stderr, "… Outdated (%s)\n", filename) }
-        }*/
-        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", target) }
+        if optVerbose {
+                s := target.String()
+                if len(s) > maxPromptStr { s = "…"+s[len(s)-maxPromptStr:] }
+                fmt.Fprintf(stderr, "smart: Checking %v …", s)
+        }
         if same, e := crc64CheckFileModeContent(filename, []byte(content), optMode); e != nil {
                 fmt.Fprintf(stderr, "… (error: %s)\n", e)
                 err = wrap(pos, e)
@@ -2159,7 +2161,9 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 if false {
                         fmt.Fprintf(stderr, "smart: Update %v …", filename)
                 } else {
-                        fmt.Fprintf(stderr, "smart: Update %v …", target)
+                        s := target.String()
+                        if len(s) > maxPromptStr { s = "…"+s[len(s)-maxPromptStr:] }
+                        fmt.Fprintf(stderr, "smart: Update %v …", s)
                 }
         }
 
@@ -2433,7 +2437,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                                 } else { s += v.String() }
                         }
                         s += "]"
-                }
+                } else if dirty { s = ", "+strings.TrimPrefix(reason, "dirty: ") }
                 fmt.Fprintf(stderr, "smart: Checking dirty %s (%v%s)\n", t.def.target.value, dirty, s)
         }
 
