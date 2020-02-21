@@ -24,7 +24,10 @@ import (
 )
 
 // Note that it's is also used with Sscanf.
-const exitstatusFmt = "exit status %d"
+const (
+        exitstatusFmt = "exit status %d"
+        maxPromptStr = 48
+)
 
 type exitstatus struct { code int }
 func (e *exitstatus) Error() string {
@@ -764,7 +767,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                         exeres.wg.Done()
                 } (time.Now())
                 if optPrompt {
-                        if n, m := len(targetName), 32; n > m {
+                        if n, m := len(targetName), maxPromptStr; n > m {
                                 targetStr = "…" + targetName[n-m:]
                         } else {
                                 targetStr = targetName

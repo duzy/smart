@@ -1810,16 +1810,20 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 optPath bool
                 optRecursive bool
                 optVerbose bool
+                optSilent bool
+                optOverride bool
                 optMode os.FileMode
                 optHead Value
                 optFoot Value
         )
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "p,path", // prepare paths for files
                 "r,recursive",
                 "v,verbose",
+                "s,silent",
+                "s,silent-existed",
+                "o,override",
                 "m,mode",
                 "h,head", // insert header content
                 "f,foot", // insert footer content
@@ -1828,6 +1832,8 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 case 'p': optPath = trueVal(v, true)
                 case 'r': optRecursive = trueVal(v, true)
                 case 'v': optVerbose = trueVal(v, true)
+                case 's': optSilent = trueVal(v, true)
+                case 'o': optOverride = trueVal(v, true)
                 case 'h': if v != nil { optHead = v }
                 case 'f': if v != nil { optFoot = v }
                 case 'm':
@@ -1916,8 +1922,13 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         }
 
         if !filetime.IsZero() && filetime.After(srctime) {
-                if optVerbose { fmt.Fprintf(stderr, "smart: Copying %v …… existed.\n", target) }
-                return
+                if optOverride {
+                        if optVerbose { fmt.Fprintf(stderr, "smart: Override %v …", target) }
+                } else {
+                        if optVerbose { fmt.Fprintf(stderr, "smart: Copying %v …… already existed!\n", target) }
+                        if !optSilent { err = errorf(pos, "file already existed (%s)", target) }
+                        return
+                }
         } else if optVerbose { fmt.Fprintf(stderr, "smart: Copying %v …", target) }
         
         var copyOpts = &copyopts{ optPath, optMode, optHead, optFoot }
@@ -2012,6 +2023,30 @@ func modifierReadFile(pos Position, t *traversal, args... Value) (result Value, 
         return
 }
 
+func crc64CheckFileModeContent(filename string, content []byte, perm os.FileMode) (same bool, err error) {
+        var f *os.File
+        if f, err = os.Open(filename); err == nil && f != nil {
+                defer f.Close()
+
+                if s, _ := f.Stat(); perm != 0 && s.Mode().Perm() != perm {
+                        if err = f.Chmod(perm); err != nil { return }
+                }
+
+                w1 := crc64.New(crc64Table)
+                w2 := crc64.New(crc64Table)
+                if _, err = io.Copy(w1, f); err != nil { return }
+                if _, err = w2.Write(content); err != nil { return }
+                if w1.Sum64() == w2.Sum64() { same = true }
+        }
+        return
+}
+
+func crc64CompareFileChecksum(filename1, filename2 string) (same bool, err error) {
+        var s []byte
+        if s, err = ioutil.ReadFile(filename1); err != nil { return }
+        return crc64CheckFileModeContent(filename2, s, 0)
+}
+
 func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value, err error) {
         var (
                 optPath bool
@@ -2079,7 +2114,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 fmt.Fprintf(stderr, "%s: empty content\n", pos)
         }
 
-        var f *os.File
+        /*var f *os.File
         if f, err = os.Open(filename); err == nil && f != nil {
                 defer f.Close()
                 if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", target) }
@@ -2105,6 +2140,18 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                         return
                 }
                 if optVerbose { fmt.Fprintf(stderr, "… Outdated (%s)\n", filename) }
+        }*/
+        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", target) }
+        if same, e := crc64CheckFileModeContent(filename, []byte(content), optMode); e != nil {
+                fmt.Fprintf(stderr, "… (error: %s)\n", e)
+                err = wrap(pos, e)
+                return
+        } else if same {
+                if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
+                result = stat(pos, filename, "", "")
+                return
+        } else if optVerbose {
+                fmt.Fprintf(stderr, "… Outdated (%s)\n", filename)
         }
 
         if optVerbose {
@@ -2117,7 +2164,8 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
         }
 
         // Create or update the file with new content
-        
+
+        var f *os.File
         f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode)
         if err == nil && f != nil {
                 defer func() {
@@ -2249,10 +2297,7 @@ func predict(pos Position, t *traversal, args... Value) (result bool, breakScope
                                 if m, ok := modifiers[name]; ok {
                                         var res Value
                                         res, err = m(a.Position(), t, g.Elems[1:]...)
-                                        if err != nil {
-                                                err = wrap(a.Position(), err)
-                                                return
-                                        }
+                                        if err != nil { err = wrap(a.Position(), err); return }
                                         a = res // replace
                                 }
                         }
@@ -2315,17 +2360,20 @@ func modifierCase(pos Position, t *traversal, args... Value) (result Value, err 
 
 func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err error) {
         var (
+                optChecksum bool
                 optDebug bool
                 optVerbose bool
                 optSilent bool
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
+                "c,checksum",
                 "d,debug",
                 "v,verbose",
                 "s,silent",
         }, func(ru rune, v Value) {
                 switch ru {
+                case 'c': optChecksum = trueVal(v, true)
                 case 'd': optDebug = trueVal(v, true)
                 case 'v': optVerbose = trueVal(v, true)
                 case 's': optSilent = trueVal(v, true)
@@ -2347,6 +2395,22 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                 err = wrap(pos, err); return
         } else if dirty {
                 reason = "dirty: recipes changed"
+        } else if optChecksum && !(isNil(t.def.depend0.value) || isNone(t.def.depend0.value)) {
+                var file1, file2 string
+                if file1, err = t.def.target.value.Strval(); err != nil {
+                        err = wrap(pos, err); return
+                }
+                if file2, err = t.def.depend0.value.Strval(); err != nil {
+                        err = wrap(pos, err); return
+                }
+                if same, e := crc64CompareFileChecksum(file1, file2); e != nil {
+                        err = wrap(pos, e); return
+                } else if same {
+                        reason = "Good"
+                } else {
+                        reason = "dirty: content changed"
+                        dirty = true
+                }
         } else {
                 reason = "Good"
         }
@@ -2363,7 +2427,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
                         s = ", ["
                         for i, v := range t.updated {
                                 if i > 0 { s += " " }
-                                if len(s) > 30 {
+                                if len(s) > maxPromptStr {
                                         s += "…"
                                         break
                                 } else { s += v.String() }
