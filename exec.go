@@ -132,6 +132,33 @@ func releaseWork() {
         working.Store(num - 1)
 }
 
+func trimPromptString(str string) (s string) {
+        var segs = strings.Split(str, PathSep)
+        if len(segs) == 0 {
+                if n, m := len(str), maxPromptStr; n > m {
+                        s = "…" + str[n-m:]
+                } else {
+                        s = str
+                }
+                return
+        }
+
+        var i, n int
+        for i = len(segs)-1; i >= 0; i -= 1 {
+                n += len(segs[i]) + 1
+                if n > maxPromptStr {
+                        var j = i - 1
+                        if j < 0 { j = i }
+                        segs[j] = "…"
+                        s = filepath.Join(segs[j:]...)
+                        return
+                }
+        }
+        
+        s = str
+        return
+}
+
 type stdWriter struct {
         std io.Writer
         mux sync.Mutex
@@ -767,11 +794,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                         exeres.wg.Done()
                 } (time.Now())
                 if optPrompt {
-                        if n, m := len(targetName), maxPromptStr; n > m {
-                                targetStr = "…" + targetName[n-m:]
-                        } else {
-                                targetStr = targetName
-                        }
+                        targetStr = trimPromptString(targetName)
                         if promStr == "" {
                                 promStr = "smart: gen "
                         } else {
