@@ -2641,37 +2641,38 @@ ForArgs:
         return
 }
 
+func touchFile(file Value, optMode os.FileMode, optPath bool) (err error) {
+        if optMode == 0 { optMode = os.FileMode(0600) }
+
+        var name string
+        if name, err = file.Strval(); err != nil || name == "" { return }
+        if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
+                if err = os.MkdirAll(dir, optMode|os.FileMode(0111)); err != nil { return }
+        }
+
+        var f *os.File
+        f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_APPEND, optMode)
+        if err == nil { err = f.Close() }
+        if err == nil { err = os.Chtimes(name, time.Now(), time.Now()) }
+        return
+}
+
 func builtinTouchFile(pos Position, args... Value) (res Value, err error) {
         // $(touch-file filename)
         // $(touch-file -p filename)
         var optPath = false
         var optMode = os.FileMode(0600)
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "p,path",
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'p': optPath = trueVal(v, true)
                 }
         }); err != nil { return }
-ForArgs:
         for i := 0; i < len(args); i += 1 {
-                var (
-                        a = args[i]
-                        name string
-                        f *os.File
-                )
-                if name, err = a.Strval(); err != nil { return }
-                if name == "" { continue ForArgs }
-                if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
-                        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil { return }
-                }
-                if f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_TRUNC, optMode); err != nil {
-                        break
-                } else {
-                        f.Close()
-                }
+                err = touchFile(args[i], optMode, optPath)
+                if err != nil { break }
         }
         return
 }

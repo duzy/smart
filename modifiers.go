@@ -862,11 +862,12 @@ func _parseGrepOption(pos Position, t *traversal, optGrep Value) (result []Value
 type grepctx struct {
         debug, verbose bool
         discard, report bool // discard or report missing greps
-        recursive bool
+        recursive, touch bool
         rxs []*greprex
         done map[string]int
         files []Value
         target Value
+        targetInfo os.FileInfo
         targetDir string // see splitTargetFileName
         targetFullName string // see splitTargetFileName
         savedGrepFileName string
@@ -1388,6 +1389,7 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
         switch v := gc.target.(type) {
         case *File:
                 targetName = v.name
+                gc.targetInfo = v.info
                 gc.targetFullName = v.fullname()
                 gc.targetDir = filepath.Dir(gc.targetFullName)
                 if v.isSysFile() { return }
@@ -1399,6 +1401,10 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                 } else {
                         gc.targetFullName = filepath.Join(gc.targetDir, targetName)
                 }
+                if file := stat(pos, gc.targetFullName, "", ""); file == nil {
+                        err = errorf(pos, "grep: '%s' not found", gc.targetFullName)
+                        return
+                } else { gc.targetInfo = file.info }
         }
         if err != nil { err = wrap(pos, err); return } else
         if gc.done == nil { gc.done = make(map[string]int) }
@@ -1470,16 +1476,18 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
         var ( gc grepctx ; optNoTraverse bool )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
-                "c,discard-missing",
                 "c,discard",
-                "r,recursive",
-                "s,system",
-                "s,sys",
-                "x,regex",
+                "c,discard-missing",
+                "d,debug",
                 "l,lang",
                 "n,notraverse",
+                "r,recursive",
+                "s,sys",
+                "s,system",
+                "t,touch", // touch file if outdated
+                "t,touch-outdated", // touch file if outdated
                 "v,verbose",
-                "d,debug",
+                "x,regex",
         }, func(ru rune, v Value) {
                 var s string
                 switch ru {
@@ -1487,6 +1495,7 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 case 'd': gc.debug = trueVal(v,true)
                 case 'v': gc.verbose = trueVal(v,true)
                 case 'r': gc.recursive = trueVal(v,true)
+                case 't': gc.touch = trueVal(v,true)
                 case 'n': optNoTraverse = trueVal(v,true)
                 case 's', 'x': if v != nil {
                         if s, err = v.Strval(); err != nil { return }
@@ -1519,22 +1528,37 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
         }
 
         if len(args) == 0 { args = append(args, t.def.target.value) }
-        for _, target := range args {
+
+        var grepped = t.grepped
+        ForTarget: for _, target := range args {
+                t.grepped = nil
                 gc.target = target
-                err = t.grepFiles(pos, &gc)
-                if err != nil { err = wrap(pos, err); break }
-        }
-        if !optNoTraverse && len(t.grepped) > 0 && err == nil {
-                if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
-                for _, file := range t.grepped {
-                        //fmt.Fprintf(stderr, "%s: %v\n", file.Position(), file)
-                        if err = t.dispatch(file); err != nil {
-                                err = wrap(pos, err); break
+                if err = t.grepFiles(pos, &gc); err != nil { err = wrap(pos, err); break }
+                if !optNoTraverse && len(t.grepped) > 0 && gc.targetInfo != nil {
+                        if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
+                        var tt = gc.targetInfo.ModTime()
+                        for _, file := range t.grepped {
+                                if err = t.dispatch(file); err != nil { err = wrap(pos, err); break ForTarget }
+                                if !gc.touch { continue } else
+                                if f, ok := file.(*File); !ok { 
+                                        fmt.Fprintf(stderr, "%s: '%v' is not file (%T)\n", pos, file, file)
+                                } else if f.info == nil { if !f.isSysFile() {
+                                        fmt.Fprintf(stderr, "%s: '%v' info is nil (%s)\n", pos, f, f.fullname())
+                                }} else if t := f.info.ModTime(); t.After(tt) {
+                                        err, tt = os.Chtimes(gc.targetFullName, t, t), t
+                                        if err != nil { err = wrap(pos, err); break ForTarget }
+                                }
                         }
                 }
+                grepped = append(grepped, t.grepped...)
+        }
+        t.grepped = grepped
+
+        if err != nil { } else if !optNoTraverse {
+                if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
                 t.def.grepped.value = &None{trivial{pos}}
                 t.grepped = nil
-        } else if err == nil { result = MakeListOrScalar(pos, t.grepped) }
+        } else { result = MakeListOrScalar(pos, t.grepped) }
         return
 }
 

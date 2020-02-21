@@ -556,21 +556,21 @@ func (t *traversal) target(pos Position, target string) (err error) {
         return
 }
 
-func (t *traversal) appendUpdated(target *updatedtarget) {
+func (t *traversal) appendUpdated(updated *updatedtarget) {
         for _, u := range t.updated { // check if already added
-                if u.target == target.target { return }
-                if u.target.cmp(target.target) == cmpEqual { return }
+                if u.target == updated.target { return }
+                if u.target.cmp(updated.target) == cmpEqual { return }
         }
-        t.updated = append(t.updated, target)
+        t.updated = append(t.updated, updated)
         for c := t.caller; c != nil; c = c.caller { // clear update loop
                 if false {
                         if c.def.target.value == t.def.target.value { return }
                 } else {
-                        if c.def.target.value == target.target { return }
+                        if c.def.target.value == updated.target { return }
                 }
         }
         if c := t.caller; c != nil {
-                c.appendUpdated(newUpdatedTarget(t.def.target.value, target))
+                c.appendUpdated(newUpdatedTarget(t.def.target.value, updated))
         }
 }
 
