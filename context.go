@@ -34,6 +34,7 @@ var (
         optionBenchSlow = false
         optionBenchBuiltin = false
         optionPrintStack = false
+        optionNoExec = false
 )
 const (
         optionTraceLaunch = false
@@ -259,22 +260,24 @@ func (ctx *Context) loadwork() (err error) {
                 "u,verbose-using",
                 "r,reconfigure",
                 "g,configure",
+                "m,no-exec", // optionNoExec
                 "d,debug",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'h': optionHelp = trueVal(v, true)
-                case 'b': optionAlwaysBuildPlugins = trueVal(v, true)
-                case 'd': optionPrintStack = trueVal(v, true)
-                case 'n': optionBenchImport = trueVal(v, true)
-                case 'e': optionBenchBuiltin = trueVal(v, true)
-                case 'v': optionVerbose = trueVal(v, true)
-                case 'i': optionVerboseImport = trueVal(v, true)
-                case 'c': optionVerboseChecks = trueVal(v, true)
-                case 'p': optionVerboseParsing = trueVal(v, true)
-                case 'l': optionVerboseLoading = trueVal(v, true)
-                case 'u': optionVerboseUsing = trueVal(v, true)
-                case 'g': optionConfigure = trueVal(v, true)
-                case 'r': optionReconfig = trueVal(v, true)
+                case 'h': if optionHelp              , err = trueVal(v, true); err != nil { return }
+                case 'b': if optionAlwaysBuildPlugins, err = trueVal(v, true); err != nil { return }
+                case 'd': if optionPrintStack        , err = trueVal(v, true); err != nil { return }
+                case 'n': if optionBenchImport       , err = trueVal(v, true); err != nil { return }
+                case 'e': if optionBenchBuiltin      , err = trueVal(v, true); err != nil { return }
+                case 'v': if optionVerbose           , err = trueVal(v, true); err != nil { return }
+                case 'i': if optionVerboseImport     , err = trueVal(v, true); err != nil { return }
+                case 'c': if optionVerboseChecks     , err = trueVal(v, true); err != nil { return }
+                case 'p': if optionVerboseParsing    , err = trueVal(v, true); err != nil { return }
+                case 'l': if optionVerboseLoading    , err = trueVal(v, true); err != nil { return }
+                case 'u': if optionVerboseUsing      , err = trueVal(v, true); err != nil { return }
+                case 'g': if optionConfigure         , err = trueVal(v, true); err != nil { return }
+                case 'm': if optionNoExec            , err = trueVal(v, true); err != nil { return }
+                case 'r': if optionReconfig          , err = trueVal(v, true); err != nil { return }
                         optionConfigure = optionReconfig
                 }
         }); err != nil { return }

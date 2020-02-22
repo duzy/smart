@@ -1381,7 +1381,7 @@ func (p *parser) parseUseSpec(doc *ast.CommentGroup, generic *genericoptions, _ 
                 "r,reusing",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'r': opts.allowReuse = trueVal(v, false)
+                case 'r': if opts.allowReuse, err = trueVal(v, false); err != nil { return }
                 }
         }); err == nil {
                 p.loadUseSpec(opts, spec)

@@ -4043,17 +4043,41 @@ func mergeresult(res []Value, err error) ([]Value, error) {
         return res, err
 }
 
-func trueVal(v Value, res bool) bool {
-        if v != nil { res, _ = v.True() }
-        return res
+func trueVal(v Value, i bool) (res bool, err error) {
+        if res = i; v != nil { res, err = v.True() }
+        return
 }
 
-func intVal(v Value, res int) int {
-        if v != nil {
-                n, _ := v.Integer()
-                res = int(n)
+func int64Val(v Value, i int64) (res int64, err error) {
+        if res = i; v != nil { res, err = v.Integer() }
+        return
+}
+
+func intVal(v Value, i int) (res int, err error) {
+        if res = i; v != nil {
+                var i int64
+                if i, err = v.Integer(); err == nil {
+                        res = int(i)
+                }
         }
-        return res
+        return
+}
+
+func uintVal(v Value, i uint32) (res uint32, err error) {
+        if res = i; v != nil {
+                var i int64
+                if i, err = v.Integer(); err == nil {
+                        res = uint32(i)
+                }
+        }
+        return
+}
+
+func permVal(v Value, i uint32) (res os.FileMode, err error) {
+        if i, err = uintVal(v, i); err == nil {
+                res = os.FileMode(i) & os.ModePerm
+        }
+        return
 }
 
 var expanddepth int64 = 0

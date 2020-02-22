@@ -590,7 +590,7 @@ func (p *Project) entry(special specialRule, options []Value, target Value, prog
                         "p,post",
                 }, func(ru rune, v Value) {
                         switch ru {
-                        case 'p': optPostExecute = trueVal(v, false)
+                        case 'p': if optPostExecute, err = trueVal(v, false); err != nil { return }
                         }
                 }); err != nil { return }
                 var userule = &useRuleEntry{

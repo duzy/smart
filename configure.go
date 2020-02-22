@@ -933,10 +933,10 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
                 "d,debug",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'd': optDebug = trueVal(v, true)
-                case 'p': optPath = trueVal(v, true)
-                case 'v': optVerbose = trueVal(v, true)
-                case 'r': optReconfig = trueVal(v, true)
+                case 'd': if optDebug, err = trueVal(v, true); err != nil { return }
+                case 'p': if optPath, err = trueVal(v, true); err != nil { return }
+                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
+                case 'r': if optReconfig, err = trueVal(v, true); err != nil { return }
                 case 'm': if v != nil {
                         var num int64
                         if num, err = v.Integer(); err != nil { return } else {
@@ -1266,7 +1266,7 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                 "a,accumulate",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'a': optAccumulate = trueVal(v, true)
+                case 'a': if optAccumulate, err = trueVal(v, true); err != nil { return }
                 }
         }); err != nil { return }
 

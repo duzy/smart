@@ -1745,8 +1745,8 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 "m,multi",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'b', 'l': dec.project.breakUseLoop = trueVal(v, false)
-                case 'm': dec.project.multiUseAllowed = trueVal(v, false)
+                case 'b', 'l':  if dec.project.breakUseLoop     , err = trueVal(v, false); err != nil { return }
+                case 'm':       if dec.project.multiUseAllowed  , err = trueVal(v, false); err != nil { return }
                 }
         }); err != nil { return }
 

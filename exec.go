@@ -511,14 +511,14 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
         }, func(ru rune, v Value) {
                 var s string
                 switch ru {
-                case 'i': optStdin   = trueVal(v, true)
-                case 'o': optBuffOut = trueVal(v, true)
-                case 'e': optBuffErr = trueVal(v, true)
-                case 'v': optVerbout = trueVal(v, true)
-                case 'w': optVerberr = trueVal(v, true)
-                case 's': optSilent  = trueVal(v, true)
-                case 'g': optDebug = trueVal(v, true)
-                case 'p': optPath = trueVal(v, true)
+                case 'i': if optStdin   , err = trueVal(v, true); err != nil { return }
+                case 'o': if optBuffOut , err = trueVal(v, true); err != nil { return }
+                case 'e': if optBuffErr , err = trueVal(v, true); err != nil { return }
+                case 'v': if optVerbout , err = trueVal(v, true); err != nil { return }
+                case 'w': if optVerberr , err = trueVal(v, true); err != nil { return }
+                case 's': if optSilent  , err = trueVal(v, true); err != nil { return }
+                case 'g': if optDebug   , err = trueVal(v, true); err != nil { return }
+                case 'p': if optPath    , err = trueVal(v, true); err != nil { return }
                         if p, ok := v.(*Pair); ok {
                                 fmt.Printf("%s: -p=xxx has been replaced with -c (-cmd), -p is no -path", p.Value.Position())
                         }
@@ -832,6 +832,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                         if cmd == "docker" && len(envstr) > 0 {
                                 src = fmt.Sprintf("%s && %s", envstr, src)
                         }
+
+                        if optionNoExec { continue }
 
                         // Restricts the number of workers.
                         waitForWork(); defer releaseWork()

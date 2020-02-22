@@ -342,7 +342,11 @@ func builtinPosition(pos Position, args... Value) (res Value, err error) {
                 case 'a':
                         if len(vals) == 0 { break }
                         var last, okay = Scalar(vals[len(vals)-1]).(*Int)
-                        if okay { last.int64 += int64(intVal(val, 0)) }
+                        if okay {
+                                var n int64
+                                if n, err = int64Val(val, 0); err != nil { return }
+                                last.int64 += n
+                        }
                 }
         }); err != nil { return }
         if len(vals) > 0 {
@@ -698,8 +702,8 @@ func builtinServeHttp(pos Position, args... Value) (res Value, err error) {
                 return
         } else if va, err = parseFlags(args, opts, func(ru rune, v Value) {
                 switch ru {
-                case 'p': optPort = intVal(v, optPort)
-                case 'h': optHost, _ = v.Strval()
+                case 'p': if optPort, err = intVal(v, optPort); err != nil { return }
+                case 'h': if optHost, err = v.Strval(); err != nil { return }
                 }
         }); err != nil { return }
 
@@ -812,7 +816,7 @@ func builtinUnique(pos Position, args... Value) (res Value, err error) {
                         "r,reverse",
                 }, func(ru rune, v Value) {
                         switch ru {
-                        case 'r': optReverse = trueVal(v,true)
+                        case 'r': if optReverse, err = trueVal(v,true); err != nil { return }
                         }
                 }); err != nil { return }
                 args = append(a, args[1:]...)
@@ -1922,18 +1926,15 @@ func builtinMkdir(pos Position, args... Value) (res Value, err error) {
                         a = args[i]
                         name string
                         perm os.FileMode
-                        num int64
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
                         if name, err = t.Key.Strval(); err != nil { return }
-                        if num, err = t.Value.Integer(); err != nil { return }
-                        perm = os.FileMode(num & 0777)
+                        if perm, err = permVal(t.Value,0600); err != nil { return }
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
                                 if name, err = t.Get(0).Strval(); err != nil { return }
-                                if num, err = t.Get(1).Integer(); err != nil { return }
-                                perm = os.FileMode(num & 0777)
+                                if perm, err = permVal(t.Get(1),0600); err != nil { return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
@@ -1941,8 +1942,7 @@ func builtinMkdir(pos Position, args... Value) (res Value, err error) {
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
                                 if name, err = t.Get(0).Strval(); err != nil { return }
-                                if num, err = t.Get(1).Integer(); err != nil { return }
-                                perm = os.FileMode(num & 0777)
+                                if perm, err = permVal(t.Get(1),0600); err != nil { return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
@@ -1950,14 +1950,11 @@ func builtinMkdir(pos Position, args... Value) (res Value, err error) {
                 default: // mkdir name perm, name perm, ...
                         if name, err = args[i].Strval(); err != nil { return }
                         if i+1 < nargs {
-                                if num, err = args[i+1].Integer(); err != nil { return }
-                                perm = os.FileMode(num & 0777)
+                                if perm, err = permVal(args[i+1],0600); err != nil { return }
                                 i += 1
                         }
                 }
-                if err = os.Mkdir(name, perm); err != nil {
-                        break
-                }
+                if err = os.Mkdir(name, perm); err != nil { break }
         }
         return
 }
@@ -1968,18 +1965,15 @@ func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
                         a = args[i]
                         name string
                         perm os.FileMode
-                        num int64
                 )
                 switch t := a.(type) {
                 case *Pair: // mkdir name => perm name => perm
                         if name, err = t.Key.Strval(); err != nil { return }
-                        if num, err = t.Value.Integer(); err != nil { return }
-                        perm = os.FileMode(num & 0777)
+                        if perm, err = permVal(t.Value,0600); err != nil { return }
                 case *Group: // mkdir (name perm) (name perm)
                         if t.Len() == 2 {
                                 if name, err = t.Get(0).Strval(); err != nil { return }
-                                if num, err = t.Get(1).Integer(); err != nil { return }
-                                perm = os.FileMode(num & 0777)
+                                if perm, err = permVal(t.Get(1),0600); err != nil { return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
@@ -1987,8 +1981,7 @@ func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
                 case *List: // mkdir name perm, name perm, ...
                         if t.Len() == 2 {
                                 if name, err = t.Get(0).Strval(); err != nil { return }
-                                if num, err = t.Get(1).Integer(); err != nil { return }
-                                perm = os.FileMode(num & 0777)
+                                if perm, err = permVal(t.Get(1),0600); err != nil { return }
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
@@ -1996,8 +1989,7 @@ func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
                 default: // mkdir name perm, name perm, ...
                         if name, err = args[i].Strval(); err != nil { return }
                         if i+1 < nargs {
-                                if num, err = args[i+1].Integer(); err != nil { return }
-                                perm = os.FileMode(num & 0777)
+                                if perm, err = permVal(args[i+1],0600); err != nil { return }
                                 i += 1
                         }
                 }
@@ -2229,11 +2221,11 @@ func builtinSymlink(pos Position, args... Value) (res Value, err error) {
                 "p,path",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'l': optRel = trueVal(v, true)
-                case 'p': optPath = trueVal(v, false)
-                case 'f': optForce = trueVal(v, true)
-                case 'u': optUpdate = trueVal(v, true)
-                case 'v': optVerbose = trueVal(v, true)
+                case 'l': if optRel, err = trueVal(v, true); err != nil { return }
+                case 'p': if optPath, err = trueVal(v, false); err != nil { return }
+                case 'f': if optForce, err = trueVal(v, true); err != nil { return }
+                case 'u': if optUpdate, err = trueVal(v, true); err != nil { return }
+                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
                 }
         }); err != nil { return }
         if false { fmt.Printf("%v: %v\n", pos, args) }
@@ -2439,8 +2431,8 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                 "e,report", // report if not exists
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'c': optCallerContext = trueVal(v, true)
-                case 'e': optReportMissing = trueVal(v, true)
+                case 'c': if optCallerContext, err = trueVal(v, true); err != nil { return }
+                case 'e': if optReportMissing, err = trueVal(v, true); err != nil { return }
                 }
         }); err != nil { return }
 
@@ -2494,8 +2486,8 @@ func builtinWildcard(pos Position, args... Value) (res Value, err error) {
                 "m,include-missing",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'm': wo.optIncludeMissing = trueVal(v, true)
-                case 'v': wo.optVerbose = trueVal(v, true)
+                case 'm': if wo.optIncludeMissing, err = trueVal(v, true); err != nil { return }
+                case 'v': if wo.optVerbose, err = trueVal(v, true); err != nil { return }
                 }
         }); err != nil { return }
 
@@ -2574,7 +2566,7 @@ func builtinWriteFile(pos Position, args... Value) (res Value, err error) {
                 "p,path",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'p': optPath = trueVal(v, false)
+                case 'p': if optPath, err = trueVal(v, false); err != nil { return }
                 }
         }); err != nil { return }
 ForArgs:
@@ -2583,7 +2575,6 @@ ForArgs:
                         a = args[i]
                         name, data string
                         perm = os.FileMode(0600)
-                        num int64
                 )
                 switch t := a.(type) {
                 case *Pair: // write-file name => text name => text
@@ -2592,13 +2583,8 @@ ForArgs:
                 case *Group: // write-file (name text) (name text 0660)
                         if n := t.Len(); n < 4 && n > 0 {
                                 if name, err = t.Get(0).Strval(); err != nil { return }
-                                if n > 1 {
-                                        if data, err = t.Get(1).Strval(); err != nil { return }
-                                }
-                                if n > 2 {
-                                        if num, err = t.Get(2).Integer(); err != nil { return }
-                                        perm = os.FileMode(num & 0777)
-                                }
+                                if n > 1 { if data, err = t.Get(1).Strval(); err != nil { return }}
+                                if n > 2 { if perm, err = permVal(t.Get(2),0600); err != nil { return }}
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of group `%v'", t))
                                 break
@@ -2606,13 +2592,8 @@ ForArgs:
                 case *List: // write-file name text, name text 0660, ...
                         if n := t.Len(); n < 4 && n > 0 {
                                 if name, err = t.Get(0).Strval(); err != nil { return }
-                                if n > 1 {
-                                        if data, err = t.Get(1).Strval(); err != nil { return }
-                                }
-                                if n > 2 {
-                                        if num, err = t.Get(2).Integer(); err != nil { return }
-                                        perm = os.FileMode(num & 0777)
-                                }
+                                if n > 1 { if data, err = t.Get(1).Strval(); err != nil { return }}
+                                if n > 2 { if perm, err = permVal(t.Get(2),0600); err != nil { return }}
                         } else {
                                 err = errors.New(fmt.Sprintf("Wrong size of list `%v'", t))
                                 break
@@ -2624,8 +2605,7 @@ ForArgs:
                                 i += 1
                         }
                         if i+1 < len(args) {
-                                if num, err = args[i+1].Integer(); err != nil { return }
-                                perm = os.FileMode(num & 0777)
+                                if perm, err = permVal(args[i+1],0600); err != nil { return }
                                 i += 1
                         }
                 }
@@ -2641,19 +2621,28 @@ ForArgs:
         return
 }
 
-func touchFile(file Value, optMode os.FileMode, optPath bool) (err error) {
-        if optMode == 0 { optMode = os.FileMode(0600) }
-
+func touch(file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
         var name string
         if name, err = file.Strval(); err != nil || name == "" { return }
         if dir := filepath.Dir(name); optPath && dir != "." && dir != PathSep {
-                if err = os.MkdirAll(dir, optMode|os.FileMode(0111)); err != nil { return }
+                if err = os.MkdirAll(dir, os.FileMode(optMode|0733)); err != nil { return }
         }
 
-        var f *os.File
-        f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_APPEND, optMode)
-        if err == nil { err = f.Close() }
-        if err == nil { err = os.Chtimes(name, time.Now(), time.Now()) }
+        var mode = os.FileMode(optMode)
+        var m os.FileMode
+        var at, mt time.Time
+        if len(ts) > 0 { at = ts[0] } else { at = time.Now() }
+        if len(ts) > 1 { mt = ts[1] } else { mt = time.Now() }
+        if fi, k := file.(*File); k && fi.info != nil { m = fi.info.Mode() } else
+        if fi, e := os.Stat(name); e == nil && fi != nil { m = fi.Mode() } else {
+                var f *os.File
+                f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_APPEND, mode&os.ModePerm)
+                if err == nil { err = f.Close() }
+        }
+        if err == nil { err = os.Chtimes(name, at, mt) }
+        if err == nil && mode != 0 && m != 0 && mode != m {
+                err = os.Chmod(name, mode)
+        }
         return
 }
 
@@ -2665,13 +2654,15 @@ func builtinTouchFile(pos Position, args... Value) (res Value, err error) {
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
                 "p,path",
+                "m,mode",
         }, func(ru rune, v Value) {
                 switch ru {
-                case 'p': optPath = trueVal(v, true)
+                case 'p': if optPath, err = trueVal(v, true); err != nil { return }
+                case 'm': if optMode, err = permVal(v, 0600); err != nil { return }
                 }
         }); err != nil { return }
         for i := 0; i < len(args); i += 1 {
-                err = touchFile(args[i], optMode, optPath)
+                err = touch(args[i], uint32(optMode), optPath)
                 if err != nil { break }
         }
         return
