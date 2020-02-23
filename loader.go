@@ -1475,9 +1475,15 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                         entries = append(entries, entry)
                 }
                 if t, okay := entry.target.(*Flag); okay && t != nil {
-                        if s, _ := t.name.Strval(); s == "configure" {
-                                configuration.configs = append(configuration.configs, entry)
+                        var s string
+                        if s, err = t.name.Strval(); err != nil {
+                                l.error(clause.Targets[n].Pos(), "%v", err)
+                        } else if l.project.name != "~" {
+                                flags, _ := context.flagEntries[s]
+                                flags = append(flags, entry)
+                                context.flagEntries[s] = flags
                         }
+                        if s == "configure" { configuration.configs = append(configuration.configs, entry) }
                 } else if configure {
                         configuration.entries = append(configuration.entries, entry)
                 }

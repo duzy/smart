@@ -654,30 +654,33 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
         var none = &None{trivial{pos}}
         var params = []Value{ target }
         var fields = map[string]Value{ "name":name }
-ForArgs:
-        for _, arg := range args {
+        ForArgs: for _, arg := range args {
                 var list, ok = arg.(*List)
                 if ok && list != nil && len(list.Elems) > 0 {
-                        var key string
                         switch t := list.Elems[0].(type) {
                         case *Pair:
-                                if key, err = t.Key.Strval(); err != nil { return }
-                                key = strings.ToLower(key)
+                                var key string
+                                if key, err = t.Key.Strval(); err == nil { key = strings.ToLower(key) } else {
+                                        err = wrap(pos, err); return }
                                 if v, ok := fields[key]; ok {
                                         fields[key] = &List{elements{merge(v, t.Value)}}
                                 } else {
                                         fields[key] = t.Value
                                 }
                                 continue ForArgs
-                        case *String:if strName == "option" {
-                                key = "info"
-                                if v, ok := fields[key]; ok {
-                                        fields[key] = &List{elements{merge(v, t)}}
-                                } else {
-                                        fields[key] = t
+                        case *String:
+                                switch t.string {
+                                case "answer","bool","option":
+                                        if v, ok := fields["info"]; !ok { fields["info"] = t } else {
+                                                fields["info"] = &List{elements{merge(v, t)}}
+                                        }
                                 }
                                 continue ForArgs
-                        }}
+                        case *Bareword:
+                        default:
+                                err = errorf(arg.Position(), "arg '%v' unsupported", arg)
+                                return
+                        }
                 }
                 params = append(params, arg)
         }

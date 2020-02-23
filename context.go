@@ -33,6 +33,7 @@ var (
         optionBenchImport = false
         optionBenchSlow = false
         optionBenchBuiltin = false
+        optionPrintConfiguration = false
         optionPrintStack = false
         optionNoExec = false
 )
@@ -60,6 +61,8 @@ type Context struct {
         mode    *Def
         pairs []*Pair
         loader  *loader
+        flagEntries map[string][]*RuleEntry
+        flags []*Flag
 }
 
 var context Context
@@ -83,6 +86,17 @@ func (ctx *Context) run() (result []Value, err error) {
         }
 
         defer setclosure(setclosure(cloctx.unshift(main.scope)))
+
+        for _, flag := range ctx.flags {
+                var s string
+                if s, err = flag.name.Strval(); err != nil { return }
+                var entries, _ = ctx.flagEntries[s]
+                for _, entry := range entries {
+                        var res []Value
+                        res, err = entry.Execute(entry.position)
+                        if err == nil { result = append(result, res...) } else { return }
+                }
+        }
 
         var goals []Value
         for _, goal := range merge(ctx.goals.value) {
@@ -217,7 +231,6 @@ func (ctx *Context) loadwork() (err error) {
                 sp = filepath.Join(base, ".smart", "modules")
                 pos Position // FIXME: find a useful position
                 args []Value
-                flags []*Flag
         )
         ctx.loader = &loader{
                 Context:  ctx,
@@ -249,6 +262,7 @@ func (ctx *Context) loadwork() (err error) {
                 // ...
         } else if args, err = tryParseFlags(args, []string{
                 "h,help",
+                "f,configuration",
                 "b,build-plugins",
                 "n,bench-import",
                 "e,bench-builtins",
@@ -265,6 +279,7 @@ func (ctx *Context) loadwork() (err error) {
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'h': if optionHelp              , err = trueVal(v, true); err != nil { return }
+                case 'f': if optionPrintConfiguration, err = trueVal(v, true); err != nil { return }
                 case 'b': if optionAlwaysBuildPlugins, err = trueVal(v, true); err != nil { return }
                 case 'd': if optionPrintStack        , err = trueVal(v, true); err != nil { return }
                 case 'n': if optionBenchImport       , err = trueVal(v, true); err != nil { return }
@@ -283,7 +298,7 @@ func (ctx *Context) loadwork() (err error) {
         }); err != nil { return }
         for _, target := range args {
                 switch t := target.(type) {
-                case *Flag: flags = append(flags, t)
+                case *Flag: ctx.flags = append(ctx.flags, t)
                 case *Pair: ctx.pairs = append(ctx.pairs, t)
                 default:    ctx.goals.append(t)
                 }
@@ -387,6 +402,7 @@ func CommandLine() {
                 context.globe = globe
         } (context.globe)
         context.globe = NewGlobe("smart")
+        context.flagEntries = make(map[string][]*RuleEntry)
 
         if err := init_configuration(packagePaths); err != nil {
                 report(err)
@@ -394,6 +410,8 @@ func CommandLine() {
                 report(err)
         } else if optionHelp {
                 do_helpscreen()
+        } else if optionPrintConfiguration {
+                print_configuration()
         } else if numUpdatedPlugins > 0 { // see buildPlugin
                 fmt.Fprintf(stderr, "smart: Plugin updated, please relaunch.\n")
                 //os.Exit(0)

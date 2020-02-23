@@ -794,6 +794,40 @@ func (entry *RuleEntry) cmp(v Value) (res cmpres) {
         return
 }
 
+func (entry *RuleEntry) option() (res bool, infos []Value) {
+        ForProgram: for _, program := range entry.programs {
+                if !program.configure { continue }
+                for _, depend := range program.depends {
+                        g, ok := depend.(*modifiergroup)
+                        if!ok { continue }
+                        for _, m := range g.modifiers {
+                                s, e := m.name.Strval()
+                                if e != nil || s != "configure" { continue }
+                                for _, arg := range m.args {
+                                        a, ok := arg.(*Argumented)
+                                        if!ok { continue }
+                                        f, ok := a.value.(*Flag)
+                                        if!ok { continue }
+                                        s, e := f.name.Strval()
+                                        if e != nil { continue }
+                                        if s != "option" { continue }
+                                        for _, v := range a.args {
+                                                if p, ok := v.(*Pair); ok {
+                                                        s, _ := p.Key.Strval()
+                                                        if s != "info" { continue }
+                                                        v = p.Value
+                                                }
+                                                infos = append(infos, v)
+                                        }
+                                        res = true
+                                        break ForProgram
+                                }
+                        }
+                }
+        }
+        return
+}
+
 type PatternEntry struct {
         Pattern Pattern
         *RuleEntry
