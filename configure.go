@@ -171,18 +171,11 @@ func do_configuration() (err error) {
         }
         if err != nil { return }
 
-        var executed = make(map[*RuleEntry]bool)
         for _, entry := range configuration.configs {
-                if a, b := executed[entry]; a && b {
-                        continue
-                } else {
-                        executed[entry] = true
-                }
-                if _, e := entry.Execute(entry.position); e != nil {
-                        err = wrap(entry.position, e, err)
+                for _, prog := range entry.programs {
+                        fmt.Fprintf(stderr, "%s: %v is deprecated!\n", prog.position, entry)
                 }
         }
-        executed = nil
 
         printLeavingDirectory()
         return
@@ -227,86 +220,36 @@ func configMessageDone(pos Position, str string, args... interface{}) {
         configPrintf(pos, str, args...)
 }
 
-func configPrintMessageHead(pos Position, fields map[string]Value, args... Value) {
-        var str string
-        var ints []interface{}
-        /*if msg, ok := fields["info"]; ok {
-                str = "configure: "
-                if s, err := msg.Strval(); err == nil && len(s) > 0 {
-                        r, size := utf8.DecodeRuneInString(s)
-                        if size > 0 && unicode.IsUpper(r) {
-                                str += s
-                        } else {
-                                str += "Checking " + s
-                        }
-                }
-        } else */if name, ok := fields["name"]; ok {
+func configPrintMessageHead(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
+        var s string
+        if name, ok := fields["name"]; ok {
                 str = "configure: Checking"
-                if s, err := name.Strval(); err == nil {
-                        str += " " + s
-                        if len(args) > 1 { str += "s" }
-                }
+                if s, err = name.Strval(); err != nil { return }
+                if str += " " + s; len(args) > 1 { str += "s" }
         }
         for i, a := range args {
-                s, _ := a.Strval()
-                ints = append(ints, s)
-                if i == 0 {
-                        str += " (%v"
-                } else {
-                        str += " %v"
-                }
-                if i+1 == len(args) { str += ")" }
+                if s, err = a.Strval(); err != nil { return }
+                str += " "
+                if i == 0 { str += "(" }
+                str += s
+                if i == len(args)-1 { str += ")" }
         }
         str += " …"
-        configPrintf(pos, str, ints...)
+        return
 }
-func configMessageHead(pos Position, op string, fields map[string]Value, params... Value) (err error) {
-        var str = "configure: "
-        if v, ok := fields["info"]; ok {
-                var s string
-                s, err = v.Strval()
-                if err == nil && len(s) > 0 {
-                        r, size := utf8.DecodeRuneInString(s)
-                        if size > 0 && unicode.IsUpper(r) {
-                                str += s
-                        } else {
-                                str += "Checking " + s
-                        }
-                        str += " …"
-                        configPrintf(pos, str)
-                }
-                return
-        }
-        switch n := len(params); op {
-        case "if":
-                configPrintMessageHead(pos, fields, params[0])
-        case "option":
-                configPrintMessageHead(pos, fields, params[0])
-        case "compiles":
-                configPrintMessageHead(pos, fields, params[0])
-        case "library":
+
+var configMessageHeadPrinters = map[string] func(Position, map[string]Value, ...Value) (string, error) {
+        "if":           configPrintMessageHead,
+        "option":       configPrintMessageHead,
+        "compiles":     configPrintMessageHead,
+        "library": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
                 // Examples:
                 //   -library(foo,func,include='<foo.h>')
                 //   -library(foo,func)
                 //   -library(foobar)
                 // TODO: using this form instead:
                 //   -library(foo [,function=func] [,include='<foo.h>']...)
-                var libs = params[1:]
-                /*str += "Checking "
-                if len(libs) == 1 {
-                        str += "library "
-                } else if len(libs) > 1 {
-                        str += "libraries "
-                } else {
-                        str += "library (but none)"
-                }
-                for i, param := range libs {
-                        var s string
-                        s, err = param.Strval()
-                        if err != nil { return }
-                        if i > 0 { str += "," }
-                        str += s
-                }*/
+                var libs = args[1:]
                 var s string
                 s, err = libs[0].Strval()
                 if err != nil { return }
@@ -329,17 +272,19 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
                         str += ")"
                 }
                 str += " …"
-                configPrintf(pos, str)
-        case "include":
-                var incs = params[1:]
+                return
+        },
+        "include": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
+                var incs = args[1:]
                 var s string
                 s, err = incs[0].Strval()
                 if err != nil { return }
                 str += "Checking include " + s
                 str += " …"
-                configPrintf(pos, str)
-        case "symbol":
-                var syms = params[1:]
+                return
+        },
+        "symbol": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
+                var syms = args[1:]
                 var s string
                 s, err = syms[0].Strval()
                 if err != nil { return }
@@ -367,9 +312,10 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
                         str += ")"
                 }
                 str += " …"
-                configPrintf(pos, str)
-        case "function":
-                var funcs = params[1:]
+                return
+        },
+        "function": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
+                var funcs = args[1:]
                 var s string
                 s, err = funcs[0].Strval()
                 if err != nil { return }
@@ -397,11 +343,12 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
                         str += ")"
                 }
                 str += " …"
-                configPrintf(pos, str)
-        case "struct-member":
+                return
+        },
+        "struct-member": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
                 // Examples:
                 //   -struct-member('struct stat',st_mtimespec.tv_nsec,include=('<sys/types.h>','<sys/stat.h>'))
-                var mems = params[1:]
+                var mems = args[1:]
                 var s string
                 if len(mems) > 1 {
                         s, err = mems[0].Strval()
@@ -433,9 +380,10 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
                         str += ")"
                 }
                 str += " …"
-                configPrintf(pos, str)
-        case "type":
-                var typs = params[1:]
+                return
+        },
+        "type": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
+                var typs = args[1:]
                 var s string
                 s, err = typs[0].Strval()
                 if err != nil { return }
@@ -459,15 +407,48 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params.
                         str += ")"
                 }
                 str += " …"
-                configPrintf(pos, str)
-        case "package":
-                if n > 2 {
-                        configPrintMessageHead(pos, fields, params[2])
-                } else {
-                        configPrintMessageHead(pos, fields, params[0])
+                return
+        },
+        "sizeof": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
+                var syms = args[1:]
+                var s string
+                str += "Checking size of "
+                for _, sym := range syms {
+                        s, err = sym.Strval()
+                        if err != nil { return }
+                        str += s
                 }
-        default:
-                configPrintMessageHead(pos, fields, params...)
+                str += " …"
+                return
+        },
+        "package": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
+                if len(args) > 2 {
+                        return configPrintMessageHead(pos, fields, args[2])
+                } else {
+                        return configPrintMessageHead(pos, fields, args[0])
+                }
+        },
+}
+
+func configMessageHead(pos Position, op string, fields map[string]Value, params ...Value) (err error) {
+        var ( s string; str = "configure: " )
+        if v, ok := fields["info"]; ok {
+                if s, err = v.Strval(); err == nil && len(s) > 0 {
+                        r, size := utf8.DecodeRuneInString(s)
+                        if size > 0 && unicode.IsUpper(r) {
+                                str += s
+                        } else {
+                                str += "Checking " + s
+                        }
+                        str += " …"
+                        configPrintf(pos, str)
+                }
+        } else {
+                f, ok := configMessageHeadPrinters[op]
+                if!ok { f = configPrintMessageHead }
+                if s, err = f(pos, fields, params...); err != nil { return }
+                str += s
+                configPrintf(pos, str)
         }
         return
 }
@@ -1260,9 +1241,8 @@ ForSources:
 //     (configure -compiles(info="..."))
 func modifierConfigure(pos Position, t *traversal, args... Value) (result Value, err error) {
         var optAccumulate bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = tryParseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = tryParseFlags(args, []string{
                 "a,accumulate",
         }, func(ru rune, v Value) {
                 switch ru {
@@ -1355,7 +1335,8 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                         return
                 }
                 if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configured(%v %v)", def.origin,value))) }
-                if value == nil { value = &Nil{trivial{a.Position()}} }
+                if value == nil { value = &Nil{trivial{a.Position()}} } else
+                if v, e := value.expand(expandAll); e == nil { value = v } else { err = wrap(a.Position(), e); return }
                 if value == def || value.refs(def) {
                         // Value is the Def, does nothing!
                 } else if optAccumulate {
