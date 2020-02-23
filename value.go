@@ -2678,6 +2678,14 @@ func (p *Flag) cmp(v Value) (res cmpres) {
         }
         return
 }
+func (p *Flag) traverse(t *traversal) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        var s string
+        if s, err = p.Strval(); err == nil {
+                err = t.target(p.position, s)
+        }
+        return
+}
 
 const escapedChars = "\"\r\n"
       

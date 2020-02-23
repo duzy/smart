@@ -49,6 +49,12 @@ _LOADLIBES_ :=
 -compiles:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).$(LANG) \
     [($(SHELL) -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
+-program-stdout:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).stdout.log)] -compiles($(TARGET)) \
+    [($(SHELL) -l=$@ -stdout) (wait -stdout)]
+	@$(OUTDIR)/$(TARGET).out
+-program-stderr:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).stderr.log)] -compiles($(TARGET)) \
+    [($(SHELL) -l=$@ -stderr) (wait -stderr)]
+	@$(OUTDIR)/$(TARGET).out
 
 %.c.include:[(closure) (plain c) (update-file -p)]
 	$(_INCLUDES_)

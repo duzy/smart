@@ -223,7 +223,7 @@ func configMessageDone(pos Position, str string, args... interface{}) {
 func configPrintMessageHead(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
         var s string
         if name, ok := fields["name"]; ok {
-                str = "configure: Checking"
+                str = "Checking"
                 if s, err = name.Strval(); err != nil { return }
                 if str += " " + s; len(args) > 1 { str += "s" }
         }

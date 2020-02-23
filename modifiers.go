@@ -2217,9 +2217,11 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 fmt.Fprintf(stderr, "smart: Checking %v …", s)
         }
         if same, e := crc64CheckFileModeContent(filename, []byte(content), optMode); e != nil {
-                fmt.Fprintf(stderr, "… (error: %s)\n", e)
-                err = wrap(pos, e)
-                return
+                if false { // discard error (e.g.: no such file or directory)
+                        fmt.Fprintf(stderr, "… (error: %s)\n", e)
+                        err = wrap(pos, e)
+                        return
+                }
         } else if same {
                 if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
                 result = stat(pos, filename, "", "")
@@ -2271,13 +2273,26 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
 }
 
 func modifierWait(pos Position, t *traversal, args... Value) (result Value, err error) {
-        var optVerbose bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        var (
+                optVerbose bool
+                optStdout bool
+                optStderr bool
+                optStatus bool
+                optExecRes bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "o,stdout",
+                "e,stderr",
+                "s,status",
+                "x,exec",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
+                case 'o': if optStdout , err = trueVal(v, true); err != nil { return }
+                case 'e': if optStderr , err = trueVal(v, true); err != nil { return }
+                case 's': if optStatus , err = trueVal(v, true); err != nil { return }
+                case 'x': if optExecRes, err = trueVal(v, true); err != nil { return }
                 case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
                 }
         }); err != nil { return }
@@ -2292,6 +2307,27 @@ func modifierWait(pos Position, t *traversal, args... Value) (result Value, err 
                 var s = "Done"
                 if err != nil { s = "Fail" }
                 fmt.Fprintf(stderr, "smart: %s (%v), updated=%v\n", s, t.def.target.value, t.updated)
+        }
+
+        if (optStdout || optStderr || optStatus || optExecRes) && !isNil(t.def.buffer.value) {
+                if exeres, ok := t.def.buffer.value.(*ExecResult); ok {
+                        exeres.wg.Wait()
+                        var a []Value
+                        if optStdout {
+                                var s string
+                                if b := exeres.Stdout.Buf; b != nil { s = b.String() }
+                                a = append(a, &String{trivial{pos},s})
+                        }
+                        if optStderr {
+                                var s string
+                                if b := exeres.Stderr.Buf; b != nil { s = b.String() }
+                                a = append(a, &String{trivial{pos},s})
+                        }
+                        if optStatus {
+                                a = append(a, &Int{integer{trivial{pos},int64(exeres.Status)}})
+                        }
+                        result = MakeListOrScalar(pos, a)
+                }
         }
         return
 }
