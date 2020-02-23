@@ -88,6 +88,7 @@ func (ctx *Context) run() (result []Value, err error) {
 
         defer setclosure(setclosure(cloctx.unshift(main.scope)))
 
+        var done bool
         for _, flag := range ctx.flags {
                 var s string
                 if s, err = flag.name.Strval(); err != nil { return }
@@ -95,9 +96,13 @@ func (ctx *Context) run() (result []Value, err error) {
                 for _, entry := range entries {
                         var res []Value
                         res, err = entry.Execute(entry.position)
-                        if err == nil { result = append(result, res...) } else { return }
+                        if err == nil {
+                                result = append(result, res...)
+                                done = true
+                        } else { return }
                 }
         }
+        if done { return }
 
         var goals []Value
         for _, goal := range merge(ctx.goals.value) {

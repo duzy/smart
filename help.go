@@ -67,12 +67,12 @@ func print_flag_entries() {
 }
 
 func print_flag_trace() {
-        for _, entries := range context.flagEntries {
+        for name, entries := range context.flagEntries {
+                if name == "" { continue }
                 for _, entry := range entries {
-                        fmt.Fprintf(stderr, `%s: %v\n`, entry, entry)
+                        fmt.Fprintf(stderr, "%s: %v\n", entry.position, entry)
                 }
         }
-        fmt.Fprintf(stderr, "\n")
 }
 
 func print_help_entries() {
