@@ -34,6 +34,7 @@ var (
         optionBenchSlow = false
         optionBenchBuiltin = false
         optionPrintConfiguration = false
+        optionPrintFlags = false
         optionPrintStack = false
         optionNoExec = false
 )
@@ -262,7 +263,10 @@ func (ctx *Context) loadwork() (err error) {
                 // ...
         } else if args, err = tryParseFlags(args, []string{
                 "h,help",
-                "f,configuration",
+                "d,debug",
+                "d,print-stack",
+                "o,print-options",
+                "f,print-flags",
                 "b,build-plugins",
                 "n,bench-import",
                 "e,bench-builtins",
@@ -275,12 +279,12 @@ func (ctx *Context) loadwork() (err error) {
                 "r,reconfigure",
                 "g,configure",
                 "m,no-exec", // optionNoExec
-                "d,debug",
         }, func(ru rune, v Value) {
                 switch ru {
                 case 'h': if optionHelp              , err = trueVal(v, true); err != nil { return }
-                case 'f': if optionPrintConfiguration, err = trueVal(v, true); err != nil { return }
                 case 'b': if optionAlwaysBuildPlugins, err = trueVal(v, true); err != nil { return }
+                case 'o': if optionPrintConfiguration, err = trueVal(v, true); err != nil { return }
+                case 'f': if optionPrintFlags        , err = trueVal(v, true); err != nil { return }
                 case 'd': if optionPrintStack        , err = trueVal(v, true); err != nil { return }
                 case 'n': if optionBenchImport       , err = trueVal(v, true); err != nil { return }
                 case 'e': if optionBenchBuiltin      , err = trueVal(v, true); err != nil { return }
@@ -410,6 +414,8 @@ func CommandLine() {
                 report(err)
         } else if optionHelp {
                 do_helpscreen()
+        } else if optionPrintFlags {
+                print_flag_trace()
         } else if optionPrintConfiguration {
                 print_configuration()
         } else if numUpdatedPlugins > 0 { // see buildPlugin

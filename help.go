@@ -66,6 +66,15 @@ func print_flag_entries() {
         fmt.Fprintf(stderr, "\n\n")
 }
 
+func print_flag_trace() {
+        for _, entries := range context.flagEntries {
+                for _, entry := range entries {
+                        fmt.Fprintf(stderr, `%s: %v\n`, entry, entry)
+                }
+        }
+        fmt.Fprintf(stderr, "\n")
+}
+
 func print_help_entries() {
 }
 
