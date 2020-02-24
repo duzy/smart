@@ -1423,9 +1423,9 @@ func (p *String) cmp(v Value) (res cmpres) {
 }
 
 func isTrueString(s string) (t bool) {
-        switch s {
-        case "", "false", "no", "off", "0": t = false
-        case "true", "yes", "on", "1": t = true
+        switch strings.ToLower(s) {
+        case "false", "no" , "off", "force_off", "0", "": t = false
+        case "true" , "yes", "on" , "force_on" , "1": t = true
         default: t = true
         }
         return

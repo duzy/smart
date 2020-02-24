@@ -62,6 +62,7 @@ var builtins = map[string]BuiltinFunc {
         `env`:          builtinEnv,
         `var`:          builtinValue,
         `value`:        builtinValue,
+        `list`:         builtinList,
 
         `shell`:        builtinShell,
 
@@ -668,6 +669,11 @@ func builtinValue(pos Position, args... Value) (res Value, err error) {
                 }
         }
         return MakeListOrScalar(pos, vals), nil
+}
+
+func builtinList(pos Position, args... Value) (res Value, err error) {
+        res = MakeListOrScalar(pos, args)
+        return
 }
 
 func builtinShell(pos Position, args... Value) (res Value, err error) {

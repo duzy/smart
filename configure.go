@@ -59,7 +59,7 @@ var configuration = &struct{
         done: make(map[*Def]bool),
 }
 
-var configurationOps = map[string] func(pos Position, t *traversal, def *Def, args... Value) (result Value, err error) {
+var configurationOps = map[string] func(pos Position, t *traversal, def *Def, fields map[string]Value, args... Value) (result Value, err error) {
         "answer":  configureAnswer,
         "bool":    configureBool,
         "dump":    configureDump,
@@ -142,7 +142,7 @@ func do_configuration() (err error) {
                         fmt.Fprintf(writer, "# %s (%s) configuration\n", p.name, p.relPath)
 
                         reportConfiguredNum()
-                        fmt.Fprintf(stderr, "configure: Project %s …… (%s)\n", p.name, p.relPath)
+                        fmt.Fprintf(stderr, "configure: Project %s …… (%s)\n", p.spec, p.relPath)
                         project, num = p, 0
                 }
                 if _, e := entry.Execute(entry.position); e != nil {
@@ -275,10 +275,15 @@ var configMessageHeadPrinters = map[string] func(Position, map[string]Value, ...
                 return
         },
         "include": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
-                var incs = args[1:]
                 var s string
-                s, err = incs[0].Strval()
-                if err != nil { return }
+                var incs = args[1:]
+                if len(incs) > 0 {
+                        s, err = incs[0].Strval()
+                        if err != nil { return }
+                } else {
+                        s, err = args[0].Strval()
+                        if err != nil { return }
+                }
                 str += "Checking include " + s
                 str += " …"
                 return
@@ -454,14 +459,15 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params 
 }
 
 // -dump
-func configureDump(pos Position, t *traversal, def *Def, params... Value) (result Value, err error) {
+func configureDump(pos Position, t *traversal, def *Def, fields map[string]Value, params... Value) (result Value, err error) {
         result = def.value
         return
 }
 
 // -bool
-// -bool(opt_true,opt_false)
-func configureBool(pos Position, t *traversal, def *Def, params... Value) (result Value, err error) {
+// -bool('message...')
+// -bool(opt_true,opt_false,'message...')
+func configureBool(pos Position, t *traversal, def *Def, fields map[string]Value, params... Value) (result Value, err error) {
         var positive bool
         var previous Value
         if previous, err = def.Call(pos); err != nil { return } else {
@@ -498,13 +504,15 @@ func configureBool(pos Position, t *traversal, def *Def, params... Value) (resul
 }
 
 // -answer
-// -answer(opt_true,opt_false)
-func configureAnswer(pos Position, t *traversal, def *Def, params... Value) (result Value, err error) {
-        return configureBool(pos, t, def, params[0], &answer{trivial{pos},true}, &answer{trivial{pos},false})
+// -answer('message...')
+// -answer(opt_true,opt_false,'message')
+func configureAnswer(pos Position, t *traversal, def *Def, fields map[string]Value, params... Value) (result Value, err error) {
+        return configureBool(pos, t, def, fields, &answer{trivial{pos},true}, &answer{trivial{pos},false})
 }
 
+// -option
 // -option('message...')
-func configureOption(pos Position, t *traversal, def *Def, args... Value) (result Value, err error) {
+func configureOption(pos Position, t *traversal, def *Def, fields map[string]Value, args... Value) (result Value, err error) {
         if result, err = def.Call(pos); err == nil {
                 if result == nil { result = &answer{trivial{pos},false} }
         } else if result != nil {
@@ -554,7 +562,7 @@ func loadPackageConfigInfo(pos Position, name string) (info *packageinfo, err er
 //}
 
 // -package finds system package in a way similar to cmake.find_package
-func configurePackage(pos Position, t *traversal, def *Def, args... Value) (result Value, err error) {
+func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Value, args... Value) (result Value, err error) {
         var names []string
         var optType packagetype = packageSmart
         for _, arg := range args {
@@ -662,24 +670,18 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
                                 var key string
                                 if key, err = t.Key.Strval(); err == nil { key = strings.ToLower(key) } else {
                                         err = wrap(pos, err); return }
-                                if v, ok := fields[key]; ok {
+                                if v, ok := fields[key]; !ok { fields[key] = t.Value } else {
                                         fields[key] = &List{elements{merge(v, t.Value)}}
-                                } else {
-                                        fields[key] = t.Value
                                 }
                                 continue ForArgs
-                        case *String:
-                                switch t.string {
+                        case *String, *Compound:
+                                switch strName {
                                 case "answer","bool","option":
                                         if v, ok := fields["info"]; !ok { fields["info"] = t } else {
                                                 fields["info"] = &List{elements{merge(v, t)}}
                                         }
+                                        continue ForArgs
                                 }
-                                continue ForArgs
-                        case *Bareword:
-                        default:
-                                err = errorf(arg.Position(), "arg '%v' unsupported", arg)
-                                return
                         }
                 }
                 params = append(params, arg)
@@ -719,7 +721,7 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
         if config, ok := configurationOps[strName]; ok {
                 err = configMessageHead(pos, strName, fields, params...)
                 if err == nil {
-                        result, err = config(pos, t, pipe, params...)
+                        result, err = config(pos, t, pipe, fields, params...)
                         if err == nil { configured = true }
                 }
                 return
