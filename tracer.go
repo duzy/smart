@@ -137,6 +137,10 @@ func (p *tracing) trace(a ...interface{}) {
         printIndentDots(p.indent, a...)
 }
 
+func (p *tracing) tracef(s string, a ...interface{}) {
+        printIndentDots(p.indent, fmt.Sprintf(s, a...))
+}
+
 func (p *tracing) level(n int) {
         p.indent += n
 }

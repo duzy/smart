@@ -2020,6 +2020,9 @@ func (p *parser) parseRuleClause(tok token.Token, special specialRule, options, 
                                         p.error(targets[0].Pos(), "Configure target name already taken (%T %v)", a, a)
                                 }
                         }
+                        if d != nil && !d.position.IsValid() {
+                                d.position = Position(p.file.Position(name.Pos()))
+                        }
                 } else {
                         p.error(targets[0].Pos(), "Configure target is not bareword (%v, %T)", targets[0], targets[0])
                 }

@@ -987,17 +987,14 @@ func (p *negative) traverse(t *traversal) (err error) {
 
 func Negative(val Value) *negative { return &negative{trivial{val.Position()},val} }
 
-type boolean struct {
-        trivial
-        bool
-}
+type boolean struct { trivial; bool }
 func (p *boolean) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *boolean) True() (bool, error) { return p.bool, nil }
+func (p *boolean) Strval() (string, error) { return p.String(), nil }
 func (p *boolean) String() (s string) {
         if p.bool { s = "true" } else { s = "false" }
         return
 }
-func (p *boolean) Strval() (string, error) { return p.String(), nil }
 func (p *boolean) Float() (v float64, err error) {
         if p.bool { v = 1. }
         return
@@ -1007,7 +1004,7 @@ func (p *boolean) Integer() (v int64, err error) {
         return
 }
 func (p *boolean) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*boolean); ok {
+        if a, ok := v.(*option); ok {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {
@@ -1023,21 +1020,26 @@ func (p *boolean) cmp(v Value) (res cmpres) {
                 } else if p.bool && !a.bool {
                         res = cmpGreater
                 }
+        } else if a, ok := v.(*boolean); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
         }
         return
 }
 
-type answer struct {
-        trivial
-        bool
-}
+type answer struct { trivial; bool }
 func (p *answer) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *answer) True() (bool, error) { return p.bool, nil }
+func (p *answer) Strval() (string, error) { return p.String(), nil }
 func (p *answer) String() (s string) {
         if p.bool { s = "yes" } else { s = "no" }
         return
 }
-func (p *answer) Strval() (string, error) { return p.String(), nil }
 func (p *answer) Float() (v float64, err error) {
         if p.bool { v = 1. }
         return
@@ -1047,7 +1049,60 @@ func (p *answer) Integer() (v int64, err error) {
         return
 }
 func (p *answer) cmp(v Value) (res cmpres) {
-        if a, ok := v.(*answer); ok {
+        if a, ok := v.(*option); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if a, ok := v.(*answer); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if a, ok := v.(*boolean); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        }
+        return
+}
+
+type option struct { trivial; bool }
+func (p *option) expand(_ expandwhat) (Value, error) { return p, nil }
+func (p *option) True() (bool, error) { return p.bool, nil }
+func (p *option) Strval() (string, error) { return p.String(), nil }
+func (p *option) String() (s string) {
+        if p.bool { s = "on" } else { s = "off" }
+        return
+}
+func (p *option) Float() (v float64, err error) {
+        if p.bool { v = 1. }
+        return
+}
+func (p *option) Integer() (v int64, err error) {
+        if p.bool { v = 1 }
+        return
+}
+func (p *option) cmp(v Value) (res cmpres) {
+        if a, ok := v.(*option); ok {
+                if p.bool == a.bool {
+                        res = cmpEqual
+                } else if !p.bool && a.bool {
+                        res = cmpSmaller
+                } else if p.bool && !a.bool {
+                        res = cmpGreater
+                }
+        } else if a, ok := v.(*answer); ok {
                 if p.bool == a.bool {
                         res = cmpEqual
                 } else if !p.bool && a.bool {

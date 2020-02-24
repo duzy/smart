@@ -469,23 +469,21 @@ func builtinEqual(pos Position, args... Value) (res Value, err error) {
 // $(match rx1 rx2 rx3, a b c d...)
 func builtinMatch(pos Position, args... Value) (res Value, err error) {
         if n := len(args); n != 2 {
-                err = errorf(pos, "wrong number of arguments ($(match <value-list>,<regexp-list>))", n)
+                err = errorf(pos, "wrong number of arguments ($(match <regexp-list>,<value-list>))", n)
                 return
         }
         var rexList = merge(args[0])
         var srcList = merge(args[1])
 ForMatchValues:
-        for _, valRex := range rexList {
+        for _, rexval := range rexList {
                 var ( r *regexp.Regexp ; s string )
-                if s, err = valRex.Strval(); err != nil { return }
+                if s, err = rexval.Strval(); err != nil { return }
                 if r, err = regexp.Compile(s); err != nil { return }
-                for _, valSrc := range srcList {
+                for _, srcval := range srcList {
                         var src string
-                        if valSrc == nil {
-                                break ForMatchValues
-                        } else if src, err = valSrc.Strval(); err != nil {
-                                break ForMatchValues
-                        } else if r.MatchString(src) {
+                        if srcval == nil { continue } else
+                        if src, err = srcval.Strval(); err != nil { return } else
+                        if r.MatchString(src) {
                                 res = &boolean{trivial{pos},true}
                                 break ForMatchValues
                         }

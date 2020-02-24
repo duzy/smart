@@ -59,7 +59,7 @@ var configuration = &struct{
         done: make(map[*Def]bool),
 }
 
-var configurationOps = map[string] func(pos Position, t *traversal, def *Def, fields map[string]Value, args... Value) (result Value, err error) {
+var configurationOps = map[string] func(pos Position, t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
         "answer":  configureAnswer,
         "bool":    configureBool,
         "dump":    configureDump,
@@ -102,21 +102,17 @@ func init_configuration(paths searchlist) (err error) {
 }
 
 func do_configuration() (err error) {
-        var ( project *Project; num int )
-        var reportConfiguredNum = func() {
-                if project != nil {
-                        fmt.Fprintf(stderr, "configure: Project %v configured %v items.\n", project.name, num)
-                }
-        }
-
-        var ( file *os.File; writer *bufio.Writer )
+        var (
+                project *Project
+                file *os.File
+                writer *bufio.Writer
+        )
         defer func() {
-                reportConfiguredNum()
                 if writer != nil { if err := writer.Flush(); err != nil {} }
                 if file != nil { if err := file.Close(); err != nil {} }
         } ()
 
-        var defs = make(map[string]Value)
+        var defs = make(map[string]*Def)
         for _, entry := range configuration.entries {
                 if p := entry.OwnerProject(); p != project && p != nil {
                         var f, e = openConfigurationFile(p)
@@ -139,21 +135,23 @@ func do_configuration() (err error) {
                         }
 
                         file, writer = f, bufio.NewWriter(f)
-                        fmt.Fprintf(writer, "# %s (%s) configuration\n", p.name, p.relPath)
+                        fmt.Fprintf(writer, "# %s (%s) configuration\n", p.spec, p.relPath)
 
-                        reportConfiguredNum()
                         fmt.Fprintf(stderr, "configure: Project %s …… (%s)\n", p.spec, p.relPath)
-                        project, num = p, 0
+                        project = p
                 }
                 if _, e := entry.Execute(entry.position); e != nil {
                         err = wrap(entry.position, e, err)
                 } else if s, e := entry.target.Strval(); e != nil {
                         err = wrap(entry.position, e, err)
                 } else if def := project.scope.FindDef(s); def != nil {
-                        if _, ok := defs[s]; ok {
-                                // already defined
+                        if d, ok := defs[s]; ok {
+                                if d != def {
+                                        err = errorf(entry.position, "'%s' already configured: %v", d.name, d.value)
+                                        return
+                                }
                                 continue
-                        }
+                        } else { defs[s] = def }
                         if def.value == nil {
                                 // Set <nil> value with exec-assigning ('!=')
                                 // to a None value.
@@ -162,8 +160,6 @@ func do_configuration() (err error) {
                                 vs := elementString(def, def.value, elemNoBrace)
                                 fmt.Fprintf(writer, "%v = %v\n", def.name, vs)
                         }
-                        defs[s] = def.value
-                        num += 1
                 } else {
                         e := fmt.Errorf("`%s` unconfigured", s)
                         err = wrap(entry.position, e, err)
@@ -459,60 +455,58 @@ func configMessageHead(pos Position, op string, fields map[string]Value, params 
 }
 
 // -dump
-func configureDump(pos Position, t *traversal, def *Def, fields map[string]Value, params... Value) (result Value, err error) {
+func configureDump(pos Position, t *traversal, def *Def, fields map[string]Value, params ...Value) (result Value, err error) {
         result = def.value
+        return
+}
+
+func configureBoolValue(pos Position, t *traversal, def *Def) (result bool, err error) {
+        var value Value
+        if value, err = def.Call(pos); err != nil { return } else {
+                var res Value
+                res, err = value.expand(expandAll)
+                if err == nil && res != value { value = res }
+        }
+
+        for i, v := range merge(value) {
+                var t bool
+                if v == nil { continue }
+                if t, err = v.True(); err != nil { return }
+                if i == 0 {
+                        result = t
+                } else {
+                        result = result && t
+                }
+                if !result { break }
+        }
         return
 }
 
 // -bool
 // -bool('message...')
-// -bool(opt_true,opt_false,'message...')
-func configureBool(pos Position, t *traversal, def *Def, fields map[string]Value, params... Value) (result Value, err error) {
-        var positive bool
-        var previous Value
-        if previous, err = def.Call(pos); err != nil { return } else {
-                var res Value
-                res, err = previous.expand(expandAll)
-                if err == nil && res != previous { previous = res }
-        }
-
-        for i, v := range merge(previous) {
-                var t bool
-                if v == nil { continue }
-                if t, err = v.True(); err != nil { return }
-                if i == 0 {
-                        positive = t
-                } else {
-                        positive = positive && t
-                }
-                if !positive { break }
-        }
-        if positive {
-                if len(params) > 1 { // [NAME 1 0]
-                        result = params[1]
-                } else {
-                        result = &boolean{trivial{pos},true}
-                }
-        } else {
-                if len(params) > 2 { // [NAME 1 0]
-                        result = params[2]
-                } else {
-                        result = &boolean{trivial{pos},false}
-                }
+func configureBool(pos Position, t *traversal, def *Def, fields map[string]Value, params ...Value) (result Value, err error) {
+        if len(params) > 1 { fmt.Fprintf(stderr, "%s: useless args %v for -bool\n", pos, params) }
+        var val bool
+        if val, err = configureBoolValue(pos, t, def); err == nil {
+                result = &boolean{trivial{pos},val}
         }
         return
 }
 
 // -answer
 // -answer('message...')
-// -answer(opt_true,opt_false,'message')
-func configureAnswer(pos Position, t *traversal, def *Def, fields map[string]Value, params... Value) (result Value, err error) {
-        return configureBool(pos, t, def, fields, &answer{trivial{pos},true}, &answer{trivial{pos},false})
+func configureAnswer(pos Position, t *traversal, def *Def, fields map[string]Value, params ...Value) (result Value, err error) {
+        if len(params) > 1 { fmt.Fprintf(stderr, "%s: useless args %v for -answer\n", pos, params) }
+        var val bool
+        if val, err = configureBoolValue(pos, t, def); err == nil {
+                result = &answer{trivial{pos},val}
+        }
+        return
 }
 
 // -option
 // -option('message...')
-func configureOption(pos Position, t *traversal, def *Def, fields map[string]Value, args... Value) (result Value, err error) {
+func configureOption(pos Position, t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
         if result, err = def.Call(pos); err == nil {
                 if result == nil { result = &answer{trivial{pos},false} }
         } else if result != nil {
@@ -557,12 +551,12 @@ func loadPackageConfigInfo(pos Position, name string) (info *packageinfo, err er
 }
 
 // -library finds system library in a way similar to cmake.find_library
-//func configureLibrary(pos Position, prog *Program, args... Value) (result Value, err error) {
+//func configureLibrary(pos Position, prog *Program, args ...Value) (result Value, err error) {
 //        return
 //}
 
 // -package finds system package in a way similar to cmake.find_package
-func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Value, args... Value) (result Value, err error) {
+func configurePackage(pos Position, t *traversal, def *Def, fields map[string]Value, args ...Value) (result Value, err error) {
         var names []string
         var optType packagetype = packageSmart
         for _, arg := range args {
@@ -623,7 +617,7 @@ func scanExitStatus(err error) (n, status int) {
         return
 }
 
-func configureExec(pos Position, t *traversal, s string, params... Value) (configured bool, result Value, err error) {
+func configureExec(pos Position, t *traversal, s string, params ...Value) (configured bool, result Value, err error) {
         if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configureExec(%s %v)", s, t.entry.target))) }
 
         var entry *RuleEntry
@@ -639,6 +633,9 @@ func configureExec(pos Position, t *traversal, s string, params... Value) (confi
         if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v, %v\n", pos, entry, t.entry, params, cloctx) }
         if result, err = entry.programs[0].execute(t, entry, params); err == nil { err = t.wait(pos) }
         if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v (%T), %v\n", pos, entry, t.entry, result, result, err) }
+
+        //fmt.Fprintf(stderr, "%s: %v %v\n", pos, result, err)
+
         if err == nil { configured = true } else {
                 if n, status := scanExitStatus(err); n == 1 {
                         if status == 0 { err = nil }
@@ -690,8 +687,9 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
         defer func() {
                 var t bool
                 if err == nil && result != nil { t, err = result.True() }
-                if err == nil && t && configured && strName != "compiles" {
-                        if !(isNil(pipe.value) || isNone(pipe.value)) {
+                if err == nil && t && configured && !isNil(pipe.value) /*&& !isNone(pipe.value)*/ {
+                        //fmt.Fprintf(stderr, "%s: %v: %v %v\n", pos, strName, result, pipe.value)
+                        switch strName { case "program-stdout", "program-stderr":
                                 result = pipe.value
                         }
                 }
@@ -723,6 +721,9 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
                 if err == nil {
                         result, err = config(pos, t, pipe, fields, params...)
                         if err == nil { configured = true }
+                        if optionTraceConfig {
+                                t_config.tracef("configured: %v, result = %v (%s))", configured, result, typeof(result))
+                        }
                 }
                 return
         }
@@ -902,7 +903,7 @@ var configuredFiles = make(map[string]*Scope,8)
 // 
 //     config.h: config.h.in [(configure-file)]
 //     
-func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Value, err error) {
+func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var (
                 optPath = false
                 optDebug = false
@@ -1068,7 +1069,7 @@ func modifierConfigureFile(pos Position, t *traversal, args... Value) (result Va
 //
 //      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
 //
-func modifierExtractConfiguration(pos Position, pc *traversal, args... Value) (result Value, err error) {
+func modifierExtractConfiguration(pos Position, pc *traversal, args ...Value) (result Value, err error) {
         var pats []Value
         var rxs []*regexp.Regexp
         var optTarget string
@@ -1244,7 +1245,9 @@ ForSources:
 //     (configure -library(lib,function,include='<xxx.h>'))
 //     (configure -symbol(symbol,include='<xxx.h>'))
 //     (configure -compiles(info="..."))
-func modifierConfigure(pos Position, t *traversal, args... Value) (result Value, err error) {
+func modifierConfigure(pos Position, t *traversal, args ...Value) (result Value, err error) {
+        if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v) (reconfig=%v)", t.entry.target, optionReconfig))) }
+
         var optAccumulate bool
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = tryParseFlags(args, []string{
@@ -1254,8 +1257,6 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                 case 'a': if optAccumulate, err = trueVal(v, true); err != nil { return }
                 }
         }); err != nil { return }
-
-        if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("modifierConfigure(%v)", t.entry.target))) }
 
         var target = t.def.target.value
         if isNil(target) || isNone(target) {
@@ -1273,6 +1274,11 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                 return
         } else { result = def } // Set result above all!
 
+        if optionTraceConfig {
+                t_config.tracef("%s: %v (%T)", def.name, def.value, def.value)
+                defer func() { t_config.tracef("%s: %v (%T)", def.name, def.value, def.value) } ()
+        }
+        
         if !isNil(def.value) { // Check if it's already configured?
                 // reconfigure the def or return it
                 if !optionReconfig { return }
@@ -1339,7 +1345,7 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                         //err = errorf(pos, "%s not configured", name)
                         return
                 }
-                if optionTraceConfig { defer un(trace(t_config, fmt.Sprintf("configured(%v %v)", def.origin,value))) }
+                if optionTraceConfig { t_config.tracef("configured: %v (%s) (%v)", value, typeof(value), def.origin) }
                 if value == nil { value = &Nil{trivial{a.Position()}} } else
                 if v, e := value.expand(expandAll); e == nil { value = v } else { err = wrap(a.Position(), e); return }
                 if value == def || value.refs(def) {
@@ -1349,7 +1355,6 @@ func modifierConfigure(pos Position, t *traversal, args... Value) (result Value,
                 } else {
                         err = def.set(DefConfig, value)
                 }
-                if false { fmt.Fprintf(stderr, "%s: %v: %s %v\n", pos, target, typeof(value), value) }
                 if err != nil { err = wrap(pos, err); return }
                 // Marks done (needed for reconfiguring)!
                 configuration.done[def] = true
