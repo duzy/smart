@@ -145,11 +145,11 @@ func do_configuration() (err error) {
                 } else if s, e := entry.target.Strval(); e != nil {
                         err = wrap(entry.position, e, err)
                 } else if def := project.scope.FindDef(s); def != nil {
-                        if d, ok := defs[s]; ok {
-                                if d != def {
+                        if d, ok := defs[s]; ok && d != nil {
+                                /*if d.value.cmp(def.value) != cmpEqual {
                                         err = errorf(entry.position, "'%s' already configured: %v", d.name, d.value)
                                         return
-                                }
+                                }*/
                                 continue
                         } else { defs[s] = def }
                         if def.value == nil {
