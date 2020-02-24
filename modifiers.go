@@ -273,6 +273,7 @@ var (
 
                 `sudo`:         modifierSudo,
 
+                `touch`:        modifierTouch,
                 `grep`:         modifierGrep,
                 `grep-files`:   modifierGrepFiles,
 
@@ -1640,6 +1641,27 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
 // https://github.com/google/re2/wiki/Syntax
 func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err error) {
         err = errorf(pos, "unimplemented grep %v", args)
+        return
+}
+
+func modifierTouch(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var (
+                optMode uint32 // TODO: -m
+                optPath bool // TODO: -p
+                optVerbose bool
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
+                }
+        }); err != nil { return }
+        if len(args) == 0 { args = append(args, t.def.target.value) }
+        for _, arg := range args {
+                if err = touch(arg, optMode, optPath); err != nil { break }
+        }
         return
 }
 
