@@ -59,7 +59,7 @@ func (e *Error) Error() (s string) {
                 if s == "" {
                         s = fmt.Sprintf("%s: no errors", e.Pos)
                 } else {
-                        s = fmt.Sprintf("%s\n%s: …from here!", s, e.Pos)
+                        s = fmt.Sprintf("%s\n%s: …from here", s, e.Pos)
                 }
         }
 	return

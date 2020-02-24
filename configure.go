@@ -634,14 +634,20 @@ func configureExec(pos Position, t *traversal, s string, params ...Value) (confi
         if result, err = entry.programs[0].execute(t, entry, params); err == nil { err = t.wait(pos) }
         if false { fmt.Fprintf(stderr, "%v: configureExec(%v %v): %v (%T), %v\n", pos, entry, t.entry, result, result, err) }
 
-        //fmt.Fprintf(stderr, "%s: %v %v\n", pos, result, err)
-
+        var status int
         if err == nil { configured = true } else {
-                if n, status := scanExitStatus(err); n == 1 {
-                        if status == 0 { err = nil }
+                var n int
+                if n, status = scanExitStatus(err); n == 1 {
                         configured = true
                 }
         }
+
+        if optionTraceConfig {
+                t_config.tracef("result=%v, status=%d, configured=%v, error=%v", result, status, configured, err!=nil)
+                if err != nil { fmt.Fprintf(stderr, "%v\n", err) }
+        }
+
+        if status == 0 { err = nil } else
         if err != nil { err = wrap(pos, err) }
         return
 }
@@ -722,7 +728,7 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
                         result, err = config(pos, t, pipe, fields, params...)
                         if err == nil { configured = true }
                         if optionTraceConfig {
-                                t_config.tracef("configured: %v, result = %v (%s))", configured, result, typeof(result))
+                                t_config.tracef("configured: %v, result = %v (%s)", configured, result, typeof(result))
                         }
                 }
                 return

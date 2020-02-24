@@ -1821,7 +1821,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 if optionVerboseImport || true {
                         full, _ := file.Strval()
                         fmt.Fprintf(stderr, "smart: Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
-                } else {
+                } else if optionVerbose {
                         fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.spec)
                 }
                 l.isIncludingConf = true

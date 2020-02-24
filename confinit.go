@@ -14,7 +14,6 @@ LDFLAGS :=
 LOADLIBES :=
 LIBS :=
 LANG := c++
-SHELL := shell -s
 
 _INCLUDES_ :=
 _FLAGS_ :=
@@ -25,35 +24,35 @@ _LOADLIBES_ :=
 # -l=$(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).log
 # -o $(or &(outobj),&(CTD))/.configure/$(TARGET).$(LANG).out
 -include:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).$(LANG).include \
-    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+    [(shell -s -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).$(LANG).out
 -symbol:[((TARGET SYMBOL)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).symbol($(SYMBOL)) \
-    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+    [(shell -s -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -function:[((TARGET FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).function($(FUNCTION)) \
-    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+    [(shell -s -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -type:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).type($(TYPE)) \
-    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+    [(shell -s -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -library:[((TARGET LIBRARY FUNCTION)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] \
     $(if $(FUNCTION),$(TARGET).function($(FUNCTION)),$(TARGET).library) \
-    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+    [(shell -s -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -l$(LIBRARY) -o $(OUTDIR)/$(TARGET).out
 -struct-member:[((TARGET STRUCT MEMBER)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).structmember($(STRUCT),$(MEMBER)) \
-    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+    [(shell -s -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -sizeof:[((TARGET TYPE)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).sizeof($(TYPE)) \
-    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+    [(shell -s -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -compiles:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).$(LANG).log)] $(TARGET).$(LANG) \
-    [($(SHELL) -l=$@) (wait) (check -a status=0)]
+    [(shell -s -l=$@) (wait) (check -a status=0)]
 	@$(CC) -v -Wl,-v -x$(LANG) $(CFLAGS) $(LDFLAGS) $(_FLAGS_) $< $(LOADLIBES) $(_LOADLIBES_) $(LIBS) $(_LIBS_) -o $(OUTDIR)/$(TARGET).out
 -program-stdout:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).stdout.log)] -compiles($(TARGET)) \
-    [($(SHELL) -l=$@ -stdout) (wait -stdout)]
+    [(shell -s -l=$@ -stdout) (wait -stdout)]
 	@$(OUTDIR)/$(TARGET).out
 -program-stderr:[((TARGET)) (closure) (set @=$(OUTDIR)/$(TARGET).stderr.log)] -compiles($(TARGET)) \
-    [($(SHELL) -l=$@ -stderr) (wait -stderr)]
+    [(shell -s -l=$@ -stderr) (wait -stderr)]
 	@$(OUTDIR)/$(TARGET).out
 
 %.c.include:[(closure) (plain c) (update-file -p)]
