@@ -2059,25 +2059,38 @@ func builtinRename(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemove(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
+        var ( optAll, optDebug, optVerbose bool )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "a,all",
+                "d,debug",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'a': if optAll     , err = trueVal(v, true); err != nil { return }
+                case 'd': if optDebug   , err = trueVal(v, true); err != nil { return }
+                case 'v': if optVerbose , err = trueVal(v, true); err != nil { return }
+                }
+        }); err != nil { return }
 
-        // TODO: parse options like -r -v
-        var (
-                names []string
-                str string
-        )
-        ArgsLoop: for _, a := range args {
-                if str, err = a.Strval(); err != nil {
+        var ( names []string; str string )
+        for _, a := range args {
+                if str, err = a.Strval(); err != nil { return }
+                if names, err = filepath.Glob(str); err != nil {
+                        err = wrap(pos, wrap(a.Position(), err))
                         return
                 }
-                if names, err = filepath.Glob(str); err != nil {
-                        fmt.Fprintf(stderr, "error: remove: %s\n", err)
-                        break
-                } else {
-                        for _, s := range names {
-                                if err = os.Remove(s); err != nil {
-                                        break ArgsLoop
-                                }
+                for _, s := range names {
+                        if optDebug { fmt.Fprintf(stderr, "%s: remove %s\n", a.Position(), s) }
+                        if optVerbose { fmt.Fprintf(stderr, "remove %s\n", s) }
+                        if optAll {
+                                err = os.RemoveAll(s)
+                        } else {
+                                err = os.Remove(s)
+                        }
+                        if err != nil {
+                                err = wrap(pos, wrap(a.Position(), err))
+                                return
                         }
                 }
         }
@@ -2085,29 +2098,28 @@ func builtinRemove(pos Position, args... Value) (res Value, err error) {
 }
 
 func builtinRemoveAll(pos Position, args... Value) (res Value, err error) {
-        if args, err = mergeresult(ExpandAll(args...)); err != nil { return }
-
-        /*for _, a := range args {
-                if err = os.RemoveAll(a.Strval()); err != nil {
-                        break
+        var optVerbose bool
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
                 }
-        }*/
-        var (
-                names []string
-                str string
-        )
-        ArgsLoop: for _, a := range args {
-                if str, err = a.Strval(); err != nil {
+        }); err != nil { return }
+
+        var ( names []string; str string )
+        for _, a := range args {
+                if str, err = a.Strval(); err != nil { return }
+                if names, err = filepath.Glob(str); err != nil {
+                        err = wrap(pos, wrap(a.Position(), err))
                         return
                 }
-                if names, err = filepath.Glob(str); err != nil {
-                        fmt.Fprintf(stderr, "error: remove-all: %s\n", err)
-                        break
-                } else {
-                        for _, s := range names {
-                                if err = os.RemoveAll(s); err != nil {
-                                        break ArgsLoop
-                                }
+                for _, s := range names {
+                        if optVerbose { fmt.Fprintf(stderr, "%s: remove %s\n", a.Position(), s) }
+                        if err = os.RemoveAll(s); err != nil {
+                                err = wrap(pos, wrap(a.Position(), err))
+                                return
                         }
                 }
         }

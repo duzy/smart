@@ -235,13 +235,14 @@ func (t *traversal) tracef(s string, a ...interface{}) { printIndentDots(t.trace
 func (t *traversal) addNewTarget(target Value) {
         if isNil(target) || isNone(target) { return }
         if t.targets.value == target { return }
+        if t.targets.value.cmp(target) == cmpEqual { return }
         if targets, ok := t.targets.value.(*List); ok {
                 for _, t := range targets.Elems {
                         if t == target || t.cmp(target) == cmpEqual { return }
                 }
         }
         t.targets.append(target)
-        if t.target0 != nil && isNone(t.target0.value) {
+        if t.target0 != nil && (isNone(t.target0.value) || isNil(t.target0.value)) {
                 t.target0.value = target
         }
 }
@@ -558,6 +559,7 @@ func (t *traversal) target(pos Position, target string) (err error) {
 
 func (t *traversal) appendUpdated(updated *updatedtarget) {
         if t.def.target.value == updated.target { return }
+        if t.def.target.value.cmp(updated.target) == cmpEqual { return }
         for _, u := range t.updated { // check if already added
                 if u.target == updated.target { return }
                 if u.target.cmp(updated.target) == cmpEqual { return }

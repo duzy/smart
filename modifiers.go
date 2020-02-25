@@ -879,7 +879,11 @@ type grepctx struct {
 type greprex struct{ string ; bool ; *regexp.Regexp }
 func (g *greprex) String() string { return g.string }
 func (g *greptouch) work(pos Position, gc *grepctx) (err error) {
-        var tt = g.targetInfo.ModTime()
+        if g.targetInfo == nil {
+                err = errorf(g.target.Position(), "'%v' not exists", g.target)
+                return
+        }
+        var tt time.Time = g.targetInfo.ModTime()
         for _, val := range g.files {
                 var file, ok = val.(*File)
                 if !ok { 
@@ -1483,7 +1487,7 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                                 if err = t.grepFiles(pos, gc); err != nil { break }
                         }
                 }
-                if gc.touch { err = touch.work(pos, gc) }
+                if err == nil && gc.touch { err = touch.work(pos, gc) }
         } (gc.files)
         gc.files = nil
 

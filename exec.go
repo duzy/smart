@@ -48,6 +48,7 @@ const (
         rxClangError_i
         rxLLDError_i
         rxLLDWarning_i
+        rxCouldnotParseObj_i
 )
 var (
         defaultShell = "bash"
@@ -64,8 +65,9 @@ var (
         errBashNoSuchFile = `bash: (.+?): No such file or directory`
         errClangNoSuchFile = `clang-(.+?): error: no such file or directory: '(.+?)'`
         errClangError = `clang-(.+?): error: (.+)`
-        errLLDError = `(ld\.lld|ld64\.lld|lld-link|wasm-ld): error: (.+)`
-        errLLDWarning = `(ld\.lld|ld64\.lld|lld-link|wasm-ld): warning: (.+)`
+        errLLDError = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): error: (.+)`
+        errLLDWarning = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): warning: (.+)`
+        errCouldnotParseObj = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`
 
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
@@ -80,6 +82,7 @@ var (
         rxClangError = regexp.MustCompile(errClangError)
         rxLLDError = regexp.MustCompile(errLLDError)
         rxLLDWarning = regexp.MustCompile(errLLDWarning)
+        rxCouldnotParseObj = regexp.MustCompile(errCouldnotParseObj)
 
         knownerrors = []*regexp.Regexp{
                 rxNotTTYDevice_i:        rxNotTTYDevice,
@@ -95,6 +98,7 @@ var (
                 rxLLDError_i:            rxLLDError,
                 rxLLDWarning_i:          rxLLDWarning,
                 rxContainerNotRunning_i: rxContainerNotRunning,
+                rxCouldnotParseObj_i:    rxCouldnotParseObj,
         }
 
         workingMutex = new(sync.Mutex)
@@ -337,7 +341,7 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
                         pos.Filename = string(v[1])
                         pos.Line, _ = strconv.Atoi(string(v[2]))
                         pos.Column, _ = strconv.Atoi(string(v[3]))
-                        err = errorf(pos, "%s", string(v[4]))
+                        err = wrap(lpos, errorf(pos, "%s", string(v[4])))
                 case rxIncludedFrom_i:
                         if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
                 case rxFileNotFound_i:
@@ -353,7 +357,9 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
                 case rxClangError_i:
                         err = errorf(lpos, "clang-%s: %s", string(v[1]), string(v[2]))
                 case rxLLDError_i:
-                        err = errorf(lpos, "lld: %s", string(v[2]))
+                        err = errorf(lpos, "%s", string(v[2]))
+                case rxCouldnotParseObj_i:
+                        err = errorf(lpos, "%s", string(v[3]))
                 case rxLLDWarning_i:
                         if p.report {
                                 fmt.Fprintf(stderr, "%s: warning: %s\n", lpos, string(v[2]))
