@@ -434,6 +434,7 @@ var configMessageHeadPrinters = map[string] func(Position, map[string]Value, ...
 func configMessageHead(pos Position, op string, fields map[string]Value, params ...Value) (err error) {
         var ( s string; str = "configure: " )
         if v, ok := fields["info"]; ok {
+                if l, ok := v.(*List); ok && len(l.Elems) > 0 { v = l.Elems[0] }
                 if s, err = v.Strval(); err == nil && len(s) > 0 {
                         r, size := utf8.DecodeRuneInString(s)
                         if size > 0 && unicode.IsUpper(r) {
