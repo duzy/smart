@@ -15,6 +15,7 @@ import (
         "bytes"
         "time"
         "fmt"
+        "os"
 )
 
 // Object is a value defined in a scope.
@@ -756,8 +757,8 @@ func (entry *RuleEntry) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, entry.target)) }
         if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
         if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
-ForPrograms:
-        for _, prog := range entry.programs {
+        if strings.Contains(entry.target.String(), "isl_srcdir.") { t.tracef("RuleEntry.traverse: %s %v (%v) (%v)", typeof(entry.target), entry.target, t.target0, t.targets) }
+        ForPrograms: for _, prog := range entry.programs {
                 var _, e = prog.execute(t, entry, t.arguments)
                 if e == nil { continue }
 
@@ -879,6 +880,7 @@ func (p *StemmedEntry) cmp(v Value) (res cmpres) {
 func (p *StemmedEntry) String() (s string) {
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
+/*
 func (p *StemmedEntry) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.traverse(%v)", p))) }
@@ -916,6 +918,32 @@ func (p *StemmedEntry) traverse(t *traversal) (err error) {
         }
         return
 }
+*/
+func (p *StemmedEntry) traverse(t *traversal) (err error) {
+        return errorf(p.position, "cant traverse stemmed entry directly")
+}
+func (p *StemmedEntry) _target(t *traversal, target string) (err error) {
+        if optionTraceTraversal { defer un(tt(t, p)) }
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.traverse(%v)", p))) }
+        if optionEnableBenchspots { defer bench(spot("StemmedEntry.traverse")) }
+
+        defer func(a Value) { p.target = a } (p.target)
+        defer func(stems []string) { t.stems = stems } (t.stems)
+        t.stems = p.Stems // set stems for the traversal
+
+        if _, ok := p.Pattern.(*Path); ok {
+                p.target = MakePathStr(p.position, target)
+        } else if file := t.project.matchFile(target); file != nil {
+                p.target = file
+        } else {
+                p.target = &String{trivial{p.position}, target}
+        }
+
+        if false { fmt.Fprintf(stderr, "%s:stemmed: %T %v -> %v, stems=%v\n", p.position, p.Pattern, p.Pattern, target, t.stems) }
+
+        if err = p.RuleEntry.traverse(t); err != nil { err = wrap(p.position, err) }
+        return
+}
 func (p *StemmedEntry) file(t *traversal, file *File) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.file(%v)", p))) }
@@ -926,8 +954,11 @@ func (p *StemmedEntry) file(t *traversal, file *File) (err error) {
         t.stems = p.Stems // set stems for the traversal
         p.target = file
 
-        if err = p.RuleEntry.traverse(t); err != nil {
-                err = wrap(p.position, err)
+        if file.info == nil && file.match == nil { // !isAbsOrRel()
+                if f := t.project.matchFile(file.name); f != nil { *file = *f }
+                if file.info == nil { file.info, _ = os.Stat(file.name) }
         }
+
+        if err = p.RuleEntry.traverse(t); err != nil { err = wrap(p.position, err) }
         return
 }

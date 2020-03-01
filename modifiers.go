@@ -427,9 +427,7 @@ ForArgs:
 func modifierClosure(pos Position, t *traversal, args... Value) (result Value, err error) {
         // Set caller context before parsing arguments (pop the top one).
         // The context will be restored when execution is finished.
-        if c := t.caller; c != nil {
-                t.project, t.closure = c.project, c.closure
-        }
+        if c := t.caller; c != nil { t.project, t.closure = c.project, c.closure }
 
         if false {
                 if len(cloctx) > 0 { cloctx = cloctx[1:] }
@@ -1650,21 +1648,28 @@ func modifierGrep(pos Position, t *traversal, args... Value) (result Value, err 
 
 func modifierTouch(pos Position, t *traversal, args... Value) (result Value, err error) {
         var (
-                optMode uint32 // TODO: -m
-                optPath bool // TODO: -p
+                optMode os.FileMode
+                optPath bool
                 optVerbose bool
         )
         if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
         if args, err = parseFlags(args, []string{
+                "m,mode",
+                "p,path",
                 "v,verbose",
         }, func(ru rune, v Value) {
                 switch ru {
+                case 'm': if optMode   , err = permVal(v, 0600); err != nil { return }
+                case 'p': if optPath   , err = trueVal(v, true); err != nil { return }
                 case 'v': if optVerbose, err = trueVal(v, true); err != nil { return }
                 }
         }); err != nil { return }
         if len(args) == 0 { args = append(args, t.def.target.value) }
         for _, arg := range args {
-                if err = touch(arg, optMode, optPath); err != nil { break }
+                if err = touch(arg, uint32(optMode), optPath); err != nil {
+                        err = wrap(pos, err)
+                        break
+                }
         }
         return
 }

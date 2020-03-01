@@ -7,11 +7,9 @@
 package smart
 
 import (
-        //"extbit.io/smart/scanner"
-        //"extbit.io/smart/token"
         "runtime/debug" // debug.PrintStack()
         "strconv"
-        //"strings"
+        "strings"
         "sync"
         //"time"
         "fmt"
@@ -24,7 +22,6 @@ type dependPatternUnfit struct {
 func (*dependPatternUnfit) Error() string { return "pattern unfit" }
 
 type Program struct {
-        mutex *sync.Mutex // execution mutex
         project *Project
         scope   *Scope
         params  []*Def
@@ -206,12 +203,6 @@ const maxRecursion  = 16 //32 //64
 func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) (result Value, err error) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("Program.execute(%s)", entry.target))) }
         if optionEnableBenchspots { defer bench(spot("Program.execute")) }
-        if false {
-                // Execution can be nested, a program.mutex.lock may
-                // cause dead-lock in such case.
-                prog.mutex.Lock()
-                defer prog.mutex.Unlock()
-        }
 
         var recursion int
         var pos = prog.position
@@ -230,13 +221,9 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         }
 
         // The program scope must be protected!
-        for _, o := range prog.scope.elems {
-                if def, okay := o.(*Def); okay {
-                        defer func(def *Def, v Value) {
-                                def.value = v
-                        } (def, def.value)
-                }
-        }
+        for _, o := range prog.scope.elems { if d, okay := o.(*Def); okay {
+                defer func(d *Def, v Value) { d.value = v } (d, d.value)
+        }}
 
         var t = &traversal{
                 program: prog,
@@ -252,9 +239,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         var ( none = &None{trivial{pos}} ; stem Value = none )
         if t.caller != nil {
                 if optionTraceTraversalNestIndent { t.traceLevel = t.caller.traceLevel }
-                if t.stems = t.caller.stems; t.stems != nil {
-                        stem = &String{trivial{pos}, t.stems[0]}
-                }
+                if t.stems = t.caller.stems; t.stems != nil { stem = &String{trivial{pos}, t.stems[0]} }
         }
         if t.def.stem,    err = prog.auto("*", stem); err != nil { return }
         if t.def.target,  err = prog.auto("@", none); err != nil { return }
@@ -265,70 +250,70 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if t.def.updated, err = prog.auto("?", none); err != nil { return }
         if t.def.buffer,  err = prog.auto("-", none); err != nil { return }
         if t.def.params,  err = prog.args(args); err != nil { return }
-        // Flag targets (-foo) turn off printing automatically
-        if _, ok := t.entry.target.(*Flag); ok { t.print = false }
-        if t.print && t.entry.class == UseRuleEntry { t.print = false }
-        if t.print && prog.configure { t.print = false }
 
-        // cd before setting cloctx
-        var enterStop *enterec
-        if len(cd.stack) > 0 { enterStop = cd.stack[0] }
-        if err = enter(prog, prog.project.absPath); err != nil {
-                err = wrap(prog.position, err)
-                return
-        }
-        cd.stack[0].silent = !t.print
+        // Note: must enter work directory (cd) before setting cloctx
+        var alreadyUpdated bool
+        var enterBack *enterec
+        if len(cd.stack) > 0 { enterBack = cd.stack[0] }
+        if err = enter(prog, prog.project.absPath); err != nil { err = wrap(pos, err); return }
+        defer func(scc closurecontext, swd string) {
+                setclosure(scc) // restore closure context
 
-        // must set cloctx after cd (enter)
-        defer setclosure(setclosure(cloctx.unshift(prog.scope)))
-        defer func(s string) { // leaving after setting cloctx to meet the FIFO order
-                if e := leave(prog, enterStop); e != nil {
+                if e := leave(prog, enterBack); e != nil {
                         // NOTE: err could be breakCase, breakDone, etc.
-                        if err == nil { err = e } else {
-                                fmt.Fprintf(stderr, "%s: leaving: %s\n", t.entry.Position, e)
-                        }
+                        if err == nil { err = e } else { fmt.Fprintf(stderr, "%s: leaving: %s\n", t.entry.Position, e) }
                 }
-                prog.project.changedWD = s
-        } (prog.project.changedWD)
+                prog.project.changedWD = swd
 
-        var fileTarget *File
+                if err != nil { return }
+
+                var target = t.def.target.value
+                if file, okay := target.(*File); okay && file.info != nil && !file.updated {
+                        file.updated = true
+                }
+
+                if optionTraceTraversal {
+                        var target = t.def.target.value
+                        t.tracef("Program.execute: %v (%v) (%v)", target, t.target0, t.targets)
+                }
+
+                result, err = t.def.buffer.Call(prog.position)
+                if err != nil { err = wrap(prog.position, err) } else
+                if !(isNil(target) || isNone(target)) && t.caller != nil {
+                        if s, _ := target.Strval(); strings.Contains(s, "isl_srcdir.") { t.tracef("%v (%v) (%v)", s, t.target0, t.targets) }
+                        t.caller.addNewTarget(target)
+                }
+        } (setclosure(cloctx.unshift(prog.scope)), prog.project.changedWD)
 
         // Select the right target value before setting parameters,
         // because the target could be overrided by parameters.
         switch a := t.entry.target.(type) {
-        case *File:
+        case *Flag:
                 t.def.target.setval(a)
-                fileTarget = a
+                // Flag target (-foo) turns off printing automatically
+                t.print = false
+        case *File:
+                alreadyUpdated = a.info != nil && a.updated
+                t.def.target.setval(a)
         default:
                 var name string
                 var target = t.entry.target
-                if name, err = target.Strval(); err != nil {
-                        err = wrap(prog.position, err)
-                        return
-                }
+                if name, err = target.Strval(); err != nil { err = wrap(pos, err);  return }
                 if file := prog.project.matchFile(name); file != nil {
-                        fileTarget = file
+                        alreadyUpdated = file.info != nil && file.updated
                         target = file
                 }
                 t.def.target.setval(target)
         }
-        if fileTarget != nil && fileTarget.info != nil && fileTarget.updated {
-                if optionVerbose {
-                        fmt.Fprintf(stderr, "smart: Already updated %v\n", fileTarget)
-                }
+        if alreadyUpdated {
+                if optionTraceTraversal { t.tracef("Program.execute: '%v' already updated", t.def.target.value) }
+                if optionVerbose { fmt.Fprintf(stderr, "smart: '%v' already updated\n", t.def.target.value) }
                 return
         }
-        defer func() {
-                if err != nil { return }
 
-                // Set fileTarget.updated in stamp() (from exec.go).
-                if fileTarget != nil && fileTarget.info != nil && !fileTarget.updated {
-                        fileTarget.updated = true
-                }
-
-                result, err = t.def.buffer.Call(prog.position)
-                if err != nil { err = wrap(prog.position, err) }
-        } ()
+        if t.print && t.entry.class == UseRuleEntry { t.print = false }
+        if t.print && prog.configure { t.print = false }
+        cd.stack[0].silent = !t.print
         return t.exec(prog)
 }
 
@@ -398,13 +383,9 @@ func (t *traversal) traverseNormalPrerequisites(pos Position) (err error) {
         } ()
 
         var depends []Value
-        if depends, err = t.program.prerequisites(t, t.program.depends); err != nil {
-                err = wrap(pos, err)
-        } else if err = t.dispatch(depends); err != nil {
-                err = wrap(pos, t.wait(pos), err)
-        } else if err = t.wait(pos); err != nil {
-                // ...
-        }
+        if depends, err = t.program.prerequisites(t, t.program.depends); err != nil { err = wrap(pos, err) }
+        if err = t.dispatch(depends); err != nil { err = wrap(pos, t.wait(pos), err) } else
+        if err = t.wait(pos); err != nil {}
         return
 }
 

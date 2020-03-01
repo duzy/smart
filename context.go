@@ -37,8 +37,8 @@ var (
         optionPrintFlags = false
         optionPrintStack = false
         optionNoExec = false
-)
-const (
+
+        // Tracking options
         optionTraceLaunch = false
         optionTraceParsing = false
         optionTraceTraversal = false

@@ -219,11 +219,11 @@ func tt(t *traversal, i Value) *traversal {
         // target execution args and argumented-prerequisite args.
         var a string
         if tar := t.entry.target; len(t.args) > 0 {
-                a = fmt.Sprintf("%T{%s}%s", tar, tar, t.args)
+                a = fmt.Sprintf("%s{%s}%s", typeof(tar), tar, t.args)
         } else {
-                a = fmt.Sprintf("%T{%v}", tar, tar)
+                a = fmt.Sprintf("%s{%v}", typeof(tar), tar)
         }
-        var b = fmt.Sprintf("%T{%v}", i, i)
+        var b = fmt.Sprintf("%s{%v}", typeof(i), i)
         t.trace(a, ":", b, "(")
         t.level(+1)
         return t
@@ -300,141 +300,25 @@ func (t *traversal) dispatch(i interface{}) (err error) {
         return
 }
 
-func (t *traversal) fileInProject(p *Project, file *File) (okay bool, err error) {
-        if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("in %v", p))) }
-        if optionEnableBenchspots { defer bench(spot("traversal.fileInProject")) }
-
-        var names = make(map[string]bool)
-        for stub := file.filestub; true; stub = stub.other {
-                names[stub.name] = true // mark to avoid trying many times
-                okay, err = t.filestub(p, file, stub)
-                if err != nil || okay { file.filestub = stub; return }
-                if stub.other == file.filestub { break }
-        }
-
-        // Try other names
-        var name string
-        for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i >= 0; {
-                if i == 0 {
-                        name = file.fullname()
-                } else {
-                        name = filepath.Join(s[i+1:], name)
-                }
-                s = s[:i] // slice out the prefix 
-                if _, tried := names[name]; !tried {
-                        names[name] = true // mark to avoid duplication
-
-                        var sub = filepath.Join(file.sub, s)
-                        var stub = &filestub{
-                                file.dir, sub, name,
-                                file.match, file.filestub.other,
-                        }
-                        file.filestub.other = stub
-
-                        okay, err = t.filestub(p, file, stub)
-                        if err != nil || okay {
-                                file.filestub = stub
-                                return
-                        }
-                }
-                i = strings.LastIndex(s, PathSep)
-        }
-
-        names = nil // clean names cache
-
-        if exists(file) {
-                okay = true
-        } else if file != nil && file.match != nil {
-                okay = file.searchInMatchedPaths(p)
-        } else if alt := p.matchFile(file.name); alt != nil {
-                okay = true
-        }
-        return
-}
-
 func (t *traversal) filestub(p *Project, file *File, stub *filestub) (okay bool, err error) {
         if optionEnableBenchspots { defer bench(spot("traversal.filestub")) }
 
         /// Searching entries from the most derived project.
         var entry *RuleEntry
-        if entry, err = p.resolveEntry(stub.name); err != nil {
-                return
-        } else if entry != nil {
-                err, okay = entry.traverse(t), true
-                return
-        }
+        if entry, err = p.resolveEntry(stub.name); err != nil { return } else
+        if entry != nil { err, okay = entry.traverse(t), true;  return }
 
         /// Searching patterns from the most derived project.
-        var ses []*StemmedEntry
-        if ses, err = p.resolvePatterns(stub); err != nil { return }
-        ForPatterns: for _, se := range ses {
-                for _, prog := range se.programs {
-                        var ok bool
-                        ok, err = checkPatternDepends(t, p, se, prog)
-                        if err != nil { break ForPatterns }
-                        if !ok { continue ForPatterns }
+        var entries []*StemmedEntry
+        if entries, err = p.resolvePatterns(stub); err != nil { return }
+        ForEntries: for _, entry := range entries {
+                for _, prog := range entry.programs {
+                        var okay bool
+                        if  okay, err = checkPatternDepends(t, p, entry, prog); err != nil { break ForEntries }
+                        if !okay { continue ForEntries }
                 }
-                if err = se.file(t, file); err == nil { okay = true }
-                return
-        }
-        return
-}
-
-func (t *traversal) targetInProject(pos Position, p *Project, target string) (okay bool, err error) {
-        if optionEnableBenchmarks && false { defer bench(mark(fmt.Sprintf("traversal.targetInProject(%v)", target))) }
-        if optionEnableBenchspots { defer bench(spot("traversal.targetInProject")) }
-
-        if obj := p.scope.Lookup(target); obj != nil {
-                if okay, err = obj.tryTraverse(t); okay || err != nil {
-                        return
-                }
-        }
-
-        if file := p.matchFile(target); file != nil {
-                // Change the position for tracing.
-                file.position = pos
-                
-                t.addNewTarget(file) // Add new file target
-
-                // Invoke file rules no matter if it existed or not.
-                if okay, err = t.fileInProject(p, file); err != nil {
-                        err = wrap(pos, err)
-                } else if !okay {
-                        err = wrap(pos, fileNotFoundError{p, file})
-                }
-                if optionTraceTraversal {
-                        t.tracef("%s: traverseTarget(file{%s,%s,%s}): okay=%v, err=%v",
-                                p.name, file.dir, file.sub, file.name, okay, err)
-                }
-                return
-        }
-
-        var entry *RuleEntry
-        if entry, err = p.resolveEntry(target); err != nil {
-                err = wrap(pos, err)
-                return
-        } else if entry != nil {
-                okay, err = true, t.dispatch(entry)
-                return
-        }
-
-        var ses []*StemmedEntry
-        if ses, err = p.resolvePatterns(target); err == nil {
-        ForPatterns:
-                for _, se := range ses {
-                        for _, prog := range se.programs {
-                                var ok bool
-                                ok, err = checkPatternDepends(t, p, se, prog)
-                                if err != nil { break ForPatterns }
-                                if !ok { continue ForPatterns }
-                        }
-
-                        // Associate StemmedEntry with the target.
-                        //se.target = target
-                        if err = se.traverse(t); err == nil {
-                                okay = true; return
-                        }
-                }
+                if err = entry.file(t, file); err == nil { okay = true }
+                break
         }
         return
 }
@@ -467,47 +351,38 @@ func (t *traversal) forClosureProject(f func(*Project) (bool, error)) (okay bool
 }
 
 func (t *traversal) file(file *File) (err error) {
+        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.file(%v)", file))) }
         if optionEnableBenchspots { defer bench(spot("traversal.file")) }
 
+        var okay bool
         var projects = t.closureProjects()
         for _, project := range projects {
                 var entry *RuleEntry
-                entry, err = project.resolveEntry(file.name)
-                if err != nil { err = wrap(file.position, err); return }
-                if entry != nil {
-                        if err = t.dispatch(entry); err != nil {
-                                err = wrap(file.position, err)
-                        }
-                        return
-                }
+                if entry, err = project.resolveEntry(file.name); err != nil { err = wrap(file.position, err); return }
+                if entry != nil { if err = t.dispatch(entry); err != nil { err = wrap(file.position, err) }; return }
         }
 
-        var okay bool
         for _, project := range projects {
                 // okay, err = t.fileInProject(project, file)
                 // if err != nil { err = wrap(file.position, err); return }
                 // if okay { break }
 
                 var entries []*StemmedEntry
-                entries, err = project.resolvePatterns(file.name)
-                if err != nil { err = wrap(file.position, err); return }
+                if entries, err = project.resolvePatterns(file.name); err != nil { err = wrap(file.position, err); return }
                 ForEntry: for _, entry := range entries {
                         for _, prog := range entry.programs {
                                 var good bool
-                                good, err = checkPatternDepends(t, project, entry, prog)
-                                if err != nil { err = wrap(file.position, err); break ForEntry }
-                                if !good { continue ForEntry }
+                                if good, err = checkPatternDepends(t, project, entry, prog); err != nil { err = wrap(file.position, err); break ForEntry }
+                                if!good { continue ForEntry }
                         }
-                        if err = entry.file(t, file); err != nil {
+                        if err = entry.file(t, file); err == nil { break ForEntry } else {
                                 err = wrap(file.position, err)
                                 return
                         }
-                        break ForEntry
                 }
 
-                if exists(file) {
-                        okay = true
-                } else if file != nil && file.match != nil {
+                if exists(file) { okay = true } else
+                if file != nil && file.match != nil {
                         okay = file.searchInMatchedPaths(project)
                 } else if alt := project.matchFile(file.name); alt != nil {
                         okay = true
@@ -518,8 +393,7 @@ func (t *traversal) file(file *File) (err error) {
 
         if !okay && err == nil {
                 err = wrap(file.position, fileNotFoundError{t.project, file})
-                if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found",
-                        t.project, file.dir, file.sub, file.name) }
+                if optionTraceTraversal { t.tracef("%v: file({%s,%s,%s}): not found", t.project, file.dir, file.sub, file.name) }
         }
         return
 }
@@ -528,30 +402,82 @@ func (t *traversal) target(pos Position, target string) (err error) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
         if optionEnableBenchspots { defer bench(spot("traversal.target")) }
 
+        var okay bool
         var projects = t.closureProjects()
         for _, project := range projects {
                 var entry *RuleEntry
-                entry, err = project.resolveEntry(target)
-                if err != nil { err = wrap(pos, err); return }
-                if entry != nil {
-                        if err = t.dispatch(entry); err != nil {
-                                err = wrap(pos, err)
+                if entry, err = project.resolveEntry(target); err != nil { err = wrap(pos, err); return }
+                if entry != nil { if err = entry.traverse(t); err != nil { err = wrap(pos, err); }; return }
+
+                var obj Object
+                if obj, err = project.resolveObject(target); err != nil { err = wrap(pos, err); return } else
+                if obj != nil {
+                        if okay, err = obj.tryTraverse(t); err != nil { err = wrap(pos, err); return } else
+                        if okay { return }
+                }
+
+                if file := project.matchFile(target); file != nil {
+                        file.position = pos // Change the position for tracing
+                        t.addNewTarget(file) // Add new file target
+
+                        var names = make(map[string]bool)
+                        for stub := file.filestub; true; stub = stub.other {
+                                names[stub.name] = true // mark to avoid trying many times
+                                if okay, err = t.filestub(project, file, stub); err != nil { err = wrap(pos, err); return }
+                                if okay { file.filestub = stub; return }
+                                if stub.other == file.filestub { break }
                         }
+
+                        // Try other names
+                        var name string
+                        for s, i := file.name, strings.LastIndex(file.name, PathSep); s != "" && i >= 0; i = strings.LastIndex(s, PathSep) {
+                                if i == 0 { name = file.fullname() } else { name = filepath.Join(s[i+1:], name) }
+                                s = s[:i] // strip off the prefix
+
+                                if _, tried := names[name]; tried { continue }
+                                names[name] = true // mark to avoid duplication
+
+                                var sub = filepath.Join(file.sub, s)
+                                var stub = &filestub{ file.dir, sub, name, file.match, file.filestub.other }
+                                file.filestub.other = stub
+
+                                if okay, err = t.filestub(project, file, stub); err != nil { err = wrap(pos, err); return }
+                                if okay { file.filestub = stub; return }
+                        }
+
+                        // Check file existance
+                        if exists(file) { okay = true } else
+                        if file != nil && file.match != nil {
+                                okay = file.searchInMatchedPaths(project)
+                        }
+
+                        if !okay { err = wrap(pos, fileNotFoundError{project, file}) }
                         return
                 }
         }
 
-        var okay bool
         for _, project := range projects {
-                okay, err = t.targetInProject(pos, project, target)
-                if err != nil { err = wrap(pos, err); return }
-                if okay { break }
+                // okay, err = t.targetInProject(pos, project, target)
+                // if err != nil { err = wrap(pos, err); return }
+                // if okay { break }
+
+                var entries []*StemmedEntry
+                if entries, err = project.resolvePatterns(target); err != nil { err = wrap(pos, err); return }
+                ForEntry: for _, entry := range entries {
+                        for _, prog := range entry.programs {
+                                var good bool
+                                if good, err = checkPatternDepends(t, project, entry, prog); err != nil { err = wrap(pos, err); break ForEntry }
+                                if!good { continue ForEntry }
+                        }
+
+                        // Associate StemmedEntry with the target.
+                        if err = entry._target(t, target); err == nil { okay = true; return }
+                }
         }
 
         if !okay && err == nil {
                 err = wrap(pos, targetNotFoundError{t.project, target})
-                if optionTraceTraversal { t.tracef("%v: `target(%s)` not found",
-                        t.project, target) }
+                if optionTraceTraversal { t.tracef("%v: `target(%s)` not found", t.project, target) }
         }
         if false && err != nil { debug.PrintStack() }
         return
@@ -1463,7 +1389,9 @@ func (p *String) Integer() (int64, error) { return strconv.ParseInt(p.string, 10
 func (p *String) Float() (float64, error) { return strconv.ParseFloat(p.string, 64) }
 func (p *String) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-        if false { err = t.target(p.Position(), p.string) }
+        if false { err = t.target(p.position, p.string) } else {
+                err = errorf(p.position, "cant traverse string yet")
+        }
         return
 }
 func (p *String) cmp(v Value) (res cmpres) {
@@ -1663,7 +1591,6 @@ func (p *Barecomp) expand(w expandwhat) (res Value, err error) {
 }
 func (p *Barecomp) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
-
         var target string
         if target, err = p.Strval(); err == nil {
                 err = t.target(p.position, target)
@@ -2448,8 +2375,7 @@ func (p *File) isSysFile() (res bool) {
 func (p *File) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if optionTraceExec { defer un(trace(t_exec, fmt.Sprintf("File %v", p))) }
-        if p.isSysFile() {
-                //fmt.Fprintf(stderr, "%v: %v\n", p, p.isSysFile())
+        if p.isSysFile() { if optionTraceTraversal { t.tracef("isSysFile: %v", p, p.isSysFile()) }
                 return
         }
 
@@ -2464,22 +2390,24 @@ func (p *File) traverse(t *traversal) (err error) {
                         a.Elems = append(p.Elems[len(p.Elems)-1:], a.Elems[1:]...)
                         p.Elems[len(p.Elems)-1] = a
                         t.def.target.value = p
-                        if optionTraceTraversal {
-                                t.tracef("FIX: barecomp path: %v", p)
-                        }
+                        if optionTraceTraversal { t.tracef("FIX: barecomp path: %v", p) }
                 } else {
                         var s string
                         if s, err = a.Strval(); err != nil { return }
                         if file := t.project.matchFile(s); file != nil {
                                 t.def.target.value = file
-                                if optionTraceTraversal {
-                                        t.tracef("FIX: barecomp file: %v", p)
-                                }
+                                if optionTraceTraversal { t.tracef("FIX: barecomp file: %v", p) }
                         }
                 }
         }
 
+        /*if v := t.def.target.value; strings.Contains(v.String(), "isl_srcdir.") || strings.Contains(p.name, "isl_srcdir.") {
+                fmt.Fprintf(stderr, "%s: %v: %v: %v: %v (%v) (%v) (File.traverse 1)\n", t.project, p.position, t.entry, v, p, t.target0.value, t.targets.value)
+        }*/
         if err = t.file(p); err != nil { return }
+        /*if v := t.def.target.value; strings.Contains(v.String(), "isl_srcdir.") || strings.Contains(p.name, "isl_srcdir.") {
+                fmt.Fprintf(stderr, "%s: %v: %v: %v: %v (%v) (%v) (File.traverse 2)\n", t.project, p.position, t.entry, v, p, t.target0.value, t.targets.value)
+        }*/
 
         if optionTraceTraversal {
                 var a = t.def.target.value
@@ -2495,11 +2423,7 @@ func (p *File) traverse(t *traversal) (err error) {
         // still have to check mod-time.
         var a time.Time
         if a, err = t.def.target.value.mod(t); err != nil { return }
-        if p.info.ModTime().After(a) {
-                /*if strings.HasSuffix(p.name, ".h") {
-                        fmt.Fprintf(stderr, "%s: %v %v : %v, %v\n", t.def.target.value.Position(), 
-                                t.def.target.value, p, a, p.info.ModTime())
-                }*/
+        if!a.IsZero() && p.info.ModTime().After(a) { // a.IsZero() indicates the target not exists
                 if optionTraceTraversal { t.tracef("updated: %v", p) }
                 t.appendUpdated(newUpdatedTarget(p))
         }
@@ -2613,7 +2537,13 @@ func checkPatternDepend(t *traversal, project *Project, se *StemmedEntry, prog *
         return
 }
 func (p *File) mod(t *traversal) (res time.Time, err error) {
-        if p.info != nil { res = p.info.ModTime() }
+        if p.info == nil { p.info, /*err*/_ = os.Stat(p.fullname()) }
+        if err != nil { err = wrap(p.position, err)
+                if optionPrintStack || true {
+                        fmt.Fprintf(stderr, "%s: %v: %v (%v)\n", t.project, p.position, p, p.match)
+                        debug.PrintStack()
+                }
+        } else if p.info != nil { res = p.info.ModTime() }
         return
 }
 func (p *File) cmp(v Value) (res cmpres) {
@@ -3729,7 +3659,7 @@ type PercPattern struct {
 }
 func (p *PercPattern) expand(_ expandwhat) (Value, error) { return p, nil }
 func (p *PercPattern) elemstr(o Object, k elemkind) (s string) {
-        s = elementString(o, p.Prefix, k) + `%`
+        s  = elementString(o, p.Prefix, k) + `%`
         s += elementString(o, p.Suffix, k)
         return
 }
@@ -3841,20 +3771,17 @@ func (p *PercPattern) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("PercPattern.traverse(%v)", p))) }
         if optionEnableBenchspots { defer bench(spot("PercPattern.traverse")) }
-
-        if t.stems == nil {
-                err = errorf(p.position, "no stems")
-                return
-        }
-
-        var target string
-        var rest []string
+        if t.stems == nil { err = errorf(p.position, "no stems"); return }
+        var ( rest []string; target string )
         if target, rest, err = p.stencil(t.stems); err != nil {
                 // oops...
         } else if len(rest) > 0 || target == "" {
                 // just relax
         } else if err = t.target(p.position, target); err == nil {
                 //t.addNewTarget(&String{trivial{p.position},target})
+                if strings.Contains(target, "isl_srcdir.") {
+                        fmt.Fprintf(stderr, "PercPattern: %s: %v (%v) (%v)\n", p.position, target, t.target0, t.targets)
+                }
         }
         return
 }

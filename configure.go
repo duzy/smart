@@ -12,7 +12,7 @@ import (
         "path/filepath"
         "unicode/utf8"
         "unicode"
-        "hash/crc64"
+        //"hash/crc64"
         "io/ioutil"
         "strings"
         "regexp"
@@ -21,7 +21,7 @@ import (
         "sort"
         "fmt"
         "os"
-        "io"
+        //"io"
 )
 
 type packagetype uint8
@@ -1013,30 +1013,19 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
 
         if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", file) }
         if file.info != nil {
-                var f *os.File
-                if f, err = os.Open(filename); err == nil && f != nil {
-                        defer f.Close()
-                        if st, _ := f.Stat(); st.Mode().Perm() != optMode {
-                                if err = f.Chmod(optMode); err != nil {
-                                        fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                                        return
-                                }
+                if same, e := crc64CheckFileModeContent(filename, data.Bytes(), optMode); e != nil {
+                        if optVerbose { fmt.Fprintf(stderr, "… (error: %s)\n", e) }
+                        err = wrap(pos, e, err); return
+                } else if same {
+                        var tt = file.info.ModTime()
+                        for _, d := range merge(t.targets.value) {
+                                if f, ok := d.(*File); !ok { continue } else
+                                if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
                         }
-                        w1 := crc64.New(crc64Table)
-                        w2 := crc64.New(crc64Table)
-                        if _, err = io.Copy(w1, f); err != nil {
-                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                                return
-                        }
-                        if _, err = w2.Write(data.Bytes()); err != nil {
-                                fmt.Fprintf(stderr, "… (error: %s)\n", err)
-                                return
-                        }
-                        if s1, s2 := w1.Sum64(), w2.Sum64(); s1 == s2 {
-                                if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
-                                result = file
-                                return
-                        }
+                        if tt.After(file.info.ModTime()) { err = touch(file, 0, false, tt) }
+                        if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
+                        result = file
+                        return
                 }
         } else if dir := filepath.Dir(filename); optPath && dir != "." && dir != PathSep {
                 if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
@@ -1051,9 +1040,8 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 printEnteringDirectory()
                 fmt.Fprintf(stderr, "smart: Updating %v …", file)
                 defer func() {
-                        if err != nil { status = "error!" } else {
-                                if status == "" { status = "done." }
-                        }
+                        if err != nil { status = "error!" } else
+                        if status == "" { status = "done." }
                         fmt.Fprintf(stderr, "… %s\n", status)
                 } ()
         }
