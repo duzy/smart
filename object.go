@@ -757,7 +757,6 @@ func (entry *RuleEntry) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, entry.target)) }
         if optionEnableBenchmarks && false { defer bench(mark("RuleEntry.traverse")) }
         if optionEnableBenchspots { defer bench(spot("RuleEntry.traverse")) }
-        if strings.Contains(entry.target.String(), "isl_srcdir.") { t.tracef("RuleEntry.traverse: %s %v (%v) (%v)", typeof(entry.target), entry.target, t.target0, t.targets) }
         ForPrograms: for _, prog := range entry.programs {
                 var _, e = prog.execute(t, entry, t.arguments)
                 if e == nil { continue }
@@ -880,45 +879,6 @@ func (p *StemmedEntry) cmp(v Value) (res cmpres) {
 func (p *StemmedEntry) String() (s string) {
         return fmt.Sprintf("<%s,%s>", p.PatternEntry, p.Stems)
 }
-/*
-func (p *StemmedEntry) traverse(t *traversal) (err error) {
-        if optionTraceTraversal { defer un(tt(t, p)) }
-        if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("StemmedEntry.traverse(%v)", p))) }
-        if optionEnableBenchspots { defer bench(spot("StemmedEntry.traverse")) }
-
-        defer func(a Value) { p.target = a } (p.target)
-        defer func(stems []string) { t.stems = stems } (t.stems)
-        t.stems = p.Stems // set stems for the traversal
-
-        var pos = p.position
-        var name string
-        var rest []string
-        if name, rest, err = p.Pattern.stencil(t.stems); err != nil { err = wrap(pos, err); return }
-        if len(rest) > 0 { err = errorf(pos, "incomplete stencil: rest=%v", rest); return }
-
-        if path, ok := p.Pattern.(*Path); ok {
-                p.target = MakePathStr(pos, name)
-                if false {
-                        fmt.Fprintf(stderr, "%s:stemmed: path %v -> %s, stems=%v\n", pos, path, p.target, t.stems)
-                }
-        } else if file := t.project.matchFile(name); file != nil {
-                p.target = file
-                if false { s, _ := file.Strval()
-                        fmt.Fprintf(stderr, "%s:stemmed: %T %v -> %v, %v, stems=%v\n", pos, p.Pattern, p.Pattern, file, s, t.stems)
-                }
-        } else {
-                p.target = &String{trivial{pos},name}
-                if false {
-                        fmt.Fprintf(stderr, "%s:stemmed: %T %v -> %v, stems=%v\n", pos, p.Pattern, p.Pattern, name, t.stems)
-                }
-        }
-
-        if err = p.RuleEntry.traverse(t); err != nil {
-                err = wrap(p.position, err)
-        }
-        return
-}
-*/
 func (p *StemmedEntry) traverse(t *traversal) (err error) {
         return errorf(p.position, "cant traverse stemmed entry directly")
 }

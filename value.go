@@ -375,19 +375,21 @@ func (t *traversal) file(file *File) (err error) {
                                 if good, err = checkPatternDepends(t, project, entry, prog); err != nil { err = wrap(file.position, err); break ForEntry }
                                 if!good { continue ForEntry }
                         }
-                        if err = entry.file(t, file); err == nil { break ForEntry } else {
+                        if err = entry.file(t, file); err == nil {
+                                okay = true // entry executed
+                                break ForEntry
+                        } else {
                                 err = wrap(file.position, err)
                                 return
                         }
                 }
 
-                if exists(file) { okay = true } else
-                if file != nil && file.match != nil {
+                if okay { break } else
+                if exists(file) { okay = true } else if file != nil {
                         okay = file.searchInMatchedPaths(project)
                 } else if alt := project.matchFile(file.name); alt != nil {
-                        okay = true
+                        okay = exists(alt)
                 }
-
                 if okay { break }
         }
 
@@ -442,16 +444,14 @@ func (t *traversal) target(pos Position, target string) (err error) {
                                 file.filestub.other = stub
 
                                 if okay, err = t.filestub(project, file, stub); err != nil { err = wrap(pos, err); return }
-                                if okay { file.filestub = stub; return }
+                                if okay { file.filestub = stub; break }
                         }
 
                         // Check file existance
+                        if okay { break } else
                         if exists(file) { okay = true } else
-                        if file != nil && file.match != nil {
-                                okay = file.searchInMatchedPaths(project)
-                        }
-
-                        if !okay { err = wrap(pos, fileNotFoundError{project, file}) }
+                        if file != nil { okay = file.searchInMatchedPaths(project) }
+                        if!okay { err = wrap(pos, fileNotFoundError{project, file}) }
                         return
                 }
         }
@@ -2300,9 +2300,7 @@ func (p *File) True() (t bool, err error) {
 func (p *File) String() string { return p.name }
 func (p *File) Strval() (s string, err error) { s = p.fullname(); return }
 func (p *File) BaseName() (s string) {
-        if p.info != nil {
-                s = p.info.Name()
-        } else {
+        if p.info != nil { s = p.info.Name() } else {
                 s = filepath.Base(p.name)
         }
         return
@@ -2316,7 +2314,7 @@ func (p *File) searchInMatchedPaths(proj *Project) (res bool) {
                 // FIXME: File should keep both 'match' and 'pre',
                 // or just remove searchInMatchedPaths
                 f := p.match.stat(proj.absPath, pre, p.name)
-                res = exists(f)
+                if f.info != nil { p.info, res = f.info, true }
         }
         return
 }
@@ -3779,9 +3777,6 @@ func (p *PercPattern) traverse(t *traversal) (err error) {
                 // just relax
         } else if err = t.target(p.position, target); err == nil {
                 //t.addNewTarget(&String{trivial{p.position},target})
-                if strings.Contains(target, "isl_srcdir.") {
-                        fmt.Fprintf(stderr, "PercPattern: %s: %v (%v) (%v)\n", p.position, target, t.target0, t.targets)
-                }
         }
         return
 }

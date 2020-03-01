@@ -9,7 +9,7 @@ package smart
 import (
         "runtime/debug" // debug.PrintStack()
         "strconv"
-        "strings"
+        //"strings"
         "sync"
         //"time"
         "fmt"
@@ -272,18 +272,15 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                         file.updated = true
                 }
 
-                if optionTraceTraversal {
-                        var target = t.def.target.value
-                        t.tracef("Program.execute: %v (%v) (%v)", target, t.target0, t.targets)
-                }
-
                 result, err = t.def.buffer.Call(prog.position)
                 if err != nil { err = wrap(prog.position, err) } else
                 if !(isNil(target) || isNone(target)) && t.caller != nil {
-                        if s, _ := target.Strval(); strings.Contains(s, "isl_srcdir.") { t.tracef("%v (%v) (%v)", s, t.target0, t.targets) }
+                        //if s, _ := target.Strval(); strings.Contains(s, "isl_srcdir.") { t.tracef("%v (%v) (%v)", s, t.target0, t.targets) }
                         t.caller.addNewTarget(target)
                 }
         } (setclosure(cloctx.unshift(prog.scope)), prog.project.changedWD)
+
+        //if t.project.name == "..." { optionTraceTraversal = true }
 
         // Select the right target value before setting parameters,
         // because the target could be overrided by parameters.
@@ -306,7 +303,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 t.def.target.setval(target)
         }
         if alreadyUpdated {
-                if optionTraceTraversal { t.tracef("Program.execute: '%v' already updated", t.def.target.value) }
+                if optionTraceTraversal { t.tracef("Program.execute: '%v' already updated (%v)", t.def.target.value, t.targets) }
                 if optionVerbose { fmt.Fprintf(stderr, "smart: '%v' already updated\n", t.def.target.value) }
                 return
         }

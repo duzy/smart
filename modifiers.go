@@ -2582,7 +2582,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
 
         if optionTraceTraversal {
                 var v = t.def.target.value
-                t.tracef("dirty: %v (updated=%v, exists=%v, target=%s)", dirty, len(t.updated), exists(v), t)
+                t.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(v), t)
                 if len(t.updated) > 0 { t.tracef("dirty: updated=%v", t.updated) }
         }
 
