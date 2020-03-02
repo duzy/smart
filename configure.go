@@ -235,9 +235,9 @@ func configPrintMessageHead(pos Position, fields map[string]Value, args ...Value
 }
 
 var configMessageHeadPrinters = map[string] func(Position, map[string]Value, ...Value) (string, error) {
-        "if":           configPrintMessageHead,
-        "option":       configPrintMessageHead,
-        "compiles":     configPrintMessageHead,
+        "if":       configPrintMessageHead,
+        "option":   configPrintMessageHead,
+        "compiles": configPrintMessageHead,
         "library": func(pos Position, fields map[string]Value, args ...Value) (str string, err error) {
                 // Examples:
                 //   -library(foo,func,include='<foo.h>')
@@ -695,10 +695,10 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
                 var t bool
                 if err == nil && result != nil { t, err = result.True() }
                 if err == nil && t && configured && !isNil(pipe.value) /*&& !isNone(pipe.value)*/ {
-                        //fmt.Fprintf(stderr, "%s: %v: %v %v\n", pos, strName, result, pipe.value)
-                        switch strName { case "program-stdout", "program-stderr":
+                        /*switch strName { case "program-stdout", "program-stderr":
+                                if false { fmt.Fprintf(stderr, "%s: %v %v\n", pos, result, pipe.value) }
                                 result = pipe.value
-                        }
+                        }*/
                 }
                 if err == nil {
                         if result == nil {
