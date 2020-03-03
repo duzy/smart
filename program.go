@@ -280,7 +280,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 }
         } (setclosure(cloctx.unshift(prog.scope)), prog.project.changedWD)
 
-        //if t.project.name == "..." { optionTraceTraversal = true }
+        if t.project.name == "." && false { optionTraceTraversal = true }
 
         // Select the right target value before setting parameters,
         // because the target could be overrided by parameters.

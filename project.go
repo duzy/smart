@@ -66,6 +66,8 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                 file = stat(pos, name, "", base, nil)
                 return
         }
+        base = filepath.Clean(base)
+        pre  = filepath.Clean(pre)
         for _, path := range filemap.Paths {
                 if path == nil {
                         var pos = filemap.Pattern.Position()
@@ -73,10 +75,10 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                 }
 
                 var ( dir, sub string ; err error )
-                if sub, err = path.Strval(); err != nil { return }
-
-                // Clean the search path.
-                sub = filepath.Clean(sub)
+                if sub, err = path.Strval(); err != nil { return } else {
+                        // Clean the search path.
+                        sub = filepath.Clean(sub)
+                }
 
                 // Absolute path or using the base.
                 if filepath.IsAbs(sub) {
@@ -85,6 +87,10 @@ func (filemap *FileMap) stat(base, pre, name string) (file *File) {
                 } else {
                         dir = base //filepath.Join(base, sub)
                 }
+
+                /*if filepath.IsAbs(name) && !strings.HasPrefix(name, dir+PathSep) {
+                        continue
+                }*/
 
                 // Check file in the filesystem.
                 if file = stat(pos, name, sub, dir, nil); file != nil {

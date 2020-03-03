@@ -1517,7 +1517,7 @@ var stopgrep = 0
 
 // grep-files - grep files from target, example usage:
 //
-//      (grep-files '\s*#\s*include\s*<(.*)>')
+//      (grep-files -x='\s*#\s*include\s*<(.*)>')
 //      
 // https://github.com/google/re2/wiki/Syntax
 func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value, err error) {
@@ -1579,43 +1579,15 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
 
         var grepped = t.grepped
         ForTarget: for _, target := range args {
-                t.grepped = nil
                 gc.target = target
+                t.grepped = nil
 
-                //var targetInfo os.FileInfo
-                //var targetFullName string
-                if /*targetInfo, targetFullName,*/ err = t.grepFiles(pos, &gc); err != nil { err = wrap(pos, err); break }
-                if !optNoTraverse && len(t.grepped) > 0 /*&& targetInfo != nil*/ {
-                        if false && gc.debug { fmt.Fprintf(stderr, "%s: %v\n", pos, t.grepped) }
-                        //var tt = targetInfo.ModTime()
+                if err = t.grepFiles(pos, &gc); err != nil { err = wrap(pos, err); break }
+                if !optNoTraverse && len(t.grepped) > 0 {
+                        if false && gc.debug { fmt.Fprintf(stderr, "%v: %v: %v\n", t.project, pos, t.grepped) }
                         for _, val := range t.grepped {
-                                if err = t.dispatch(val); err != nil { err = wrap(pos, err); break ForTarget }
-                                // if !gc.touch { continue }
-                                // var file, ok = val.(*File)
-                                // if !ok { 
-                                //         fmt.Fprintf(stderr, "%s: '%v' is not file (%T)\n", pos, file, file)
-                                //         continue
-                                // }
-                                // if file.info == nil && !file.isSysFile() {
-                                //         var s string
-                                //         if s, err = file.Strval(); err != nil { err = wrap(pos, err); return }
-                                //         if file.info, err = os.Stat(s); err != nil { err = wrap(pos, err); return }
-                                //         if false || gc.debug { fmt.Fprintf(stderr, "%s: '%v' info is nil (%s)\n", pos, file, file.fullname()) }
-                                // }
-                                // if file.info == nil {/* ... */} else
-                                // if t := file.info.ModTime(); t.After(tt) {
-                                //         fmt.Fprintf(stderr, "%s: touch %v → %v (%v)\n", pos, target, file, t)
-                                //         if false {
-                                //                 t = launchTime //time.Now() // ...
-                                //                 err, tt = os.Chtimes(targetFullName, t, t), t
-                                //                 if err != nil { err = wrap(pos, err); break ForTarget }
-                                //         } else
-                                //         if tt != t { tt = t }
-                                // }
+                                if err = val.traverse(t); err != nil { err = wrap(pos, err); break ForTarget }
                         }
-                        // if tt.After(targetInfo.ModTime()) {
-                        //         err = os.Chtimes(targetFullName, tt, tt)
-                        // }
                 }
                 grepped = append(grepped, t.grepped...)
         }

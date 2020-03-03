@@ -291,7 +291,7 @@ func (t *traversal) dispatch(i interface{}) (err error) {
                 err = errorf(pos, "updating nil prerequisite")
         } else if value, ok := i.(Value); !ok {
                 err = errorf(pos, "'%v' is invalid", value)
-        } else if value == nil { // this could happen
+        } else if isNil(value) { // this could happen
                 err = errorf(pos, "updating nil prerequisite")
         } else {
                 if false { fmt.Fprintf(stderr, "dispatch: %T %v\n", value, value) }
@@ -363,10 +363,6 @@ func (t *traversal) file(file *File) (err error) {
         }
 
         for _, project := range projects {
-                // okay, err = t.fileInProject(project, file)
-                // if err != nil { err = wrap(file.position, err); return }
-                // if okay { break }
-
                 var entries []*StemmedEntry
                 if entries, err = project.resolvePatterns(file.name); err != nil { err = wrap(file.position, err); return }
                 ForEntry: for _, entry := range entries {
@@ -390,7 +386,13 @@ func (t *traversal) file(file *File) (err error) {
                 } else if alt := project.matchFile(file.name); alt != nil {
                         okay = exists(alt)
                 }
-                if okay { break }
+                if!okay && false {
+                        s, _ := file.Strval()
+                        e, _ := project.resolveEntry(file.name)
+                        fmt.Fprintf(stderr, "%s: %s: %v (%v) (%s)\n", project, file.position, file, e, s)
+                        debug.PrintStack()
+                }
+                if okay { return }
         }
 
         if !okay && err == nil {
@@ -457,10 +459,6 @@ func (t *traversal) target(pos Position, target string) (err error) {
         }
 
         for _, project := range projects {
-                // okay, err = t.targetInProject(pos, project, target)
-                // if err != nil { err = wrap(pos, err); return }
-                // if okay { break }
-
                 var entries []*StemmedEntry
                 if entries, err = project.resolvePatterns(target); err != nil { err = wrap(pos, err); return }
                 ForEntry: for _, entry := range entries {
@@ -479,6 +477,7 @@ func (t *traversal) target(pos Position, target string) (err error) {
                 err = wrap(pos, targetNotFoundError{t.project, target})
                 if optionTraceTraversal { t.tracef("%v: `target(%s)` not found", t.project, target) }
         }
+
         if false && err != nil { debug.PrintStack() }
         return
 }
@@ -1844,24 +1843,14 @@ func (p *Path) traverse(t *traversal) (err error) {
         // Path fullname.
         var fullname string // the addressed file target
         if fullname, err = p.fullname(t.stems); err == nil && fullname == "" {
-                err = errorf(p.position, "path matches no target: %v", p)
-        }
-        if err != nil { return }
+                err = errorf(p.position, "path matches no target: %v", p); return
+        } else if err != nil { err = wrap(p.position, err); return }
 
         // Stat the file by fullname.
         var file = stat(p.position, fullname, "", "", nil)
-        if optionTraceTraversal {
-                t.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
-        }
-
-        file.position = p.position
-        if err = file.traverse(t); err != nil {
-                // oops, file not existed or other errors
-        }
-
-        if optionTraceTraversal {
-                t.tracef("path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname)
-        }
+        if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname) }
+        if err = file.traverse(t); err != nil { err = wrap(p.position, err) }
+        if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname) }
         return
 }
 func (p *Path) mod(t *traversal) (res time.Time, err error) {
@@ -2126,34 +2115,27 @@ func stat(pos Position, name, sub, dir string, infos ...os.FileInfo) (file *File
         // Trims / suffix
         if dir != "" { dir = filepath.Clean(dir) }
         if sub != "" { sub = filepath.Clean(sub) }
-        name = filepath.Clean(name)
+        if name!= "" { name= filepath.Clean(name) }
 
         if filepath.IsAbs(name) {
                 if fullname = name; dir == "" {
-                        dir, sub = filepath.Dir(fullname), ""
-                        name = filepath.Base(fullname)
-                        if enable_assertions {
-                                assert(sub == "", "invalid file{%s %s %s}", dir, sub, name)
-                        }
+                        //dir, sub = filepath.Dir(fullname), ""
+                        //name = filepath.Base(fullname)
                 } else if strings.HasPrefix(fullname, dir+PathSep) {
-                        //tail := strings.TrimPrefix(fullname, dir)
-                        //tail  = strings.TrimPrefix(tail, PathSep)
                         tail := fullname[len(dir)+1:]
-                        sub  = filepath.Dir(tail)
-                        name = filepath.Base(tail)
-                        if enable_assertions {
-                                assert(filepath.Join(dir, sub, name) == fullname, "(%s %s %s) components conflicted: %s", fullname)
+                        //sub  = filepath.Dir(tail)
+                        //name = filepath.Base(tail)
+                        if sub == "" { name = tail } else
+                        if strings.HasPrefix(fullname, sub+PathSep) {
+                                name = tail[len(sub)+1:]
                         }
-                } else if false {
-                        dir, sub = filepath.Dir(fullname), ""
-                        name = filepath.Base(fullname)
-                } else if false {
-                        dir, sub = filepath.Dir(fullname), ""
-                } else if true {
-                        dir = "" //dir = filepath.Dir(fullname)
-                        sub = ""
-                } else {
-                        unreachable("conflicted dir prefix: ", dir, " ", sub, " ", name)
+                } else if dir != "" {
+                        if true { dir = "" } else if false {
+                                if optionPrintStack || true { debug.PrintStack() }
+                                unreachable(errorf(pos, "dir name conflicts: %s <-> %s (sub=%v)", dir, name, sub))
+                        } else {
+                                return
+                        }
                 }
         } else if filepath.IsAbs(sub) {
                 fullname = filepath.Join(sub, name)
