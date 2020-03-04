@@ -1568,45 +1568,66 @@ func builtinFindstring(pos Position, args... Value) (res Value, err error) {
         return
 }
 
+// $(contains a b c, v1 v2 …)
+// $(contains a b c1 -or c2, v1 v2 …)
+// $(contains a b c1 -or c2 -or c3, v1 v2 …)
+// $(contains a b -or=(c1 c2 c3), v1 v2 …)
 func builtinContains(pos Position, args... Value) (res Value, err error) {
-        // $(contains v1 v2 v3,a b c … x y z)
-        if len(args) < 2 { return }
+        if len(args) < 2 {
+                err = errorf(pos, "unexpected number of arguments, try $(contains a b c1 -or c2, v1 v2 …)")
+                return
+        }
 
-        var vals []Value
-        var list []Value
-        if vals, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+        var (
+                optString bool
+                optVerbose bool
+                vals []Value
+                list []Value
+        )
+        if vals, err = mergeresult(ExpandAll(args[0])); err != nil { return } else
+        if vals, err = tryParseFlags(vals, []string{
+                "s,string",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 's': if optString , err = trueVal(v,true); err != nil { return }
+                case 'v': if optVerbose, err = trueVal(v,true); err != nil { return }
+                }
+        }); err != nil { return }
+
         if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
-        // TODO: -and -or
-        if true { // -or
-                for _, val := range vals {
-                        for _, v := range list {
-                                if val == nil || v == nil {
-                                        if false { fmt.Fprintf(stderr, "%s: nil values (%v,%v)\n", pos, val, v) }
-                                        continue
-                                }
-                                if val.cmp(v) == cmpEqual {
-                                        res = &boolean{trivial{pos},true}
-                                        return
-                                }
+
+        var ( n = 0; x = len(vals); va []Value )
+        for _, val := range vals {
+                var s string
+                switch v := val.(type) {
+                default: va = []Value{ val }
+                case *Flag:
+                        if s, err = v.name.Strval(); err != nil { return }
+                        if s == "or" { va, x = append(va, val), x-1; continue }
+                case *Pair: // FIXME: -or=(c1 c2 c3)
+                        if f, ok := v.Key.(*Flag); !ok {va = []Value{ val }} else {
+                                if s, err = f.name.Strval(); err != nil { return }
+                                if s == "or" { va, x = append(va, v.Value), x-1; continue }
                         }
                 }
-        } else { // -and
-                num := 0
-                for _, val := range vals {
-                        for _, v := range list {
-                                if val.cmp(v) == cmpEqual {
-                                        num += 1
-                                        break
-                                }
+
+                if len(va) == 0 { continue }
+                ForList:for _, v := range list {
+                        for _, a := range va {
+                                if optString {
+                                        var r string
+                                        if r, err = v.Strval(); err != nil { return }
+                                        if s, err = a.Strval(); err != nil { return }
+                                        if r != s { continue ForList }
+                                } else if a.cmp(v) != cmpEqual { continue ForList }
                         }
+                        n += 1 // one matched
                 }
-                if num == len(vals) {
-                        res = &boolean{trivial{pos},true}
-                }
+                va = nil
         }
-        if res == nil {
-                res = &boolean{trivial{pos},false}
-        }
+        if optVerbose { fmt.Fprintf(stderr, "%s: %v contains %v: %v (%v, %v)\n", pos, list, vals, (n==x), n, x) }
+        res = &boolean{trivial{pos},(n == x)}
         return
 }
 
