@@ -830,8 +830,8 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                         }
                         if t.caller == nil {
                                 fmt.Fprintf(stderr, "%s%s …\n", promStr, targetStr)
-                        } else {
-                                fmt.Fprintf(stderr, "%s%s ……\n", promStr, targetStr)
+                        } else { // ……
+                                fmt.Fprintf(stderr, "%s%s\n", promStr, targetStr)
                         }
                 }
                 if optDebug { fmt.Fprintf(stderr, "%s: %v (%v)\n", pos, cmd, t.def.target.value) }

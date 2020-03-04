@@ -680,12 +680,11 @@ func init () {
         }
 }
 
+var grepCacheFilebase = make(map[*filebase]*grepCacheFiles)
 type grepCacheFiles struct {
         file *File
         list []*File
 }
-var grepCacheFilebase = make(map[*filebase]*grepCacheFiles)
-
 type greptouch struct {
         files []Value
         target Value
@@ -735,8 +734,19 @@ func (g *greptouch) work(pos Position, gc *grepctx) (err error) {
         }
         return
 }
+func (g *grepctx) isTargetFile(file *File) (res bool) {
+        if g.target == file {
+                res = true
+        } else if s, _ := file.Strval(); s == g.targetFullName {
+                res = true
+        } else if t, ok := g.target.(*File); ok && t.name == file.name {
+                res = true
+        }
+        return
+}
 
 var grepcache = make(map[string][]Value)
+
 func loadGrepCache() {
         s := joinTmpPath("", "cache")
         f, err := os.Open(s)
@@ -778,17 +788,6 @@ func saveGrepCache() {
                         fmt.Fprintf(w, "%s|%s|%s\n", file.name, file.sub, file.dir)
                 }
         }
-}
-
-func (gc *grepctx) isTargetFile(file *File) (res bool) {
-        if gc.target == file {
-                res = true
-        } else if s, _ := file.Strval(); s == gc.targetFullName {
-                res = true
-        } else if t, ok := gc.target.(*File); ok && t.name == file.name {
-                res = true
-        }
-        return
 }
 
 func (t *traversal) searchGreppedName0(pos Position, gc *grepctx, sys bool, linum, colnum int, name string) (file *File) {
@@ -1178,6 +1177,7 @@ func modifierGrepFiles(pos Position, t *traversal, args... Value) (result Value,
                 }
                 grepped = append(grepped, t.grepped...)
         }
+        if false && t.project.name == "c++" { fmt.Fprintf(stderr, "%v: %v: %v %v\n", t.project, pos, args, grepped) }
         t.grepped = grepped
 
         if err != nil {} else if !optNoTraverse {
@@ -2141,7 +2141,7 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
 
         if optionTraceTraversal {
                 var v = t.def.target.value
-                t.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(v), t)
+                t.tracef("dirty: %v (updated=%v, exists=%v, target=%v)", dirty, len(t.updated), exists(v), v)
                 if len(t.updated) > 0 { t.tracef("dirty: updated=%v", t.updated) }
         }
 
