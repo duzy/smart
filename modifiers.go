@@ -2088,11 +2088,11 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         var reason string
         var dirty bool
         if dirty = len(t.breakers) > 0; dirty {
-                reason = fmt.Sprintf("dirty: %v breakers", len(t.breakers))
+                reason = fmt.Sprintf("dirty (%v breakers)", len(t.breakers))
         } else if dirty = !exists(t.def.target.value); dirty {
                 reason = "dirty: target not exists"
         } else if dirty = len(t.updated) > 0; dirty {
-                reason = fmt.Sprintf("dirty: %v updated", len(t.updated))
+                reason = fmt.Sprintf("dirty (%v updated)", len(t.updated))
         } else if dirty, err = t.isRecipesDirty(); err != nil {
                 err = wrap(pos, err); return
         } else if dirty {
