@@ -359,7 +359,10 @@ func (t *traversal) file(file *File) (err error) {
         for _, project := range projects {
                 var entry *RuleEntry
                 if entry, err = project.resolveEntry(file.name); err != nil { err = wrap(file.position, err); return }
-                if entry != nil { if err = t.dispatch(entry); err != nil { err = wrap(file.position, err) }; return }
+                if entry != nil { //if err = t.dispatch(entry); err != nil { err = wrap(file.position, err) }; return }
+                        if okay, err = entry.tryTraverse(t); okay { return } else
+                        if err != nil { err = wrap(file.position, err); return }
+                }
         }
 
         for _, project := range projects {
@@ -380,12 +383,9 @@ func (t *traversal) file(file *File) (err error) {
                         }
                 }
 
-                if okay { break } else
-                if exists(file) { okay = true } else if file != nil {
-                        okay = file.searchInMatchedPaths(project)
-                } else if alt := project.matchFile(file.name); alt != nil {
-                        okay = exists(alt)
-                }
+                if okay { break } else if exists(file) { okay = true } else
+                if file != nil { okay = file.searchInMatchedPaths(project) } else
+                if alt := project.matchFile(file.name); alt != nil { okay = exists(alt) }
                 if!okay && false {
                         s, _ := file.Strval()
                         e, _ := project.resolveEntry(file.name)
