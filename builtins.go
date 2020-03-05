@@ -2729,7 +2729,8 @@ func touch(file Value, optMode uint32, optPath bool, ts ...time.Time) (err error
         if fi, k := file.(*File); k && fi.info != nil { m = fi.info.Mode() } else
         if fi, e := os.Stat(name); e == nil && fi != nil { m = fi.Mode() } else {
                 var f *os.File
-                f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_APPEND, mode&os.ModePerm)
+                if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
+                f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm)
                 if err == nil { err = f.Close() }
         }
         if err == nil { err = os.Chtimes(name, at, mt) }
