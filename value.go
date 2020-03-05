@@ -498,7 +498,41 @@ func (t *traversal) appendUpdated(updated *updatedtarget) {
                 }
         }
         if c := t.caller; c != nil {
+                if false && updated.target.String() == "..." {
+                        var (s string; m time.Time)
+                        m, _ = updated.target.mod(t)
+                        s, _ = updated.target.Strval()
+                        fmt.Fprintf(stderr, "%s:\t%v %v\n", updated.target.Position(), m, s)
+                        m, _ = t.def.target.value.mod(t)
+                        s, _ = t.def.target.value.Strval()
+                        fmt.Fprintf(stderr, "%s:\t%v %v\n", t.def.target.value.Position(), m, s)
+                }
                 c.appendUpdated(newUpdatedTarget(t.def.target.value, updated))
+        }
+}
+
+func (t *traversal) removeUpdated(target Value) (removed []*updatedtarget) {
+        for i, u := range t.updated {
+                if u.target == target || u.target.cmp(target) == cmpEqual {
+                        removed = append(removed, u)
+                        t.updated = append(t.updated[:i], t.updated[i+1:]...)
+                        if t.caller != nil && len(t.updated) == 0 {
+                                t.caller.removeUpdated(t.def.target.value)
+                        }
+                }
+        }
+        return
+}
+
+func (t *traversal) removeCallerUpdated(target Value) {
+        if t.caller != nil {
+                // if strings.HasSuffix(target.String(), "...") { fmt.Fprintf(stderr, "%v: %v %v %v\n", target.Position(), target, t.updated, t.caller.updated) }
+                for _, u := range t.caller.removeUpdated(target) {
+                        for _, uu := range u.prerequisites {
+                                t.removeUpdated(uu.target)
+                        }
+                }
+                // if strings.HasSuffix(target.String(), "...") { fmt.Fprintf(stderr, "%v: %v %v %v\n", target.Position(), target, t.updated, t.caller.updated) }
         }
 }
 

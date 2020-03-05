@@ -1814,6 +1814,7 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
                 }
         } else if same {
                 if optVerbose { fmt.Fprintf(stderr, "… Good\n") }
+                t.removeCallerUpdated(target) // remove timestamp updated
                 result = stat(pos, filename, "", "")
                 return
         } else if optVerbose {
