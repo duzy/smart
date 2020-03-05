@@ -386,10 +386,7 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                         if s, err = val.Strval(); err != nil {
                                 l.error(spec.Props[0].Pos(), "%s", err)
                                 return
-                        } else if s == "" {
-                                l.error(spec.Props[0].Pos(), "empty use spec (%v)", val)
-                                return
-                        }
+                        } else if s == "" { continue }
                         specNames = append(specNames, s)
                 }
         default:
@@ -397,13 +394,14 @@ func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
                 if specName, err = specVal.Strval(); err != nil {
                         l.error(spec.Props[0].Pos(), "%s", err)
                         return
-                } else if specName == "" {
-                        l.error(spec.Props[0].Pos(), "empty use spec")
-                        return
-                }
+                } else if specName == "" { break }
                 specNames = append(specNames, specName)
         }
 
+        if len(specNames) == 0 {
+                l.error(spec.Props[0].Pos(), "empty use spec (%v)", spec.Props[0])
+                return
+        }
         for _, specName := range specNames {
                 l.loadUseSpecName(opts, spec, specName, &specOpts, params)
         }

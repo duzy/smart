@@ -828,10 +828,18 @@ func builtinAppend(pos Position, args... Value) (result Value, err error) {
                 if name == "" { err = errorf(pos, "name '%v' is empty", a); break }
 
                 var def *Def
-                for _, scope := range cloctx {
-                        if def = scope.FindDef(name); def != nil { break }
+                if def == nil {
+                        var obj Object
+                        obj, err = cloctx[0].project.resolveObject(name)
+                        if err != nil { err = wrap(pos, err); break } else
+                        if def, _ = obj.(*Def); def == nil { /*...*/ }
                 }
-                if def == nil { err = errorf(pos, "'%s' (%v) is undefined", name, a); break }
+                if def == nil {
+                        for _, scope := range cloctx {
+                                if def = scope.FindDef(name); def != nil { break }
+                        }
+                }
+                if def == nil { err = errorf(pos, "'%s' (%v) is undefined (%v)", name, a, cloctx); break }
                 if err = def.append(list...); err != nil { err = wrap(pos, err); break }
         }
         return
@@ -1171,23 +1179,14 @@ func filterValues(pats []Value, neg bool, values... Value) (result []Value, err 
 
 func builtinFilterValues(pos Position, neg bool, args... Value) (res Value, err error) {
         if len(args) > 1 {
-                var pats []Value
-                switch pat := args[0].(type) {
-                case *List:
-                        for _, elem := range pat.Elems {
-                                pats = append(pats, elem)
-                        }
-                default:
-                        pats = append(pats, pat)
-                }
-                var elems []Value
-                if elems, err = filterValues(pats, neg, args[1:]...); err == nil {
-                        res = MakeListOrScalar(pos, elems)
+                var ( pats []Value; vals []Value )
+                if pats, err = mergeresult(ExpandAll(args[0])); err != nil { return }
+                if vals, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+                if vals, err = filterValues(pats, neg, vals...); err == nil {
+                        res = MakeListOrScalar(pos, vals)
                 }
         }
-        if res == nil && err == nil {
-                res = &None{trivial{pos}}
-        }
+        if res == nil && err == nil { res = &None{trivial{pos}} }
         return
 }
 
