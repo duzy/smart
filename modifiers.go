@@ -10,6 +10,7 @@ import (
         "extbit.io/smart/scanner"
         "crypto/sha256"
         "path/filepath"
+        "runtime/debug"
         "hash/crc64"
         "io/ioutil"
         "strings"
@@ -708,6 +709,7 @@ func (g *greprex) String() string { return g.string }
 func (g *greptouch) work(pos Position, gc *grepctx) (err error) {
         if g.targetInfo == nil {
                 err = errorf(g.target.Position(), "'%v' not exists", g.target)
+                if false { debug.PrintStack() }
                 return
         }
         var tt time.Time = g.targetInfo.ModTime()
@@ -720,7 +722,7 @@ func (g *greptouch) work(pos Position, gc *grepctx) (err error) {
                 if file.info == nil && !file.isSysFile() {
                         var s string
                         if s, err = file.Strval(); err != nil { err = wrap(pos, err); return }
-                        if file.info, err = os.Stat(s); err != nil { err = wrap(pos, err); return }
+                        if file.info, _ = os.Stat(s); file.info == nil { continue }
                         if gc.debug { fmt.Fprintf(stderr, "%s: '%v' info is nil (%s)\n", pos, file, file.fullname()) }
                 }
                 if file.info == nil {/* ... */} else
@@ -1039,7 +1041,8 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                         return
                 } else { gc.targetInfo = file.info }
         }
-        if err != nil { err = wrap(pos, err); return } else
+        if err != nil { err = wrap(pos, err); return }
+        if gc.targetInfo == nil { return }
         if gc.done == nil { gc.done = make(map[string]int) }
         if !filepath.IsAbs(gc.targetFullName) {
                 err = errorf(pos, "grep: '%s' is not abs", gc.targetFullName)
@@ -1050,14 +1053,14 @@ func (t *traversal) grepFiles(pos Position, gc *grepctx) (err error) {
                 return
         }
 
+        if false { defer un(trace(t, targetName)) }
+
         if files, cached := grepcache[gc.targetFullName]; cached {
                 if gc.debug { fmt.Fprintf(stderr, "%s: grepcache: %v → %v\n", pos, gc.targetFullName, files) }
                 t.grepped = append(t.grepped, files...)
-                if gc.recursive {
-                        for _, gc.target = range files {
-                                if err = t.grepFiles(pos, gc); err != nil { break }
-                        }
-                }
+                if gc.recursive { for _, gc.target = range files {
+                        if err = t.grepFiles(pos, gc); err != nil { break }
+                }}
                 return
         }
         defer func(restore []Value) {
