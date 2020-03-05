@@ -69,9 +69,9 @@ var builtins = map[string]BuiltinFunc {
         `serve-http`:   builtinServeHttp,
         `serve-https`:  builtinServeHttps,
         
-        `print`:        builtinPrint,
-        `printl`:       builtinPrintl,
-        `println`:      builtinPrintln,
+        // `print`:        builtinPrint,
+        // `printl`:       builtinPrintl,
+        // `println`:      builtinPrintln,
 
         //`plus`:    builtinPlus,
         //`minus`:   builtinMinus,
@@ -175,12 +175,27 @@ var builtins = map[string]BuiltinFunc {
         // TODO: move these into builtin package 'io/ioutil'
         `read-dir`:   builtinReadDir,   // io/ioutil/ioutil.go
         `read-file`:  builtinReadFile,  // io/ioutil/ioutil.go
-        `write-file`: builtinWriteFile, // io/ioutil/ioutil.go
-        `touch-file`: builtinTouchFile,
+        // `write-file`: builtinWriteFile, // io/ioutil/ioutil.go
+        // `touch-file`: builtinTouchFile,
 
         `grep`:       builtinGrep,
 
-        `return`:     builtinReturn,
+        // `return`:     builtinReturn,
+}
+
+var commands = map[string]BuiltinFunc {
+        `print`:        builtinPrint,
+        `printl`:       builtinPrintl,
+        `println`:      builtinPrintln,
+
+        `append`:       builtinAppend,
+
+        //`read-dir`:     builtinReadDir,   // io/ioutil/ioutil.go
+        //`read-file`:    builtinReadFile,  // io/ioutil/ioutil.go
+        `write-file`:   builtinWriteFile, // io/ioutil/ioutil.go
+        `touch-file`:   builtinTouchFile,
+
+        `return`:       builtinReturn,
 }
 
 func RegisterBuiltins(m map[string]BuiltinFunc) (err error) {
@@ -778,6 +793,48 @@ func builtinPrintln(pos Position, args... Value) (Value, error) {
         builtinPrint(pos, args...)
         fmt.Printf("\n")
         return nil, nil
+}
+
+func builtinAppend(pos Position, args... Value) (result Value, err error) {
+        if len(args) < 2 {
+                err = errorf(pos, "insufficient number of arguments: %v", args)
+                return
+        }
+
+        if false { fmt.Fprintf(stderr, "%s: %v %v\n", pos, args, cloctx) }
+
+        var (
+                optString bool
+                optVerbose bool
+                vars []Value
+                list []Value
+        )
+        if vars, err = mergeresult(ExpandAll(args[0])); err != nil { return } else
+        if vars, err = tryParseFlags(vars, []string{
+                "s,string",
+                "v,verbose",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 's': if optString , err = trueVal(v,true); err != nil { return }
+                case 'v': if optVerbose, err = trueVal(v,true); err != nil { return }
+                }
+        }); err != nil { return }
+        if list, err = mergeresult(ExpandAll(args[1:]...)); err != nil { return }
+        if len(list) == 0 { return }
+
+        for _, a := range vars {
+                var name string
+                if name, err = a.Strval(); err != nil { err = wrap(pos, err); break }
+                if name == "" { err = errorf(pos, "name '%v' is empty", a); break }
+
+                var def *Def
+                for _, scope := range cloctx {
+                        if def = scope.FindDef(name); def != nil { break }
+                }
+                if def == nil { err = errorf(pos, "'%s' (%v) is undefined", name, a); break }
+                if err = def.append(list...); err != nil { err = wrap(pos, err); break }
+        }
+        return
 }
 
 func builtinPlus(pos Position, args... Value) (result Value, err error) {

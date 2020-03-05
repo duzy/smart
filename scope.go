@@ -246,7 +246,7 @@ func (scope *Scope) builtin(name string, f BuiltinFunc) (bui *Builtin, alt Objec
                                         owner: nil,
                                 }, name,
                         },
-                        f,
+                        builtinFlag(0), f,
                 }
                 scope.replace(name, bui)
         }

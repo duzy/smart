@@ -287,21 +287,13 @@ type importspecoptions struct {
         reuse bool
 }
 
-func (l *loader) parseUseProps(props []ast.Expr) (specName string, opts importspecoptions, params []Value, err error) {
-        if specName, err = l.expr(props[0]).Strval(); err != nil {
-                l.error(props[0].Pos(), "%s", err)
-                return
-        } else if specName == "" {
-                l.error(props[0].Pos(), "empty import name")
-                return
-        }
-
+func (l *loader) parseUseProps(props []ast.Expr) (opts importspecoptions, params []Value, err error) {
         // Supported parameter forms:
         //      -param
         //      -param(value)
         //      -param=value
         var useList []Value // TODO: apply useList
-        for _, prop := range props[1:] {
+        for _, prop := range props {
                 var s string
                 switch v := l.expr(prop); t := v.(type) {
                 case *Flag:
@@ -355,20 +347,74 @@ func (l *loader) parseUseProps(props []ast.Expr) (specName string, opts importsp
 func (l *loader) loadUseSpec(opts importoptions, spec *ast.UseSpec) {
         if optionTraceLaunch { defer un(trace(t_launch, "loader.loadUseSpec")) }
         var (
-                linfo = l.loads[len(l.loads)-1]
                 specOpts importspecoptions
-                specName string
+                specNames []string
+                specVal Value
                 params []Value
                 err error
         )
-        if 0 < len(spec.Props) {
-                specName, specOpts, params, err = l.parseUseProps(spec.Props)
-                if err != nil { return }
-        }
-        if specName == "" {
-                l.error(spec.Pos(), "invalid spec `%v`", spec)
+        if len(spec.Props) < 1 {
+                l.error(spec.Pos(), "insufficient props")
                 return
         }
+
+        specVal = l.expr(spec.Props[0])
+        if specOpts, params, err = l.parseUseProps(spec.Props[1:]); err != nil {
+                return
+        }
+
+        switch v := specVal.(type) {
+        case *Pair:
+                var s string
+                if f, ok := v.Key.(*Flag); !ok {
+                        l.error(spec.Props[0].Pos(), "'%v' invalid use spec", v.Key)
+                        return
+                } else if s, err = f.name.Strval(); err != nil {
+                        l.error(spec.Props[0].Pos(), "%s", err)
+                        return
+                } else if s != "list" {
+                        l.error(spec.Props[0].Pos(), "'%v' invalid use spec, do you mean -list?", v.Key)
+                        return
+                }
+
+                var list []Value
+                if list, err = mergeresult(ExpandAll(v.Value)); err != nil {
+                        l.error(spec.Props[0].Pos(), "%s", err)
+                        return
+                }
+                for _, val := range list {
+                        if s, err = val.Strval(); err != nil {
+                                l.error(spec.Props[0].Pos(), "%s", err)
+                                return
+                        } else if s == "" {
+                                l.error(spec.Props[0].Pos(), "empty use spec (%v)", val)
+                                return
+                        }
+                        specNames = append(specNames, s)
+                }
+        default:
+                var specName string
+                if specName, err = specVal.Strval(); err != nil {
+                        l.error(spec.Props[0].Pos(), "%s", err)
+                        return
+                } else if specName == "" {
+                        l.error(spec.Props[0].Pos(), "empty use spec")
+                        return
+                }
+                specNames = append(specNames, specName)
+        }
+
+        for _, specName := range specNames {
+                l.loadUseSpecName(opts, spec, specName, &specOpts, params)
+        }
+        return
+}
+
+func (l *loader) loadUseSpecName(opts importoptions, spec *ast.UseSpec, specName string, specOpts *importspecoptions, params []Value) {
+        var (
+                linfo = l.loads[len(l.loads)-1]
+                err error
+        )
 
         var ( absPath string; isDir bool )
         if absPath, isDir, err = l.searchSpecPath(linfo, specName); err != nil {
@@ -1904,9 +1950,6 @@ func (l *loader) OpenNamedScope(name, comment string) (loaderScope, error) {
 
 func (l *loader) resolve(value Value) (obj Value, err error) {
         if sel, ok := value.(*selection); ok {
-                /*if value, err = sel.value(); err == nil {
-                        obj, ok = value.(Object)
-                }*/
                 obj = sel
                 return
         }

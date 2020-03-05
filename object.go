@@ -524,10 +524,17 @@ func (p *undetermined) cmp(v Value) (res cmpres) {
         return
 }
 
+type builtinFlag uint32
+const (
+        builtinFunction builtinFlag = 1<<iota
+        builtinCommand
+)
+
 // A Builtin represents a built-in function.
 // Builtins don't have a valid type.
 type Builtin struct {
         knownobject
+        flag builtinFlag
         f BuiltinFunc
 }
 func (p *Builtin) True() (bool, error) { return p.f != nil, nil }

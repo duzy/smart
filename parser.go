@@ -1475,7 +1475,9 @@ func (p *parser) parseEvalSpec(doc *ast.CommentGroup, generic *genericoptions, _
         } else if spec.Resolved, err = p.resolve(&Bareword{trivial{prop0.Position()},name}); err != nil {
                 p.error(spec.Pos(), err)
         } else if spec.Resolved == nil {
-                p.error(spec.Props[0].Pos(), "undefined eval symbol `%s' (%v).", name, prop0)
+                p.error(spec.Props[0].Pos(), "no such command `%s' (%v).", name, prop0)
+        } else if b, ok := spec.Resolved.(*Builtin); ok && (b.flag&builtinCommand) == 0 {
+                p.error(spec.Props[0].Pos(), "'%s' (%v) builtin is not a command", name, prop0)
         } else if generic.dontOperate {
                 // NOOP
         } else {
