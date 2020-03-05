@@ -1800,15 +1800,8 @@ func modifierUpdateFile(pos Position, t *traversal, args... Value) (result Value
 
         // Check existed file content checksum
         if content, err = t.def.buffer.value.Strval(); err != nil { return }
-        if content == "" && (optVerbose || optDebug) {
-                fmt.Fprintf(stderr, "%s: empty content\n", pos)
-        }
-
-        if optVerbose {
-                s := target.String()
-                if len(s) > maxPromptStr { s = "…"+s[len(s)-maxPromptStr:] }
-                fmt.Fprintf(stderr, "smart: Checking %v …", s)
-        }
+        if content == "" && (optVerbose || optDebug) { fmt.Fprintf(stderr, "%s: empty content\n", pos) }
+        if optVerbose { fmt.Fprintf(stderr, "smart: Checking %v …", trimPromptString(target.String())) }
         if same, e := crc64CheckFileModeContent(filename, []byte(content), optMode); e != nil {
                 if false { // discard error (e.g.: no such file or directory)
                         fmt.Fprintf(stderr, "… (error: %s)\n", e)
