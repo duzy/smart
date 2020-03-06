@@ -1841,11 +1841,10 @@ func (p *Path) expand(w expandwhat) (res Value, err error) {
         }
         return
 }
-func (p *Path) fullname(stems []string) (fullname string, err error) {// the addressed file target
+func (p *Path) pathname(stems []string) (pathname string, err error) {// the addressed file target
         var rest []string // unmatched path segmants
-        if len(stems) == 0 {
-                fullname, err = p.Strval()
-        } else if fullname, rest, err = p.stencil(stems); err != nil {
+        if len(stems) == 0 { pathname, err = p.Strval()  } else
+        if pathname, rest, err = p.stencil(stems); err != nil {
                 // ...
         } else if len(rest) > 0 {
                 //err = errorf(p.position, "partial match: %v", rest)
@@ -1853,19 +1852,19 @@ func (p *Path) fullname(stems []string) (fullname string, err error) {// the add
         return
 }
 func (p *Path) stamp(t *traversal) (files []*File, err error) {
-        var fullname string
-        if fullname, err = p.Strval(); err == nil {
-                if fullname == "" {
-                        err = errorf(p.position, "no fullname for `%s`", p)
-                } else if file := stat(p.position,fullname,"","",nil); file != nil {
+        var pathname string
+        if pathname, err = p.Strval(); err == nil {
+                if pathname == "" {
+                        err = errorf(p.position, "no pathname for `%s`", p)
+                } else if file := stat(p.position,pathname,"","",nil); file != nil {
                         files, err = file.stamp(t)
                 }
         }
         return
 }
 func (p *Path) exists() existence {
-        if fullname, err := p.Strval(); err == nil {
-                if file := stat(p.position, fullname,"","",nil); file != nil {
+        if pathname, err := p.Strval(); err == nil {
+                if file := stat(p.position, pathname,"","",nil); file != nil {
                         return existenceConfirmed
                 }
         }
@@ -1874,26 +1873,27 @@ func (p *Path) exists() existence {
 func (p *Path) traverse(t *traversal) (err error) {
         if optionTraceTraversal { defer un(tt(t, p)) }
 
-        // Path fullname.
-        var fullname string // the addressed file target
-        if fullname, err = p.fullname(t.stems); err == nil && fullname == "" {
+        // Path pathname.
+        var pathname string // the addressed file target
+        if pathname, err = p.pathname(t.stems); err == nil && pathname == "" {
                 err = errorf(p.position, "path matches no target: %v", p); return
         } else if err != nil { err = wrap(p.position, err); return }
 
-        // Stat the file by fullname.
-        var file = stat(p.position, fullname, "", "", nil)
-        if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname) }
-        if err = file.traverse(t); err != nil { err = wrap(p.position, err) }
-        if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (fullname=%s)", file, file.exists(), fullname) }
+        // Stat the file by pathname.
+        var file = stat(p.position, pathname, "", ""/*, nil*/)
+        if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (pathname=%s)", file, file.exists(), pathname) }
+        if file == nil { err = t.target(p.position,pathname) } else { err = file.traverse(t) }
+        if err != nil { err = wrap(p.position, err) }
+        if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (pathname=%s)", file, file.exists(), pathname) }
         return
 }
 func (p *Path) mod(t *traversal) (res time.Time, err error) {
-        var fullname string // the addressed file target
-        if fullname, err = p.fullname(t.stems); err != nil {
+        var pathname string // the addressed file target
+        if pathname, err = p.pathname(t.stems); err != nil {
                 // oops
-        } else if fullname == "" {
+        } else if pathname == "" {
                 err = errorf(p.position, "path matches no target: %v", p)
-        } else if file := stat(p.position, fullname, "", "", nil); file != nil && file.info != nil {
+        } else if file := stat(p.position, pathname, "", "", nil); file != nil && file.info != nil {
                 res = file.info.ModTime()
         }
         return
