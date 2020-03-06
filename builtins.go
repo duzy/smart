@@ -1343,9 +1343,9 @@ ForSources:
                                 var file *File
                                 if match != nil {
                                         if file = match.stat(t.dir, pre, name); file != nil {
-                                                assert(file.name == name, "invalid file name")
+                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s", file.name, name))
                                         } else if file = match.stat(proj.absPath, pre, name); file != nil {
-                                                assert(file.name == name, "invalid file name")
+                                                assert(file.name == name, fmt.Sprintf("invalid file name: %s != %s", file.name, name))
                                                 /*
                                         } else if match.Paths != nil {
                                                 var ( path = match.Paths[0] ; sub string )
@@ -2517,9 +2517,8 @@ func builtinFileSource(pos Position, args... Value) (res Value, err error) {
 func builtinFile(pos Position, args... Value) (res Value, err error) {
         var optCallerContext bool
         var optReportMissing bool
-        if args, err = mergeresult(ExpandAll(args...)); err != nil {
-                return
-        } else if args, err = parseFlags(args, []string{
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
                 "c,caller", // in the caller context
                 "e,report", // report if not exists
         }, func(ru rune, v Value) {
@@ -2562,6 +2561,7 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                         err = errorf(pos, "`%v` is not a file", a)
                 }
         }
+
         res = MakeListOrScalar(pos, list)
         return
 }
@@ -2866,9 +2866,19 @@ var (
         rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
 
-func (scope *Scope) configExpand(pos Position, s string) string {
-        var res = new(bytes.Buffer)
+func (scope *Scope) config(name string) (def *Def, err error) {
+        if /*def = scope.FindDef(name); def == nil &&*/scope.project != nil {
+                var obj Object
+                if obj, err = scope.project.resolveObject(name); err == nil {
+                        def, _ = obj.(*Def)
+                }
+        }
+        return
+}
+
+func (scope *Scope) configExpand(pos Position, s string) (result string, err error) {
         var index = 0
+        var res = new(bytes.Buffer)
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
                 fmt.Fprint(res, s[index:m[0]])
                 index = m[1] // reset index immediately to keep forward
@@ -2881,7 +2891,9 @@ func (scope *Scope) configExpand(pos Position, s string) string {
                         name = s[m[4]:m[5]]
                 }
 
-                if def := scope.FindDef(name); def != nil {
+                var def *Def
+                if def, err = scope.config(name); err != nil { err = wrap(pos, err); return }
+                if def != nil {
                         var val, err = def.Call(pos)
                         if false { fmt.Printf("%s: %v: %s %v\n", pos, name, typeof(val), val) }
                         if err != nil { fmt.Fprintf(stderr, "%s: %v", pos, err) } else
@@ -2904,12 +2916,13 @@ func (scope *Scope) configExpand(pos Position, s string) string {
                 }
         }
         if index < len(s) { fmt.Fprint(res, s[index:]) }
-        return res.String()
+        result = res.String()
+        return
 }
 
 func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err error) {
         var index = 0
-        str = scope.configExpand(pos, str)
+        if str, err = scope.configExpand(pos, str); err != nil { return }
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
                 if _, err = out.WriteString(str[index:m[0]]); err != nil { return }
                 index = m[1] // reset index immediately to keep forward
@@ -2919,7 +2932,8 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                 var verb = str[m[2]:m[3]]
                 var name = str[m[4]:m[5]]
                 var hasv = m[6] > m[0] && m[7] > m[6]
-                var def = scope.FindDef(name)
+                var def *Def
+                if def, err = scope.config(name); err != nil { return }
                 //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
                 switch verb {
                 case "define":
