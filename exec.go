@@ -38,6 +38,7 @@ const (
         rxNotTTYDevice_i int = iota
         rxNoContainer_i
         rxNoNetwork_i
+        rxDockerDaemonNotRunning_i
         rxContainerNotRunning_i
         rxCompilation_i
         rxIncludedFrom_i
@@ -57,6 +58,7 @@ var (
         errNotTTYDevice = `the input device is not a TTY`
         errNoContainer = `Error.*: No such container: (.*)`
         errNoNetwork = `Error.*: network (.*) not found\.`
+        errDockerDaemonNotRunning = `Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`
         errContainerNotRunning = `Error response from daemon: Container (.*?) is not running`
 
         errCompilation = `(.+?):(\d+):(\d+): error: (.+)`
@@ -74,6 +76,7 @@ var (
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
         rxNoNetwork = regexp.MustCompile(errNoNetwork)
+        rxDockerDaemonNotRunning = regexp.MustCompile(errDockerDaemonNotRunning)
         rxContainerNotRunning = regexp.MustCompile(errContainerNotRunning)
         rxCompilation = regexp.MustCompile(errCompilation)
         rxIncludedFrom = regexp.MustCompile(errIncludedFrom)
@@ -88,21 +91,22 @@ var (
         rxTooManyPosArgs = regexp.MustCompile(errTooManyPosArgs)
 
         knownerrors = []*regexp.Regexp{
-                rxNotTTYDevice_i:        rxNotTTYDevice,
-                rxNoContainer_i:         rxNoContainer,
-                rxNoNetwork_i:           rxNoNetwork,
-                rxCompilation_i:         rxCompilation,
-                rxIncludedFrom_i:        rxIncludedFrom,
-                rxFileNotFound_i:        rxFileNotFound,
-                rxArNoSuchFile_i:        rxArNoSuchFile,
-                rxBashNoSuchFile_i:      rxBashNoSuchFile,
-                rxClangNoSuchFile_i:     rxClangNoSuchFile,
-                rxClangError_i:          rxClangError,
-                rxLLDError_i:            rxLLDError,
-                rxLLDWarning_i:          rxLLDWarning,
-                rxContainerNotRunning_i: rxContainerNotRunning,
-                rxCouldnotParseObj_i:    rxCouldnotParseObj,
-                rxTooManyPosArgs_i:      rxTooManyPosArgs,
+                rxNotTTYDevice_i:           rxNotTTYDevice,
+                rxNoContainer_i:            rxNoContainer,
+                rxNoNetwork_i:              rxNoNetwork,
+                rxCompilation_i:            rxCompilation,
+                rxIncludedFrom_i:           rxIncludedFrom,
+                rxFileNotFound_i:           rxFileNotFound,
+                rxArNoSuchFile_i:           rxArNoSuchFile,
+                rxBashNoSuchFile_i:         rxBashNoSuchFile,
+                rxClangNoSuchFile_i:        rxClangNoSuchFile,
+                rxClangError_i:             rxClangError,
+                rxLLDError_i:               rxLLDError,
+                rxLLDWarning_i:             rxLLDWarning,
+                rxDockerDaemonNotRunning_i: rxDockerDaemonNotRunning,
+                rxContainerNotRunning_i:    rxContainerNotRunning,
+                rxCouldnotParseObj_i:       rxCouldnotParseObj,
+                rxTooManyPosArgs_i:         rxTooManyPosArgs,
         }
 
         workingMutex = new(sync.Mutex)
@@ -114,7 +118,7 @@ var (
 )
 
 const (
-        maxRetries = 2
+        maxRetries = 1
         maxWorkers = 10
 )
 
@@ -311,13 +315,31 @@ func (p *ExecBuffer) skips(tag string) bool {
         return a && b
 }
 
-func (p *ExecBuffer) startContainerAndRetry(pos Position, t *traversal, container *Project, sh *exec.Cmd, x *executor, num int) (err error) {
-        if container != nil && num < maxRetries {
-                if err = x.runContainer(t, container); err != nil { return }
-                //c := exec.Command(sh.Path, sh.Args...)
-                //c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                //sh = c
-                //_, err = p.runAndProcessKnownErrors(pos, t, container, sh, x, num+1)
+func (p *ExecBuffer) startDockerDaemon(pos Position, t *traversal, container *Project, sock string) (err error) {
+        var c = exec.Command("dockerd")
+        //c.Stdout, c.Stderr = stdout, stderr
+        if err = c.Run(); err != nil {
+                err = wrap(pos, fmt.Errorf("dokcer daemon not running (at %s)", sock), err)
+        } else {
+                // TODO: start docker daemon
+        }
+        return
+}
+
+func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container *Project, name string, sh *exec.Cmd, x *executor, num int) (err error) {
+        if container != nil && num <= maxRetries {
+                fmt.Fprintf(sh.Stderr, "\n---- Run the container: %s", name)
+                if err = x.runContainer(t, container); err != nil {
+                        err = wrap(pos, errorf(pos, "container not running: %v", name), err)
+                        return
+                }
+
+                fmt.Fprintf(sh.Stderr, "\n---- Retry the command:")
+                fmt.Fprintf(sh.Stderr, "\n---- %v\n", sh)
+                fmt.Fprintf(sh.Stderr, "\n----\n")
+                c := exec.Command("docker", sh.Args...)
+                c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
+                _, err = p.runAndProcessKnownErrors(pos, t, container, c, x, num+1)
         }
         return
 }
@@ -329,12 +351,14 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
                 switch m.i {
                 case rxNotTTYDevice_i:
                         err = errorf(lpos, "Needs TTY (input device)")
+                case rxDockerDaemonNotRunning_i:
+                        err = p.startDockerDaemon(lpos, t, container, string(v[1]))
+                        if err != nil { err = wrap(pos, err) }
                 case rxNoContainer_i:
-                        if tag := string(v[1]); p.skips(tag) {
-                                err = errorf(lpos, "No such container (%v)", string(v[1]))
-                        } else {
-                                err = p.startContainerAndRetry(pos, t, container, sh, x, num)
-                                p.retried[tag] = true // save it to skip next time
+                        if name := string(v[1]); p.skips(name) {
+                                err = errorf(lpos, "container not running: %v", name)
+                        } else if err = p.runContainerAndRetry(lpos, t, container, name, sh, x, num); err == nil {
+                                p.retried[name] = true // save it to skip next time
                         }
                 case rxContainerNotRunning_i:
                         err = errorf(lpos, "Container not running (%v)", string(v[1]))
@@ -345,7 +369,7 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
                         pos.Filename = string(v[1])
                         pos.Line, _ = strconv.Atoi(string(v[2]))
                         pos.Column, _ = strconv.Atoi(string(v[3]))
-                        err = wrap(lpos, errorf(pos, "%s", string(v[4])))
+                        err = wrap(pos, errorf(lpos, "%s", string(v[4])))
                 case rxIncludedFrom_i:
                         if p.report { fmt.Fprintf(stderr, "%s:%s:%s: included here\n", v[1], v[2], v[3]) }
                 case rxFileNotFound_i:
@@ -455,8 +479,7 @@ func (p *executor) runContainer(t *traversal, container *Project) (err error) {
                 defer setclosure(setclosure(cloctx.unshift(container.scope)))
                 if _, err = run.programs[0].execute(t, run, nil); err != nil {
                         err = wrap(t.program.position, err)
-                        //fmt.Fprintf(stderr, "%v\n", err)
-                }
+                } else { t.group.Wait() }
         } else {
                 err = errorf(t.program.position, "%s⇒run undefined", container)
         }

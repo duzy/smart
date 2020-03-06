@@ -233,7 +233,7 @@ func (t *traversal) trace(a ...interface{}) { printIndentDots(t.traceLevel, a...
 func (t *traversal) tracef(s string, a ...interface{}) { printIndentDots(t.traceLevel, fmt.Sprintf(s, a...)) }
 
 func (t *traversal) addNewTarget(target Value) {
-        if isNil(target) || isNone(target) { return }
+        if isNil(target) || isNone(target) || t.targets == nil { return }
         if t.targets.value == target { return }
         if t.targets.value.cmp(target) == cmpEqual { return }
         if targets, ok := t.targets.value.(*List); ok {
