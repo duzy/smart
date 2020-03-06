@@ -260,6 +260,7 @@ type ModifierFunc func(pos Position, t *traversal, args... Value) (Value, error)
 
 var (
         init_modifiers = map[string]ModifierFunc{
+                `print`:        modifierPrint,
                 `select`:       modifierSelect,
 
                 //`args`:       modifierSetArgs, // interpreter args
@@ -346,6 +347,30 @@ func promptShellResult(value Value, n int) (err error) {
                         }
                 }
         }
+        return
+}
+
+func modifierPrint(pos Position, t *traversal, args... Value) (result Value, err error) {
+        var (
+                optStdout bool
+                optStderr bool = true
+                content string
+        )
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { return } else
+        if args, err = parseFlags(args, []string{
+                "o,stdout",
+                "e,stderr",
+        }, func(ru rune, v Value) {
+                switch ru {
+                case 'o': if optStdout, err = trueVal(v, true); err != nil { return }
+                case 'e': if optStderr, err = trueVal(v, true); err != nil { return }
+                }
+        }); err != nil { return }
+
+        if content, err = t.def.buffer.value.Strval(); err != nil { return }
+        if optStdout { fmt.Fprint(stdout, content) }
+        if optStderr { fmt.Fprint(stderr, content) }
+        t.def.buffer.value = &None{trivial{pos}}
         return
 }
 
