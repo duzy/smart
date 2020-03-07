@@ -425,7 +425,6 @@ func CommandLine() {
                 print_configuration()
         } else if numUpdatedPlugins > 0 { // see buildPlugin
                 fmt.Fprintf(stderr, "smart: Plugin updated, please relaunch.\n")
-                //os.Exit(0)
         } else if optionConfigure {
                 report(do_configuration())
         } else if result, err := context.run(); err != nil {

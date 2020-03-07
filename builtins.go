@@ -2866,17 +2866,15 @@ var (
         rxConfigRef = regexp.MustCompile(rsConfigRef)
 )
 
-func (scope *Scope) config(name string) (def *Def, err error) {
-        if /*def = scope.FindDef(name); def == nil &&*/scope.project != nil {
-                var obj Object
-                if obj, err = scope.project.resolveObject(name); err == nil {
-                        def, _ = obj.(*Def)
-                }
+func (project *Project) config(name string) (def *Def, err error) {
+        var obj Object
+        if obj, err = project.resolveObject(name); err == nil {
+                def, _ = obj.(*Def)
         }
         return
 }
 
-func (scope *Scope) configExpand(pos Position, s string) (result string, err error) {
+func (project *Project) configExpand(pos Position, s string) (result string, err error) {
         var index = 0
         var res = new(bytes.Buffer)
         for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
@@ -2892,26 +2890,26 @@ func (scope *Scope) configExpand(pos Position, s string) (result string, err err
                 }
 
                 var def *Def
-                if def, err = scope.config(name); err != nil { err = wrap(pos, err); return }
+                if def, err = project.config(name); err != nil { err = wrap(pos, err); return }
                 if def != nil {
-                        var val, err = def.Call(pos)
-                        if false { fmt.Printf("%s: %v: %s %v\n", pos, name, typeof(val), val) }
-                        if err != nil { fmt.Fprintf(stderr, "%s: %v", pos, err) } else
+                        var val Value
+                        if val, err = def.Call(pos); err != nil { return }
+                        if false { fmt.Fprintf(stderr, "%s: %s: %s = %v -> %v (%v)\n", project, pos, name, def.value, val, typeof(val)) }
                         if isNil(val) || isNone(val) { continue }
                         switch t := val.(type) {
                         case *Plain: fmt.Fprintf(res, "%s", t.Value)
                         case *answer, *boolean:
-                                if v, e := t.Integer(); e == nil {
-                                        fmt.Fprintf(res, "%d", v)
-                                }
+                                var v int64
+                                if v, err = t.Integer(); err != nil { err = wrap(pos, err); return }
+                                fmt.Fprintf(res, "%d", v)
                         case *Group:
-                                if v, e := parseGroupValue(t).Strval(); e == nil {
-                                        fmt.Fprintf(res, "%s", v)
-                                }
+                                var v string
+                                if v, err = parseGroupValue(t).Strval(); err != nil { err = wrap(pos, err); return }
+                                fmt.Fprintf(res, "%s", v)
                         default:
-                                if v, e := val.Strval(); e == nil {
-                                        fmt.Fprintf(res, "%s", v)
-                                }
+                                var v string
+                                if v, err = val.Strval(); err != nil { err = wrap(pos, err); return }
+                                fmt.Fprintf(res, "%s", v)
                         }
                 }
         }
@@ -2920,9 +2918,9 @@ func (scope *Scope) configExpand(pos Position, s string) (result string, err err
         return
 }
 
-func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err error) {
+func configure(pos Position, out *bytes.Buffer, project *Project, str string) (err error) {
         var index = 0
-        if str, err = scope.configExpand(pos, str); err != nil { return }
+        if str, err = project.configExpand(pos, str); err != nil { return }
         for _, m := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
                 if _, err = out.WriteString(str[index:m[0]]); err != nil { return }
                 index = m[1] // reset index immediately to keep forward
@@ -2933,12 +2931,11 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                 var name = str[m[4]:m[5]]
                 var hasv = m[6] > m[0] && m[7] > m[6]
                 var def *Def
-                if def, err = scope.config(name); err != nil { return }
-                //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
+                if def, err = project.config(name); err != nil { return }
                 switch verb {
                 case "define":
-                        if hasv && !(def == nil || def.value == nil) {
-                                v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
+                        if hasv /*&& !(def == nil || def.value == nil)*/ {
+                                v := str[m[6]:m[7]]
                                 s = fmt.Sprintf("#define %s %s", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s", name)
@@ -2952,7 +2949,7 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                         if !t {
                                 s = fmt.Sprintf("/* #undef %s */", name)
                         } else if hasv {
-                                v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
+                                v := str[m[6]:m[7]]
                                 s = fmt.Sprintf("#define %s %s", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s", name)
@@ -2966,7 +2963,7 @@ func configure(pos Position, out *bytes.Buffer, scope *Scope, str string) (err e
                         if !t {
                                 s = fmt.Sprintf("#define %s 0", name)
                         } else if hasv {
-                                v := str[m[6]:m[7]] //scope.expand(str[m[6]:m[7]])
+                                v := str[m[6]:m[7]]
                                 s = fmt.Sprintf("#define %s 1 /* %s */", name, v)
                         } else {
                                 s = fmt.Sprintf("#define %s 1", name)

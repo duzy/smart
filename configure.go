@@ -691,7 +691,10 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
                 params = append(params, arg)
         }
 
+        var defsChanged = make(map[*Def]Value)
         defer func() {
+                for def, val := range defsChanged { def.value = val }
+
                 var t bool
                 if err == nil && result != nil { t, err = result.True() }
                 if err == nil && t && configured && !isNil(pipe.value) /*&& !isNone(pipe.value)*/ {
@@ -735,6 +738,17 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
                 return
         }
 
+        if value, ok := fields["lang"]; ok {
+                var lang = configuration.project.scope.Lookup("LANG").(*Def)
+                defsChanged[lang] = lang.value
+                if err = lang.set(DefSimple, value); err != nil { return }
+        }
+        if value, ok := fields["cflags"]; ok {
+                var lang = configuration.project.scope.Lookup("CFLAGS").(*Def)
+                defsChanged[lang] = lang.value
+                if err = lang.set(DefSimple, value); err != nil { return }
+        }
+
         // Process configurations like:
         //   -include(foo,lib=xxx)
         //   -symbol(foo,include=xxx,lib=yyy)
@@ -744,6 +758,7 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
         //   ...
 
         var value = configuration.project.scope.Lookup("_VALUE_").(*Def)
+        defsChanged[value] = value.value
         if err = value.set(DefSimple, none); err != nil { return }
         if pipe.value != nil {
                 if _, ok := pipe.value.(*None); !ok {
@@ -753,6 +768,7 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
 
         var includesValues []Value
         var includes = configuration.project.scope.Lookup("_INCLUDES_").(*Def)
+        defsChanged[includes] = includes.value
         if err = includes.set(DefSimple, none); err != nil { return }
         if strName == "include" && len(params) > 1 {
                 // -include('<xxx.h>',...)
@@ -793,6 +809,7 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
 
         var loadlibsValues []Value
         var loadlibs = configuration.project.scope.Lookup("_LOADLIBES_").(*Def)
+        defsChanged[loadlibs] = loadlibs.value
         if err = loadlibs.set(DefSimple, none); err != nil { return }
         if value, ok := fields["load"]; ok { loadlibsValues = append(loadlibsValues, value) }
         if value, ok := fields["loadlib"]; ok { loadlibsValues = append(loadlibsValues, value) }
@@ -818,6 +835,7 @@ func configureDo(pos Position, t *traversal, target Value, def, pipe *Def, name 
 
         var libsValues []Value
         var libs = configuration.project.scope.Lookup("_LIBS_").(*Def)
+        defsChanged[libs] = libs.value
         if err = libs.set(DefSimple, none); err != nil { return }
         if value, ok := fields["lib"]; ok { libsValues = append(libsValues, value) }
         if value, ok := fields["libs"]; ok { libsValues = append(libsValues, value) }
@@ -1007,7 +1025,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                 var str string
                 if str, err = arg.Strval(); err != nil { return }
                 if str == "" { continue }
-                if err = configure(pos, &data, closure, str); err != nil { return }
+                if err = configure(pos, &data, closure.project, str); err != nil { return }
         }
         if data.Len() == 0 { err = errorf(pos, "no input data"); return }
 
