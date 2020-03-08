@@ -1856,8 +1856,11 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
         if s, err := configurationFileName(l.project); err != nil { return err } else
-        if declared || optionConfigure { configuration.clean = append(configuration.clean, s) } else
-        if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
+        if declared || optionConfigure {
+                var exists bool
+                for _, v := range configuration.clean { if s == v { exists = true; break }}
+                if !exists { configuration.clean = append(configuration.clean, s) }
+        } else if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
                 if optionVerboseImport || optionVerboseLoading {
                         full, _ := file.Strval()
                         fmt.Fprintf(stderr, "smart: Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
