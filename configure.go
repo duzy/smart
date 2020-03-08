@@ -112,7 +112,13 @@ func do_configuration() (err error) {
         } ()
 
         // Remove all existing configuration.sm files
-        for _, s := range configuration.clean { os.Remove(s) }
+        for _, s := range configuration.clean {
+                if e := os.Remove(s); e == nil {
+                        fmt.Fprintf(stderr, "remove %s\n")
+                } else {
+                        fmt.Fprintf(stderr, "remove %s: %v\n", e)
+                }
+        }
 
         var defs = make(map[string]*Def)
         for _, entry := range configuration.entries {
