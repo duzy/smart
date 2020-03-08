@@ -1525,7 +1525,7 @@ func (l *loader) rule(clause *ast.RuleClause, special specialRule, options []ast
                                 flags = append(flags, entry)
                                 context.flagEntries[s] = flags
                         }
-                        if s == "configure" { configuration.configs = append(configuration.configs, entry) }
+                        //if s == "configure" { configuration.configs = append(configuration.configs, entry) }
                 } else if configure {
                         configuration.entries = append(configuration.entries, entry)
                 }
@@ -1855,13 +1855,13 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         //        is matched!
         defer setclosure(setclosure(cloctx.unshift(l.scope)))
 
-        if declared || optionConfigure { /* Does nothing! */ } else
         if s, err := configurationFileName(l.project); err != nil { return err } else
+        if declared || optionConfigure { configuration.clean = append(configuration.clean, s) } else
         if file := stat(pos, filepath.Base(s), "", filepath.Dir(s)); file != nil {
                 if optionVerboseImport || optionVerboseLoading {
                         full, _ := file.Strval()
                         fmt.Fprintf(stderr, "smart: Configuration for %s (%s) ⇒ %s\n", l.project, l.project.spec, full)
-                } else if optionVerbose {
+                } else if optionVerbose || true {
                         fmt.Fprintf(stderr, "smart: Configuration for %s (%s)\n", l.project, l.project.spec)
                 }
                 l.isIncludingConf = true

@@ -2868,9 +2868,8 @@ var (
 
 func (project *Project) config(name string) (def *Def, err error) {
         var obj Object
-        if obj, err = project.resolveObject(name); err == nil {
-                def, _ = obj.(*Def)
-        }
+        if obj, err = project.resolveObject(name); err == nil && !isNil(obj) { def, _ = obj.(*Def) }
+        if false && def != nil { fmt.Fprintf(stderr, "%s: %s: %v\n", project, def.position, def) }
         return
 }
 
@@ -2932,8 +2931,10 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
                 var hasv = m[6] > m[0] && m[7] > m[6]
                 var def *Def
                 if def, err = project.config(name); err != nil { return }
+                //fmt.Fprintf(stderr, "%v: configure: %v %v %v\n", scope.comment, verb, name, def)
                 switch verb {
                 case "define":
+                        if project.name == "Basic" { fmt.Fprintf(stderr, "%s: %s: %v %v %v\n%s\n", project, pos, name, hasv, def, s) }
                         if hasv /*&& !(def == nil || def.value == nil)*/ {
                                 v := str[m[6]:m[7]]
                                 s = fmt.Sprintf("#define %s %s", name, v)

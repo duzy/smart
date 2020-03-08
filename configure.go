@@ -49,9 +49,8 @@ var configuration = &struct{
         libraries map[string]*libraryinfo
         packages map[string]*packageinfo
         done map[*Def]bool
-        configs []*RuleEntry // -configure entry
         entries []*RuleEntry // order list
-        //assert *RuleEntry // -assert entry
+        clean []string
 }{
         fset: token.NewFileSet(),
         libraries: make(map[string]*libraryinfo),
@@ -112,14 +111,15 @@ func do_configuration() (err error) {
                 if file != nil { if err := file.Close(); err != nil {} }
         } ()
 
+        // Remove all existing configuration.sm files
+        for _, s := range configuration.clean { os.Remove(s) }
+
         var defs = make(map[string]*Def)
         for _, entry := range configuration.entries {
                 if p := entry.OwnerProject(); p != project && p != nil {
                         var f, e = openConfigurationFile(p)
-                        if e != nil {
-                                err = wrap(entry.position, e, err)
-                                return
-                        } else if f != nil {
+                        if e != nil { err = wrap(entry.position, e, err); return } else
+                        if f != nil {
                                 if writer != nil {
                                         if e = writer.Flush(); e != nil {
                                                 err = wrap(entry.position, e, err)
@@ -166,12 +166,6 @@ func do_configuration() (err error) {
                 }
         }
         if err != nil { return }
-
-        for _, entry := range configuration.configs {
-                for _, prog := range entry.programs {
-                        fmt.Fprintf(stderr, "%s: %v is deprecated!\n", prog.position, entry)
-                }
-        }
 
         printLeavingDirectory()
         return
