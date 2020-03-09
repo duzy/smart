@@ -113,10 +113,12 @@ func do_configuration() (err error) {
 
         // Remove all existing configuration.sm files
         for _, s := range configuration.clean {
-                if e := os.Remove(s); e == nil {
-                        fmt.Fprintf(stderr, "remove %s\n", s)
-                } else {
-                        fmt.Fprintf(stderr, "%v\n", e)
+                if _, e := os.Stat(s); e != nil {
+                        // ...
+                } else if e = os.Remove(s); e == nil {
+                        fmt.Fprintf(stderr, "configure: Remove %s\n", s)
+                } else if true {
+                        fmt.Fprintf(stderr, "configure: %s\n", e)
                 }
         }
 
