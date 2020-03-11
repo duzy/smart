@@ -763,7 +763,7 @@ func (p *Argumented) traverse(t *traversal) (err error) {
         //!< represented.
         defer func(a []Value) { t.arguments = a } (t.arguments)
         t.arguments = p.args
-        err = t.dispatch(p.value)
+        err = p.value.traverse(t)
         return
 }
 func (p *Argumented) checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog *Program) (ok, res1 bool, err error) {
@@ -2457,15 +2457,8 @@ func checkPatternDepends(t *traversal, project *Project, se *StemmedEntry, prog 
         if prog.params == nil || t.arguments == nil {
                 // no need to set arguments
         } else {
-                var params []*Def
-                if params, err = prog.args(t.arguments); err != nil { return } else
-                if len(params) > 0 {
-                        defer func(none *None) {
-                                for _, param := range params {
-                                        param.set(DefDefault, none)
-                                }
-                        } (&None{trivial{prog.position}})
-                }
+                var f func()
+                if _, f, err = prog.args(t.arguments); err != nil { return } else { defer f() }
         }
 
         var checkedPatterns = 0

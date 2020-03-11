@@ -1191,49 +1191,34 @@ func builtinFilterValues(pos Position, neg bool, args... Value) (res Value, err 
 }
 
 func builtinSubstring(pos Position, args... Value) (res Value, err error) {
+        if args, err = mergeresult(ExpandAll(args...)); err != nil { err = wrap(pos, err); return }
+
         var list []Value
         if n := len(args); n > 1 {
-                var ( v Value ; i1, i2 int64 )
+                var ( i1, i2 int )
+                if i1, err = intVal(args[0], -1); err != nil { err = wrap(pos, err); return } else {
+                        args = args[1:]
+                }
+                if i2, err = intVal(args[0], -1); err != nil {
+                        if _, ok := err.(*strconv.NumError); ok {
+                                err = nil // ignore
+                        } else { err = wrap(pos, err); return }
+                } else { args = args[1:] }
 
-                if v, err = args[0].expand(expandAll); err != nil { return }
-                if t, ok := Scalar(v).(*Int); ok {
-                        // remove the first element
-                        args, i1 = args[1:], t.int64
-                        if l, ok := v.(*List); ok && len(l.Elems) > 1 {
-                                if t, ok := Scalar(l.Elems[1]).(*Int); ok {
-                                        i2 = t.int64
-                                        goto CheckRange
-                                }
-                        }
-                } else {
-                        err = errorf(pos, "'%v' is not integer", args[0])
+                if i1 < -1 && i2 < -1 {
+                        err = errorf(pos, "wrong indices (%d, %d)", i1, i2)
                         return
-                }
-
-                if v, err = args[0].expand(expandAll); err != nil { return }
-                if t, ok := Scalar(v).(*Int); ok {
-                        // remove the first element again
-                        args, i2 = args[1:], t.int64
-                } else {
-                        i2 = i1; i1 = 0 // [:i2]
-                }
-
-        CheckRange:
-                if i1 > i2 { t := i1; i1 = i2; i2 = t } // swap the wrong order
+                } else if i1 > i2 { t := i1; i1 = i2; i2 = t } // swap the wrong order
                 
                 var a, b = int(i1), int(i2)
+                if a == -1 { a = b }
+                if a == -1 { return }
+
                 for _, arg := range args {
                         var s string
                         if s, err = arg.Strval(); err != nil { return }
-                        if i := len(s); a < i {
-                                if b < i {
-                                        s = s[a:b]
-                                } else {
-                                        s = s[a:]
-                                }
-                        } else {
-                                s = ""
-                        }
+                        if i := len(s); i <= a { s = "" } else
+                        if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
                         list = append(list, &String{trivial{pos},s})
                 }
         }

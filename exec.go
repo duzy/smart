@@ -334,12 +334,15 @@ func (p *ExecBuffer) runContainerAndRetry(pos Position, t *traversal, container 
                         return
                 }
 
+                var s int
+
                 fmt.Fprintf(sh.Stderr, "\n---- Retry the command:")
                 fmt.Fprintf(sh.Stderr, "\n---- %v\n", sh)
                 fmt.Fprintf(sh.Stderr, "\n----\n")
-                c := exec.Command("docker", sh.Args...)
+                c := exec.Command(sh.Path, sh.Args...)
                 c.Stdout, c.Stderr, c.Stdin, c.Env = sh.Stdout, sh.Stderr, sh.Stdin, sh.Env
-                _, err = p.runAndProcessKnownErrors(pos, t, container, c, x, num+1)
+                s, err = p.runAndProcessKnownErrors(pos, t, container, c, x, num+1)
+                if s != 0 && err == nil { err = errorf(pos, "exit status %d", s) }
         }
         return
 }

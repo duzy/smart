@@ -157,8 +157,9 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
         return
 }
 
-func (prog *Program) args(args []Value) (params []*Def, err error) {
+func (prog *Program) args(args []Value) (params []*Def, restore func(), err error) {
         var argnum int // setup named/number parameters ($1, $2, etc.)
+        var values []Value
         for _, a := range args {
                 var def *Def
                 //<!IMPORTANT: Don't translate Flag, Flag values are valid
@@ -169,8 +170,9 @@ func (prog *Program) args(args []Value) (params []*Def, err error) {
                         if s, err = t.Key.Strval(); err == nil {
                                 if o := prog.scope.Lookup(s); o != nil {
                                         def = o.(*Def)
-                                        def.set(DefArg, t.Value)
+                                        values = append(values, def.value)
                                         params = append(params, def)
+                                        def.set(DefArg, t.Value)
                                 } else {
                                         err = errorf(prog.position, "`%s` no such named parameter", s)
                                         return
@@ -179,11 +181,13 @@ func (prog *Program) args(args []Value) (params []*Def, err error) {
                 default:
                         if argnum < len(prog.params) {
                                 def = prog.params[argnum]
-                                def.set(DefArg, a)
+                                values = append(values, def.value)
                                 params = append(params, def)
+                                def.set(DefArg, a)
                         } else {
                                 name := strconv.Itoa(argnum+1)
                                 if def, err = prog.auto(name, a); err == nil {
+                                        values = append(values, def.value)
                                         params = append(params, def)
                                         def.origin = DefArg
                                 }
@@ -195,6 +199,7 @@ func (prog *Program) args(args []Value) (params []*Def, err error) {
                         return
                 }
         }
+        restore = func() { for i, d := range params { d.value = values[i] }}
         return
 }
 
@@ -236,7 +241,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
                 caller: caller,
                 print: true,
         }
-        var ( none = &None{trivial{pos}} ; stem Value = none )
+        var ( none = &None{trivial{pos}} ; stem Value = none; f func() )
         if t.caller != nil {
                 if optionTraceTraversalNestIndent { t.traceLevel = t.caller.traceLevel }
                 if t.stems = t.caller.stems; t.stems != nil { stem = &String{trivial{pos}, t.stems[0]} }
@@ -249,7 +254,7 @@ func (prog *Program) execute(caller *traversal, entry *RuleEntry, args []Value) 
         if t.def.grepped, err = prog.auto("~", none); err != nil { return }
         if t.def.updated, err = prog.auto("?", none); err != nil { return }
         if t.def.buffer,  err = prog.auto("-", none); err != nil { return }
-        if t.def.params,  err = prog.args(args); err != nil { return }
+        if t.def.params,f,err = prog.args(args); err != nil { return } else { defer f() }
 
         // Note: must enter work directory (cd) before setting cloctx
         var alreadyUpdated bool
