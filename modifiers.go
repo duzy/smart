@@ -991,15 +991,21 @@ func (t *traversal) loadSavedGrepFile(pos Position, gc *grepctx) (okay bool, err
                 err = wrap(pos, err); return
         }
 
+        var gp Position
+        //gp.Filename = gc.savedGrepFileName
+        gp.Filename = gc.targetFullName
+
         defer savedGrepOSFile.Close()
         scanner := bufio.NewScanner(savedGrepOSFile)
         scanner.Split(bufio.ScanLines)
         for scanner.Scan() {
-                var s = scanner.Text()
+                var s = scanner.Text() //gp.Line += 1
                 var ( sys, linum, colnum int; name string )
                 if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &linum, &colnum, &name); e == nil && n == 4 {
+                        gp.Line = linum
                         var file *File
                         if file, err = t.searchGrepped(pos, gc, sys == 1, linum, colnum, name); err != nil { break }
+                        if file != nil { file.position = gp }
                         if file != nil && gc.isTargetFile(file) { continue }
                 }
         }
@@ -1020,22 +1026,24 @@ func (t *traversal) grepTargetFile(pos Position, gc *grepctx) (err error) {
                 }
         }
 
-        var linum int
+        var gp Position
+        gp.Filename = gc.targetFullName
+
         scanner := bufio.NewScanner(file)
         scanner.Split(bufio.ScanLines)
         ForScan: for scanner.Scan() {
-                linum += 1
-                var s = scanner.Text()
+                var s = scanner.Text(); gp.Line += 1
                 for _, x := range gc.rxs {
                         if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
                                 var name = sm[1]
                                 var colnum = strings.Index(s, name) //strings.IndexFunc(s, isNotSpace)
                                 if gc.save != nil {
                                         var d = 0 ; if x.bool { d = 1 } // system files
-                                        fmt.Fprintf(gc.save, "%d %d %d %s\n", d, linum, colnum, name)
+                                        fmt.Fprintf(gc.save, "%d %d %d %s\n", d, gp.Line, colnum, name)
                                 }
                                 var file *File
-                                if file, err = t.searchGrepped(pos, gc, x.bool/*system files*/, linum, colnum, name); err != nil { return }
+                                if file, err = t.searchGrepped(pos, gc, x.bool/*system files*/, gp.Line, colnum, name); err != nil { return }
+                                if file != nil { file.position = gp }
                                 if file == nil || gc.isTargetFile(file) { continue }
                                 continue ForScan // found one
                         }

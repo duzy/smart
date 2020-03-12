@@ -160,6 +160,7 @@ func (prog *Program) prerequisites(t *traversal, args []Value) (result []Value, 
 func (prog *Program) args(args []Value) (params []*Def, restore func(), err error) {
         var argnum int // setup named/number parameters ($1, $2, etc.)
         var values []Value
+        for _, d := range prog.params { values = append(values, d.value) }
         for _, a := range args {
                 var def *Def
                 //<!IMPORTANT: Don't translate Flag, Flag values are valid
@@ -199,7 +200,11 @@ func (prog *Program) args(args []Value) (params []*Def, restore func(), err erro
                         return
                 }
         }
-        restore = func() { for i, d := range params { d.value = values[i] }}
+        restore = func() { 
+                var nlen = len(prog.params)
+                for i, d := range prog.params { d.value = values[i] }
+                for i, d := range params { d.value = values[nlen+i] }
+        }
         return
 }
 
