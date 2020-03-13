@@ -964,10 +964,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
         var file *File
         if file, _ = t.def.target.value.(*File); file == nil {
                 var s string
-                if s, err = t.def.target.value.Strval(); err != nil {
-                        err = wrap(pos, err)
-                        return
-                }
+                if s, err = t.def.target.value.Strval(); err != nil { err = wrap(pos, err); return }
 
                 var okay bool
                 okay, err = t.forClosureProject(func(p *Project) (ok bool, err error) {
@@ -975,10 +972,7 @@ func modifierConfigureFile(pos Position, t *traversal, args ...Value) (result Va
                         if optDebug && file != nil { fmt.Fprintf(stderr, "%s: %v: file %v\n", pos, p, file) }
                         return
                 })
-                if err != nil { return } else if !okay {
-                        err = errorf(pos, "'%s' is not a file", s)
-                        return
-                }
+                if err != nil { return } else if !okay { err = errorf(pos, "'%s' is not a file", s); return }
         }
         if file == nil { err = errorf(pos, "no file target"); return }
         if filename, err = file.Strval(); err != nil { err = wrap(pos, err); return } else

@@ -772,40 +772,19 @@ func (p *Project) usees(post bool) (res []*Project) {
 
 //var cdUnlocked = make(chan bool, 1)
 // Note: this is okay not using an atomic value, because
-// cdUnlockMutex can serve to protect the whole timeframe.
+// chdirMutex can serve to protect the whole timeframe.
 //var cdUnlockTime atomic.Value
-var cdUnlockMutex = new(sync.Mutex)
+var chdirMutex = new(sync.Mutex)
 
-func lockCD(dir string, lockDura time.Duration) error {
-        // Protect the work directory, `cdUnlockMutex` ensures that
+func lockCD(dir string, dura time.Duration) error {
+        // Protect the work directory, `chdirMutex` ensures that
         // there's only one timer being counting to avoid work
         // directory being changed before the deadline.
-        cdUnlockMutex.Lock()
-        /*
-        defer cdUnlockMutex.Unlock()
-        if v := cdUnlockTime.Load(); v == nil {
-                // no deadline was set
-        } else if t, ok := v.(time.Time); ok && t.After(time.Now()) {
-                //for t.After(time.Now())
-                select {
-                //case <-cdUnlocked: //cdLocker.Wait():
-                case <-time.After(time.Until(t)): //(t.Sub(time.Now())):
-                }
-        }
-        if lockDura > 0 {
-                cdUnlockTime.Store(time.Now().Add(lockDura))
-        } */
-        if lockDura > 0 {
-                //fmt.Printf("cd: %s (lock %v)\n", dir, lockDura)
-                go func() {
-                        time.Sleep(lockDura)
-                        cdUnlockMutex.Unlock()
-                        //fmt.Printf("cd: %s (unlocked)\n", dir)
-                } ()
-        } else {
-                //fmt.Printf("cd: %s\n", dir)
-                defer cdUnlockMutex.Unlock()
-        }
+        chdirMutex.Lock()
+        go func() {
+                if dura > 0 { time.Sleep(dura) }
+                chdirMutex.Unlock()
+        } ()
         return os.Chdir(dir)
 }
 

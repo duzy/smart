@@ -898,9 +898,11 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                         // Restricts the number of workers.
                         waitForWork(); defer releaseWork()
 
-                        lockCD(dir, 25*time.Millisecond)
-                        if s, _ := os.Getwd(); s != dir {
-                                assert(s == dir, "wrong work directory (%s != %s)", s, dir)
+                        //if err = lockCD(dir, 25*time.Millisecond); err != nil { err = wrap(pos, err); return }
+                        //if s, e := os.Getwd(); e == nil { assert(s == dir, "wrong work directory (%s != %s)", s, dir) }
+                        for {
+                                if err = lockCD(dir, 25*time.Millisecond); err != nil { err = wrap(pos, err); return }
+                                if s, _ := os.Getwd(); s == dir { break }
                         }
 
                         var sh = exec.Command(cmd, aa...)

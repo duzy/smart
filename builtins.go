@@ -2069,10 +2069,10 @@ func builtinMkdirAll(pos Position, args... Value) (res Value, err error) {
 func builtinChdir(pos Position, args... Value) (res Value, err error) {
         if len(args) == 1 {
                 var str string
-                if str, err = args[0].Strval(); err != nil { return }
-                err = lockCD(str, 0)
+                if str, err = args[0].Strval(); err != nil { err = wrap(pos, err); return }
+                if err = lockCD(str, 0); err != nil { err = wrap(pos, err) }
         } else {
-                err = errors.New("Wrong number of arguments.")
+                err = errorf(pos, "wrong number of arguments")
         }
         return
 }
@@ -2875,6 +2875,7 @@ func (project *Project) configExpand(pos Position, s string) (result string, err
 
                 var def *Def
                 if def, err = project.config(name); err != nil { err = wrap(pos, err); return }
+                if false && strings.Contains(name, "LLDB_") { fmt.Fprintf(stderr, "%s: %s: %s: %v\n", project, pos, name, def) }
                 if def != nil {
                         var val Value
                         if val, err = def.Call(pos); err != nil { return }
@@ -2958,9 +2959,7 @@ func configure(pos Position, out *bytes.Buffer, project *Project, str string) (e
 
                 if _, err = out.WriteString(s); err != nil { return }
         }
-        if index < len(str) {
-                _, err = out.WriteString(str[index:])
-        }
+        if index < len(str) { _, err = out.WriteString(str[index:]) }
         return
 }
 
