@@ -9,6 +9,7 @@ package smart
 import (
         "strings"
         "strconv"
+        "bytes"
         "fmt"
 )
 
@@ -48,8 +49,22 @@ func (_ *plain) Evaluate(pos Position, t *traversal, args ...Value) (result Valu
         if len(args) > 0 {
                 if name, err = args[0].Strval(); err != nil { return }
         }
-        if str, err = joinRecipesString(t.program.recipes...); err != nil { return }
+        if str, err = multiline(t.program.recipes...); err != nil { return }
         str = strings.Replace(str, "\\\n\t", "\\\n", -1)
         result = &Plain{trivial{pos},name,str}
+        return
+}
+
+func multiline(recipes... Value) (res string, err error) {
+        var (
+                x = len(recipes)-1
+                w = new(bytes.Buffer)
+                s string
+        )
+        for n, recipe := range recipes {
+                if s, err = recipe.Strval(); err != nil { return }
+                if fmt.Fprint(w, s); n < x { fmt.Fprint(w, "\n") }
+        }
+        res = w.String()
         return
 }

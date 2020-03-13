@@ -9,8 +9,6 @@ package smart
 import (
         json_enc "encoding/json"
         "strings"
-        "bytes"
-        "fmt"
         "io"
 )
 
@@ -21,22 +19,6 @@ func (p *JSON) cmp(v Value) (res cmpres) {
                 assert(ok, "value is not JSON")
                 res = p.Value.cmp(a.Value)
         }
-        return
-}
-
-func joinRecipesString(recipes... Value) (res string, err error) {
-        var (
-                x = len(recipes)-1
-                s = new(bytes.Buffer)
-                r string
-        )
-        for n, recipe := range recipes {
-                if r, err = recipe.Strval(); err != nil { return }
-                if fmt.Fprint(s, r); n < x {
-                        fmt.Fprint(s, "\n")
-                }
-        }
-        res = s.String()
         return
 }
 
@@ -205,7 +187,7 @@ type json struct {}
 
 func (_ *json) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(t.program.recipes...); err != nil { return }
+        if source, err = multiline(t.program.recipes...); err != nil { return }
         if result, err = DecodeJSON(source); err == nil {
                 result = &JSON{ result }
         } else {

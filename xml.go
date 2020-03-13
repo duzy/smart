@@ -120,7 +120,7 @@ func DecodeXML(source string, ws bool) (result Value, err error) {
 type xml struct { whitespace bool }
 func (p *xml) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(t.program.recipes...); err != nil { return }
+        if source, err = multiline(t.program.recipes...); err != nil { return }
         if result, err = DecodeXML(source, p.whitespace); err == nil {
                 result = &XML{ result }
         } else {

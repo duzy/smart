@@ -3379,6 +3379,8 @@ func (p *closure) disclose() (res Value, err error) {
         ClosureTok: switch p.l {
         case token.LPAREN, token.ILLEGAL:
                 for _, scope := range cloctx {
+                        if scope.project == nil { continue }
+
                         var s Object
                         if scope.project == nil {
                                 if _, s = scope.Find(name); !isNil(s) {
@@ -3399,6 +3401,8 @@ func (p *closure) disclose() (res Value, err error) {
                 }
         case token.LBRACE, token.STRING, token.COMPOUND:
                 for _, scope := range cloctx {
+                        if scope.project == nil { continue }
+
                         var s Object
                         if s, err = scope.project.resolveEntry(name); err != nil { return }
                         if !isNil(s) {
@@ -4096,7 +4100,7 @@ func expandall(w expandwhat, values ...Value) (res []Value, num int, err error) 
 
         var v Value
         for _, elem := range values {
-                if elem == nil {
+                if isNil(elem) {
                         res = append(res, &Nil{})
                 } else if v, err = elem.expand(w); err == nil {
                         if v != elem { num += 1 }

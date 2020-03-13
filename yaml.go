@@ -31,7 +31,7 @@ func DecodeYAML(source string, ws bool) (result Value, err error) {
 type yaml struct { whitespace bool }
 func (p *yaml) Evaluate(pos Position, t *traversal, args ...Value) (result Value, err error) {
         var source string
-        if source, err = joinRecipesString(t.program.recipes...); err != nil { return }
+        if source, err = multiline(t.program.recipes...); err != nil { return }
         if result, err = DecodeYAML(source, p.whitespace); err == nil {
                 result = &YAML{ result }
         } else {
