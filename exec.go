@@ -51,6 +51,7 @@ const (
         rxLLDWarning_i
         rxCouldnotParseObj_i
         rxTooManyPosArgs_i
+        rxUndefinedReference_i
 )
 var (
         defaultShell = "bash"
@@ -72,6 +73,7 @@ var (
         errLLDWarning = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): warning: (.+)`
         errCouldnotParseObj = `(ld\.lld|ld64\.lld|lld-link|wasm-ld|ld): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`
         errTooManyPosArgs = `(.+?): Too many positional arguments specified!`
+        errUndefinedReference = `  +"(.+?)", referenced from:`
 
         rxNotTTYDevice = regexp.MustCompile(errNotTTYDevice)
         rxNoContainer = regexp.MustCompile(errNoContainer)
@@ -89,6 +91,7 @@ var (
         rxLLDWarning = regexp.MustCompile(errLLDWarning)
         rxCouldnotParseObj = regexp.MustCompile(errCouldnotParseObj)
         rxTooManyPosArgs = regexp.MustCompile(errTooManyPosArgs)
+        rxUndefinedReference = regexp.MustCompile(errUndefinedReference)
 
         knownerrors = []*regexp.Regexp{
                 rxNotTTYDevice_i:           rxNotTTYDevice,
@@ -107,6 +110,7 @@ var (
                 rxContainerNotRunning_i:    rxContainerNotRunning,
                 rxCouldnotParseObj_i:       rxCouldnotParseObj,
                 rxTooManyPosArgs_i:         rxTooManyPosArgs,
+                rxUndefinedReference_i:     rxUndefinedReference,
         }
 
         workingMutex = new(sync.Mutex)
@@ -393,6 +397,8 @@ func (p *ExecBuffer) processKnownError(pos Position, t *traversal, container *Pr
                         err = errorf(lpos, "%s", string(v[3]))
                 case rxTooManyPosArgs_i:
                         err = errorf(lpos, "%s: too many positional arguments", string(v[1]))
+                case rxUndefinedReference_i:
+                        err = errorf(lpos, "Undefined reference '%s'", string(v[1]))
                 case rxLLDWarning_i:
                         if p.report {
                                 fmt.Fprintf(stderr, "%s: warning: %s\n", lpos, string(v[2]))
