@@ -697,8 +697,7 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
                 if containerName == "" { err = fmt.Errorf(".container.name undefined"); return }
                 if containerImage, err = strval("image"); err != nil { return }
                 if containerImage == "" { err = fmt.Errorf(".container.image undefined"); return }
-
-                fmt.Fprintf(stderr, "%v: %v (%v)\n", container, containerName, containerImage)
+                if optionVerbose { fmt.Fprintf(stderr, "%v: container=%v, image=%v\n", container, containerName, containerImage) }
 
                 aa = append(aa, "exec", containerName, cmd)
                 cmd = "docker"
