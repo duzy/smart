@@ -1702,7 +1702,7 @@ func (l *loader) loadDotContainer(ident *ast.Bareword, file *File) (err error) {
                 if name == nil {
                         l.error(ident.Pos(), "%v: %v: `dock` is not a project", l.project.name, file)
                 } else {
-                        fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname())
+                        if optionVerboseLoading { fmt.Fprintf(stderr, "smart: %v (%v)\n", name, file.fullname()) }
 
                         var opts useoptions
                         // TODO: parse the useoptions
