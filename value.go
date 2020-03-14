@@ -3536,7 +3536,7 @@ func (p *selection) object() (o Object, err error) {
                         err = errorf(p.position, "selection.object: `%s` is nil", s.String())
                 }
         } else if o, ok = p.o.(Object); !ok {
-                err = errorf(p.position, "selection.object: %T '%v' is not object", p.o, p.o)
+                err = errorf(p.position, "selection.object: '%v' is not object (but %s)", p.o, typeof(p.o))
         }
         return
 }

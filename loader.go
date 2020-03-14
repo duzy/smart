@@ -820,7 +820,7 @@ func (l *loader) exprClosure(x *ast.ClosureExpr) (v Value) {
                 obj = unresolved(l.project, name)
                 v = MakeClosure(Position(x.Position), x.TokLp, obj, l.exprs(x.Args)...)
         } else {
-                l.error(x.Pos(), "closure nil object (name `%v`, `%v`)", name, l.scope.comment)
+                l.error(x.Pos(), "closure nil object `%v` (from %v)", name, l.scope.comment)
         }
         return
 }
@@ -854,7 +854,7 @@ func (l *loader) exprDelegate(x *ast.DelegateExpr) (v Value) {
                         // just use the selected value
                 }
         } else {
-                l.error(x.Name.Pos(), "`%v` nil delegation object (from %v)", name, l.scope.comment)
+                l.error(x.Name.Pos(), "delegate nil object `%v` (from %v)", name, l.scope.comment)
         }
         return
 }
@@ -889,6 +889,20 @@ func (l *loader) exprSelection(x *ast.SelectionExpr) (v Value) {
                         } else {
                                 obj = o
                         }
+                }
+        case *Barecomp: // for cases like '.foo'
+                if o, err := l.resolve(t); err != nil {
+                        l.error(x.Lhs.Pos(), "selection expression `%v`: %v", obj, err)
+                        return
+                } else if o == nil {
+                        if x.Tok == token.SELECT_PROG2 {
+                                v = &Nil{trivial{pos}} // ignore
+                        } else {
+                                l.error(x.Lhs.Pos(), "`%v` is undefined", obj)
+                        }
+                        return
+                } else {
+                        obj = o
                 }
         }
 
@@ -1229,7 +1243,7 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
                 if l.isIncludingConf {
                         v = &Nil{trivial{Position(l.parser.file.Position(expr.Pos()))}}
                 } else {
-                        l.error(expr.Pos(), "nil expr: %v (%s)", expr, typeof(expr))
+                        l.error(expr.Pos(), "nil expr: `%v` (%s)", expr, typeof(expr))
                 }
         }
         return
@@ -1679,8 +1693,8 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
         return
 }
 
-func (l *loader) loadDotDock(ident *ast.Bareword, file *File) (err error) {
-        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotDock")) }
+func (l *loader) loadDotContainer(ident *ast.Bareword, file *File) (err error) {
+        if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotContainer")) }
         if err = l.loadDir(dotContainer, file.fullname(), nil); err != nil {
                 l.error(ident.Pos(), "%s: errors occured while loading: %v", file.fullname(), dotContainer)
         } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
@@ -1734,7 +1748,6 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         }
 
         var (
-                //pos = Position(l.parser.file.Position(l.parser.pos))
                 pos = Position(l.parser.file.Position(ident.Pos()))
                 name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
@@ -1878,17 +1891,14 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
 
         // Looking for project specific dotContainer module
         file := stat(pos, dotContainer, "", l.project.absPath)
-        if exists(file) {
-                err = l.loadDotDock(ident, file)
-                return
-        }
+        if exists(file) { err = l.loadDotContainer(ident, file); return }
 
         // Looking for .smart/.container
         walkSmartBaseDirs(l.project.absPath, func(s string) bool {
                 file := stat(pos, dotContainer, "", filepath.Join(s, ".smart"))
                 if !exists(file) {
                         // no docking enabled
-                } else if err = l.loadDotDock(ident, file); err != nil {
+                } else if err = l.loadDotContainer(ident, file); err != nil {
                         // FIXME: error...
                 }
                 return false
@@ -2397,6 +2407,7 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
 
         // Check already loaded project.
         if loaded, valid := l.loaded[absDir]; valid {
+                //fmt.Fprintf(stderr, "%s: %v %s\n", l.project, loaded, absDir)
                 _, a := l.project.scope.ProjectName(l.project, loaded.Name(), loaded)
                 if a != nil { if v, ok := a.(*ProjectName); !ok || v == nil {
                         err = fmt.Errorf("`%s' name already taken (%T).", loaded.Name(), a)
@@ -2415,8 +2426,10 @@ func (l *loader) loadDir(specName, absDir string, filter func(os.FileInfo) bool)
         if err == nil && mods == nil && filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` invalid project", specName)
         }
-        if _, valid := l.loaded[absDir]; valid {
+        if loaded, valid := l.loaded[absDir]; valid && loaded != nil {
                 // Good!
+                //a := l.project.scope.Lookup(loaded.Name())
+                //fmt.Fprintf(stderr, "%s: %v %s\n", l.project, loaded, a)
         } else if filepath.Base(specName) != "@" {
                 err = fmt.Errorf("`%s` not loaded (%s)", specName, absDir)
         }
