@@ -44,7 +44,7 @@ const (
         composingNoPair = composingSELECT_PROP | composingDOT | composingPATH | composingPERC
         composingNoURL = composingSELECT_PROP | composingURL | composingDOT | composingPATH | composingGLOB | composingPERC | composingREXP /*| parsingColonName*/ | parsingSpecialRule
         composingNoPath = composingSELECT_PROP | composingURL | composingDOT | composingPATH | composingGLOB | composingPERC | composingREXP
-        composingNoSelect = composingSELECT_PROP
+        composingNoSelect = composingSELECT_PROP | composingDOT
         composingNoGlob = composingGLOB | composingPERC | composingREXP
         composingNoPerc = composingGLOB | composingPERC | composingREXP
         composingNoRexp = composingGLOB | composingPERC | composingREXP
@@ -535,7 +535,12 @@ func (p *parser) isEndOfURL(lhs bool) bool {
 
 func (p *parser) isEndOfDotConcat(lhs bool) bool {
         // Expressions like `FOO.BAR(xxx)` does not count.
-        return p.tok == token.LPAREN || p.tok == token.COLON || p.tok == token.PCON || p.isEndOfLine() || p.isEndOfList(lhs)
+        switch p.tok {
+        case token.LPAREN, token.COLON, token.PCON: fallthrough
+        case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2:
+                return true
+        }
+        return p.isEndOfLine() || p.isEndOfList(lhs)
 }
 
 func (p *parser) parseDependList() (list []ast.Expr) {
@@ -831,7 +836,7 @@ func (p *parser) parseCompoundLit(lhs bool) ast.Expr {
         }
 }
 
-// Parses dot or dot-dot barecomp expressions and check against files.
+// Parses dot composing expressions (TODO: check against file extensions).
 //   .foo
 //   .'foo'
 //   ."foo"
@@ -861,7 +866,7 @@ func (p *parser) parseDotExpr(lhs bool, x ast.Expr) (res ast.Expr) {
                 comp.Combine(x)
 
                 if p.tok == token.DOT && comp.End() == p.pos {
-                        dot := &ast.Bareword{p.pos, p.tok.String()}
+                        var dot = &ast.Bareword{p.pos, p.tok.String()}
                         comp.Elems = append(comp.Elems, dot)
                         p.next() // '.'
                 }
@@ -1172,7 +1177,7 @@ func (p *parser) parseSpecialClosureDelegate(lhs bool) ast.Expr {
 }
 
 func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
-	if false && p.tracing.enabled { defer un(trace(p, "Unary")) }
+	if p.tracing.enabled { defer un(trace(p, "Unary")) }
 
         switch p.tok {
         case token.BAREWORD, token.AT:

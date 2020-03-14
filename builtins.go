@@ -320,7 +320,9 @@ func typeof(arg interface{}) (s string) {
         default:
                 // FIXME: this should be an exception (panic).
                 s = fmt.Sprintf("%T", a) //s = a.Type().String()
-                s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), "smart.")
+                s = strings.TrimPrefix(s, "*")
+                s = strings.TrimPrefix(s, "smart.")
+                s = strings.TrimPrefix(s, "ast.")
         }
         return
 }

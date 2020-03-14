@@ -278,9 +278,7 @@ func (p *Project) Name() string { return p.name }
 func (p *Project) Scope() *Scope { return p.scope }
 func (p *Project) Bases() []*Project { return p.bases }
 func (p *Project) Chain(bases ...*Project) {
-        for _, base := range bases {
-                p.bases = append(p.bases, base)
-        }
+        for _, base := range bases { p.bases = append(p.bases, base) }
 }
 
 func (p *Project) mapfile(pat Value, paths []Value) {

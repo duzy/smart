@@ -1159,7 +1159,7 @@ func (l *loader) exprIncludeRuleClause(x *ast.IncludeRuleClause) (v Value) {
 
 func (l *loader) expr(expr ast.Expr) (v Value) {
         if expr == nil {
-                v = &None{}
+                v = &None{trivial{Position(l.parser.file.Position(l.pos))}}
                 return
         }
 
@@ -1227,18 +1227,16 @@ func (l *loader) expr(expr ast.Expr) (v Value) {
 
         if v == nil {
                 if l.isIncludingConf {
-                        v = new(Nil)
+                        v = &Nil{trivial{Position(l.parser.file.Position(expr.Pos()))}}
                 } else {
-                        l.error(expr.Pos(), "expr: `%v` is nil (%T)", expr, expr)
+                        l.error(expr.Pos(), "nil expr: %v (%s)", expr, typeof(expr))
                 }
         }
         return
 }
 
 func (l *loader) exprs(exprs []ast.Expr) (values []Value) {
-        for _, x := range exprs {
-                values = append(values, l.expr(x))
-        }
+        for _, x := range exprs { values = append(values, l.expr(x)) }
         return
 }
 
@@ -1684,7 +1682,7 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 func (l *loader) loadDotDock(ident *ast.Bareword, file *File) (err error) {
         if optionTraceLaunch { defer un(trace(t_launch, "loader.loadDotDock")) }
         if err = l.loadDir(dotContainer, file.fullname(), nil); err != nil {
-                l.error(ident.Pos(), "dock: %v", err)
+                l.error(ident.Pos(), "%s: errors occured while loading: %v", file.fullname(), dotContainer)
         } else if loaded, yes := l.loaded[file.fullname()]; yes && loaded != nil {
                 name, _ := l.project.scope.Lookup(loaded.Name()).(*ProjectName)
                 if name == nil {
