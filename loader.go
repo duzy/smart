@@ -1658,8 +1658,12 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
 
         ParamsLoop: for _, elem := range params {
                 var args []Value
-                if arged, ok := elem.(*Argumented); ok {
-                        elem, args = arged.value, arged.args
+                if list, ok := elem.(*List); ok && len(list.Elems) == 1 { elem = list.Elems[0] }
+                if a, ok := elem.(*Argumented); ok { elem, args = a.value, a.args }
+                if p, ok := elem.(*Pair); ok {
+                        def := l.determine(l.pos, token.ASSIGN, p.Key, p.Value)
+                        if def == nil {/* FIXME: ... */}
+                        continue ParamsLoop
                 }
 
                 if specName, err = elem.Strval(); err != nil { return }
@@ -1752,7 +1756,6 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 name = ident.Value
                 linfo = l.loads[len(l.loads)-1]
                 dec, declared = linfo.declares[name]
-                isMainProj bool
         )
         if !declared {
                 var (
@@ -1770,10 +1773,6 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                 // Avoid nesting project scopes!
                 for strings.HasPrefix(outer.Comment(), "project \"") {
                         outer = outer.outer
-                }
-
-                if l.globe.main == nil && l.project == nil && name != "~" {
-                        isMainProj = true
                 }
 
                 dec = new(declare)
@@ -1814,19 +1813,18 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
         l.useesExecuted = nil
         l.project = dec.project
         l.scope = l.project.scope
-        if isMainProj {
+        if l.globe.main != nil && l.globe.main == l.project && l.project.name != "~" {
                 for _, t := range context.pairs {
                         switch k := t.Key.(type) {
-                        case *Bareword:
-                                if proj := l.project; proj != nil {
-                                        def, alt := l.def(l.pos, k.string)
-                                        if def == nil && alt != nil {
-                                                def = alt.(*Def)
-                                        }
-                                        def.set(DefDecl, t.Value)
-                                }
+                        case *Bareword, *Barecomp:
+                                var name string
+                                if name, err = k.Strval(); err != nil { err = wrap(pos, err); return }
+                                var def, alt = l.def(l.pos, name)
+                                if def == nil && alt != nil { def = alt.(*Def) }
+                                def.set(DefDecl, t.Value)
                         default:
-                                fmt.Fprintf(stderr, "unknown target `%v` (%v)\n", t, l.project)
+                                err = errorf(pos, "`%v` unknown target from command line (%v)\n", t, l.project)
+                                return
                         }
                 }
         }

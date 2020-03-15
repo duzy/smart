@@ -701,12 +701,6 @@ func (p *executor) Evaluate(pos Position, t *traversal, args ...Value) (result V
 
                 aa = append(aa, "exec", containerName, cmd)
                 cmd = "docker"
-
-                if false {
-                        if err = p.ensureContainerRunning(t, container, containerName); err != nil {
-                                return
-                        }
-                }
         }
 
         var cwd string

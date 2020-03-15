@@ -536,7 +536,7 @@ func (p *parser) isEndOfURL(lhs bool) bool {
 func (p *parser) isEndOfDotConcat(lhs bool) bool {
         // Expressions like `FOO.BAR(xxx)` does not count.
         switch p.tok {
-        case token.LPAREN, token.COLON, token.PCON: fallthrough
+        case token.LPAREN, token.COLON, token.PCON, token.ASSIGN: fallthrough
         case token.SELECT_PROP, token.SELECT_PROG1, token.SELECT_PROG2:
                 return true
         }
@@ -1247,8 +1247,10 @@ func (p *parser) parseUnaryExpr(lhs bool) (x ast.Expr) {
                 }
         }
 
+        if optionPrintStack { debug.PrintStack() }
+        
         pos := p.pos
-        p.warn(pos, "'%v' bad unary expression (%v)\n", p.tok, p.lit)
+        p.warn(pos, "'%v' bad unary expression (lit=%v,lhs=%v)\n", p.tok, p.lit, lhs)
         p.errorExpected(pos, "unary expression")
         p.next() // go to next token
         return &ast.BadExpr{ From:pos, To:p.pos }
@@ -1302,6 +1304,10 @@ func (p *parser) parseComposedExpr(lhs bool) (x ast.Expr) {
                         x = p.parseURLExpr(lhs, x)
                 }
         }
+        /*if x.String() == "..." {
+                fmt.Fprintf(stderr, "composed: %v %v %v\n", x, p.tok, p.lit)
+                debug.PrintStack()
+        }*/
         return
 }
 
@@ -1315,7 +1321,7 @@ func (p *parser) parseExpr(lhs bool) (x ast.Expr) {
         } else if !lhs {
                 switch p.tok {
                 case token.ASSIGN: // Example: '*.o = obj'
-                        if !lhs && p.bits&composingNoPair == 0 {
+                        if p.bits&composingNoPair == 0 {
                                 x = p.parseKeyValueExpr(x)
                         }
                 case token.SELECT_PROG1, token.SELECT_PROG2:
