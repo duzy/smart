@@ -1426,7 +1426,7 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
 }
 
 type copyopts struct {
-        path bool
+        path, update bool
         mode os.FileMode
         head Value
         foot Value
@@ -1448,6 +1448,15 @@ func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
 
         dstFile, err = os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode)
         if err != nil { srcFile.Close(); return }
+
+        // Compare mod time for update mode
+        if opts.update {
+                var st1, st2 os.FileInfo
+                if st1, err = srcFile.Stat(); err != nil { err = wrap(pos, err); return }
+                if st2, err = dstFile.Stat(); err != nil { err = wrap(pos, err); return }
+                if st1 != nil && st2 != nil && st2.ModTime().After(st1.ModTime()) { return }
+                if false { fmt.Fprintf(stderr, "%s: %s\n", pos, dst) }
+        }
 
         srcBuf := bufio.NewReader(srcFile)
         dstBuf := bufio.NewWriter(dstFile)
@@ -1518,7 +1527,7 @@ func copyFile(pos Position, srcFi os.FileInfo, src, dst string, opts *copyopts) 
         return
 }
 
-// (copy-file -vp)
+// (copy-file -p)
 // (copy-file -p,filename)
 // (copy-file -p,filename,source)
 func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, err error) {
@@ -1528,6 +1537,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 optVerbose bool
                 optSilent bool
                 optOverride bool
+                optUpdate bool
                 optMode os.FileMode
                 optHead Value
                 optFoot Value
@@ -1540,6 +1550,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 "s,silent", // optSilent
                 "s,silent-existed", // optSilent
                 "o,override",
+                "u,update",
                 "m,mode",
                 "h,head", // insert header content
                 "f,foot", // insert footer content
@@ -1550,6 +1561,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 case 'v': if optVerbose  , err = trueVal(v, true); err != nil { return }
                 case 's': if optSilent   , err = trueVal(v, true); err != nil { return }
                 case 'o': if optOverride , err = trueVal(v, true); err != nil { return }
+                case 'u': if optUpdate   , err = trueVal(v, true); err != nil { return }
                 case 'm': if optMode     , err = permVal(v, 0600); err != nil { return }
                 case 'h': if !(isNil(v) || isNone(v)) { optHead = v }
                 case 'f': if !(isNil(v) || isNone(v)) { optFoot = v }
@@ -1612,9 +1624,7 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                         } else {
                                 source = file
                         }
-                        if file.info != nil {
-                                srctime = file.info.ModTime()
-                        }
+                        if file.info != nil { srctime = file.info.ModTime() }
                 }
         }
 
@@ -1638,20 +1648,16 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                         return
                 }
         } else if optVerbose { fmt.Fprintf(stderr, "smart: Copying %v …", target) }
-        
-        var copyOpts = &copyopts{ optPath, optMode, optHead, optFoot }
-        var fi os.FileInfo
-        if fi, err = os.Stat(srcname); err != nil {
-                err = wrap(pos, err)
-        } else if !fi.IsDir() {
-                if optMode == 0 { optMode = fi.Mode() }
-                if err = copyFile(pos, fi, srcname, filename, copyOpts); err != nil {
-                        err = wrap(pos, err)
-                }
+
+        var copyOpts = &copyopts{ optPath||optRecursive, optUpdate, optMode, optHead, optFoot }
+        var file *File
+        if file = stat(pos,srcname,"","",nil); file == nil || file.info == nil {
+                err = errorf(pos, "'%s' source file not found", srcname)
+        } else if !file.info.IsDir() {
+                if optMode == 0 { optMode = file.info.Mode() }
+                if err = copyFile(pos, file.info, srcname, filename, copyOpts); err != nil { err = wrap(pos, err) }
         } else if optRecursive {
-                if err = copyDir(pos, srcname, filename, copyOpts); err != nil {
-                        err = wrap(pos, err)
-                }
+                if err = copyDir(pos, srcname, filename, copyOpts); err != nil { err = wrap(pos, err) }
         } else {
                 err = errorf(pos, "`%v` is a directory (use -r to solve it)", source)
         }
