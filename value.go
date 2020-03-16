@@ -427,6 +427,7 @@ func (t *traversal) target(pos Position, target string) (err error) {
                 if obj, err = project.resolveObject(target); err != nil { err = wrap(pos, err); return } else
                 if obj != nil {
                         if okay, err = obj.tryTraverse(t); err != nil { err = wrap(pos, err); return } else
+                        if!okay { _, okay = obj.(*ProjectName) }
                         if okay { return }
                 }
 
