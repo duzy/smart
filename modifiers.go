@@ -1430,60 +1430,72 @@ type copyopts struct {
         mode os.FileMode
         head Value
         foot Value
+        files, copied int
+        bytes int64
 }
 
 func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
+        // Compare mod time for update mode
+        if opts.files += 1; opts.update {
+                var st1, st2 os.FileInfo
+                if st1, err = os.Stat(src); err != nil { err = wrap(pos, err); return }
+                if st2, err = os.Stat(dst); err != nil { err = wrap(pos, err); return }
+                if st1 != nil && st2 != nil && st1.Size() <= st2.Size() {
+                        if st2.ModTime().After(st1.ModTime()) { return }
+                }
+                if false { fmt.Fprintf(stderr, "%s: %s (%v,%v)\n", pos, dst, st1.Size(), st2.Size()) }
+        }
+
         var srcFile, dstFile *os.File
-        if srcFile, err = os.Open(src); err != nil { return }
+        if srcFile, err = os.Open(src); err != nil { err = wrap(pos, err); return } else {
+                defer srcFile.Close()
+        }
 
         // sys default file mode is 0666
         if opts.path { // Make path (mkdir -p)
                 if p := filepath.Dir(dst); p != "." && p != "/" {
                         err = os.MkdirAll(p, os.FileMode(0755))
-                        if err != nil { return }
+                        if err != nil { err = wrap(pos, err); return }
                 }
         }
 
         if opts.mode == 0 { opts.mode = os.FileMode(0640) }
 
         dstFile, err = os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode)
-        if err != nil { srcFile.Close(); return }
+        if err != nil { err = wrap(pos, err); return } else { defer dstFile.Close() }
 
-        // Compare mod time for update mode
-        if opts.update {
-                var st1, st2 os.FileInfo
-                if st1, err = srcFile.Stat(); err != nil { err = wrap(pos, err); return }
-                if st2, err = dstFile.Stat(); err != nil { err = wrap(pos, err); return }
-                if st1 != nil && st2 != nil && st2.ModTime().After(st1.ModTime()) { return }
-                if false { fmt.Fprintf(stderr, "%s: %s\n", pos, dst) }
-        }
+        defer func() { if err == nil {
+                var file = stat(pos, dst, "", "")
+                context.globe.stamp(dst, file.info.ModTime())
+        }} ()
 
         srcBuf := bufio.NewReader(srcFile)
         dstBuf := bufio.NewWriter(dstFile)
-        defer func() {
-                dstFile.Close()
-                srcFile.Close()
-                
-                var file = stat(pos, dst, "", "")
-                context.globe.stamp(dst, file.info.ModTime())
-        } ()
-
         if opts.head != nil {
                 var s string
-                if s, err = opts.head.Strval(); err != nil { return }
-                if s != "" {
-                        dstBuf.WriteString(s)
+                if s, err = opts.head.Strval(); err != nil { err = wrap(pos, err); return }
+                if s != "" { 
+                        var n int
+                        if n, err = dstBuf.WriteString(s); err != nil { err = wrap(pos, err); return }
+                        opts.bytes += int64(n)
                 }
         }
-        if _, err = io.Copy(dstBuf, srcBuf); err == nil {
-                if opts.foot != nil {
+
+        var n int64
+        if n, err = io.Copy(dstBuf, srcBuf); err != nil { err = wrap(pos, err); } else {
+                if opts.bytes += n; opts.foot != nil {
                         var s string
                         s, err = opts.foot.Strval()
                         if err == nil && s != "" {
-                                dstBuf.WriteString(s)
+                                var n int
+                                if n, err = dstBuf.WriteString(s); err != nil { err = wrap(pos, err); return }
+                                opts.bytes += int64(n)
                         }
                 }
-                dstBuf.Flush() // flush content
+                if err == nil {
+                        dstBuf.Flush() // flush content
+                        opts.copied += 1
+                }
         }
         return
 }
@@ -1643,13 +1655,13 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 if optOverride {
                         if optVerbose { fmt.Fprintf(stderr, "smart: Override %v …", target) }
                 } else {
-                        if optVerbose { fmt.Fprintf(stderr, "smart: Copying %v …… already existed!\n", target) }
+                        if optVerbose { fmt.Fprintf(stderr, "smart: Copy %v …… already existed!\n", target) }
                         if !optSilent { err = errorf(pos, "file already existed (%s)", target) }
                         return
                 }
-        } else if optVerbose { fmt.Fprintf(stderr, "smart: Copying %v …", target) }
+        } else if optVerbose { fmt.Fprintf(stderr, "smart: Copy %v …", target) }
 
-        var copyOpts = &copyopts{ optPath||optRecursive, optUpdate, optMode, optHead, optFoot }
+        var copyOpts = &copyopts{ optPath||optRecursive, optUpdate, optMode, optHead, optFoot, 0, 0, 0 }
         var file *File
         if file = stat(pos,srcname,"","",nil); file == nil || file.info == nil {
                 err = errorf(pos, "'%s' source file not found", srcname)
@@ -1665,8 +1677,12 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         if optVerbose {
                 if err != nil {
                         fmt.Fprintf(stderr, "… error\n")
+                } else if copyOpts.copied == 0 {
+                        fmt.Fprintf(stderr, "… ok (files %d/%d)\n", copyOpts.copied, copyOpts.files)
+                } else if copyOpts.copied == 1 {
+                        fmt.Fprintf(stderr, "… wrote %d bytes\n", copyOpts.bytes)
                 } else {
-                        fmt.Fprintf(stderr, "… ok\n")
+                        fmt.Fprintf(stderr, "… wrote %d bytes (copied %d/%d)\n", copyOpts.bytes, copyOpts.copied, copyOpts.files)
                 }
         }
         return
