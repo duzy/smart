@@ -1661,7 +1661,12 @@ func (l *loader) loadBases(linfo *loadinfo, params []Value) (err error) {
                 if list, ok := elem.(*List); ok && len(list.Elems) == 1 { elem = list.Elems[0] }
                 if a, ok := elem.(*Argumented); ok { elem, args = a.value, a.args }
                 if p, ok := elem.(*Pair); ok {
-                        def := l.determine(l.pos, token.ASSIGN, p.Key, p.Value)
+                        var identifier = p.Key
+                        var pos = identifier.Position()
+                        var name string
+                        if name, err = p.Key.Strval(); err != nil { err = wrap(pos, err); return }
+                        if len(name) > 0 && name[0] == '.' { identifier = MakeBarecomp(pos, &Bareword{trivial{pos},"project"}, p.Key) }
+                        def := l.determine(l.pos, token.ASSIGN, identifier, p.Value)
                         if def == nil {/* FIXME: ... */}
                         continue ParamsLoop
                 }
@@ -1819,6 +1824,7 @@ func (l *loader) declare(keyword token.Token, ident *ast.Bareword, options, para
                         case *Bareword, *Barecomp:
                                 var name string
                                 if name, err = k.Strval(); err != nil { err = wrap(pos, err); return }
+                                //if name[0] == '.' { name = "project" + name }
                                 var def, alt = l.def(l.pos, name)
                                 if def == nil && alt != nil { def = alt.(*Def) }
                                 def.set(DefDecl, t.Value)
