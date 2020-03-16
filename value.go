@@ -360,7 +360,7 @@ func (t *traversal) file(file *File) (err error) {
                 var entry *RuleEntry
                 if entry, err = project.resolveEntry(file.name); err != nil { err = wrap(file.position, err); return }
                 if entry != nil {
-                        if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v\n", t.project, entry.position, entry, file.name, t.def.target.value) }
+                        if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v\n", project, entry.position, entry, file.name, t.def.target.value) }
                         if okay, err = entry.tryTraverse(t); okay { return } else
                         if err != nil { err = wrap(file.position, err); return }
                 }
@@ -412,7 +412,7 @@ func (t *traversal) file(file *File) (err error) {
         return
 }
 
-func (t *traversal) target(pos Position, target string) (err error) {
+func (t *traversal) target(pos Position, target string, vals ...Value) (err error) {
         if optionEnableBenchmarks { defer bench(mark(fmt.Sprintf("traversal.target(%v)", target))) }
         if optionEnableBenchspots { defer bench(spot("traversal.target")) }
 
@@ -421,7 +421,11 @@ func (t *traversal) target(pos Position, target string) (err error) {
         for _, project := range projects {
                 var entry *RuleEntry
                 if entry, err = project.resolveEntry(target); err != nil { err = wrap(pos, err); return }
-                if entry != nil { if err = entry.traverse(t); err != nil { err = wrap(pos, err); }; return }
+                if entry != nil {
+                        if okay, err = entry.tryTraverse(t); err != nil { err = wrap(pos, err); return }
+                        if false { fmt.Fprintf(stderr, "%s: %s: %v, %v, %v (okay=%v)\n", project, entry.position, entry, target, t.def.target.value, okay) }
+                        if okay { return }
+                }
 
                 var obj Object
                 if obj, err = project.resolveObject(target); err != nil { err = wrap(pos, err); return } else
@@ -475,6 +479,8 @@ func (t *traversal) target(pos Position, target string) (err error) {
                         } else if file != nil { okay = file.searchInMatchedPaths(project) }
                         if!okay { err = wrap(pos, fileNotFoundError{project, file}) }
                         return
+                } else if vals != nil {
+                        fmt.Fprintf(stderr, "%s: %s: %v %v\n", project, pos, target, vals)
                 }
         }
 
@@ -1880,8 +1886,8 @@ func (p *Path) stamp(t *traversal) (files []*File, err error) {
 }
 func (p *Path) exists() existence {
         if pathname, err := p.Strval(); err == nil {
-                if file := stat(p.position, pathname,"","",nil); file != nil {
-                        return existenceConfirmed
+                if file := stat(p.position,pathname,"","",nil); file != nil {
+                        return file.exists()
                 }
         }
         return existenceNegated
@@ -1898,7 +1904,7 @@ func (p *Path) traverse(t *traversal) (err error) {
         // Stat the file by pathname.
         var file = stat(p.position, pathname, "", ""/*, nil*/)
         if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (pathname=%s)", file, file.exists(), pathname) }
-        if file == nil { err = t.target(p.position,pathname) } else { err = file.traverse(t) }
+        if file == nil { err = t.target(p.position,pathname,p) } else { err = file.traverse(t) }
         if err != nil { err = wrap(p.position, err) }
         if optionTraceTraversal { t.tracef("Path: file=%v (exists=%v) (pathname=%s)", file, file.exists(), pathname) }
         return

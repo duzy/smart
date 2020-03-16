@@ -2148,9 +2148,10 @@ func modifierDirty(pos Position, t *traversal, args... Value) (result Value, err
         }
 
         if optDebug {
+                var e = exists(t.def.target.value)
                 var a = typeof(t.def.target.value)
                 var s, _ = t.def.target.value.Strval()
-                fmt.Fprintf(stderr, "%s: %s %s (dirty=%v, updated=%v)\n", pos, a, s, dirty, t.updated)
+                fmt.Fprintf(stderr, "%s: %s %s (exists=%v, dirty=%v, updated=%v)\n", pos, a, s, e, dirty, t.updated)
         }
 
         if optVerbose {
