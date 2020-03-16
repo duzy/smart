@@ -1437,13 +1437,14 @@ type copyopts struct {
 func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
         // Compare mod time for update mode
         if opts.files += 1; opts.update {
-                var st1, st2 os.FileInfo
-                if st1, err = os.Stat(src); err != nil { err = wrap(pos, err); return }
-                if st2, err = os.Stat(dst); err != nil { err = wrap(pos, err); return }
-                if st1 != nil && st2 != nil && st1.Size() <= st2.Size() {
-                        if st2.ModTime().After(st1.ModTime()) { return }
+                if st2, e := os.Stat(dst); e == nil && st2 != nil {
+                        var st1 os.FileInfo
+                        if st1, err = os.Stat(src); err != nil { err = wrap(pos, err); return }
+                        if st1 != nil && st1.Size() <= st2.Size() {
+                                if st2.ModTime().After(st1.ModTime()) { return }
+                        }
+                        if false { fmt.Fprintf(stderr, "%s: %s (%v,%v)\n", pos, dst, st1.Size(), st2.Size()) }
                 }
-                if false { fmt.Fprintf(stderr, "%s: %s (%v,%v)\n", pos, dst, st1.Size(), st2.Size()) }
         }
 
         var srcFile, dstFile *os.File
@@ -1461,7 +1462,7 @@ func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
 
         if opts.mode == 0 { opts.mode = os.FileMode(0640) }
 
-        dstFile, err = os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts.mode)
+        dstFile, err = os.OpenFile(dst, os.O_CREATE|os.O_RDWR|os.O_TRUNC, opts.mode)
         if err != nil { err = wrap(pos, err); return } else { defer dstFile.Close() }
 
         defer func() { if err == nil {
@@ -1661,15 +1662,15 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 }
         } else if optVerbose { fmt.Fprintf(stderr, "smart: Copy %v …", target) }
 
-        var copyOpts = &copyopts{ optPath||optRecursive, optUpdate, optMode, optHead, optFoot, 0, 0, 0 }
+        var opts = &copyopts{ optPath||optRecursive, optUpdate, optMode, optHead, optFoot, 0, 0, 0 }
         var file *File
         if file = stat(pos,srcname,"","",nil); file == nil || file.info == nil {
                 err = errorf(pos, "'%s' source file not found", srcname)
         } else if !file.info.IsDir() {
                 if optMode == 0 { optMode = file.info.Mode() }
-                if err = copyFile(pos, file.info, srcname, filename, copyOpts); err != nil { err = wrap(pos, err) }
+                if err = copyFile(pos, file.info, srcname, filename, opts); err != nil { err = wrap(pos, err) }
         } else if optRecursive {
-                if err = copyDir(pos, srcname, filename, copyOpts); err != nil { err = wrap(pos, err) }
+                if err = copyDir(pos, srcname, filename, opts); err != nil { err = wrap(pos, err) }
         } else {
                 err = errorf(pos, "`%v` is a directory (use -r to solve it)", source)
         }
@@ -1677,12 +1678,12 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
         if optVerbose {
                 if err != nil {
                         fmt.Fprintf(stderr, "… error\n")
-                } else if copyOpts.copied == 0 {
-                        fmt.Fprintf(stderr, "… ok (files %d/%d)\n", copyOpts.copied, copyOpts.files)
-                } else if copyOpts.copied == 1 {
-                        fmt.Fprintf(stderr, "… wrote %d bytes\n", copyOpts.bytes)
+                } else if opts.copied == 0 {
+                        fmt.Fprintf(stderr, "… ok (%d files)\n", opts.files)
+                } else if opts.copied == 1 {
+                        fmt.Fprintf(stderr, "… %d bytes\n", opts.bytes)
                 } else {
-                        fmt.Fprintf(stderr, "… wrote %d bytes (copied %d/%d)\n", copyOpts.bytes, copyOpts.copied, copyOpts.files)
+                        fmt.Fprintf(stderr, "… %d bytes (copied %d/%d)\n", opts.bytes, opts.copied, opts.files)
                 }
         }
         return
