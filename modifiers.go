@@ -1436,12 +1436,39 @@ type copyopts struct {
 }
 
 func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
+        var def1, def2 *Def
+        if true {
+                def1 = opts.program.scope.Lookup("1").(*Def)
+                def2 = opts.program.scope.Lookup("2").(*Def)
+        } else {
+                def1 = context.globe.scope.Lookup("1").(*Def)
+                def2 = context.globe.scope.Lookup("2").(*Def)
+        }
+        defer func(v1, v2 Value) { def1.value, def2.value = v1, v2
+                if err == nil {
+                        var file = stat(pos, dst, "", "")
+                        context.globe.stamp(dst, file.info.ModTime())
+                }
+        } (def1.value, def2.value)
+        def1.value = &String{trivial{pos},dst}
+        def2.value = &String{trivial{pos},src}
+
+        var head, foot string
+        if opts.head != nil {
+                if head, err = opts.head.Strval(); err != nil { err = wrap(pos, err); return }
+                if false { fmt.Fprintf(stderr, "%s: %v => %s\n", opts.head.Position(), opts.head, head) }
+        }
+        if opts.foot != nil {
+                if foot, err = opts.foot.Strval(); err != nil { err = wrap(pos, err); return }
+                if false { fmt.Fprintf(stderr, "%s: %v => %s\n", opts.foot.Position(), opts.foot, foot) }
+        }
+
         // Compare mod time for update mode
         if opts.files += 1; opts.update {
                 if st2, e := os.Stat(dst); e == nil && st2 != nil {
                         var st1 os.FileInfo
                         if st1, err = os.Stat(src); err != nil { err = wrap(pos, err); return }
-                        if st1 != nil && st1.Size() <= st2.Size() {
+                        if st1 != nil && (st1.Size()+int64(len(head))+int64(len(foot))) == st2.Size() {
                                 if st2.ModTime().After(st1.ModTime()) { return }
                         }
                         if false { fmt.Fprintf(stderr, "%s: %s (%v,%v)\n", pos, dst, st1.Size(), st2.Size()) }
@@ -1466,46 +1493,20 @@ func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
         dstFile, err = os.OpenFile(dst, os.O_CREATE|os.O_RDWR|os.O_TRUNC, opts.mode)
         if err != nil { err = wrap(pos, err); return } else { defer dstFile.Close() }
 
-        var def1, def2 *Def
-        if true {
-                def1 = opts.program.scope.Lookup("1").(*Def)
-                def2 = opts.program.scope.Lookup("2").(*Def)
-        } else {
-                def1 = context.globe.scope.Lookup("1").(*Def)
-                def2 = context.globe.scope.Lookup("2").(*Def)
-        }
-        defer func(v1, v2 Value) { def1.value, def2.value = v1, v2
-                if err == nil {
-                        var file = stat(pos, dst, "", "")
-                        context.globe.stamp(dst, file.info.ModTime())
-                }
-        } (def1.value, def2.value)
-        def1.value = &String{trivial{pos},dst}
-        def2.value = &String{trivial{pos},src}
-
         srcBuf := bufio.NewReader(srcFile)
         dstBuf := bufio.NewWriter(dstFile)
-        if opts.head != nil {
-                var s string
-                if s, err = opts.head.Strval(); err != nil { err = wrap(pos, err); return }
-                if false { fmt.Fprintf(stderr, "%s: %v => %s\n", opts.head.Position(), opts.head, s) }
-                if s != "" { 
-                        var n int
-                        if n, err = dstBuf.WriteString(s); err != nil { err = wrap(pos, err); return }
-                        opts.bytes += int64(n)
-                }
+        if head != "" {
+                var n int
+                if n, err = dstBuf.WriteString(head); err != nil { err = wrap(pos, err); return }
+                opts.bytes += int64(n)
         }
 
         var n int64
         if n, err = io.Copy(dstBuf, srcBuf); err != nil { err = wrap(pos, err); } else {
-                if opts.bytes += n; opts.foot != nil {
-                        var s string
-                        s, err = opts.foot.Strval()
-                        if err == nil && s != "" {
-                                var n int
-                                if n, err = dstBuf.WriteString(s); err != nil { err = wrap(pos, err); return }
-                                opts.bytes += int64(n)
-                        }
+                if opts.bytes += n; foot != "" {
+                        var n int
+                        if n, err = dstBuf.WriteString(foot); err != nil { err = wrap(pos, err); return }
+                        opts.bytes += int64(n)
                 }
                 if err == nil {
                         dstBuf.Flush() // flush content
