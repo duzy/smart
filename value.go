@@ -479,8 +479,8 @@ func (t *traversal) target(pos Position, target string, vals ...Value) (err erro
                         } else if file != nil { okay = file.searchInMatchedPaths(project) }
                         if!okay { err = wrap(pos, fileNotFoundError{project, file}) }
                         return
-                } else if vals != nil {
-                        fmt.Fprintf(stderr, "%s: %s: %v %v\n", project, pos, target, vals)
+                } else if vals != nil && false {
+                        fmt.Fprintf(stderr, "%s: %s: %v %v\n", project, vals[0].Position(), target, vals)
                 }
         }
 
@@ -2565,7 +2565,7 @@ func checkPatternDepend(t *traversal, project *Project, se *StemmedEntry, prog *
 func (p *File) mod(t *traversal) (res time.Time, err error) {
         if p.info == nil { p.info, /*err*/_ = os.Stat(p.fullname()) }
         if err != nil { err = wrap(p.position, err)
-                if optionPrintStack || true {
+                if optionPrintStack {
                         fmt.Fprintf(stderr, "%s: %v: %v (%v)\n", t.project, p.position, p, p.match)
                         debug.PrintStack()
                 }
@@ -2960,16 +2960,19 @@ type Pair struct { // key=value
 func (p *Pair) refs(v Value) bool { return p.Key.refs(v) || p.Value.refs(v) }
 func (p *Pair) closured() bool { return p.Key.closured() || p.Value.closured() }
 func (p *Pair) expand(x expandwhat) (res Value, err error) {
-        var k, v Value
+        var k Value
         res = p // set the original value
         if k, err = p.Key.expand(x); err == nil {
-                if v, err = p.Value.expand(x); err == nil {
+                /*if v, err = p.Value.expand(x); err == nil {
                         if k != p.Key || v != p.Value {
                                 if k == nil { k = p.Key }
                                 if v == nil { v = p.Value }
                                 res = &Pair{p.trivial,k,v}
                         }
-                }
+                }*/
+                // Note: donot expand the p.Value! It's used as template
+                // in arguments (see copy-file for example).
+                if k != nil && k != p.Key {res = &Pair{p.trivial,k,p.Value}}
         }
         return
 }

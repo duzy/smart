@@ -427,10 +427,12 @@ func (d *Def) Call(pos Position, a... Value) (res Value, err error) {
         if isNil(d.value) { return }
         switch d.origin {
         case DefDefault:
-                // TODO: parameterization, e.g. $1, $2, $3, $4, $5 (see foreach)
+                var ( defs []*Def; vals []Value )
+                defer func() { for i, d := range defs { d.value = vals[i] }} ()
                 for i := 0; i < len(a) && i < maxNumVarVal; i += 1 {
                         var def = context.globe.scope.Lookup(strconv.Itoa(i)).(*Def)
-                        defer func(v Value) { def.value = v } (def.value)
+                        vals = append(vals, def.value)
+                        defs = append(defs, def)
                         def.value = a[i]
                 }
                 res, err = d.value.expand(expandClosure|expandDelegate)

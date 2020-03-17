@@ -2532,18 +2532,14 @@ func builtinFile(pos Position, args... Value) (res Value, err error) {
                 if file, ok := a.(*File); ok {
                         list = append(list, file)
                         if exists(file) { continue }
-                        if optReportMissing {
-                                fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
-                        }
+                        if optReportMissing { fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a) }
                 } else if str, err = a.Strval(); err != nil {
                         //fmt.Fprintf(stderr, "%s: %v", pos, err)
                         err = wrap(pos, err)
                         return
                 } else if file = proj.matchFile(str); file != nil {
                         list = append(list, file)
-                        if optReportMissing {
-                                fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a)
-                        }
+                        if optReportMissing { fmt.Fprintf(stderr, "%s: `%v` no such file\n", pos, a) }
                 } else {
                         err = errorf(pos, "`%v` is not a file", a)
                 }

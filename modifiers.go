@@ -1426,6 +1426,7 @@ func modifierCheck(pos Position, t *traversal, args... Value) (result Value, err
 }
 
 type copyopts struct {
+        program *Program
         path, update bool
         mode os.FileMode
         head Value
@@ -1465,16 +1466,29 @@ func copyRegular(pos Position, src, dst string, opts *copyopts) (err error) {
         dstFile, err = os.OpenFile(dst, os.O_CREATE|os.O_RDWR|os.O_TRUNC, opts.mode)
         if err != nil { err = wrap(pos, err); return } else { defer dstFile.Close() }
 
-        defer func() { if err == nil {
-                var file = stat(pos, dst, "", "")
-                context.globe.stamp(dst, file.info.ModTime())
-        }} ()
+        var def1, def2 *Def
+        if true {
+                def1 = opts.program.scope.Lookup("1").(*Def)
+                def2 = opts.program.scope.Lookup("2").(*Def)
+        } else {
+                def1 = context.globe.scope.Lookup("1").(*Def)
+                def2 = context.globe.scope.Lookup("2").(*Def)
+        }
+        defer func(v1, v2 Value) { def1.value, def2.value = v1, v2
+                if err == nil {
+                        var file = stat(pos, dst, "", "")
+                        context.globe.stamp(dst, file.info.ModTime())
+                }
+        } (def1.value, def2.value)
+        def1.value = &String{trivial{pos},dst}
+        def2.value = &String{trivial{pos},src}
 
         srcBuf := bufio.NewReader(srcFile)
         dstBuf := bufio.NewWriter(dstFile)
         if opts.head != nil {
                 var s string
                 if s, err = opts.head.Strval(); err != nil { err = wrap(pos, err); return }
+                if false { fmt.Fprintf(stderr, "%s: %v => %s\n", opts.head.Position(), opts.head, s) }
                 if s != "" { 
                         var n int
                         if n, err = dstBuf.WriteString(s); err != nil { err = wrap(pos, err); return }
@@ -1662,7 +1676,11 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 }
         } else if optVerbose { fmt.Fprintf(stderr, "smart: Copy %v …", target) }
 
-        var opts = &copyopts{ optPath||optRecursive, optUpdate, optMode, optHead, optFoot, 0, 0, 0 }
+        var opts = &copyopts{
+                t.program, optPath||optRecursive,
+                optUpdate, optMode, optHead, optFoot,
+                0, 0, 0,
+        }
         var file *File
         if file = stat(pos,srcname,"","",nil); file == nil || file.info == nil {
                 err = errorf(pos, "'%s' source file not found", srcname)

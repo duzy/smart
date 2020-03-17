@@ -130,11 +130,13 @@ func (g *Globe) project(pos Position, outer *Scope, absPath, relPath, tmpPath, s
 
                 g.main = m
 
-                def, _ := g.scope.define(m, "_", &None{})
+                var none = &None{trivial{pos}}
+
+                def, _ := g.scope.define(m, "_", none)
                 if enable_assertions { assert(def != nil, "'$_' is nil") }
 
                 for i := 1; i <= maxNumVarVal; i += 1 {
-                        def, _ := g.scope.define(m, strconv.Itoa(i), &None{})
+                        def, _ := g.scope.define(m, strconv.Itoa(i), none)
                         if enable_assertions { assert(def != nil, "'$%d' is nil", i) }
                 }
         }
