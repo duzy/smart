@@ -1675,7 +1675,13 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                         if !optSilent { err = errorf(pos, "file already existed (%s)", target) }
                         return
                 }
-        } else if optVerbose { fmt.Fprintf(stderr, "smart: Copy %v …", target) }
+        } else if optVerbose {
+                if optUpdate {
+                        fmt.Fprintf(stderr, "smart: Checking %v …", target)
+                } else {
+                        fmt.Fprintf(stderr, "smart: Copy %v …", target)
+                }
+        }
 
         var opts = &copyopts{
                 t.program, optPath||optRecursive,
@@ -1698,11 +1704,11 @@ func modifierCopyFile(pos Position, t *traversal, args... Value) (result Value, 
                 if err != nil {
                         fmt.Fprintf(stderr, "… error\n")
                 } else if opts.copied == 0 {
-                        fmt.Fprintf(stderr, "… ok (%d files)\n", opts.files)
+                        fmt.Fprintf(stderr, "… good (%d files)\n", opts.files)
                 } else if opts.copied == 1 {
-                        fmt.Fprintf(stderr, "… %d bytes\n", opts.bytes)
+                        fmt.Fprintf(stderr, "… copied %d bytes\n", opts.bytes)
                 } else {
-                        fmt.Fprintf(stderr, "… %d bytes (copied %d/%d)\n", opts.bytes, opts.copied, opts.files)
+                        fmt.Fprintf(stderr, "… copied %d bytes (%d/%d)\n", opts.bytes, opts.copied, opts.files)
                 }
         }
         return
